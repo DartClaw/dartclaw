@@ -8,6 +8,7 @@ String channelSessionTitle(ChannelType channelType, String senderJid) => switch 
   ChannelType.googlechat => 'Google Chat › ${_googleChatId(senderJid)}',
   ChannelType.signal =>
     senderJid.startsWith('+') ? 'Signal › $senderJid' : 'Signal › ${senderJid.substring(0, min(8, senderJid.length))}',
+  ChannelType.slack => 'Slack › $senderJid',
   ChannelType.web => 'Web › $senderJid',
 };
 

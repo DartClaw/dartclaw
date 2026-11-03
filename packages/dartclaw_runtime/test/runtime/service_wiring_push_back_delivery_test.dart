@@ -5,10 +5,11 @@ import 'dart:isolate';
 import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' hide TurnManager, TurnRunner;
-import 'package:dartclaw_testing/dartclaw_testing.dart'
-    show FakeAgentHarness, InMemoryTaskRepository, openPreparedTaskBackend;
+import 'package:dartclaw_testing/dartclaw_testing.dart' show InMemoryTaskRepository, openPreparedTaskBackend;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
+
+import 'harness_wiring_fixture.dart' show TurnContextHarness;
 
 Future<String> _resolvePackageDir(String packageRelativeAnchor) async {
   final uri = await Isolate.resolvePackageUri(Uri.parse('package:dartclaw_runtime/$packageRelativeAnchor'));
@@ -23,7 +24,7 @@ void main() {
   late String templatesDirPath;
   late Directory tempDir;
   late Directory dataDir;
-  late FakeAgentHarness harness;
+  late TurnContextHarness harness;
 
   setUpAll(() async {
     staticDirPath = await _resolvePackageDir('src/static/app.js');
@@ -33,7 +34,7 @@ void main() {
   setUp(() {
     tempDir = Directory.systemTemp.createTempSync('dartclaw_push_back_delivery_');
     dataDir = Directory(p.join(tempDir.path, 'data'))..createSync(recursive: true);
-    harness = FakeAgentHarness();
+    harness = TurnContextHarness();
   });
 
   tearDown(() {
@@ -46,6 +47,7 @@ void main() {
       credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
       providers: ProvidersConfig(entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable)}),
       gateway: const GatewayConfig(authMode: 'none'),
+      governance: const GovernanceConfig(adminSenders: ['admin-sender']),
       // Left at its default: off. The delivery must not depend on it.
       channels: const ChannelConfig(
         channelConfigs: {
@@ -93,7 +95,7 @@ void main() {
       description: 'A task pushed back through the tool',
       configJson: const {
         'needsWorktree': false,
-        'origin': {'sessionKey': sessionKey},
+        'origin': {'sessionKey': sessionKey, 'channelType': 'whatsapp', 'recipientId': 'recipient-1'},
       },
     );
     await runtime.taskService.transition(task.id, TaskStatus.queued);
@@ -118,6 +120,58 @@ void main() {
     expect(harness.lastSessionId, session.id);
     expect(harness.turnCallCount, 1);
     expect(harness.lastMessages!.map((message) => message['content']), contains(contains('tighten the assertions')));
+    // The turn names its channel but no sender, so a shared-knowledge write called during it reaches the
+    // write gate as a channel turn and is refused, never as an unattributed bypass. It is delegated work, so run
+    // control refuses it too.
+    expect(
+      harness.activeTurnContext?.provenance,
+      TurnProvenance.channel(
+        channelType: ChannelType.whatsapp,
+        recipientId: 'recipient-1',
+        sessionKey: sessionKey,
+        delegated: true,
+      ),
+    );
+    final inTurn = runtime.server!.mcpHandler.forHarness(() => harness.activeTurnContext?.provenance);
+    final refused = jsonDecode(
+      (await inTurn.handleRequest(
+        jsonEncode({
+          'jsonrpc': '2.0',
+          'id': 2,
+          'method': 'tools/call',
+          'params': {
+            'name': 'kg_add',
+            'arguments': {
+              'entity': 'push back marker',
+              'predicate': 'status',
+              'value': 'must not persist',
+              'valid_from': '2026-10-06T00:00:00Z',
+              'source': 'push-back',
+            },
+          },
+        }),
+      ))!,
+    );
+    expect(jsonEncode(refused), contains('admin sender'));
+    final stored = jsonDecode(
+      (await runtime.server!.mcpHandler.handleRequest(
+        jsonEncode({
+          'jsonrpc': '2.0',
+          'id': 3,
+          'method': 'tools/call',
+          'params': {
+            'name': 'kg_query',
+            'arguments': {'entity': 'push back marker'},
+          },
+        }),
+      ))!,
+    );
+    expect(jsonEncode(stored), contains('no_result'));
+    final gateEntries = (await AuditLogReader(dataDir: dataDir.path).read(pageSize: 100)).entries
+        .where((entry) => entry.guard == 'KnowledgeWriteGate');
+    expect(gateEntries.single.decision, 'deny');
+    expect(gateEntries.single.channel, 'whatsapp');
+    expect(gateEntries.single.peerId, isNull);
     harness.completeSuccess();
 
     final response = jsonDecode((await call)!) as Map<String, dynamic>;

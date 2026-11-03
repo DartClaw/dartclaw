@@ -122,6 +122,7 @@ class ApiWorkflowConnection implements WorkflowConnection {
       body: {
         'definition': workflowName,
         'variables': variables,
+        'surface': 'cli',
         if (projectId != null && projectId.isNotEmpty) 'project': projectId,
         if (approvals != null) 'approvals': approvals.yamlValue,
         if (allowDirtyLocalPath) 'allowDirtyLocalPath': true,

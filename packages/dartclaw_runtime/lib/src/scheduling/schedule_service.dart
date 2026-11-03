@@ -19,6 +19,9 @@ Future<String> _noopChannelDispatch(
   String? senderJid,
   String? senderDisplayName,
   String? groupJid,
+  String? recipientId,
+  String? threadId,
+  List<ChannelAttachment> attachments = const [],
 }) async => '';
 
 DeliveryService _defaultDeliveryService(SessionService sessions) {
@@ -527,6 +530,7 @@ class ScheduleService {
         effort: job.effort,
         allowedTools: job.allowedTools,
         promptScope: PromptScope.task,
+        provenance: const TurnProvenance.cron(),
       );
       final outcome = await _turns.waitForOutcome(session.id, turnId);
 

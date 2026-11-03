@@ -2530,8 +2530,20 @@ select.form-select.channel-mode-select-hidden {
 /* Action buttons */
 .workflow-actions {
   display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
   gap: var(--sp-2);
 }
+
+.workflow-request-changes {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  flex: 1 1 20rem;
+}
+
+.workflow-request-changes textarea { width: 100%; }
 
 /* Loop and parallel badges */
 .workflow-loop-badge,

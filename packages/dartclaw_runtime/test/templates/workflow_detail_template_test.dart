@@ -2,6 +2,7 @@ import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_runtime/src/templates/loader.dart';
 import 'package:dartclaw_runtime/src/templates/sidebar.dart';
 import 'package:dartclaw_runtime/src/templates/workflow_detail.dart';
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowRevisionState;
 import 'package:test/test.dart';
 
 import '../test_utils.dart';
@@ -168,8 +169,10 @@ void main() {
     String definitionName = 'story-and-implement',
     String status = 'running',
     String? errorMessage,
+    Map<String, dynamic>? contextJson,
   }) {
     return {
+      'contextJson': ?contextJson,
       'id': id,
       'definitionName': definitionName,
       'status': status,
@@ -218,6 +221,33 @@ void main() {
 
       expect(html, contains('data-workflow-run-id'));
       expect(html, contains('>$runId</code>'));
+    });
+
+    test('a run that left a follow-up draft links it from the run identity area', () {
+      String render(Map<String, dynamic> run) => workflowDetailPageTemplate(
+        sidebarData: emptySidebar,
+        navItems: const [],
+        run: run,
+        steps: makeSteps(),
+        contextEntries: const [],
+        loopInfo: const [],
+      );
+
+      final withDraft = render(
+        makeRun(
+          status: 'completed',
+          contextJson: {
+            '_followUp': {'taskId': 'followup-run-001', 'count': 2},
+          },
+        ),
+      );
+      final identity = RegExp(r'<div class="card workflow-run-identity".*?</div>\s*</div>', dotAll: true);
+      final identityHtml = identity.firstMatch(withDraft)!.group(0)!;
+      expect(identityHtml, contains('<a href="/tasks/followup-run-001">2 follow-ups</a>'));
+
+      final without = render(makeRun(status: 'completed'));
+      expect(without, isNot(contains('follow-up')));
+      expect(without, isNot(contains('/tasks/followup-')));
     });
 
     test('renders exactly the persisted step cards without a null fragment prototype', () {
@@ -289,7 +319,10 @@ void main() {
     test('why-paused banner: awaitingApproval names the pending step and its request', () {
       final run = makeRun(status: 'awaitingApproval');
       run['pendingApprovalStepId'] = 'plan-approval';
-      run['contextJson'] = {'plan-approval.approval.message': 'Review the plan before build.'};
+      run['contextJson'] = {
+        '_approval.pending.stepId': 'plan-approval',
+        'plan-approval.approval.message': 'Review the plan before build.',
+      };
       final steps = [
         {
           'index': 0,
@@ -316,7 +349,124 @@ void main() {
       expect(html, contains('Awaiting approval'));
       expect(html, contains('<strong>Approval request</strong>:'));
       expect(html, contains('Plan Approval'));
+      expect(html, contains('Review the plan before build. Use Approve or Reject above.'));
+    });
+
+    test('why-paused banner: reads the request from the context data map', () {
+      final run = makeRun(status: 'awaitingApproval');
+      run['pendingApprovalStepId'] = 'plan-approval';
+      run['contextJson'] = {
+        '_approval.pending.stepId': 'plan-approval',
+        'data': {'plan-approval.approval.message': 'Review the plan before build.'},
+      };
+
+      final html = workflowDetailPageTemplate(
+        sidebarData: emptySidebar,
+        navItems: const [],
+        run: run,
+        steps: const [
+          {
+            'index': 0,
+            'id': 'plan-approval',
+            'name': 'Plan Approval',
+            'status': 'awaiting_approval',
+            'type': 'approval',
+          },
+        ],
+        contextEntries: const [],
+        loopInfo: const [],
+      );
+
       expect(html, contains('Review the plan before build.'));
+    });
+
+    group('request changes controls', () {
+      Map<String, dynamic> gateRun({required WorkflowRevisionState? revision, String status = 'awaitingApproval'}) {
+        final run = makeRun(status: status);
+        if (status == 'awaitingApproval') {
+          run['pendingApprovalStepId'] = 'plan-approval';
+          run['contextJson'] = {
+            '_approval.pending.stepId': 'plan-approval',
+            'plan-approval.approval.message': 'Review the plan before build.',
+          };
+        }
+        run['revision'] = revision;
+        return run;
+      }
+
+      String render(Map<String, dynamic> run, {String approvalStatus = 'awaiting_approval'}) =>
+          workflowDetailPageTemplate(
+            sidebarData: emptySidebar,
+            navItems: const [],
+            run: run,
+            steps: [
+              {
+                'index': 0,
+                'id': 'plan-approval',
+                'name': 'Plan Approval',
+                'status': approvalStatus,
+                'type': 'approval',
+                'parallel': false,
+                'taskId': null,
+                'approval': {
+                  'status': approvalStatus == 'awaiting_approval' ? 'pending' : approvalStatus,
+                  'message': 'Review the plan before build.',
+                  'feedback': 'split story 3',
+                },
+              },
+            ],
+            contextEntries: const [],
+            loopInfo: const [],
+          );
+
+      test('a gate with revisions left shows a feedback field and Request changes beside Approve and Reject', () {
+        final html = render(gateRun(revision: const WorkflowRevisionState(count: 1, max: 3)));
+
+        expect(html, contains('class="workflow-request-changes"'));
+        expect(html, contains('name="feedback"'));
+        expect(html, contains('data-action="submit->dc-workflows#requestChanges"'));
+        expect(html, contains('data-run-id="run-001"'));
+        expect(html, contains('>Request changes</button>'));
+        expect(html, contains('Approve'));
+        expect(html, contains('Reject'));
+        expect(html, contains('Revision 1 of 3'));
+        expect(html, contains('Use Approve, Reject, or Request changes above.'));
+      });
+
+      test('a gate at its bound shows the limit note and no control', () {
+        final html = render(gateRun(revision: const WorkflowRevisionState(count: 2, max: 2)));
+
+        expect(html, isNot(contains('workflow-request-changes"')));
+        expect(html, isNot(contains('name="feedback"')));
+        expect(html, contains('Revision limit reached (2 of 2)'));
+        expect(html, contains('Approve'));
+        expect(html, contains('Reject'));
+        expect(html, contains('Use Approve or Reject above.'));
+      });
+
+      test('a gate that names no revise step shows neither the control nor a note', () {
+        final html = render(gateRun(revision: null));
+
+        expect(html, isNot(contains('workflow-request-changes"')));
+        expect(html, isNot(contains('Revision ')));
+        expect(html, contains('Approve'));
+      });
+
+      test('a run in a revision round offers none and its gate card reads Changes requested, never unknown', () {
+        final html = render(gateRun(revision: null, status: 'running'), approvalStatus: 'changes_requested');
+
+        expect(html, isNot(contains('workflow-request-changes"')));
+        expect(html, contains('Changes requested'));
+        expect(html, isNot(contains('Unknown status')));
+        expect(html, isNot(contains('Unknown approval status')));
+        expect(html, contains('split story 3'), reason: 'the feedback text is on the run page');
+      });
+
+      test('the decoders know the changes_requested state', () {
+        expect(workflowStepPresentation('changes_requested').label, 'Changes requested');
+        expect(workflowApprovalPresentation('changes_requested').label, 'Changes requested');
+        expect(workflowApprovalPresentation('changes_requested').resolved, isTrue);
+      });
     });
 
     test('why-paused banner: needsInput hold on a non-approval step surfaces its reason', () {
@@ -362,7 +512,7 @@ void main() {
       );
 
       expect(html, contains('workflow-pause-banner'));
-      expect(html, contains('Paused by operator.'));
+      expect(html, contains('Paused by operator. Use Resume above to continue.'));
     });
 
     test('why-paused banner: absent for a running run', () {

@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:dartclaw_bridge/dartclaw_bridge.dart';
-import 'package:dartclaw_core/dartclaw_core.dart' show CanonicalTool;
+import 'package:dartclaw_core/dartclaw_core.dart' show CanonicalTool, TurnProvenance;
 import 'package:logging/logging.dart';
 
 import '../../mcp/mcp_server.dart';
@@ -49,6 +49,10 @@ final class GatewayAuthority {
 
   final Map<BridgeSurface, GatewayPipe> _pipes = {};
   bool _revoked = false;
+
+  /// The turn the harness bound to this authority is executing, or null between turns. Bound after the harness
+  /// exists, because the authority is acquired first.
+  TurnProvenance? Function()? activeTurn;
 
   bool get isRevoked => _revoked;
 
@@ -224,6 +228,7 @@ final class HostGateway {
       principal: authority.principal,
       allowedCanonicalTools: authority.allowedMcpTools,
       toolCanonicals: _mcpToolCanonicals?.call() ?? const {},
+      activeTurn: () => authority.activeTurn?.call(),
       onDenied: (principal, toolName) => _onDenied?.call(principal, 'mcp: tool "$toolName" is not authorized'),
     ),
   };

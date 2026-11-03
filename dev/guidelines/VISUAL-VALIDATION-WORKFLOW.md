@@ -1,7 +1,12 @@
 # Visual Validation Workflow — DartClaw
 
 Project-specific conventions for running visual validation of the DartClaw web UI.
-Use this alongside `dev/testing/UI-SMOKE-TEST.md` which defines the actual test cases.
+Use this alongside `dev/testing/UI-SMOKE-TEST.md` which defines the actual test cases (TC-01…TC-31). _"Run the UI
+smoke test"_ means `bash dev/testing/profiles/plain/run.sh`, then those cases. Other seeded environments (`channels`,
+`governance`, `visual`, `workflows`) and the AI-native scenarios are in `dev/testing/README.md`.
+
+References: the design system in `dev/design-system/` (`DESIGN.md` is canonical); wireframes live in the private repo
+(`../dartclaw-private/docs/wireframes/`, deviations in its `deviations.md`) and are absent from a public-only checkout.
 
 ## Scope
 

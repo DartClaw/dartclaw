@@ -91,4 +91,19 @@ void main() {
     expect(reserveSeen, isTrue);
     expect(startSeen, isTrue);
   });
+
+  test('whenAdmissionCapacityAvailable is immediate unless busy, then completes on clearBusy', () async {
+    final turns = FakeTurnManager();
+    await turns.whenAdmissionCapacityAvailable();
+
+    turns.setBusy();
+    var signalled = false;
+    final waiting = turns.whenAdmissionCapacityAvailable().then((_) => signalled = true);
+    await pumpEventLoop();
+    expect(signalled, isFalse);
+
+    turns.clearBusy();
+    await waiting;
+    expect(signalled, isTrue);
+  });
 }

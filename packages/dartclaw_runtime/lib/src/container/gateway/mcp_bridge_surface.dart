@@ -1,7 +1,7 @@
 import 'dart:convert';
 
 import 'package:dartclaw_bridge/dartclaw_bridge.dart';
-import 'package:dartclaw_core/dartclaw_core.dart' show CanonicalTool;
+import 'package:dartclaw_core/dartclaw_core.dart' show CanonicalTool, TurnProvenance;
 
 import '../../mcp/mcp_server.dart';
 import 'gateway_models.dart';
@@ -21,9 +21,11 @@ final class McpBridgeSurface implements GatewaySurfaceHandler {
     required Set<String> allowedCanonicalTools,
     required Map<String, CanonicalTool> toolCanonicals,
     void Function(GatewayPrincipal principal, String toolName)? onDenied,
+    TurnProvenance? Function()? activeTurn,
     this.maxRequestBytes = 1024 * 1024,
   }) : _handler = handler,
        _toolCanonicals = toolCanonicals,
+       _activeTurn = activeTurn,
        _policy = _BridgeToolPolicy(
          principal: principal,
          allowedCanonicalTools: allowedCanonicalTools,
@@ -36,6 +38,7 @@ final class McpBridgeSurface implements GatewaySurfaceHandler {
 
   final McpProtocolHandler Function() _handler;
   final Map<String, CanonicalTool> _toolCanonicals;
+  final TurnProvenance? Function()? _activeTurn;
   final _BridgeToolPolicy _policy;
 
   late final McpProtocolHandler _scoped = _scopedHandler();
@@ -46,6 +49,7 @@ final class McpBridgeSurface implements GatewaySurfaceHandler {
     return _handler().scopedTo(
       _policy,
       toolCanonicals: _toolCanonicals,
+      activeTurn: _activeTurn,
       callerIdentity: authorityId.isEmpty
           ? null
           : McpCallerIdentity(

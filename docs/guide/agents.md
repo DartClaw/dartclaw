@@ -111,7 +111,7 @@ Each entry under `agent.agents.<id>` supports:
 
 **Tools default behavior**: The built-in `search` agent defaults to the canonical allowlist `[web_search, web_fetch]`. Other agents default to an empty list. Empty or absent `tools` means no sandbox allowlist is enforced, so all tools remain available except explicit denies. A startup warning calls out this fail-open posture.
 
-Prefer canonical names because they are portable across mapped providers: `shell`, `file_read`, `file_write`, `file_edit`, `web_fetch`, `web_search`, `memory_apply`, `memory_observe`, `memory_search`, `memory_read`, `task_create`, `task_review`, `task_list`, `review_list`, `task_bind`, and `task_unbind`. Existing provider-native spellings such as `Bash`, `Read`, `WebFetch`, and `WebSearch` continue to work and are normalized at startup. Unmapped tools keep their exact provider-native spelling; for example Claude `Glob` evaluates under the `claude:Glob` canonical fallback. DartClaw's own MCP fetch, configured search, memory, and task tools map by exact server/tool identity to their semantic canonical. A deny for `mcp_call` also blocks these remapped own-MCP calls, while allowing `mcp_call` alone does not grant them.
+Prefer canonical names because they are portable across mapped providers: `shell`, `file_read`, `file_write`, `file_edit`, `web_fetch`, `web_search`, `memory_apply`, `memory_observe`, `memory_search`, `memory_read`, `task_create`, `task_review`, `task_list`, `review_list`, `task_bind`, and `task_unbind`. Existing provider-native spellings such as `Bash`, `Read`, `WebFetch`, and `WebSearch` continue to work and are normalized at startup. Claude's `Grep` and `Glob` evaluate as `file_read`, so allowing `file_read` admits them and denying it withholds them. Unmapped tools keep their exact provider-native spelling; for example Claude `TodoWrite` evaluates under the `claude:TodoWrite` canonical fallback. DartClaw's own MCP fetch, configured search, memory, and task tools map by exact server/tool identity to their semantic canonical. A deny for `mcp_call` also blocks these remapped own-MCP calls, while allowing `mcp_call` alone does not grant them.
 
 Each logical-agent conversation uses a worker matching its configured provider and security profile, never the caller's busy primary lane. An omitted provider inherits `agent.provider`; an omitted profile uses an ACP provider's declared `container_profile` when present, otherwise `workspace`. An ACP provider runs on the host only, so on a container-enabled deployment give the agent `execution: host` — a resolved container policy is refused before the turn starts rather than weakened. The built-in `search` agent explicitly requests `restricted`. If that profile is unavailable, the turn fails closed; select `workspace` explicitly only when host access is acceptable. Configure capacity with `providers.<id>.pool_size`. If no matching worker can be acquired or spawned, the tool returns an inline error naming the unavailable provider/profile and capacity setting. User and assistant messages are persisted and replayed when a different worker continues the session. Successful logical-agent sessions are retained for diagnostics and ordinary maintenance, but hidden from normal session and sidebar lists. A failed or content-blocked first turn is archived because no handle was returned to the caller.
 
@@ -161,7 +161,7 @@ The active turn's agent identity is threaded through each provider interception 
 ### Binding a Channel Conversation to an Agent
 
 A `dm_allowlist` or `group_allowlist` entry may carry `agent: <name>`, naming an `agent.agents.<name>` definition (see
-the [WhatsApp](whatsapp.md), [Signal](signal.md) and [Google Chat](google-chat.md) guides for the row form). That peer's
+the [WhatsApp](whatsapp.md), [Signal](signal.md), [Google Chat](google-chat.md) and [Slack](slack.md) guides for the row form). That peer's
 or group's messages then open and continue a session keyed by the agent instead of `main`, under the same `dm_scope` /
 `group_scope` rule as every other channel conversation, and a row without `agent` keeps the primary agent. Precedence
 is row → primary: there is no channel-level default agent.
@@ -392,6 +392,10 @@ that host interception is active.
 - `workspace-write` — Codex sandbox allows writes only to the working directory
 - `danger-full-access` — No Codex-side sandbox restrictions
 
+Either value replaces a Codex permission profile (`default_permissions` in your Codex config) and its read denies for
+every thread DartClaw opens. Leave `sandbox` unset to keep the profile; see
+[Security](security.md#who-protects-what).
+
 > **Known issue — approval deadlock**: Codex's app-server has an upstream bug ([openai/codex#11816](https://github.com/openai/codex/issues/11816), open as of March 2026) where tool approval requests block indefinitely with no provider-side timeout. This causes turns that involve file creation, shell commands, or other tool use to hang silently — while simple conversational turns succeed. The `SessionLockManager` holds the per-session lock until the approval resolves or `governance.turn_limits.turn_timeout` cancels the turn. Stall detection is suspended during a known approval wait.
 >
 > **Recommended settings for non-interactive use** (crowd-coding, batch tasks, automation):
@@ -420,7 +424,7 @@ DartClaw therefore uses Codex's native skill loading directly. Runtime-provision
 Which Codex home a host turn runs against depends on the credential the host presents:
 
 - **API key** (`providers.codex.auth: api_key`, or `auto` with no subscription credential stored): unchanged. Host harness workers use the normal Codex profile and OAuth state unless `providers.codex.use_system_codex_home: false` establishes an isolated home seeded from `~/.codex/auth.json`.
-- **ChatGPT subscription** (`providers.codex.auth: subscription`, with a credential stored in DartClaw's own store): every host harness worker runs with `CODEX_HOME` pointed at the DartClaw-dedicated store under `<dataDir>/credentials/codex`. That store is the one you log into with `codex login`; its capability mirror reads plugins and skills from the operator `CODEX_HOME` (or `~/.codex`) without copying source authentication, and `use_system_codex_home` does not apply.
+- **ChatGPT subscription** (`providers.codex.auth: subscription`, with a credential stored in DartClaw's own store): every host harness worker runs with `CODEX_HOME` pointed at the DartClaw-dedicated store under `<dataDir>/credentials/codex`. That store is the one you log into with `codex login`; its capability mirror reads plugins, skills and the Codex permission profile (`default_permissions` and its `[permissions.*]` tables) from the operator `CODEX_HOME` (or `~/.codex`) without copying source authentication, and `use_system_codex_home` does not apply.
 
 This keeps authentication and provider behavior aligned with ordinary `codex` CLI usage while keeping DartClaw-managed skill payloads scoped to the configured data directory.
 

@@ -226,6 +226,21 @@ void main() {
       expect(producers.map((producer) => producer.id), ['detect-spec-input', 'spec']);
     });
 
+    test('plan-and-implement review of the plan is opt-in: a gate after plan that revises plan, off by default', () {
+      final def = _load('plan-and-implement.yaml');
+      final ids = def.steps.map((step) => step.id).toList();
+      final gate = def.steps.singleWhere((step) => step.id == 'plan-approval');
+
+      expect(ids.indexOf('plan-approval'), ids.indexOf('plan') + 1, reason: 'the gate sits right after the plan step');
+      expect(ids.indexOf('story-pipeline'), ids.indexOf('plan-approval') + 1, reason: 'no story runs before it');
+      expect(gate.taskType, WorkflowTaskType.approval);
+      expect(gate.revise, 'plan');
+      expect(gate.entryGate, 'PLAN_REVIEW == true');
+      expect(gate.prompt, contains('{{context.plan}}'));
+      expect(def.variables['PLAN_REVIEW']?.defaultValue, 'false');
+      expect(def.variables['PLAN_REVIEW']?.required, isFalse);
+    });
+
     test('plan-and-implement runs implement → review → nested loop per story', () {
       final def = _load('plan-and-implement.yaml');
       expect(_flattenedSteps(def).where((step) => step.id == 'refactor'), isEmpty);
@@ -1261,6 +1276,43 @@ void main() {
           final required = ((schema!['properties'] as Map)['outputs'] as Map)['required'];
           expect(required, equals(covered), reason: '$file → "${step.id}" covered set mirrors the envelope');
         }
+      }
+    });
+  });
+
+  group('Review verdict outputs feed the follow-up draft', () {
+    // Output key is named like the step's own count keys; a prefixed step feeds
+    // review-aggregate, so the prefix rule applies to its verdict too.
+    const verdictOutputs = {
+      'code-review.yaml': {'review-code': 'review-code.verdict', 're-review': 're-review.verdict'},
+      'plan-and-implement.yaml': {
+        'review-story': 'verdict',
+        'plan-review': 'plan-review.verdict',
+        're-review': 'verdict',
+      },
+      'story-and-implement.yaml': {'integrated-review': 'integrated-review.verdict', 're-review': 'verdict'},
+    };
+
+    for (final entry in verdictOutputs.entries) {
+      test('${entry.key} review steps declare the verdict preset beside their counts', () {
+        final def = _load(entry.key);
+        for (final stepOutput in entry.value.entries) {
+          final step = def.steps.singleWhere((step) => step.id == stepOutput.key);
+          expect(step.outputs?[stepOutput.value]?.presetName, 'verdict', reason: '${stepOutput.key} verdict output');
+          expect(step.outputs?[stepOutput.value]?.format, OutputFormat.json);
+          final countKey = stepOutput.value.replaceAll(RegExp(r'verdict$'), 'gating_findings_count');
+          expect(step.outputs?[countKey]?.presetName, 'gating_findings_count', reason: '${stepOutput.key} count');
+        }
+      });
+    }
+
+    test('only those steps declare a verdict', () {
+      for (final entry in verdictOutputs.entries) {
+        final declared = {
+          for (final step in _load(entry.key).steps)
+            if (step.outputs?.values.any((config) => config.presetName == 'verdict') ?? false) step.id,
+        };
+        expect(declared, entry.value.keys.toSet(), reason: entry.key);
       }
     });
   });

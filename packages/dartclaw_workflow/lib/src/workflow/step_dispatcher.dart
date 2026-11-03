@@ -68,9 +68,20 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
     }
 
     final resolved = resolveStepConfig(step, definition.stepDefaults, roleDefaults: _roleDefaults);
-    final resolvedFirstPrompt = step.prompts != null
+    final authoredFirstPrompt = step.prompts != null
         ? _templateEngine.resolveWithMap(step.prompts!.first, context, mapCtx)
         : null;
+    final revisionGate = _revisionGateFor(run, definition, step);
+    final resolvedFirstPrompt = revisionGate == null
+        ? authoredFirstPrompt
+        : SkillPromptBuilder.appendRevisionFeedback(
+            authoredFirstPrompt ?? '',
+            revision: (context['${revisionGate.id}.approval.revision'] as num?)?.toInt() ?? 1,
+            maxRevisions: revisionGate.effectiveMaxRevisions!,
+            feedbackKey: '${revisionGate.id}.approval.feedback',
+            feedback: context['${revisionGate.id}.approval.feedback']?.toString() ?? '',
+            templatePrompt: step.prompts?.first,
+          ).trimLeft();
     final contextSummary = step.skill != null && resolvedFirstPrompt == null
         ? SkillPromptBuilder.formatContextSummary({
             for (final key in step.inputs) key: context[key] ?? '',

@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:dartclaw_core/dartclaw_core.dart' show ContainerExecutor;
+import 'package:dartclaw_core/dartclaw_core.dart' show ContainerExecutor, TurnProvenance;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' show ContainerAuthorityLease;
 import 'package:logging/logging.dart';
 
@@ -89,6 +89,9 @@ final class _OwnedContainerAuthorityLease implements ContainerAuthorityLease {
 
   @override
   ContainerExecutor get container => _delegate.container;
+
+  @override
+  void bindActiveTurn(TurnProvenance? Function() activeTurn) => _delegate.bindActiveTurn(activeTurn);
 
   @override
   Future<void> release() async {

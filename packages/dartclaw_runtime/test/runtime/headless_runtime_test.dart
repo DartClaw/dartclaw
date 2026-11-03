@@ -15,7 +15,7 @@ import 'package:dartclaw_runtime/dartclaw_runtime.dart'
         restoreCheckoutBeforeWorkflowBranchDeletion;
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show OutputConfig, OutputFormat, WorkflowDefinition, WorkflowStep, WorkflowVariable;
+    show OutputConfig, OutputFormat, WorkflowDefinition, WorkflowStep, WorkflowVariable, WorkflowRunOrigin;
 import 'package:dartclaw_workflow/testing.dart';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
@@ -195,6 +195,7 @@ steps:
         ],
       ),
       const {},
+      origin: WorkflowRunOrigin.unknown,
     );
     final taskDeadline = DateTime.now().add(const Duration(seconds: 5));
     while ((await runtime.taskService.list()).every((task) => task.workflowRunId != run.id) &&
@@ -300,7 +301,7 @@ steps:
         });
     addTearDown(sub.cancel);
 
-    final run = await wired.workflowService.start(definition!, const {});
+    final run = await wired.workflowService.start(definition!, const {}, origin: WorkflowRunOrigin.unknown);
     final event = await failed.future.timeout(const Duration(seconds: 5));
 
     expect(event.runId, run.id);
@@ -421,7 +422,10 @@ steps:
     final definition = branchGuardDefinition();
 
     await expectLater(
-      () => wired.workflowService.start(definition, const {'PROJECT': 'alpha', 'BRANCH': 'feature/local'}),
+      () => wired.workflowService.start(definition, const {
+        'PROJECT': 'alpha',
+        'BRANCH': 'feature/local',
+      }, origin: WorkflowRunOrigin.unknown),
       throwsA(
         isA<WorkflowStartPreconditionException>().having(
           (error) => error.message,
@@ -446,7 +450,10 @@ steps:
     final definition = branchGuardDefinition();
 
     await expectLater(
-      () => wired.workflowService.start(definition, const {'PROJECT': 'alpha', 'BRANCH': '--upload-pack=/tmp/pwn'}),
+      () => wired.workflowService.start(definition, const {
+        'PROJECT': 'alpha',
+        'BRANCH': '--upload-pack=/tmp/pwn',
+      }, origin: WorkflowRunOrigin.unknown),
       throwsFormatException,
     );
   });
@@ -465,7 +472,9 @@ steps:
 
     final definition = branchGuardDefinition();
 
-    final run = await wired.workflowService.start(definition, const {'PROJECT': 'alpha'});
+    final run = await wired.workflowService.start(definition, const {
+      'PROJECT': 'alpha',
+    }, origin: WorkflowRunOrigin.unknown);
     expect(run.variablesJson['BRANCH'], 'feature/local');
   });
 
@@ -504,7 +513,7 @@ steps:
           createdTask = await wired.taskService.get(event.taskId);
         });
 
-    final run = await wired.workflowService.start(definition, const {});
+    final run = await wired.workflowService.start(definition, const {}, origin: WorkflowRunOrigin.unknown);
     await waitFor(() => createdTask != null);
     await sub.cancel();
 
@@ -785,8 +794,22 @@ steps:
         final run = await runtime.workflowService.start(definition, const {
           'PROJECT': '_local',
           'BRANCH': 'runtime-feature',
-        });
+        }, origin: WorkflowRunOrigin.unknown);
         expect(run.variablesJson['BRANCH'], 'runtime-feature');
+        expect(Directory.current.path, isNot(runtimeCwd.path));
+        expect(runtime.projectService.localProject.localPath, runtimeCwd.path);
+      },
+    );
+  });
+
+  test('relative runtime cwd is resolved once to an absolute directory', () async {
+    final runtimeCwd = fixture.seedGitRepo('relative-runtime-repo', readme: 'runtime\n');
+
+    await fixture.withWiredRuntime(
+      fixture.config(),
+      runtimeCwd: p.relative(runtimeCwd.path),
+      body: (runtime) async {
+        expect(runtime.projectService.localProject.localPath, runtimeCwd.path);
       },
     );
   });
@@ -879,7 +902,7 @@ steps:
             await wired.taskService.transition(event.taskId, TaskStatus.accepted);
           });
       addTearDown(sub.cancel);
-      final run = await wired.workflowService.start(definition, const {});
+      final run = await wired.workflowService.start(definition, const {}, origin: WorkflowRunOrigin.unknown);
       runId = run.id;
       final current = await wired.workflowService.get(run.id);
       if (current?.status == WorkflowRunStatus.completed && !completion.isCompleted) {
@@ -970,7 +993,10 @@ steps:
           ],
         );
 
-        final run = await runtime.workflowService.start(definition, const {'PROJECT': 'alpha', 'BRANCH': 'main'});
+        final run = await runtime.workflowService.start(definition, const {
+          'PROJECT': 'alpha',
+          'BRANCH': 'main',
+        }, origin: WorkflowRunOrigin.unknown);
         final deadline = DateTime.now().add(const Duration(seconds: 5));
         while (DateTime.now().isBefore(deadline)) {
           final updated = await runtime.workflowService.get(run.id);
@@ -1061,7 +1087,7 @@ steps:
           WorkflowStep(id: 'gate', name: 'Gate', taskType: WorkflowTaskType.approval, prompts: ['Approve?']),
         ],
       );
-      final run = await wired.workflowService.start(definition, const {});
+      final run = await wired.workflowService.start(definition, const {}, origin: WorkflowRunOrigin.unknown);
       final deadline = DateTime.now().add(const Duration(seconds: 5));
       while (DateTime.now().isBefore(deadline)) {
         final updated = await wired.workflowService.get(run.id);

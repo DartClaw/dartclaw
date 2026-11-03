@@ -1,10 +1,12 @@
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
-/// Test decorator that fails one transaction-bound execute call.
+/// Test decorator that fails one transaction-bound execute call, or with [failQueryAfterExecute]
+/// the first transaction-bound query that follows an execute.
 final class FailingDatabaseBackend implements DatabaseBackend {
-  new(this._delegate, {required int failAt}) : _failAt = failAt;
+  new(this._delegate, {required int failAt, this.failQueryAfterExecute = false}) : _failAt = failAt;
 
   final DatabaseBackend _delegate;
+  final bool failQueryAfterExecute;
   int? _failAt;
   var _executeCount = 0;
 
@@ -56,8 +58,12 @@ final class _FailingTransaction implements DatabaseBackend {
   Future<DatabaseStatement> prepare(String sql) => _delegate.prepare(sql);
 
   @override
-  Future<List<Map<String, Object?>>> query(String sql, [List<Object?> parameters = const []]) =>
-      _delegate.query(sql, parameters);
+  Future<List<Map<String, Object?>>> query(String sql, [List<Object?> parameters = const []]) {
+    if (_owner.failQueryAfterExecute && _owner._failAt != null && _owner._executeCount > 0) {
+      return Future<List<Map<String, Object?>>>.error(StateError('injected query failure after execute'));
+    }
+    return _delegate.query(sql, parameters);
+  }
 
   @override
   Future<T> transaction<T>(Future<T> Function(DatabaseBackend tx) body) => _delegate.transaction(body);

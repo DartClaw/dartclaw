@@ -1,0 +1,217 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 744" width="1000" height="744" role="img" aria-labelledby="title desc">
+  <title id="title">Control nodes: action, parallel group, foreach, loop</title>
+  <desc id="desc">The four WorkflowNode kinds the executor walks. ActionNode runs one step and ParallelGroupNode runs adjacent parallel steps. ForeachNode fans out over a context list with bounded concurrency and aggregates one result list. LoopNode repeats its body until the exit gate passes or maxIterations is reached.</desc>
+  <style>
+
+    svg { --bg:#f6f7f9; --card:#ffffff; --ink:#1e2030; --ink2:#4c4f69; --ink3:#6c6f85; --rule:#ccd0da; --edge:#8c8fa1; --hi:#1e66f5; --on:#ffffff; --panel:#1e1e2e; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+      --host:#40a02b; --host-d:#1f5c2a; --host-l:#2d7a1f; --ext:#e07c4f; --ext-d:#a8481c; --ext-l:#b5531f; --store:#179299; --store-d:#0f5f63; --store-l:#0e7377;
+      --sec:#d20f39; --sec-d:#9b0c2c; --sec-l:#b80d33; --chan:#8839ef; --chan-d:#5d23a8; --chan-l:#7027d4; --neu:#7c7f93; --neu-d:#4c4f69; --neu-l:#5c5f77; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#181825; --card:#1e1e2e; --ink:#cdd6f4; --ink2:#bac2de; --ink3:#9399b2; --rule:#45475a; --edge:#7f849c; --hi:#89b4fa; --on:#f5f7ff; --panel:#11111b; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+        --host:#a6e3a1; --host-d:#2f6b3a; --host-l:#a6e3a1; --ext:#fab387; --ext-d:#8f4a24; --ext-l:#fab387; --store:#94e2d5; --store-d:#1f6460; --store-l:#94e2d5;
+        --sec:#f38ba8; --sec-d:#8a2c45; --sec-l:#f38ba8; --chan:#cba6f7; --chan-d:#5e3f94; --chan-l:#cba6f7; --neu:#9399b2; --neu-d:#45475a; --neu-l:#bac2de; }
+    }
+    text { fill: var(--ink); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .mono, .kick, .badge text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+    .bg { fill: var(--bg); }
+    .title { font-size: 21px; font-weight: 700; }
+    .lede { fill: var(--ink3); font-size: 13px; }
+    .kick { font-size: 10.5px; font-weight: 600; letter-spacing: .1em; fill: var(--kl, var(--ink3)); }
+    .k-host { --k:var(--host); --kd:var(--host-d); --kl:var(--host-l); }
+    .k-ext { --k:var(--ext); --kd:var(--ext-d); --kl:var(--ext-l); }
+    .k-store { --k:var(--store); --kd:var(--store-d); --kl:var(--store-l); }
+    .k-sec { --k:var(--sec); --kd:var(--sec-d); --kl:var(--sec-l); }
+    .k-chan { --k:var(--chan); --kd:var(--chan-d); --kl:var(--chan-l); }
+    .k-neu { --k:var(--neu); --kd:var(--neu-d); --kl:var(--neu-l); }
+    .band { fill: color-mix(in srgb, var(--k) 6%, var(--bg)); stroke: color-mix(in srgb, var(--k) 50%, var(--bg)); stroke-width: 1.4; stroke-dasharray: 7 5; }
+    .box { stroke-width: 1.5; }
+    .tint .box { fill: color-mix(in srgb, var(--k) 13%, var(--card)); stroke: var(--k); }
+    .line .box { fill: var(--card); stroke: var(--k); }
+    .ghost .box { fill: none; stroke: var(--k); stroke-dasharray: 5 4; }
+    .solid .box { fill: var(--kd); stroke: var(--kd); }
+    .name { font-size: 14.5px; font-weight: 700; }
+    .sub { font-size: 11.5px; fill: var(--ink2); }
+    .mono { font-size: 11.5px; fill: var(--ink2); }
+    .solid text { fill: var(--on); }
+    .solid .sub, .solid .mono { fill: var(--on); fill-opacity: .82; }
+    .badge rect { fill: none; stroke: var(--kl); stroke-width: 1.2; }
+    .badge text { font-size: 9.5px; font-weight: 700; letter-spacing: .06em; fill: var(--kl); text-anchor: middle; }
+    .solid .badge rect { stroke: var(--on); stroke-opacity: .7; }
+    .solid .badge text { fill: var(--on); }
+    .e path { fill: none; stroke: var(--ec, var(--edge)); stroke-width: var(--ew, 1.6px); marker-end: var(--em, url(#ah)); }
+    .e.main path { stroke: var(--ec, var(--host)); stroke-width: var(--ew, 2.4px); marker-end: var(--em, url(#ah-main)); }
+    .e.bad path { stroke: var(--ec, var(--sec)); marker-end: var(--em, url(#ah-bad)); }
+    .e.dash path { stroke-dasharray: 6 4; }
+    .el { font-size: 11px; fill: var(--ink2); paint-order: stroke; stroke: var(--halo, var(--bg)); stroke-width: 4px; stroke-linejoin: round; }
+    .in-host .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    .ah { fill: var(--edge); } .ah-main { fill: var(--host); } .ah-bad { fill: var(--sec); } .ah-hi { fill: var(--hi); }
+    .panel { fill: var(--panel); }
+    .panel-kick { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10.5px; font-weight: 700; letter-spacing: .12em; fill: var(--panel-kick); }
+    .p1 { fill: var(--panel-ink); font-size: 13px; }
+    .p1 tspan.b { font-weight: 700; }
+    .p2 { fill: var(--panel-sub); font-size: 12.5px; }
+    .lg { font-size: 11px; fill: var(--ink2); }
+    .chip rect { fill: color-mix(in srgb, var(--k) 10%, var(--card)); stroke: var(--k); stroke-width: 1; }
+    .chip text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10px; font-weight: 600; fill: var(--kl); }
+    .step circle { fill: var(--kd); } .step text { fill: var(--on); font-size: 11px; font-weight: 700; text-anchor: middle; }
+    /* Interaction, effective only when the SVG is opened directly. */
+    .n { cursor: pointer; }
+    .n:hover .box, a:focus-visible .box { stroke: var(--hi); stroke-width: 2.8; }
+    .d { display: none; pointer-events: none; }
+    .n:hover .d, a:focus-visible .d { display: inline; }
+    svg:has(.n:hover) .d0, svg:has(a:focus-visible) .d0 { display: none; }
+    svg:has(.n:hover) .edges .e { opacity: .14; }
+    .e.join path { marker-end: none; }
+    .band.inner { fill: none; stroke-dasharray: 3 4; }
+    .mono-name { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13.5px; }
+    .edges .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    svg:has(#action:hover) .edges :is(.f-action,.t-action) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#parallel:hover) .edges :is(.f-parallel,.t-parallel) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#fe1:hover) .edges :is(.f-fe1,.t-fe1) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#fe2:hover) .edges :is(.f-fe2,.t-fe2) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#fe3:hover) .edges :is(.f-fe3,.t-fe3) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#fe4:hover) .edges :is(.f-fe4,.t-fe4) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#fe5:hover) .edges :is(.f-fe5,.t-fe5) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#lp1:hover) .edges :is(.f-lp1,.t-lp1) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#lp2:hover) .edges :is(.f-lp2,.t-lp2) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#lp3:hover) .edges :is(.f-lp3,.t-lp3) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#lp4:hover) .edges :is(.f-lp4,.t-lp4) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#lp5:hover) .edges :is(.f-lp5,.t-lp5) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+  </style>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-main" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path class="ah-main" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-bad" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="ah-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="744"/>
+  <!-- Details panel: painted first so node details (.d) draw on top -->
+  <rect class="panel" x="16" y="648" width="968" height="80" rx="12"/>
+  <text class="panel-kick" x="36" y="672">DETAILS</text>
+  <g class="d0"><text class="p1" x="36" y="696">Hover a box for its invariants and file; its connections light up. Click it to open its section.</text><text class="p2" x="36" y="716">Inside a rendered document this image is static. Click it to open the interactive SVG.</text></g>
+
+  <text class="kick" x="24" y="32">CONTROL FLOW · WorkflowNode</text>
+  <text class="title" x="24" y="58">Control nodes: action, parallel group, foreach, loop</text>
+  <text class="lede" x="24" y="80">normalizeNodes builds these from authored order; loop and foreach bodies run steps through the same dispatch as top-level steps.</text>
+
+  <g class="k-host"><rect class="band" x="16" y="196" width="480" height="410" rx="14"/><text class="kick" x="32" y="218">ForeachNode · ONE ITEM, ONE SUB-PIPELINE</text></g>
+  <g class="k-host"><rect class="band" x="504" y="196" width="480" height="410" rx="14"/><text class="kick" x="520" y="218">LoopNode · A PERSISTED STATE MACHINE</text></g>
+
+  <g class="edges">
+    <g class="e  f-fe1 t-fe2"><path d="M256,302 V328"/><text class="el" x="264" y="318" text-anchor="start">items</text></g>
+    <g class="e main f-fe2 t-fe3"><path d="M256,396 V422"/><text class="el" x="264" y="412" text-anchor="start">N concurrent iterations</text></g>
+    <g class="e main f-fe3 t-fe4"><path d="M140,490 V516"/><text class="el" x="148" y="506" text-anchor="start">all settled</text></g>
+    <g class="e bad f-fe3 t-fe5"><path d="M372,490 V516"/><text class="el" x="380" y="506" text-anchor="start">hard failure</text></g>
+    <g class="e  f-lp1 t-lp2"><path d="M776,302 V328"/><text class="el" x="784" y="318" text-anchor="start">run body</text></g>
+    <g class="e  f-lp2 t-lp3"><path d="M776,396 V422"/><text class="el" x="784" y="412" text-anchor="start">iteration done</text></g>
+    <g class="e main f-lp3 t-lp4"><path d="M628,490 V516"/><text class="el" x="636" y="506" text-anchor="start">true</text></g>
+    <g class="e bad f-lp3 t-lp5"><path d="M860,490 V516"/><text class="el" x="868" y="506" text-anchor="start">false and n = max</text></g>
+    <g class="e  f-lp3 t-lp1"><path d="M582,457 H548 V269 H582"/><text class="el" x="546" y="368" text-anchor="end">false</text></g>
+  </g>
+
+  <a href="../workflow-architecture.md#61-linear-steps-and-entry-gates"><g class="n tint k-host" id="action">
+    <rect class="box" x="24" y="98" width="470" height="72" rx="9"/>
+    <text class="name mono-name" x="36" y="121">ActionNode</text>
+    <g class="badge"><rect x="430" y="109" width="54" height="16" rx="8"/><text x="457" y="121">LINEAR</text></g>
+    <text class="sub" x="36" y="139">entryGate false: outcome = skipped, StepSkippedEvent,</text>
+    <text class="sub" x="36" y="155">advance; otherwise dispatch one step</text>
+    <g class="d"><text class="p1" x="36" y="696"><tspan class="b">ActionNode</tspan> · entryGate is the only gate a step declares; it also guards parallel members, loop-body steps and foreach children</text><text class="p2" x="36" y="716">It is not evaluated on a foreach controller, and a request-changes round bypasses it for the revise step.</text></g>
+  </g></a>
+  <a href="../workflow-architecture.md#62-parallel-groups"><g class="n tint k-host" id="parallel">
+    <rect class="box" x="506" y="98" width="470" height="72" rx="9"/>
+    <text class="name mono-name" x="518" y="121">ParallelGroupNode</text>
+    <g class="badge"><rect x="877" y="109" width="89" height="16" rx="8"/><text x="922" y="121">Future.wait</text></g>
+    <text class="sub" x="518" y="139">adjacent parallel: true steps; results merge in step order</text>
+    <text class="sub" x="518" y="155">a blocking failure persists _parallel.failed.stepIds</text>
+    <g class="d"><text class="p1" x="36" y="696"><tspan class="b">ParallelGroupNode</tspan> · members start after all prior steps settled; a skipped member is filtered out of the group</text><text class="p2" x="36" y="716">A blocking failure fails or pauses the run; resume re-runs only the failed members. parallel is ignored, with a warning, inside a loop.</text></g>
+  </g></a>
+  <a href="../workflow-architecture.md#63-foreach-sub-pipelines"><g class="n tint k-host" id="fe1">
+    <rect class="box" x="32" y="236" width="448" height="66" rx="9"/>
+    <g class="step"><circle cx="52" cy="258" r="10"/><text x="52" y="262">1</text></g>
+    <text class="name" x="70" y="259">mapOver list</text>
+    <text class="sub" x="70" y="277">a context key holding a list, or a one-key object</text>
+    <text class="sub" x="70" y="293">wrapping one (story_specs.items); empty succeeds</text>
+    <g class="d"><text class="p1" x="36" y="696"><tspan class="b">mapOver list</tspan> · the controller's mapOver names a context key holding a list, or a one-key object wrapping one</text><text class="p2" x="36" y="716">An empty list succeeds with an empty result. The controller's entryGate is not evaluated: put it on the children.</text></g>
+  </g></a>
+  <a href="../workflow-architecture.md#63-foreach-sub-pipelines"><g class="n solid k-host" id="fe2">
+    <rect class="box" x="32" y="330" width="448" height="66" rx="9"/>
+    <g class="step"><circle cx="52" cy="352" r="10"/><text x="52" y="356">2</text></g>
+    <text class="name" x="70" y="353">Dispatch engine</text>
+    <g class="badge"><rect x="374" y="341" width="96" height="16" rx="8"/><text x="422" y="353">max_parallel</text></g>
+    <text class="sub" x="70" y="371">in flight ≤ min(max_parallel, runner capacity); inline = 1</text>
+    <text class="sub" x="70" y="387">DependencyGraph: item id + dependencies gate dispatch</text>
+    <g class="d"><text class="p1" x="36" y="696"><tspan class="b">Dispatch engine</tspan> · iteration_dispatch_engine.dart caps in-flight iterations by max_parallel and the runner capacity the host adapter reports</text><text class="p2" x="36" y="716">The worker lease at dispatch is the authoritative limit. An unknown dependency id or a cycle is rejected at dispatch time.</text></g>
+  </g></a>
+  <a href="../workflow-architecture.md#63-foreach-sub-pipelines"><g class="n tint k-host" id="fe3">
+    <rect class="box" x="32" y="424" width="448" height="66" rx="9"/>
+    <g class="step"><circle cx="52" cy="446" r="10"/><text x="52" y="450">3</text></g>
+    <text class="name" x="70" y="447">Iteration i</text>
+    <text class="sub" x="70" y="465">overlay = plan-level context + map; child steps in order,</text>
+    <text class="sub" x="70" y="481">each entryGate-guarded; may hold a nested loop</text>
+    <g class="d"><text class="p1" x="36" y="696"><tspan class="b">Iteration i</tspan> · each child step runs in a per-iteration overlay: a copy of the plan-level context plus map</text><text class="p2" x="36" y="716">Child outputs are visible to later siblings and isolated from the plan-level context until the iteration ends.</text></g>
+  </g></a>
+  <a href="../workflow-architecture.md#63-foreach-sub-pipelines"><g class="n tint k-host" id="fe4">
+    <rect class="box" x="32" y="518" width="216" height="66" rx="9"/>
+    <g class="step"><circle cx="52" cy="540" r="10"/><text x="52" y="544">4</text></g>
+    <text class="name" x="70" y="541">Aggregate</text>
+    <text class="sub" x="70" y="559">one list, index-ordered,</text>
+    <text class="sub" x="70" y="575">items keyed by child step id</text>
+    <g class="d"><text class="p1" x="36" y="696"><tspan class="b">Aggregate</tspan> · results return as one list under the controller's single output key</text><text class="p2" x="36" y="716">The controller's tokens are the sum of its children's &lt;childId&gt;[&lt;i&gt;].tokenCount entries.</text></g>
+  </g></a>
+  <a href="../workflow-architecture.md#63-foreach-sub-pipelines"><g class="n tint k-sec" id="fe5">
+    <rect class="box" x="264" y="518" width="216" height="66" rx="9"/>
+    <text class="name" x="276" y="541">Failed iteration</text>
+    <text class="sub" x="276" y="559">slot = {error, kind, message,</text>
+    <text class="sub" x="276" y="575">task_id}; pending cancelled</text>
+    <g class="d"><text class="p1" x="36" y="696"><tspan class="b">Failed iteration</tspan> · kind is the persisted discriminator of the typed failure (workflow_failure.dart) and resume reads it</text><text class="p2" x="36" y="716">Renaming a kind breaks resume for runs started earlier; message is operator text only. The first hard failure cancels pending iterations.</text></g>
+  </g></a>
+  <a href="../workflow-architecture.md#64-loops"><g class="n tint k-host" id="lp1">
+    <rect class="box" x="584" y="236" width="384" height="66" rx="9"/>
+    <g class="step"><circle cx="604" cy="258" r="10"/><text x="604" y="262">1</text></g>
+    <text class="name" x="622" y="259">Iteration n</text>
+    <g class="badge"><rect x="827" y="247" width="131" height="16" rx="8"/><text x="892" y="259">1 … maxIterations</text></g>
+    <text class="sub" x="622" y="277">cursor = loop id, n, step id; entryGate checked:</text>
+    <text class="sub" x="622" y="293">false on n = 1 skips the loop, later it ends it</text>
+    <g class="d"><text class="p1" x="36" y="696"><tspan class="b">Iteration n</tspan> · WorkflowExecutionCursor.loop records loop id, iteration and step id; _loop.current.* mirrors it for humans</text><text class="p2" x="36" y="716">The cursor is authoritative: it tells before the first body step from mid-iteration and from after the iteration, before the exit decision.</text></g>
+  </g></a>
+  <a href="../workflow-architecture.md#64-loops"><g class="n tint k-host" id="lp2">
+    <rect class="box" x="584" y="330" width="384" height="66" rx="9"/>
+    <g class="step"><circle cx="604" cy="352" r="10"/><text x="604" y="356">2</text></g>
+    <text class="name" x="622" y="353">Body steps in order</text>
+    <text class="sub" x="622" y="371">normal step dispatch; outputs merged and persisted</text>
+    <text class="sub" x="622" y="387">after every step</text>
+    <g class="d"><text class="p1" x="36" y="696"><tspan class="b">Body steps in order</tspan> · a failing body step follows its onError policy; the run fails by default</text><text class="p2" x="36" y="716">A loop nested in a foreach body checkpoints under _loop.&lt;id&gt;.foreach.&lt;foreachId&gt;[&lt;i&gt;].*, so it converges independently per item.</text></g>
+  </g></a>
+  <a href="../workflow-architecture.md#64-loops"><g class="n solid k-host" id="lp3">
+    <rect class="box" x="584" y="424" width="384" height="66" rx="9"/>
+    <g class="step"><circle cx="604" cy="446" r="10"/><text x="604" y="450">3</text></g>
+    <text class="name mono-name" x="622" y="447">exitGate</text>
+    <g class="badge"><rect x="841" y="435" width="117" height="16" rx="8"/><text x="900" y="447">EVERY ITERATION</text></g>
+    <text class="sub" x="622" y="465">evaluated after the full iteration;</text>
+    <text class="sub" x="622" y="481">LoopIterationCompletedEvent carries the result</text>
+    <g class="d"><text class="p1" x="36" y="696"><tspan class="b">exitGate</tspan> · true ends the loop; false starts iteration n + 1 unless maxIterations is exhausted</text><text class="p2" x="36" y="716">The event fires with the gate result after every iteration, including the skipped first one.</text></g>
+  </g></a>
+  <a href="../workflow-architecture.md#64-loops"><g class="n tint k-host" id="lp4">
+    <rect class="box" x="520" y="518" width="216" height="66" rx="9"/>
+    <text class="name" x="532" y="541">Loop done</text>
+    <text class="sub" x="532" y="559">clear cursor, _loop.current.*;</text>
+    <text class="sub" x="532" y="575">continue to the next node</text>
+    <g class="d"><text class="p1" x="36" y="696"><tspan class="b">Loop done</tspan> · the exit gate passed</text><text class="p2" x="36" y="716">The cursor and _loop.current.* are cleared; the next node runs.</text></g>
+  </g></a>
+  <a href="../workflow-architecture.md#64-loops"><g class="n tint k-sec" id="lp5">
+    <rect class="box" x="752" y="518" width="216" height="66" rx="9"/>
+    <text class="name mono-name" x="764" y="541">onMaxIterations</text>
+    <text class="sub" x="764" y="559">fail · continue (top level only)</text>
+    <text class="sub" x="764" y="575">escalate (foreach-nested only)</text>
+    <g class="d"><text class="p1" x="36" y="696"><tspan class="b">onMaxIterations</tspan> · exhaustion without the exit gate passing: fail the run (default), fall through, or escalate</text><text class="p2" x="36" y="716">escalate settles the item as needsInput: the foreach holds the run in awaitingApproval; resume re-runs the item in a fresh worktree.</text></g>
+  </g></a>
+  <g transform="translate(24,622)">
+    <g class="solid k-host"><rect class="box" x="0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="22" y="10">focal</text>
+    <g class="tint k-host"><rect class="box" x="75.0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="97.0" y="10">executor step</text>
+    <g class="tint k-sec"><rect class="box" x="199.60000000000002" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="221.60000000000002" y="10">failure or stop</text>
+    <g class="e main"><path d="M336.6,6 H368.6"/></g><text class="lg" x="376.6" y="10">main path</text>
+    <g class="e bad"><path d="M454.40000000000003,6 H486.40000000000003"/></g><text class="lg" x="494.40000000000003" y="10">failure</text>
+    <g class="e "><path d="M559.8000000000001,6 H591.8000000000001"/></g><text class="lg" x="599.8000000000001" y="10">flow</text>
+  </g>
+</svg>

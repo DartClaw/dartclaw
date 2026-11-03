@@ -1,6 +1,6 @@
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show WorkflowExecutionCursor, WorkflowExecutionCursorNodeType, WorkflowRun;
+    show WorkflowExecutionCursor, WorkflowExecutionCursorNodeType, WorkflowRun, WorkflowRunOrigin;
 import 'package:test/test.dart';
 
 WorkflowRun buildRun({
@@ -146,6 +146,98 @@ void main() {
       final run = buildRun(errorMessage: 'old error');
       final copy = run.copyWith(errorMessage: null);
       expect(copy.errorMessage, isNull);
+    });
+  });
+  group('WorkflowRun origin', () {
+    const chatOrigin = WorkflowRunOrigin(
+      surface: 'googlechat',
+      channelType: 'googlechat',
+      recipientId: 'spaces/AAA',
+      threadId: 'spaces/AAA/threads/T1',
+      sessionKey: 'agent:main:group:googlechat:spaces%2FAAA',
+      senderId: 'users/42',
+    );
+
+    test('round-trips every field through the run JSON', () {
+      final run = WorkflowRun(
+        id: 'run-1',
+        definitionName: 'wf',
+        startedAt: DateTime.parse('2026-01-01T00:00:00Z'),
+        updatedAt: DateTime.parse('2026-01-01T00:00:00Z'),
+        origin: chatOrigin,
+      );
+
+      final restored = WorkflowRun.fromJson(run.toJson());
+
+      expect(restored.origin, chatOrigin);
+      expect(run.toJson()['origin'], {
+        'surface': 'googlechat',
+        'channelType': 'googlechat',
+        'recipientId': 'spaces/AAA',
+        'threadId': 'spaces/AAA/threads/T1',
+        'sessionKey': 'agent:main:group:googlechat:spaces%2FAAA',
+        'senderId': 'users/42',
+      });
+    });
+
+    test('a missing or null origin reads as unknown', () {
+      final json = buildRun().toJson()..remove('origin');
+      expect(WorkflowRun.fromJson(json).origin, WorkflowRunOrigin.unknown);
+      expect(WorkflowRun.fromJson({...json, 'origin': null}).origin.surface, 'unknown');
+    });
+
+    test('a malformed non-null origin fails decoding instead of reading as unknown', () {
+      final json = buildRun().toJson();
+      expect(() => WorkflowRun.fromJson({...json, 'origin': 'slack'}), throwsFormatException);
+      expect(() => WorkflowRun.fromJson({...json, 'origin': <String, Object?>{}}), throwsFormatException);
+      expect(
+        () => WorkflowRun.fromJson({
+          ...json,
+          'origin': {'surface': 'web', 'threadId': 7},
+        }),
+        throwsFormatException,
+      );
+    });
+
+    test('an unlisted surface fails decoding while every channel type name and fixed surface decodes', () {
+      final json = buildRun().toJson();
+      expect(
+        () => WorkflowRun.fromJson({
+          ...json,
+          'origin': {'surface': 'carrier-pigeon'},
+        }),
+        throwsFormatException,
+      );
+      for (final surface in [
+        ...ChannelType.values.map((type) => type.name),
+        'cron',
+        'github',
+        'cli',
+        'api',
+        'unknown',
+      ]) {
+        expect(
+          WorkflowRun.fromJson({
+            ...json,
+            'origin': {'surface': surface},
+          }).origin.surface,
+          surface,
+        );
+      }
+    });
+
+    test('copyWith keeps the origin', () {
+      final run = buildRun().copyWith(status: WorkflowRunStatus.running);
+      expect(run.origin, WorkflowRunOrigin.unknown);
+
+      final chatRun = WorkflowRun(
+        id: 'run-2',
+        definitionName: 'wf',
+        startedAt: DateTime.parse('2026-01-01T00:00:00Z'),
+        updatedAt: DateTime.parse('2026-01-01T00:00:00Z'),
+        origin: chatOrigin,
+      );
+      expect(chatRun.copyWith(status: WorkflowRunStatus.paused, errorMessage: 'x').origin, chatOrigin);
     });
   });
 }

@@ -4,7 +4,6 @@ import 'dart:io';
 
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager;
-import 'package:crypto/crypto.dart';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart';
@@ -14,6 +13,7 @@ import 'package:uuid/uuid.dart';
 import '../session/session_display_title.dart';
 import '../concurrency/session_mutation_coordinator.dart';
 import '../conversation/conversation_service.dart';
+import '../conversation/turn_attachments.dart';
 import 'api_helpers.dart';
 import 'reference_suggestions.dart';
 import 'session_routes_support.dart';
@@ -21,7 +21,6 @@ import 'session_routes_support.dart';
 final _log = Logger('SessionAttachmentRoutes');
 const _maxAttachmentBytes = 10 * 1024 * 1024;
 const _maxAttachmentJsonBytes = 15 * 1024 * 1024;
-typedef AttachmentWriteFailpoint = FutureOr<void> Function(String boundary, String attachmentId);
 
 /// Owns the bounded, process-only attachment bytes for temporary sessions.
 final class ProcessAttachmentOwner {
@@ -94,20 +93,11 @@ void registerSessionAttachmentRoutes(
 
       final attachment = metadata.attachment!;
       final bytes = metadata.bytes!;
-      attachment['digest'] = 'sha256:${sha256.convert(bytes)}';
-      attachment['owner'] = 'draft';
       if (session.retention == ConversationRetention.process) {
         processAttachments.put(id, attachment, bytes);
         return jsonResponse(201, attachment);
       }
-      final attachmentDir = Directory(p.join(messages.baseDir, id, 'attachments'));
-      await attachmentDir.create(recursive: true);
-      final contentFile = File(p.join(attachmentDir.path, '${attachment['id']}.data'));
-      await atomicWriteBytes(contentFile, bytes);
-      await failpoint?.call('attachment_data', attachment['id'] as String);
-      final file = File(p.join(attachmentDir.path, '${attachment['id']}.json'));
-      await atomicWriteJson(file, attachment);
-      await failpoint?.call('attachment_metadata', attachment['id'] as String);
+      await writeStagedAttachment(p.join(messages.baseDir, id, 'attachments'), attachment, bytes, failpoint: failpoint);
       return jsonResponse(201, attachment);
     } catch (e) {
       _log.warning('Failed to add attachment for $id: $e', e);
@@ -226,16 +216,14 @@ void registerSessionAttachmentRoutes(
       error: errorResponse(400, 'INVALID_ATTACHMENT', 'attachment content does not match declared size'),
     );
   }
-  final now = DateTime.now().toUtc().toIso8601String();
   return (
-    attachment: {
-      'id': attachmentIdFactory?.call() ?? const Uuid().v4(),
-      'filename': filename,
-      'mediaType': mediaType,
-      'size': size,
-      'state': 'ready',
-      'createdAt': now,
-    },
+    attachment: stagedAttachmentMetadata(
+      id: attachmentIdFactory?.call() ?? const Uuid().v4(),
+      filename: filename,
+      mediaType: mediaType,
+      bytes: bytes,
+      owner: 'draft',
+    ),
     bytes: bytes,
     error: null,
   );
@@ -275,8 +263,8 @@ Future<List<Map<String, dynamic>>> _referenceSuggestions(
     }
   }
 
-  final root = Directory(referenceRoot ?? await sessionReferenceRoot(projectService));
-  if (await root.exists()) {
+  final root = referenceRoot == null ? null : Directory(referenceRoot);
+  if (root != null && await root.exists()) {
     references.addAll(await collectFileReferenceSuggestions(root, normalizedQuery));
   }
 

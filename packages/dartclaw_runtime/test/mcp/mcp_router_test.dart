@@ -1,12 +1,16 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:dartclaw_kernel/dartclaw_kernel.dart' show McpClientConfig;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart' show ChannelType, McpClientConfig;
 import 'package:dartclaw_runtime/src/auth/auth_rate_limiter.dart';
+import 'package:dartclaw_runtime/src/mcp/harness_mcp_bearers.dart';
 import 'package:dartclaw_runtime/src/mcp/mcp_router.dart';
 import 'package:dartclaw_runtime/src/mcp/mcp_server.dart';
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
+
+import 'mcp_test_support.dart';
 
 class _ProfileTool implements McpTool {
   new(this.name, this.access);
@@ -330,5 +334,83 @@ void main() {
       expect((await throttled(post(body, authToken: token))).statusCode, 200);
       expect((await throttled(post(body, authToken: 'wrong'))).statusCode, 401);
     });
+  });
+
+  group('trusted turn context', () {
+    const clientToken = 'ide-client-token';
+    const client = McpClientConfig(name: 'ide', tokenReference: r'${DARTCLAW_MCP_CLIENT_IDE}', token: clientToken);
+    final turn = TurnProvenance.channel(
+      channelType: ChannelType.googlechat,
+      recipientId: 'spaces/AAA',
+      sessionKey: 'session-key',
+      senderId: 'users/alice',
+    );
+
+    late TurnProbeTool probe;
+    late McpProtocolHandler turnHandler;
+    late HarnessMcpBearers bearers;
+    late String harnessBearer;
+    TurnProvenance? runningTurn;
+
+    setUp(() {
+      probe = TurnProbeTool();
+      turnHandler = McpProtocolHandler()..registerTool(probe);
+      bearers = HarnessMcpBearers();
+      runningTurn = turn;
+      harnessBearer = bearers.mint(() => runningTurn);
+    });
+
+    FutureOr<Response> callProbe(Handler route, {String? bearer}) => route(
+      post(
+        jsonEncode({
+          'jsonrpc': '2.0',
+          'method': 'tools/call',
+          'id': 1,
+          'params': {'name': 'turn_probe', 'arguments': <String, Object?>{}},
+        }),
+        authToken: bearer,
+      ),
+    );
+
+    test('a harness bearer reaches a handler that resolves its harness turn for each call', () async {
+      final route = mcpRoute(turnHandler, gatewayToken: token, harnessBearers: bearers);
+
+      expect((await callProbe(route, bearer: harnessBearer)).statusCode, 200);
+      runningTurn = null;
+      expect((await callProbe(route, bearer: harnessBearer)).statusCode, 200);
+
+      expect(probe.turns, [turn, null]);
+    });
+
+    test('the gateway token and a named client carry no turn', () async {
+      final route = mcpRoute(turnHandler, gatewayToken: token, clients: const [client], harnessBearers: bearers);
+
+      await callProbe(route, bearer: token);
+      final viaClient = await callProbe(route, bearer: clientToken);
+
+      expect(probe.turns, [null]);
+      expect(jsonDecode(await viaClient.readAsString())['error']['message'], 'Tool not available: turn_probe');
+    });
+
+    test('a revoked or unknown bearer is a 401', () async {
+      final route = mcpRoute(turnHandler, gatewayToken: token, harnessBearers: bearers);
+      bearers.revoke(harnessBearer);
+
+      expect((await callProbe(route, bearer: harnessBearer)).statusCode, 401);
+      expect((await callProbe(route, bearer: 'not-minted')).statusCode, 401);
+      expect(probe.turns, isEmpty);
+    });
+
+    test(
+      'a harness bearer is honored where no gateway token is configured, and bearerless callers carry no turn',
+      () async {
+        final route = mcpRoute(turnHandler, requireLoopbackHost: true, harnessBearers: bearers);
+
+        await callProbe(route, bearer: harnessBearer);
+        await callProbe(route);
+
+        expect(probe.turns, [turn, null]);
+      },
+    );
   });
 }

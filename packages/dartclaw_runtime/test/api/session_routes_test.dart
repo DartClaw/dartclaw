@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager;
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' hide TurnManager;
+import 'package:dartclaw_runtime/src/api/session_message_routes.dart' show resolveConversationReference;
 import 'package:dartclaw_runtime/src/auth/request_auth_context.dart' show dartclawAuthIsAdminContextKey;
 import 'package:dartclaw_runtime/src/conversation/conversation_service.dart' show ConversationService;
 import 'package:dartclaw_runtime/src/templates/sidebar.dart'
@@ -606,6 +607,24 @@ void main() {
       expect(turns.lastExecuteMessages!.last['content'], message);
     });
 
+    test('trusted turn context: a web-chat send carries surface web, the session key and no sender', () async {
+      final keyed = await sessions.createSession(channelKey: 'agent:main:web:keyed');
+      final unkeyed = await sessions.createSession();
+
+      for (final session in [keyed, unkeyed]) {
+        final res = await handler(
+          apiRequest('POST', '/api/sessions/${session.id}/send', jsonBody: {'message': 'run the check'}),
+        );
+        expect(res.statusCode, 200);
+        expect(
+          turns.lastProvenance,
+          TurnProvenance.web(sessionKey: session.channelKey),
+          reason: 'session ${session.id}',
+        );
+        expect(turns.lastProvenance?.senderId, isNull);
+      }
+    });
+
     test('escapes user message in HTML fragment', () async {
       final session = await sessions.createSession();
       final res = await handler(
@@ -907,6 +926,22 @@ void main() {
       final persisted = await messages.getMessages(session.id);
       final metadata = jsonDecode(persisted.single.metadata!) as Map<String, dynamic>;
       expect((metadata['references'] as List).single, containsPair('type', 'file'));
+    });
+
+    test('retained file reference without a project service is unavailable', () async {
+      // Present under the process cwd whether the suite runs from the package or the repo root.
+      const launchDirectoryFile = 'pubspec.yaml';
+      expect(File(p.join(Directory.current.path, launchDirectoryFile)).existsSync(), isTrue);
+
+      final resolved = await resolveConversationReference(
+        type: 'file',
+        id: launchDirectoryFile,
+        sessions: sessions,
+        projects: null,
+      );
+
+      expect(resolved.reference, isNull);
+      expect(resolved.error?.statusCode, 400);
     });
 
     test('rejects nonexistent file and memory rich input references before persistence', () async {

@@ -1,0 +1,18 @@
+<div tl:fragment="sourceView" class="source-view">
+  <main id="main-content" tabindex="-1" class="page-content print-in">
+    <div class="page-inner">
+      <h1 class="t-label" tl:text="${title}">Source</h1>
+      <article tl:if="${markdown}" class="card">
+        <div class="msg-content" data-markdown="" tl:text="${markdown}">document content</div>
+      </article>
+      <article tl:unless="${markdown}" class="card">
+        <p class="kg-fact-statement"><strong tl:text="${fact.entity}">entity</strong> <span tl:text="${fact.predicate}">predicate</span> <strong tl:text="${fact.value}">value</strong></p>
+        <div class="kg-validity-window">
+          <span class="kg-window-pill">valid_from <strong tl:text="${fact.validFrom}">2026-01-01</strong></span>
+          <span class="kg-window-pill">valid_to <strong tl:text="${fact.validTo}">ongoing</strong></span>
+        </div>
+        <p tl:if="${fact.invalidatedAt}" class="t-caption">Invalidated <span tl:text="${fact.invalidatedAt}">2026-02-01</span></p>
+      </article>
+    </div>
+  </main>
+</div>

@@ -19,23 +19,28 @@
   <link rel="stylesheet" href="/static/icons.css" tl:attr="href=${assetPrefix} + '/icons.css'">
   <link rel="stylesheet" href="/static/hljs-catppuccin-mocha.css" id="hljs-theme"
         tl:attr="href=${assetPrefix} + '/hljs-catppuccin-mocha.css'">
-  <script defer="defer" src="/static/htmx.min.js" tl:attr="src=${assetPrefix} + '/htmx.min.js'"></script>
-  <script defer="defer" src="/static/sse.js" tl:attr="src=${assetPrefix} + '/sse.js'"></script>
+  <script tl:unless="${standalone}" defer="defer" src="/static/htmx.min.js"
+          tl:attr="src=${assetPrefix} + '/htmx.min.js'"></script>
+  <script tl:unless="${standalone}" defer="defer" src="/static/sse.js"
+          tl:attr="src=${assetPrefix} + '/sse.js'"></script>
   <script defer="defer" src="/static/marked.min.js" tl:attr="src=${assetPrefix} + '/marked.min.js'"></script>
   <script defer="defer" src="/static/hljs.min.js" tl:attr="src=${assetPrefix} + '/hljs.min.js'"></script>
   <script defer="defer" src="/static/hljs-dart.min.js" tl:attr="src=${assetPrefix} + '/hljs-dart.min.js'"></script>
   <script defer="defer" src="/static/purify.min.js" tl:attr="src=${assetPrefix} + '/purify.min.js'"></script>
-  <script defer="defer" src="/static/stimulus.min.js" tl:attr="src=${assetPrefix} + '/stimulus.min.js'"></script>
-  <script type="module" src="/static/controllers/index.js"
+  <script tl:unless="${standalone}" defer="defer" src="/static/stimulus.min.js"
+          tl:attr="src=${assetPrefix} + '/stimulus.min.js'"></script>
+  <script tl:unless="${standalone}" type="module" src="/static/controllers/index.js"
           tl:attr="src=${assetPrefix} + '/controllers/index.js'"></script>
+  <script tl:if="${standalone}" type="module" src="/static/source_view.js"
+          tl:attr="src=${assetPrefix} + '/source_view.js'"></script>
 </head>
-<body tl:attr="data-app-name=${appName}" data-controller="dc-shell dc-toast dc-conversation-command"
+<body tl:attr="data-app-name=${appName},data-controller=${standalone ? null : 'dc-shell dc-toast dc-conversation-command'}"
       hx-indicator:inherited="#nav-progress"
       hx-status:4xx:inherited="swap:none" hx-status:5xx:inherited="swap:none">
 <a tl:if="${showSkipLink}" class="skip-link" href="#main-content">Skip to content</a>
 <div id="nav-progress" class="scan-bar htmx-indicator" aria-hidden="true"></div>
 <tl:block tl:utext="${body}"></tl:block>
-<dialog id="global-command-dialog" class="dialog command-dialog card-glass" data-command-dialog="global"
+<dialog tl:unless="${standalone}" id="global-command-dialog" class="dialog command-dialog card-glass" data-command-dialog="global"
         data-search-lifecycle="all" aria-label="Search and commands">
   <div class="palette-input-row">
     <span class="icon icon-search" aria-hidden="true"></span>

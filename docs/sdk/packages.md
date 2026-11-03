@@ -34,6 +34,7 @@ The client tier never opens a DartClaw data directory, reads a config file, or s
 | `dartclaw_whatsapp` | WhatsApp channel integration via GOWA | `WhatsAppChannel`, `WhatsAppConfig`, `GowaManager` | WhatsApp ingress/egress in your own runtime | No | Deferred |
 | `dartclaw_signal` | Signal channel integration via `signal-cli` | `SignalChannel`, `SignalConfig`, `SignalCliManager` | Signal support in your own runtime | No | Deferred |
 | `dartclaw_google_chat` | Google Chat channel integration | `GoogleChatChannel`, `GoogleChatConfig`, `GoogleChatRestClient` | Google Chat support in your own runtime | No | Deferred |
+| `dartclaw_slack` | Slack channel integration over Socket Mode | `SlackChannel`, `SlackConfig`, `SlackWebApiClient` | Slack support in your own runtime | No | Deferred |
 | `dartclaw_workflow` | Workflow definition, registry, validation, and execution | `WorkflowService`, `WorkflowExecutor`, `WorkflowDefinitionParser` | Multi-step workflows without the web server | No | Undecided |
 | `dartclaw_runtime` | Reference HTTP server, HTMX web UI, MCP tools, outbound MCP client | `DartclawServer`, `ContextResearchTool`, `CitationPacket`, `OutboundMcpPool` | Study, fork, or deploy the built-in server | Yes | Undecided |
 | `dartclaw_cli` | Reference CLI application in `apps/` | Executable app | Study or fork the operational CLI commands | Yes | Repo-only (leaning) |
@@ -62,7 +63,7 @@ dartclaw_workflow
 ├─ dartclaw_core
 └─ dartclaw_kernel
 
-dartclaw_whatsapp / dartclaw_signal / dartclaw_google_chat
+dartclaw_whatsapp / dartclaw_signal / dartclaw_google_chat / dartclaw_slack
 ├─ dartclaw_core
 └─ dartclaw_kernel
 
@@ -71,7 +72,7 @@ dartclaw_runtime
 ├─ dartclaw_core
 ├─ dartclaw_kernel
 ├─ dartclaw_workflow
-└─ dartclaw_google_chat, dartclaw_signal, dartclaw_whatsapp
+└─ dartclaw_google_chat, dartclaw_signal, dartclaw_slack, dartclaw_whatsapp
 
 dartclaw_cli
 ├─ dartclaw_acp
@@ -96,7 +97,7 @@ dartclaw_cli
 | Embed the harness in my own process | Fork the repo; `dartclaw_core` |
 | Write a custom guard | Fork the repo; `dartclaw_kernel` |
 | Add PostgreSQL-backed memory and search to my own runtime | Fork the repo; `dartclaw_core` |
-| Add WhatsApp, Signal, or Google Chat to my own runtime | Fork the repo; `dartclaw_core` + the channel package |
+| Add WhatsApp, Signal, Google Chat, or Slack to my own runtime | Fork the repo; `dartclaw_core` + the channel package |
 | Fork the reference server as a starting point | Clone the repo and modify `dartclaw_runtime` / `dartclaw_cli` |
 
 ## Guides and Examples

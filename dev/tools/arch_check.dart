@@ -121,26 +121,54 @@ import 'loc_target.dart';
 // Reviewed necessity, 2026-09-26 (ADR-033): runtime 75596 -> 77328
 // (measured 75828 after S13 general/project context). The context authority,
 // API and projection growth remains after reducing oversized service and test files.
+// Package admission, 2026-10-06 (ADR-056 amendment, 0.28): dartclaw_slack 1257
+// (measured). The adapter, Web API client, Socket Mode client and envelope
+// dispatch are the whole package; later Slack stories raise it with their own
+// reviewed-necessity line. The shared thread seam added to core, kernel and
+// runtime stays inside their bands.
+// Reviewed necessity, 2026-10-06 (0.28 streaming and inbound files): dartclaw_slack 1257 -> 2073 (measured 2073).
+// The per-turn feedback strategy (status and streamed reply with its failure fallbacks), the bounded file
+// download in the Web API client and the file intake each own behaviour the adapter did not have.
+// Threaded notifications, 2026-10-06: dartclaw_slack 2073 -> 2223 (measured 2223). Necessity: the one
+// implementation of the thread-notification capability for Slack (the conversation-qualified thread identity,
+// Block Kit rendering with escaping, and the two thread sends with participation).
+// Reviewed necessity, 2026-10-07 (0.28 Events API): dartclaw_slack 2223 -> 2602 (measured 2602 on the merged
+// tree). The signed Events API handler, the health reporter and the events-mode channel are the second
+// transport behind the one envelope dispatch; the shared webhook helpers moved into core and shrank runtime
+// and Google Chat.
+// Reviewed necessity, 2026-10-07 (0.28 run approvals), targets re-measured on the finished tree: core 32367 -> 32588,
+// runtime 77328 -> 78856, slack 2602 -> 2832, workflow 25631 -> 26416. Core carries the click port, action IDs and
+// the capability edit; workflow the one interaction record and the serialized, typed resolution that replaced two
+// unguarded resume and cancel paths; runtime the single admin gate and audit writer (WorkflowRunControl), three
+// tools and the subscriber's post edit; slack the block-action handler and the block-bearing edit. Each has one
+// owner, and the adapters and tools hold no admin check or resume call of their own.
+// Reviewed necessity, 2026-10-07 (0.28 request changes), targets re-measured on the finished tree: core 32588 -> 32652,
+// runtime 78856 -> 79050, slack 2832 -> 3077, workflow 26416 -> 26799. Core carries the two new port actions, their
+// refusals and the event's round fields; workflow the typed `revise`/`maxRevisions` step keys, the owner's third
+// resolution (one derivation of whether it is open, one persisted update), the executor re-entry and the validator
+// rules; runtime the control's third action and check, one route, one tool and the subscriber's third action and
+// edit; slack the modal and the acknowledgement body both transports send. Each has one owner: adapters and tools
+// hold no admin check or owner call of their own.
 const _libLocCeilings = <String, int>{
   'dartclaw': 58,
   'dartclaw_acp': 3646,
   'dartclaw_bridge': 928,
   'dartclaw_cli': 14480,
   'dartclaw_client': 625,
-  'dartclaw_core': 32367,
+  'dartclaw_core': 32652,
   'dartclaw_google_chat': 7509,
   'dartclaw_kernel': 21444,
-  'dartclaw_runtime': 77328,
+  'dartclaw_runtime': 79050,
   'dartclaw_search': 1979,
   'dartclaw_signal': 1796,
+  'dartclaw_slack': 3077,
   'dartclaw_testing': 5026,
   'dartclaw_whatsapp': 1184,
-  'dartclaw_workflow': 25631,
+  'dartclaw_workflow': 26799,
 };
-// 2026-09-09: raised 12 -> 13 for the ADR-050 hybrid-search package. The
-// ceiling equals the shipped package count, with no spare slot for an
-// unreviewed boundary. `dartclaw_bridge` counts as its own package.
-const _workspacePackageCeiling = 13;
+// Tracks the approved package inventory (ADR-056), including Slack and bridge.
+// Update with approved additions; this guards unrecorded packages, not growth.
+const _workspacePackageCeiling = 14;
 
 final class _CheckResult {
   final String name;

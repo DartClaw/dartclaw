@@ -6,7 +6,7 @@
 
 _Agentic powers. No supply-chain roulette. Secure by design._
 
-**DartClaw turns coding agents into a persistent, security-conscious personal AI – equal parts assistant, context engine, and software factory.** A single AOT-compiled Dart binary hosts Claude Code, Codex, or a supported ACP target and equips it with long-term memory and a citation-backed Context Engine, chat access via WhatsApp, Signal, and Google Chat, scheduled jobs and background tasks, logical-agent conversations, and end-to-end coding workflows – all driven from a full web UI, REST API, and CLI. Real security boundaries – container isolation, a fail-closed guard chain, credential isolation, runtime governance – stand between agents and your system. The host has no Node.js or npm runtime; PostgreSQL 14+ is the sole relational database and ordinary lexical search needs no optional vector extension or embedding model.
+**DartClaw turns coding agents into a persistent, security-conscious personal AI – equal parts assistant, context engine, and software factory.** A single AOT-compiled Dart binary hosts Claude Code, Codex, or a supported ACP target and equips it with long-term memory and a citation-backed Context Engine, chat access via WhatsApp, Signal, Google Chat, and Slack, scheduled jobs and background tasks, logical-agent conversations, and end-to-end coding workflows – all driven from a full web UI, REST API, and CLI. Real security boundaries – container isolation, a fail-closed guard chain, credential isolation, runtime governance – stand between agents and your system. The host has no Node.js or npm runtime; PostgreSQL 14+ is the sole relational database and ordinary lexical search needs no optional vector extension or embedding model.
 
 > [!NOTE]
 > DartClaw is **experimental** (soft-published, pre-alpha) – breaking changes are expected while the core matures.
@@ -22,7 +22,7 @@ _Agentic powers. No supply-chain roulette. Secure by design._
 - **One self-contained binary** – AOT-compiled Dart, zero Node.js/npm. Web UI, templates, skills, and workflow definitions ship *inside* the binary; a bare install serves everything with no asset downloads and no network access at startup.
 - **Multiple agents, one runtime** – Claude Code (JSONL) and Codex (JSON-RPC) are first-class harnesses. An ACP registration is admitted only when it matches a verified target profile; admitted ACP agents run on the host and never receive terminal reverse-calls. One canonical tool policy applies across all providers.
 - **Secure by design, not by prompt** – defense-in-depth with container isolation (`network:none`), a fail-closed guard chain, a credential proxy that keeps API keys out of the container, audit logging, and content classification. Boundaries live in the OS and the host, not in the system prompt.
-- **Your AI, on your phone** – WhatsApp, Signal, and Google Chat channels with DM/group access control, mention gating, and thread-bound task sessions. **Crowd coding**: a group chat collaboratively steers a shared agent session.
+- **Your AI, on your phone** – WhatsApp, Signal, Google Chat, and Slack channels with DM/group access control, mention gating, and thread-bound task sessions. **Crowd coding**: a group chat collaboratively steers a shared agent session.
 - **It remembers** – the Context Engine maintains an LLM-curated wiki, a temporal knowledge graph, and long-term memory, synthesized into compact citation-backed packets served to agents over MCP (`context_research`) – browsable in the web UI's read-only Knowledge Hub with a point-in-time timeline. PostgreSQL lexical search is built in; semantic hybrid search is explicit and optional.
 - **A software factory** – built-in `story-and-implement`, `plan-and-implement`, and `code-review` YAML workflows take work from spec to reviewed code, plus custom workflows triggered from chat, web forms, or GitHub PR webhooks. Run server-backed or fully server-less, with approval gates, live CLI progress, and per-step token accounting.
 - **Task orchestration** – background tasks with review queues, goals, declared git worktrees, and per-task provider overrides; bounded per-provider worker capacity runs mixed providers in parallel.
@@ -106,7 +106,7 @@ Two layers with a hard trust boundary between them:
 
 ```
                                                           ┌─── claude binary (JSONL over stdio)
-User ─→ HTTP / WhatsApp / Signal / Google Chat ─→ Dart Host ─→ Guards ─→ Container ─┼─── codex binary (JSON-RPC)
+User ─→ HTTP / WhatsApp / Signal / Google Chat / Slack ─→ Dart Host ─→ Guards ─→ Container ─┼─── codex binary (JSON-RPC)
                                                   │                      │           └─── ACP agents (Goose, Vibe, …)
                                             Guard Chain            network:none
                                             Audit Logger         Credential Proxy
@@ -160,7 +160,7 @@ Behavior files in `~/.dartclaw/workspace/`: `SOUL.md`, `AGENTS.md`, `USER.md`, `
 - **[Tasks](docs/guide/tasks.md)** – task orchestration, review workflow, declared worktree isolation, provider overrides
 - **[Workflows](docs/guide/workflows.md)** – authoring guide, trigger surfaces, built-in workflows ([YAML reference](docs/guide/workflows-reference.md))
 - **[Agents](docs/guide/agents.md)** – logical-agent sessions, provider selection, model selection, shared worker capacity
-- **[Channels](docs/guide/whatsapp.md)** – [WhatsApp](docs/guide/whatsapp.md) / [Signal](docs/guide/signal.md) / [Google Chat](docs/guide/google-chat.md) setup and access control
+- **[Channels](docs/guide/whatsapp.md)** – [WhatsApp](docs/guide/whatsapp.md) / [Signal](docs/guide/signal.md) / [Google Chat](docs/guide/google-chat.md) / [Slack](docs/guide/slack.md) setup and access control
 - **[Scheduling](docs/guide/scheduling.md)** – heartbeat, cron jobs
 - **[Search & Memory](docs/guide/search.md)** – PostgreSQL lexical search and explicit hybrid search
 - **[Projects & Git](docs/guide/projects-and-git.md)** – project directory, worktrees, branch management
@@ -203,6 +203,7 @@ packages/
   dartclaw_whatsapp/            WhatsApp channel (GOWA sidecar)
   dartclaw_signal/              Signal channel (signal-cli sidecar)
   dartclaw_google_chat/         Google Chat channel (Workspace Events + Pub/Sub)
+  dartclaw_slack/               Slack channel (Socket Mode or Events API)
   dartclaw_testing/             Shared test fakes and utilities
 docs/                           User guide and SDK guide
 dev/                            Contributor / agent docs, dev tools, testing profiles

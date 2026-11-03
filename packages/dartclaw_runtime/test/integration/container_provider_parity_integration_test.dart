@@ -235,6 +235,8 @@ void main() {
       final security = await wireTestSecurity(
         config: config,
         dataDir: dataDir.path,
+        runtimeCwd: checkoutRoot,
+        sourceCheckoutDir: checkoutRoot,
         eventBus: eventBus,
         exitFn: unexpectedExit,
       );
@@ -247,6 +249,7 @@ void main() {
       final wiring = HarnessWiring(
         config: config,
         dataDir: dataDir.path,
+        runtimeCwd: checkoutRoot,
         port: 0,
         harnessFactory: factory,
         exitFn: unexpectedExit,
@@ -283,8 +286,11 @@ void main() {
           ),
         );
         expect(lease, isNotNull);
+        // A lease still active when a later assertion throws would make
+        // `executions.dispose()` wait for it forever and leave its container running.
+        addTearDown(lease!.release);
         expect(harnessConfigs, hasLength(before + 1), reason: 'a different execution principal reused a worker');
-        return (lease: lease!, config: harnessConfigs.last);
+        return (lease: lease, config: harnessConfigs.last);
       }
 
       Future<Map<String, Map<String, Object?>>> mounts(HarnessFactoryConfig config) async {

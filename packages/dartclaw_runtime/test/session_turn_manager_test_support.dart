@@ -32,20 +32,39 @@ class FakeTurnManager extends TurnManager {
 
   final String Function()? _turnIdFactory;
   bool _busy = false;
+  final List<Completer<void>> _capacityWaiters = [];
   final Map<String, String> _activeTurns = {};
   final Map<String, TurnOutcome> _outcomes = {};
   bool canCancelActiveTurn = true;
   PromptScope? lastPromptScope;
+  TurnProvenance? lastProvenance;
   List<Map<String, dynamic>>? lastExecuteMessages;
   final List<String> resetContinuitySessionIds = [];
-  bool reserveCalled = false;
+  Object? reserveFailure;
+  int reserveCount = 0;
+  bool get reserveCalled => reserveCount > 0;
   int executeCallCount = 0;
 
   void setBusy() {
     _busy = true;
   }
 
-  void clearBusy() => _busy = false;
+  void clearBusy() {
+    _busy = false;
+    final waiters = List.of(_capacityWaiters);
+    _capacityWaiters.clear();
+    for (final waiter in waiters) {
+      waiter.complete();
+    }
+  }
+
+  @override
+  Future<void> whenAdmissionCapacityAvailable() {
+    if (!_busy) return Future<void>.value();
+    final waiter = Completer<void>();
+    _capacityWaiters.add(waiter);
+    return waiter.future;
+  }
 
   @override
   Future<String> reserveTurn(
@@ -69,12 +88,16 @@ class FakeTurnManager extends TurnManager {
     bool readOnly = false,
     Duration? turnTimeout,
     TurnOrigin? origin,
+    TurnProvenance? provenance,
   }) async {
-    reserveCalled = true;
+    reserveCount += 1;
+    final failure = reserveFailure;
+    if (failure != null) throw failure;
     if (_busy) {
       throw BusyTurnException('global busy', isSameSession: false);
     }
     lastPromptScope = promptScope;
+    lastProvenance = provenance;
     final turnId = _turnIdFactory?.call() ?? 'fake-turn-id';
     _activeTurns[sessionId] = turnId;
     return turnId;
@@ -89,6 +112,7 @@ class FakeTurnManager extends TurnManager {
     String? effort,
     required PromptScope promptScope,
     required TurnOrigin origin,
+    required TurnProvenance provenance,
   }) => reserveTurn(
     sessionId,
     directory: directory,
@@ -97,6 +121,7 @@ class FakeTurnManager extends TurnManager {
     isHumanInput: true,
     promptScope: promptScope,
     origin: origin,
+    provenance: provenance,
   );
 
   @override

@@ -167,7 +167,7 @@ scheduling:
 > with a warning and its entries are rewritten into the form above, so the schedule is unchanged — move them across
 > at your convenience. See [Scheduling](../scheduling.md).
 
-From WhatsApp, Signal, or Google Chat, ask for background work in ordinary language; the agent uses the task tools
+From WhatsApp, Signal, Google Chat, or Slack, ask for background work in ordinary language; the agent uses the task tools
 described in [Channel-to-Task Integration](_common-patterns.md#channel-to-task-integration). Use cron jobs for
 lightweight recurring prompts and tasks when you need structured review, artifacts, or multi-step work.
 

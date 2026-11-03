@@ -856,6 +856,79 @@ void main() {
       });
     });
 
+    group('image input', () {
+      Future<Map<String, dynamic>> turnPayload(List<Map<String, dynamic>> messages) async {
+        late CapturingFakeProcess fake;
+        final h = buildClaudeHarness(
+          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
+            fake = makeCapturingClaudeProcess();
+            scheduleMicrotask(() => fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}})));
+            Future.delayed(const Duration(milliseconds: 20), () {
+              fake.emitStdout(
+                jsonEncode({
+                  'type': 'result',
+                  'result': 'ok',
+                  'cost_usd': 0.01,
+                  'duration_ms': 100,
+                  'duration_api_ms': 50,
+                  'num_turns': 1,
+                  'is_error': false,
+                  'session_id': 'test-session',
+                }),
+              );
+            });
+            return fake;
+          },
+        );
+        addTeardownAsync(() => h.dispose());
+        await h.start();
+        await h.turn(sessionId: 'test', messages: messages, systemPrompt: '');
+        return fake.capturedStdinJson.lastWhere((entry) => entry['type'] == 'user');
+      }
+
+      test('the last entry\'s images are written as image blocks after the text block', () async {
+        final payload = await turnPayload([
+          {
+            'role': 'user',
+            'content': 'what is this?',
+            'images': [
+              {'mediaType': 'image/png', 'data': 'UE5H'},
+            ],
+          },
+        ]);
+
+        expect(payload['message'], {
+          'role': 'user',
+          'content': [
+            {'type': 'text', 'text': 'what is this?'},
+            {
+              'type': 'image',
+              'source': {'type': 'base64', 'media_type': 'image/png', 'data': 'UE5H'},
+            },
+          ],
+        });
+      });
+
+      test('an entry without images writes the string content, malformed images included', () async {
+        final plain = await turnPayload([
+          {'role': 'user', 'content': 'hello'},
+        ]);
+        final malformed = await turnPayload([
+          {
+            'role': 'user',
+            'content': 'hello',
+            'images': [
+              'nope',
+              {'mediaType': 3},
+            ],
+          },
+        ]);
+
+        expect(plain['message'], {'role': 'user', 'content': 'hello'});
+        expect(malformed['message'], {'role': 'user', 'content': 'hello'});
+      });
+    });
+
     group('hook callbacks', () {
       test('can_use_tool denies when dontAsk mode unexpectedly emits a native permission request', () async {
         late CapturingFakeProcess fake;
@@ -969,6 +1042,19 @@ void main() {
               containsPair('response', containsPair('hookSpecificOutput', containsPair('permissionDecision', 'deny'))),
             ),
           ),
+        );
+        expect(
+          fake.capturedStdinJson,
+          contains(
+            containsPair(
+              'response',
+              containsPair(
+                'response',
+                containsPair('hookSpecificOutput', containsPair('permissionDecisionReason', 'blocked')),
+              ),
+            ),
+          ),
+          reason: 'the guard verdict reason reaches the model, not only a generic block',
         );
         fake.emitStdout(jsonEncode({'type': 'result', 'result': 'done', 'is_error': false}));
         await turnFuture;
@@ -1171,6 +1257,50 @@ void main() {
           isTrue,
         );
         expect(fake.capturedStdinJson, isNotEmpty);
+      });
+
+      test('PreToolUse holds Claude Grep and Glob to FileGuard from the hook cwd', () async {
+        final ws = Directory.systemTemp.createTempSync('claude_search_guard_').resolveSymbolicLinksSync();
+        addTearDown(() => Directory(ws).deleteSync(recursive: true));
+        Directory('$ws/.ssh').createSync();
+        Directory('$ws/proj').createSync();
+        final recording = RecordingGuard();
+        late CapturingFakeProcess fake;
+        final h = buildClaudeHarness(
+          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
+            fake = makeCapturingClaudeProcess();
+            scheduleMicrotask(() {
+              fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
+            });
+            return fake;
+          },
+          guardChain: GuardChain(guards: [recording, FileGuard()]),
+        );
+        addTeardownAsync(() => h.dispose());
+        await h.start();
+
+        Future<String?> decisionFor(String toolName, Map<String, dynamic> toolInput, {String? cwd}) async {
+          fake.emitStdout(
+            jsonEncode({
+              'type': 'control_request',
+              'request_id': 'req-$toolName-${fake.capturedStdinJson.length}',
+              'request': {
+                'subtype': 'hook_callback',
+                'input': {'hook_event_name': 'PreToolUse', 'cwd': ?cwd, 'tool_name': toolName, 'tool_input': toolInput},
+              },
+            }),
+          );
+          await pumpEventQueue();
+          final Map<String, dynamic> last = fake.capturedStdinJson.last;
+          return last['response']['response']['hookSpecificOutput']['permissionDecision'] as String?;
+        }
+
+        expect(await decisionFor('Grep', {'pattern': 'PRIVATE KEY', 'path': '$ws/.ssh'}), 'deny');
+        expect(recording.lastContext!.toolName, 'file_read');
+        expect(await decisionFor('Glob', {'pattern': '**/id_*', 'path': ws}), 'allow');
+        expect(await decisionFor('Grep', {'pattern': 'KEY', 'path': '../.ssh'}, cwd: '$ws/proj'), 'deny');
+        expect(recording.lastContext!.toolInput!['cwd'], '$ws/proj');
+        expect(await decisionFor('Grep', {'pattern': 'KEY'}, cwd: '$ws/proj'), 'allow');
       });
 
       test('malformed hook callbacks deny exactly once and do not poison later valid callbacks', () async {

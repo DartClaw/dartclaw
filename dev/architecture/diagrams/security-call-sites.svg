@@ -1,0 +1,243 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 822" width="1000" height="822" role="img" aria-labelledby="title desc">
+  <title id="title">Guard and content-scan call sites</title>
+  <desc id="desc">OutboundMcpPool runs EgressGuard, per-server governance and an awaited audit write before dispatching to an external MCP server, then scans a public server's result with ContentScan. ContentGuard, WebFetchTool and the outbound pool all call one ContentScan, which decides classification and the fail policy. TurnRunner evaluates the chain at messageReceived and beforeAgentSend through TurnGuardEvaluator.</desc>
+  <style>
+
+    svg { --bg:#f6f7f9; --card:#ffffff; --ink:#1e2030; --ink2:#4c4f69; --ink3:#6c6f85; --rule:#ccd0da; --edge:#8c8fa1; --hi:#1e66f5; --on:#ffffff; --panel:#1e1e2e; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+      --host:#40a02b; --host-d:#1f5c2a; --host-l:#2d7a1f; --ext:#e07c4f; --ext-d:#a8481c; --ext-l:#b5531f; --store:#179299; --store-d:#0f5f63; --store-l:#0e7377;
+      --sec:#d20f39; --sec-d:#9b0c2c; --sec-l:#b80d33; --chan:#8839ef; --chan-d:#5d23a8; --chan-l:#7027d4; --neu:#7c7f93; --neu-d:#4c4f69; --neu-l:#5c5f77; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#181825; --card:#1e1e2e; --ink:#cdd6f4; --ink2:#bac2de; --ink3:#9399b2; --rule:#45475a; --edge:#7f849c; --hi:#89b4fa; --on:#f5f7ff; --panel:#11111b; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+        --host:#a6e3a1; --host-d:#2f6b3a; --host-l:#a6e3a1; --ext:#fab387; --ext-d:#8f4a24; --ext-l:#fab387; --store:#94e2d5; --store-d:#1f6460; --store-l:#94e2d5;
+        --sec:#f38ba8; --sec-d:#8a2c45; --sec-l:#f38ba8; --chan:#cba6f7; --chan-d:#5e3f94; --chan-l:#cba6f7; --neu:#9399b2; --neu-d:#45475a; --neu-l:#bac2de; }
+    }
+    text { fill: var(--ink); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .mono, .kick, .badge text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+    .bg { fill: var(--bg); }
+    .title { font-size: 21px; font-weight: 700; }
+    .lede { fill: var(--ink3); font-size: 13px; }
+    .kick { font-size: 10.5px; font-weight: 600; letter-spacing: .1em; fill: var(--kl, var(--ink3)); }
+    .k-host { --k:var(--host); --kd:var(--host-d); --kl:var(--host-l); }
+    .k-ext { --k:var(--ext); --kd:var(--ext-d); --kl:var(--ext-l); }
+    .k-store { --k:var(--store); --kd:var(--store-d); --kl:var(--store-l); }
+    .k-sec { --k:var(--sec); --kd:var(--sec-d); --kl:var(--sec-l); }
+    .k-chan { --k:var(--chan); --kd:var(--chan-d); --kl:var(--chan-l); }
+    .k-neu { --k:var(--neu); --kd:var(--neu-d); --kl:var(--neu-l); }
+    .band { fill: color-mix(in srgb, var(--k) 6%, var(--bg)); stroke: color-mix(in srgb, var(--k) 50%, var(--bg)); stroke-width: 1.4; stroke-dasharray: 7 5; }
+    .box { stroke-width: 1.5; }
+    .tint .box { fill: color-mix(in srgb, var(--k) 13%, var(--card)); stroke: var(--k); }
+    .line .box { fill: var(--card); stroke: var(--k); }
+    .ghost .box { fill: none; stroke: var(--k); stroke-dasharray: 5 4; }
+    .solid .box { fill: var(--kd); stroke: var(--kd); }
+    .name { font-size: 14.5px; font-weight: 700; }
+    .sub { font-size: 11.5px; fill: var(--ink2); }
+    .mono { font-size: 11.5px; fill: var(--ink2); }
+    .solid text { fill: var(--on); }
+    .solid .sub, .solid .mono { fill: var(--on); fill-opacity: .82; }
+    .badge rect { fill: none; stroke: var(--kl); stroke-width: 1.2; }
+    .badge text { font-size: 9.5px; font-weight: 700; letter-spacing: .06em; fill: var(--kl); text-anchor: middle; }
+    .solid .badge rect { stroke: var(--on); stroke-opacity: .7; }
+    .solid .badge text { fill: var(--on); }
+    .e path { fill: none; stroke: var(--ec, var(--edge)); stroke-width: var(--ew, 1.6px); marker-end: var(--em, url(#ah)); }
+    .e.main path { stroke: var(--ec, var(--host)); stroke-width: var(--ew, 2.4px); marker-end: var(--em, url(#ah-main)); }
+    .e.bad path { stroke: var(--ec, var(--sec)); marker-end: var(--em, url(#ah-bad)); }
+    .e.dash path { stroke-dasharray: 6 4; }
+    .el { font-size: 11px; fill: var(--ink2); paint-order: stroke; stroke: var(--halo, var(--bg)); stroke-width: 4px; stroke-linejoin: round; }
+    .in-host .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    .ah { fill: var(--edge); } .ah-main { fill: var(--host); } .ah-bad { fill: var(--sec); } .ah-hi { fill: var(--hi); }
+    .panel { fill: var(--panel); }
+    .panel-kick { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10.5px; font-weight: 700; letter-spacing: .12em; fill: var(--panel-kick); }
+    .p1 { fill: var(--panel-ink); font-size: 13px; }
+    .p1 tspan.b { font-weight: 700; }
+    .p2 { fill: var(--panel-sub); font-size: 12.5px; }
+    .lg { font-size: 11px; fill: var(--ink2); }
+    .chip rect { fill: color-mix(in srgb, var(--k) 10%, var(--card)); stroke: var(--k); stroke-width: 1; }
+    .chip text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10px; font-weight: 600; fill: var(--kl); }
+    .step circle { fill: var(--kd); } .step text { fill: var(--on); font-size: 11px; font-weight: 700; text-anchor: middle; }
+    /* Interaction, effective only when the SVG is opened directly. */
+    .n { cursor: pointer; }
+    .n:hover .box, a:focus-visible .box { stroke: var(--hi); stroke-width: 2.8; }
+    .d { display: none; pointer-events: none; }
+    .n:hover .d, a:focus-visible .d { display: inline; }
+    svg:has(.n:hover) .d0, svg:has(a:focus-visible) .d0 { display: none; }
+    svg:has(.n:hover) .edges .e { opacity: .14; }
+    .e.join path { marker-end: none; }
+    .band.inner { fill: none; stroke-dasharray: 3 4; }
+    .mono-name { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13.5px; }
+    .edges .el { --halo: color-mix(in srgb, var(--sec) 6%, var(--bg)); }
+    svg:has(#egress:hover) .edges :is(.f-egress,.t-egress) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#gov:hover) .edges :is(.f-gov,.t-gov) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#audit:hover) .edges :is(.f-audit,.t-audit) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#dispatch:hover) .edges :is(.f-dispatch,.t-dispatch) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#poolscan:hover) .edges :is(.f-poolscan,.t-poolscan) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#las:hover) .edges :is(.f-las,.t-las) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#search:hover) .edges :is(.f-search,.t-search) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#web:hover) .edges :is(.f-web,.t-web) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#cg:hover) .edges :is(.f-cg,.t-cg) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#cs:hover) .edges :is(.f-cs,.t-cs) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#clf:hover) .edges :is(.f-clf,.t-clf) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#tr:hover) .edges :is(.f-tr,.t-tr) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#tge:hover) .edges :is(.f-tge,.t-tge) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#gc:hover) .edges :is(.f-gc,.t-gc) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+  </style>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-main" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path class="ah-main" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-bad" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="ah-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="822"/>
+  <!-- Details panel: painted first so node details (.d) draw on top -->
+  <rect class="panel" x="16" y="726" width="968" height="80" rx="12"/>
+  <text class="panel-kick" x="36" y="750">DETAILS</text>
+  <g class="d0"><text class="p1" x="36" y="774">Hover a box for what it checks and what a block does; its connections light up. Click it to open its section.</text><text class="p2" x="36" y="794">Inside a rendered document this image is static. Click it to open the interactive SVG.</text></g>
+
+  <text class="kick" x="24" y="32">COMPONENT · call sites outside the GuardChain</text>
+  <text class="title" x="24" y="58">Guard and content-scan call sites</text>
+  <text class="lede" x="24" y="80">Three seams evaluate egress or content without the chain, and every classification goes through one ContentScan.</text>
+
+  <g class="k-sec"><rect class="band" x="16" y="96" width="968" height="154" rx="14"/><text class="kick" x="32" y="118">OUTBOUND MCP · OutboundMcpPool.callTool · default-deny, fail-closed</text></g>
+  <g class="k-sec"><rect class="band" x="16" y="286" width="968" height="226" rx="14"/><text class="kick" x="32" y="308">CONTENT SCAN · classification and its fail policy decided in one place</text></g>
+  <g class="k-host"><rect class="band" x="16" y="548" width="968" height="126" rx="14"/><text class="kick" x="32" y="570">TURNRUNNER HOOKS · evaluated by TurnGuardEvaluator, not by a guard of their own</text></g>
+
+  <g class="edges">
+    <g class="e main f-egress t-gov"><path d="M200,182 H216"/></g>
+    <g class="e main f-gov t-audit"><path d="M394,182 H410"/></g>
+    <g class="e main f-audit t-dispatch"><path d="M588,182 H604"/></g>
+    <g class="e main f-dispatch t-poolscan"><path d="M782,182 H798"/></g>
+    <g class="e  f-las t-cg"><path d="M214,334 H288"/><text class="el" x="222" y="327" text-anchor="start">agent result</text></g>
+    <g class="e  f-search t-cg"><path d="M214,396 V380 H288"/><text class="el" x="222" y="410" text-anchor="start">snippets</text></g>
+    <g class="e  f-cg t-cs"><path d="M466,354 H544"/><text class="el" x="472" y="347" text-anchor="start">scan text</text></g>
+    <g class="e  f-web t-cs"><path d="M214,472 H544"/><text class="el" x="224" y="465" text-anchor="start">fetched body, as returned</text></g>
+    <g class="e  f-poolscan t-cs"><path d="M888,234 V302 H641 V318"/><text class="el" x="700" y="295" text-anchor="start">public result</text></g>
+    <g class="e  f-cs t-clf"><path d="M736,372 H814"/><text class="el" x="752" y="365" text-anchor="start">classify</text></g>
+    <g class="e  f-tr t-tge"><path d="M234,598 H348"/><text class="el" x="240" y="591" text-anchor="start">messageReceived</text></g>
+    <g class="e  f-tr t-tge"><path d="M234,636 H348"/><text class="el" x="240" y="629" text-anchor="start">beforeAgentSend</text></g>
+    <g class="e  f-tge t-gc"><path d="M600,620 H698"/><text class="el" x="616" y="613" text-anchor="start">both hooks</text></g>
+  </g>
+
+  <a href="../security-architecture.md#outbound-mcp-egress"><g class="n tint k-sec" id="egress">
+    <rect class="box" x="24" y="130" width="176" height="104" rx="9"/>
+    <g class="step"><circle cx="44" cy="152" r="10"/><text x="44" y="156">1</text></g>
+    <text class="name" x="62" y="153">EgressGuard</text>
+    <text class="sub" x="62" y="171">allow_tools list;</text>
+    <text class="sub" x="62" y="187">unknown server or</text>
+    <text class="sub" x="62" y="203">tool is denied</text>
+    <g class="chip k-sec"><rect x="62" y="210" width="119" height="16" rx="8"/><text x="69" y="222">→ denied, audited</text></g>
+    <g class="d"><text class="p1" x="36" y="774"><tspan class="b">EgressGuard</tspan> · hookPoint outboundMcpToolsCall: the per-server allow_tools list; surface_tools only controls harness-facing visibility</text><text class="p2" x="36" y="794">A throwing guard fails the call closed ("Egress denied: guard/audit failure"). egress_guard.dart, outbound_mcp_pool.dart.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#outbound-mcp-egress"><g class="n tint k-host" id="gov">
+    <rect class="box" x="218" y="130" width="176" height="104" rx="9"/>
+    <g class="step"><circle cx="238" cy="152" r="10"/><text x="238" y="156">2</text></g>
+    <text class="name" x="256" y="153">governance</text>
+    <text class="sub" x="256" y="171">rate_limit calls and</text>
+    <text class="sub" x="256" y="187">token_budget tokens,</text>
+    <text class="sub" x="256" y="203">per server window</text>
+    <g class="chip k-sec"><rect x="256" y="210" width="119" height="16" rx="8"/><text x="263" y="222">→ denied, audited</text></g>
+    <g class="d"><text class="p1" x="36" y="774"><tspan class="b">governance</tspan> · rate_limit.calls and token_budget.tokens, each over window_seconds, checked after the guard allows</text><text class="p2" x="36" y="794">Counters are in memory per server and published as OutboundMcpGovernanceEvent. _checkGovernance in outbound_mcp_pool.dart.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#outbound-mcp-egress"><g class="n tint k-store" id="audit">
+    <rect class="box" x="412" y="130" width="176" height="104" rx="9"/>
+    <g class="step"><circle cx="432" cy="152" r="10"/><text x="432" y="156">3</text></g>
+    <text class="name" x="450" y="153">audit write</text>
+    <text class="sub" x="450" y="171">GuardAuditLogger.</text>
+    <text class="sub" x="450" y="187">writeEntry before</text>
+    <text class="sub" x="450" y="203">dispatch, awaited</text>
+    <g class="chip k-sec"><rect x="450" y="210" width="88" height="16" rx="8"/><text x="457" y="222">fails closed</text></g>
+    <g class="d"><text class="p1" x="36" y="774"><tspan class="b">audit write</tspan> · the pass entry is written before the call leaves the host, so a failed write refuses the call</text><text class="p2" x="36" y="794">Fields add server, tool, decision, principal (falls back to the caller sessionId) and credentialRef. guard_audit.dart.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#outbound-mcp-egress"><g class="n tint k-ext" id="dispatch">
+    <rect class="box" x="606" y="130" width="176" height="104" rx="9"/>
+    <g class="step"><circle cx="626" cy="152" r="10"/><text x="626" y="156">4</text></g>
+    <text class="name" x="644" y="153">dispatch</text>
+    <text class="sub" x="644" y="171">connection.client.</text>
+    <text class="sub" x="644" y="187">callTool, stdio or</text>
+    <text class="sub" x="644" y="203">HTTP; usage charged</text>
+    <g class="d"><text class="p1" x="36" y="774"><tspan class="b">dispatch</tspan> · the external server answers; usage is charged before any content verdict</text><text class="p2" x="36" y="794">A budget that counted only delivered content would never bound a server whose results are blocked.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#outbound-mcp-egress"><g class="n tint k-sec" id="poolscan">
+    <rect class="box" x="800" y="130" width="176" height="104" rx="9"/>
+    <g class="step"><circle cx="820" cy="152" r="10"/><text x="820" y="156">5</text></g>
+    <text class="name" x="838" y="153">ContentScan</text>
+    <text class="sub" x="838" y="171">network_class public</text>
+    <text class="sub" x="838" y="187">only; an over-cap</text>
+    <text class="sub" x="838" y="203">result is denied</text>
+    <g class="chip k-sec"><rect x="838" y="210" width="119" height="16" rx="8"/><text x="845" y="222">→ denied, audited</text></g>
+    <g class="d"><text class="p1" x="36" y="774"><tspan class="b">ContentScan</tspan> · local and private servers and failed calls are not scanned; a null ContentScan means classification is not configured</text><text class="p2" x="36" y="794">Denials share guard EgressGuard, hook outbound_mcp_tools_call, error.code egress_denied; the reason string discriminates.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#content-classification-and-redaction"><g class="n tint k-host" id="las">
+    <rect class="box" x="24" y="322" width="190" height="52" rx="9"/>
+    <text class="name" x="36" y="341">logical agent</text>
+    <text class="sub" x="36" y="357">LogicalAgentSessionService</text>
+    <g class="d"><text class="p1" x="36" y="774"><tspan class="b">logical agent</tspan> · the agent result is scanned before it returns to the main agent; a block discards a failed spawn</text><text class="p2" x="36" y="794">Order in _run: guard, output-schema validation, then the size decision. Every verdict goes through the audit logger.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#content-classification-and-redaction"><g class="n tint k-host" id="search">
+    <rect class="box" x="24" y="384" width="190" height="52" rx="9"/>
+    <text class="name" x="36" y="403">search tools</text>
+    <text class="sub" x="36" y="419">Brave and Tavily MCP tools</text>
+    <g class="d"><text class="p1" x="36" y="774"><tspan class="b">search tools</tspan> · the concatenated result titles and snippets are scanned before the tool returns them</text><text class="p2" x="36" y="794">A block returns "Search results blocked by content guard"; unlike the logical-agent site it writes no audit entry.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#web-security"><g class="n tint k-host" id="web">
+    <rect class="box" x="24" y="446" width="190" height="52" rx="9"/>
+    <text class="name" x="36" y="465">web_fetch</text>
+    <text class="sub" x="36" y="481">WebFetchTool</text>
+    <g class="d"><text class="p1" x="36" y="774"><tspan class="b">web_fetch</tspan> · the converted body, capped at 50,000 characters, goes through ContentScan after the SSRF-checked fetch</text><text class="p2" x="36" y="794">It returns exactly the scanned span, so what the agent sees is what the classifier saw. web_fetch_tool.dart.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#content-classification-and-redaction"><g class="n tint k-sec" id="cg">
+    <rect class="box" x="290" y="314" width="176" height="80" rx="9"/>
+    <text class="name" x="302" y="337">ContentGuard</text>
+    <text class="sub" x="302" y="355">beforeAgentSend only,</text>
+    <text class="sub" x="302" y="371">not in the chain;</text>
+    <text class="sub" x="302" y="387">over-cap: prefix, pass</text>
+    <g class="d"><text class="p1" x="36" y="774"><tspan class="b">ContentGuard</tspan> · adds only the hook-point gate and the enabled check over ContentScan</text><text class="p2" x="36" y="794">At the handoff it prefix-scans max_bytes and passes the whole result: the content is an agent's own output. content_guard.dart.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#content-classification-and-redaction"><g class="n solid k-sec" id="cs">
+    <rect class="box" x="546" y="320" width="190" height="178" rx="9"/>
+    <text class="name" x="558" y="343">ContentScan</text>
+    <text class="sub" x="558" y="361">one instance, built by</text>
+    <text class="sub" x="558" y="377">SecurityWiring from</text>
+    <text class="sub" x="558" y="393">guards.content.*; scans</text>
+    <text class="sub" x="558" y="409">max_bytes (50 KiB), 15 s</text>
+    <text class="sub" x="558" y="425">timeout; fail_open is</text>
+    <text class="sub" x="558" y="441">the only fail policy</text>
+    <g class="d"><text class="p1" x="36" y="774"><tspan class="b">ContentScan</tspan> · returns a verdict as data (blocked, label, failure reason, scanned span), so each site formats its own message</text><text class="p2" x="36" y="794">Empty input passes without a classifier call; exceedsCap answers the over-cap question first. Default is fail-closed. content_scan.dart.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#content-classification-and-redaction"><g class="n tint k-ext" id="clf">
+    <rect class="box" x="816" y="320" width="160" height="104" rx="9"/>
+    <text class="name" x="828" y="343">ContentClassifier</text>
+    <text class="sub" x="828" y="361">claude_binary (default)</text>
+    <text class="sub" x="828" y="377">or anthropic_api</text>
+    <g class="chip k-neu"><rect x="828" y="400" width="107" height="16" rx="8"/><text x="835" y="412">throws on error</text></g>
+    <g class="d"><text class="p1" x="36" y="774"><tspan class="b">ContentClassifier</tspan> · returns safe, prompt_injection, harmful_content or exfiltration_attempt</text><text class="p2" x="36" y="794">The classifier's own provider spawn runs outside the guard chain. content_classifier.dart.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#hook-points-and-guardcontext"><g class="n tint k-host" id="tr">
+    <rect class="box" x="24" y="582" width="210" height="76" rx="9"/>
+    <text class="name" x="36" y="605">TurnRunner</text>
+    <text class="sub" x="36" y="623">every turn on every surface,</text>
+    <text class="sub" x="36" y="639">before and after the provider</text>
+    <g class="d"><text class="p1" x="36" y="774"><tspan class="b">TurnRunner</tspan> · the hooks are evaluated by TurnGuardEvaluator inside the turn execution loop</text><text class="p2" x="36" y="794">messageReceived runs before the turn; beforeAgentSend runs on the accumulated reply or the provider error text. turn_runner_execution_loop.dart.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#hook-points-and-guardcontext"><g class="n tint k-host" id="tge">
+    <rect class="box" x="350" y="582" width="250" height="76" rx="9"/>
+    <text class="name" x="362" y="605">TurnGuardEvaluator</text>
+    <text class="sub" x="362" y="623">block: failed TurnOutcome and</text>
+    <text class="sub" x="362" y="639">a "Blocked by guard" note</text>
+    <g class="d"><text class="p1" x="36" y="774"><tspan class="b">TurnGuardEvaluator</tspan> · a blocked message or reply becomes an assistant note and a failed TurnOutcome; with no chain the hooks are skipped</text><text class="p2" x="36" y="794">The note reads [Blocked by guard: ...] or [Response blocked by guard: ...]. turn_guard_evaluator.dart.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#hook-points-and-guardcontext"><g class="n tint k-sec" id="gc">
+    <rect class="box" x="700" y="582" width="272" height="76" rx="9"/>
+    <text class="name" x="712" y="605">GuardChain</text>
+    <text class="sub" x="712" y="623">no shipped guard acts on these</text>
+    <text class="sub" x="712" y="639">hooks; custom guards can</text>
+    <g class="d"><text class="p1" x="36" y="774"><tspan class="b">GuardChain</tspan> · evaluateMessageReceived and evaluateBeforeAgentSend run the runner's own layered chain, the one the tool hook uses</text><text class="p2" x="36" y="794">A guard added with DartclawServer.registerGuard is lost on a guards.* reload (replaceGuards swaps the whole base list).</text></g>
+  </g></a>
+  <g transform="translate(24,692)">
+    <g class="tint k-sec"><rect class="box" x="0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="22" y="10">guard or scan</text>
+    <g class="tint k-host"><rect class="box" x="124.60000000000001" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="146.60000000000002" y="10">DartClaw component</text>
+    <g class="tint k-store"><rect class="box" x="280.20000000000005" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="302.20000000000005" y="10">audit write</text>
+    <g class="tint k-ext"><rect class="box" x="392.40000000000003" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="414.40000000000003" y="10">external process</text>
+    <g class="e main"><path d="M535.6,6 H567.6"/></g><text class="lg" x="575.6" y="10">next step</text>
+    <g class="e "><path d="M653.4000000000001,6 H685.4000000000001"/></g><text class="lg" x="693.4000000000001" y="10">call with data</text>
+  </g>
+</svg>

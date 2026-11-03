@@ -168,6 +168,7 @@ void main() {
     final wiring = HarnessWiring(
       config: config,
       dataDir: tempDir.path,
+      runtimeCwd: tempDir.path,
       port: 3333,
       harnessFactory: recordingCodexFactory(),
       exitFn: (code) {

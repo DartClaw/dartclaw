@@ -5,6 +5,8 @@ import 'dart:convert';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 
+import '../auth/source_link_token.dart';
+import '../task/channel_notification_delivery.dart' show publicPageUrl;
 import 'citation_packet.dart';
 import 'mcp_server.dart';
 
@@ -13,6 +15,20 @@ typedef ContextResearchSynthesizer = Future<String> Function(ContextResearchSynt
 
 /// Records per-call synthesis metrics.
 typedef ContextResearchMetricsSink = Future<void> Function(ContextResearchMetrics metrics);
+
+/// Mints the link a reader opens to see a wiki or graph source, or null when the deployment serves none.
+typedef ContextResearchSourceLinker = String? Function(CitationLayer layer, String locator);
+
+/// A linker minting `<baseUrl>/knowledge/source?t=<token>` links, or null when none can be minted.
+///
+/// A [signed] deployment needs its gateway [key]; an `auth_mode: none` one mints unsigned links.
+ContextResearchSourceLinker? sourceLinkerFor({required String? baseUrl, required bool signed, String? key}) {
+  if (baseUrl == null || (signed && key == null)) return null;
+  return (layer, locator) => publicPageUrl(
+    baseUrl,
+    '$sourceLinkPath?t=${createSourceLinkToken(layer: layer.wireName, locator: locator, key: signed ? key : null)}',
+  );
+}
 
 /// Resolves the private research source admitted for one authenticated caller.
 typedef ContextResearchScopeResolver = Future<ContextResearchScope> Function(McpCallerContext caller);
@@ -107,6 +123,7 @@ final class ContextResearchTool implements ContextualMcpTool {
   final WikiSearchSource _wiki;
   final TemporalKnowledgeGraphService _kg;
   final CitationSourceResolver Function(ContextResearchScope scope)? _sourceResolverFactory;
+  final ContextResearchSourceLinker? _sourceLinker;
   final ContextResearchSynthesizer _synthesizer;
   final ContextResearchMetricsSink? _metricsSink;
   final int _maxQueryLength;
@@ -120,6 +137,7 @@ final class ContextResearchTool implements ContextualMcpTool {
     required TemporalKnowledgeGraphService kg,
     required ContextResearchSynthesizer synthesizer,
     CitationSourceResolver Function(ContextResearchScope scope)? sourceResolverFactory,
+    ContextResearchSourceLinker? sourceLinker,
     ContextResearchMetricsSink? metricsSink,
     int maxQueryLength = 500,
     int candidateLimit = 8,
@@ -128,6 +146,7 @@ final class ContextResearchTool implements ContextualMcpTool {
        _wiki = wiki,
        _kg = kg,
        _sourceResolverFactory = sourceResolverFactory,
+       _sourceLinker = sourceLinker,
        _synthesizer = synthesizer,
        _metricsSink = metricsSink,
        _maxQueryLength = maxQueryLength,
@@ -163,7 +182,8 @@ final class ContextResearchTool implements ContextualMcpTool {
 
   @override
   String get description =>
-      'Retrieve across wiki, temporal KG, and memory, then return a compact citation-backed packet.';
+      'Retrieve across wiki, temporal KG, and memory, then return a compact citation-backed packet. '
+      'A wiki or knowledge graph source may carry a url; link that source by its url when present.';
 
   @override
   Map<String, dynamic> get inputSchema => {
@@ -434,7 +454,7 @@ final class ContextResearchTool implements ContextualMcpTool {
       for (final ref in statement.sourceRefs) {
         final candidate = candidatesByIdentity[_sourceIdentity(ref)];
         if (candidate != null && await resolver.resolves(candidate)) {
-          resolvedRefs.add(candidate);
+          resolvedRefs.add(_linked(candidate));
         }
       }
       statements.add(
@@ -447,6 +467,12 @@ final class ContextResearchTool implements ContextualMcpTool {
       degradedLayers: packet.degradedLayers,
       noSourcesFound: packet.noSourcesFound,
     );
+  }
+
+  SourceRef _linked(SourceRef ref) {
+    if (ref.layer != CitationLayer.wiki && ref.layer != CitationLayer.kg) return ref;
+    final url = _sourceLinker?.call(ref.layer, ref.locator);
+    return url == null ? ref : ref.withUrl(url);
   }
 
   String _sourceIdentity(SourceRef ref) => '${ref.layer.wireName}\u0000${ref.role ?? ''}\u0000${ref.locator}';

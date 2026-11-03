@@ -13,10 +13,16 @@ import 'dart:async';
 
 import 'package:dartclaw_core/dartclaw_core.dart' show EventBus, KvService, MessageService;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' show TaskService;
+import 'package:dartclaw_runtime/src/task/workflow_run_control.dart' show WorkflowRunControl;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
+        WorkflowApprovalExpectation,
+        WorkflowApprovalRefusal,
+        WorkflowApprovalRefused,
+        WorkflowApprovalResolver,
         WorkflowDefinition,
         WorkflowRun,
+        WorkflowRunOrigin,
         WorkflowRunRepository,
         WorkflowService,
         missingRequiredWorkflowVariables,
@@ -93,12 +99,15 @@ class FakeWorkflowService extends WorkflowService {
   WorkflowApprovalPolicy? lastApprovals;
   bool lastAllowDirtyLocalPath = false;
   bool lastInline = false;
+  WorkflowRunOrigin? lastOrigin;
   String? lastCancelFeedback;
+  WorkflowApprovalResolver? lastResolver;
 
   @override
   Future<WorkflowRun> start(
     WorkflowDefinition definition,
     Map<String, String> variables, {
+    required WorkflowRunOrigin origin,
     String? projectId,
     bool allowDirtyLocalPath = false,
     bool inline = false,
@@ -116,6 +125,7 @@ class FakeWorkflowService extends WorkflowService {
     lastApprovals = approvals;
     lastAllowDirtyLocalPath = allowDirtyLocalPath;
     lastInline = inline;
+    lastOrigin = origin;
     if (startError != null) {
       throw startError!;
     }
@@ -150,16 +160,68 @@ class FakeWorkflowService extends WorkflowService {
   }
 
   @override
-  Future<WorkflowRun> resume(String runId) async {
+  Future<WorkflowRun> resume(
+    String runId, {
+    WorkflowApprovalExpectation? expect,
+    WorkflowApprovalResolver? resolver,
+  }) async {
     calls.add('resume:$runId');
+    lastResolver = resolver;
     if (throwOnResume) throw StateError('Cannot resume: invalid state');
     return resumeResult!;
   }
 
+  /// What [requestChanges] answers with, or the refusal reason it throws instead when set.
+  WorkflowRun? requestChangesResult;
+  WorkflowApprovalRefusal? requestChangesRefusal;
+  String? lastFeedback;
+
   @override
-  Future<void> cancel(String runId, {String? feedback}) async {
+  Future<WorkflowRun> requestChanges(
+    String runId, {
+    required String feedback,
+    WorkflowApprovalExpectation? expect,
+    WorkflowApprovalResolver? resolver,
+  }) async {
+    calls.add('requestChanges:$runId');
+    lastFeedback = feedback;
+    lastResolver = resolver;
+    if (getResult == null) throw ArgumentError('Workflow run not found: $runId');
+    final refusal = requestChangesRefusal;
+    if (refusal != null) throw WorkflowApprovalRefused(refusal, 'refused: ${refusal.name}');
+    return requestChangesResult!;
+  }
+
+  @override
+  Future<void> cancel(
+    String runId, {
+    String? feedback,
+    WorkflowApprovalExpectation? expect,
+    WorkflowApprovalResolver? resolver,
+  }) async {
     calls.add('cancel:$runId');
     lastCancelFeedback = feedback;
+    lastResolver = resolver;
+    final status = getResult?.status;
+    if (status != null && status.terminal && resolver != null) {
+      // As the real service refuses an attributed cancel of a settled run.
+      throw WorkflowApprovalRefused(
+        WorkflowApprovalRefusal.notPending,
+        'Workflow run is already in a terminal state: ${status.name}',
+      );
+    }
     if (throwOnCancel) throw StateError('Cannot cancel: invalid state');
   }
 }
+
+/// The run control the workflow routes mount behind, over [workflows]. The web entries it serves are never
+/// admin-gated, so [isAdmin] only matters to tests that drive its chat entries.
+WorkflowRunControl testRunControl(
+  WorkflowService workflows, {
+  bool Function(String senderId)? isAdmin,
+  GuardAuditLogger? auditLogger,
+}) => WorkflowRunControl(
+  workflows: workflows,
+  isAdmin: isAdmin ?? (_) => true,
+  auditLogger: auditLogger ?? GuardAuditLogger(),
+);

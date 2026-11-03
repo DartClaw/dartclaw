@@ -12,6 +12,7 @@ import 'package:shelf_router/shelf_router.dart';
 import 'package:uuid/uuid.dart';
 
 import '../conversation/conversation_service.dart';
+import '../conversation/turn_attachments.dart' show metadataWithoutAttachmentContent;
 import '../concurrency/session_mutation_coordinator.dart';
 import '../auth/request_auth_context.dart';
 import '../execution_coordinator.dart';
@@ -306,6 +307,7 @@ Future<Response> _sendExistingSessionTurn({
         isHumanInput: true,
         promptScope: PromptScope.primary,
         origin: (channel: ChannelType.web.name, contact: null, group: false),
+        provenance: TurnProvenance.web(sessionKey: current?.channelKey),
       );
     } on BusyTurnException {
       return (
@@ -517,8 +519,8 @@ Future<({Map<String, dynamic>? reference, Response? error})> resolveConversation
     if (p.isAbsolute(normalized) || normalized.startsWith('..${p.separator}') || normalized == '..') {
       return (reference: null, error: errorResponse(400, 'UNKNOWN_REFERENCE', 'Reference could not be resolved'));
     }
-    final root = referenceRoot ?? await sessionReferenceRoot(projects);
-    if (_hasHiddenPathSegment(normalized)) {
+    final root = referenceRoot;
+    if (root == null || _hasHiddenPathSegment(normalized)) {
       return (reference: null, error: errorResponse(400, 'UNKNOWN_REFERENCE', 'Reference could not be resolved'));
     }
     final target = File(p.join(root, normalized));

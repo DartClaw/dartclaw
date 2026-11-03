@@ -277,6 +277,45 @@ void main() {
       );
     });
 
+    test('a key naming no context value reads the workflow variable of that name; a context value wins', () {
+      final cases = <({String name, WorkflowContext context, String expression, bool expected})>[
+        (
+          name: 'a variable at its default',
+          context: WorkflowContext(variables: {'PLAN_REVIEW': 'false'}),
+          expression: 'PLAN_REVIEW == true',
+          expected: false,
+        ),
+        (
+          name: 'a variable set to true',
+          context: WorkflowContext(variables: {'PLAN_REVIEW': 'true'}),
+          expression: 'PLAN_REVIEW == true',
+          expected: true,
+        ),
+        (
+          name: 'a context key of the same name',
+          context: WorkflowContext(data: {'PLAN_REVIEW': 'false'}, variables: {'PLAN_REVIEW': 'true'}),
+          expression: 'PLAN_REVIEW == true',
+          expected: false,
+        ),
+        (
+          name: 'a name that is neither',
+          context: WorkflowContext(variables: {'OTHER': 'true'}),
+          expression: 'PLAN_REVIEW == true',
+          expected: false,
+        ),
+        (
+          name: 'isNotEmpty on a variable',
+          context: WorkflowContext(variables: {'BRANCH': 'main'}),
+          expression: 'BRANCH isNotEmpty',
+          expected: true,
+        ),
+      ];
+
+      for (final testCase in cases) {
+        expect(evaluator.evaluate(testCase.expression, testCase.context), testCase.expected, reason: testCase.name);
+      }
+    });
+
     test('a produced value is read normally even when a sibling step failed', () {
       final mixed = WorkflowContext(
         data: {'plan-review.gating_findings_count': 2},

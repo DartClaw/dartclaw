@@ -31,6 +31,8 @@ class SecurityWiring implements Reconfigurable {
   new({
     required this.config,
     required String dataDir,
+    required String runtimeCwd,
+    String? sourceCheckoutDir,
     required EventBus eventBus,
     required ExitFn exitFn,
     PlatformCapabilities? platformCapabilities,
@@ -41,6 +43,8 @@ class SecurityWiring implements Reconfigurable {
     CodexRefreshAuthority? codexRefresh,
     required GuardAuditLogger auditLogger,
   }) : _dataDir = dataDir,
+       _runtimeCwd = runtimeCwd,
+       _sourceCheckoutDir = sourceCheckoutDir ?? Directory.current.path,
        _auditLogger = auditLogger,
        _codexRefresh = codexRefresh,
        _subscriptionCredentials = subscriptionCredentials ?? _noSubscriptionCredentials,
@@ -53,6 +57,13 @@ class SecurityWiring implements Reconfigurable {
 
   final DartclawConfig config;
   final String _dataDir;
+
+  /// The repository mounted at `/project` for container executions.
+  final String _runtimeCwd;
+
+  /// DartClaw's own checkout, which holds the container image build context and `build/bridge`.
+  /// This is not the repository the runtime operates on.
+  final String _sourceCheckoutDir;
   final EventBus _eventBus;
   final ExitFn _exitFn;
   final PlatformCapabilities _platformCapabilities;
@@ -354,7 +365,7 @@ class SecurityWiring implements Reconfigurable {
     final profiles = [
       SecurityProfile.workspace(
         workspaceDir: config.workspaceDir,
-        projectDir: Directory.current.path,
+        projectDir: _runtimeCwd,
         projectsClonesDir: config.projectsClonesDir,
       ),
       SecurityProfile.restricted,
@@ -384,7 +395,7 @@ class SecurityWiring implements Reconfigurable {
                 : [
                     ...SecurityProfile.workspace(
                       workspaceDir: useOwnerWorkspace ? config.workspaceDir : null,
-                      projectDir: Directory.current.path,
+                      projectDir: _runtimeCwd,
                       projectsClonesDir: config.projectsClonesDir,
                     ).workspaceMounts,
                     ...localPathProjectMounts,
@@ -396,7 +407,7 @@ class SecurityWiring implements Reconfigurable {
       hasMcpBridge: hasMcpBridge,
       localPathAllowlist: config.projects.localPathAllowlist,
       bridgeBinaryPath: _bridgeBinaryPath,
-      buildContextDir: Directory.current.path,
+      buildContextDir: _sourceCheckoutDir,
       workingDir: profile.id == SecurityProfile.restricted.id
           ? '/tmp'
           : workspaceDir != null && !useOwnerWorkspace && executionDir == null
@@ -431,7 +442,10 @@ class SecurityWiring implements Reconfigurable {
     if (architecture == null) {
       return refuse('the $runtime engine reports an architecture no container bridge binary ships for');
     }
-    _bridgeBinaries = BridgeBinaryProvisioner(dataDir: _dataDir);
+    _bridgeBinaries = BridgeBinaryProvisioner(
+      dataDir: _dataDir,
+      sourceTreeDir: Directory(p.join(_sourceCheckoutDir, 'build', 'bridge')),
+    );
     try {
       _bridgeBinaryPath = await _bridgeBinaries!.ensureAvailable(architecture);
     } on StateError catch (error) {
@@ -821,6 +835,9 @@ class _ContainerAuthorityLease implements ContainerAuthorityLease {
 
   @override
   ContainerExecutor get container => manager;
+
+  @override
+  void bindActiveTurn(TurnProvenance? Function() activeTurn) => authority.activeTurn = activeTurn;
 
   @override
   Future<void> release() async {

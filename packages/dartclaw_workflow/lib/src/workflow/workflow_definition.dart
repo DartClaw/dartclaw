@@ -534,6 +534,14 @@ class WorkflowStep {
   /// step". Author a `type: approval` step when the run should pause instead.
   final String? entryGate;
 
+  /// ID of the earlier top-level step an approval gate re-runs when an admin
+  /// requests changes, or `null` when the gate offers no such outcome.
+  final String? revise;
+
+  /// Authored bound on request-changes rounds at this gate; read it through
+  /// [effectiveMaxRevisions].
+  final int? maxRevisions;
+
   /// Context keys this step reads from.
   final List<String> inputs;
 
@@ -639,6 +647,18 @@ class WorkflowStep {
   /// generic applicability validation without adding a second parser branch.
   final Map<String, Object?> ruleValues;
 
+  /// Default [maxRevisions] of a gate that names a [revise] step.
+  static const defaultMaxRevisions = 3;
+
+  /// Smallest accepted [maxRevisions].
+  static const minMaxRevisions = 1;
+
+  /// Largest accepted [maxRevisions].
+  static const maxMaxRevisions = 10;
+
+  /// The bound on request-changes rounds, or `null` when this step names no [revise] step.
+  int? get effectiveMaxRevisions => revise == null ? null : (maxRevisions ?? defaultMaxRevisions);
+
   /// Convenience getter returning the first (or only) prompt.
   ///
   /// Returns null when this is a skill-only step with no prompt.
@@ -674,6 +694,8 @@ class WorkflowStep {
     this.turnTimeoutSeconds,
     this.parallel = false,
     this.entryGate,
+    this.revise,
+    this.maxRevisions,
     this.inputs = const [],
     this.outputs,
     this.maxTokens,
@@ -707,6 +729,8 @@ class WorkflowStep {
     if (timeoutSeconds != null) 'timeout': timeoutSeconds,
     if (turnTimeoutSeconds != null) 'turn_timeout': turnTimeoutSeconds,
     if (entryGate != null) 'entryGate': entryGate,
+    if (revise != null) 'revise': revise,
+    if (maxRevisions != null) 'maxRevisions': maxRevisions,
     'inputs': inputs.toList(),
     if (outputs != null) 'outputs': outputs!.map((k, v) => MapEntry(k, v.toJson())),
     if (maxTokens != null) 'maxTokens': maxTokens,
@@ -752,6 +776,8 @@ class WorkflowStep {
       turnTimeoutSeconds: (json['turn_timeout'] ?? json['turnTimeoutSeconds']) as int?,
       parallel: (json['parallel'] as bool?) ?? false,
       entryGate: json['entryGate'] as String?,
+      revise: json['revise'] as String?,
+      maxRevisions: json['maxRevisions'] as int?,
       inputs: (json['inputs'] as List?)?.cast<String>() ?? const [],
       outputs: (json['outputs'] as Map<String, dynamic>?)?.map(
         (k, v) => MapEntry(k, OutputConfig.fromJson(v as Map<String, dynamic>)),
@@ -798,6 +824,8 @@ class WorkflowStep {
     Object? turnTimeoutSeconds = _workflowDefinitionFieldUnset,
     bool? parallel,
     Object? entryGate = _workflowDefinitionFieldUnset,
+    Object? revise = _workflowDefinitionFieldUnset,
+    Object? maxRevisions = _workflowDefinitionFieldUnset,
     List<String>? inputs,
     Object? outputs = _workflowDefinitionFieldUnset,
     Object? maxTokens = _workflowDefinitionFieldUnset,
@@ -831,6 +859,8 @@ class WorkflowStep {
           : turnTimeoutSeconds as int?,
       parallel: parallel ?? this.parallel,
       entryGate: entryGate == _workflowDefinitionFieldUnset ? this.entryGate : entryGate as String?,
+      revise: revise == _workflowDefinitionFieldUnset ? this.revise : revise as String?,
+      maxRevisions: maxRevisions == _workflowDefinitionFieldUnset ? this.maxRevisions : maxRevisions as int?,
       inputs: inputs ?? this.inputs,
       outputs: outputs == _workflowDefinitionFieldUnset ? this.outputs : outputs as Map<String, OutputConfig>?,
       maxTokens: maxTokens == _workflowDefinitionFieldUnset ? this.maxTokens : maxTokens as int?,

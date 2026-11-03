@@ -48,6 +48,8 @@ Future<({int exitCode, String stderr, String stdout})> _isolateGitRunner(
   });
 }
 
+final _commitSha = RegExp(r'^(?:[0-9a-f]{40}|[0-9a-f]{64})$');
+
 /// Thrown when a `git fetch` operation exits with a non-zero status.
 class GitFetchException implements Exception {
   final String message;
@@ -64,9 +66,10 @@ class GitFetchException implements Exception {
 /// Manages three project sources:
 /// - Config-defined: seeded from [ProjectConfig] on startup, read-only
 /// - Runtime-created: created via [create], persisted to `projects.json`
-/// - Implicit `_local`: always present, ephemeral, not persisted
+/// - Implicit `_local`: the runtime's working directory, always present, ephemeral, not persisted
 class ProjectServiceImpl implements ProjectService {
   final String _dataDir;
+  final String _localDir;
   final ProjectConfig _projectConfig;
   final CredentialsConfig _credentials;
   final EventBus? _eventBus;
@@ -96,6 +99,7 @@ class ProjectServiceImpl implements ProjectService {
   /// [gitRunner] defaults to [_isolateGitRunner] but can be replaced for testing.
   new({
     required String dataDir,
+    required String localDir,
     required ProjectConfig projectConfig,
     required CredentialsConfig credentials,
     EventBus? eventBus,
@@ -103,6 +107,7 @@ class ProjectServiceImpl implements ProjectService {
     HttpClientFactory? httpClientFactory,
     GitHubProbeRunner? gitHubProbeRunner,
   }) : _dataDir = dataDir,
+       _localDir = localDir,
        _projectConfig = projectConfig,
        _credentials = credentials,
        _eventBus = eventBus,
@@ -121,11 +126,12 @@ class ProjectServiceImpl implements ProjectService {
     // 2. Load runtime projects from projects.json.
     await _loadRuntimeProjects();
 
-    // 3. Seed config-defined projects (config wins on collision).
-    await _seedConfigProjects(readOnly: readOnly);
-
-    // 4. Recover any stale cloning states from previous run.
+    // 3. Recover stale cloning states from the previous run. This must precede
+    // seeding, which marks a not-yet-cloned config project `cloning` and starts its clone.
     if (!readOnly) _recoverStaleCloning();
+
+    // 4. Seed config-defined projects (config wins on collision).
+    await _seedConfigProjects(readOnly: readOnly);
 
     final configCount = _projects.values.where((p) => p.configDefined).length;
     final runtimeCount = _projects.values.where((p) => !p.configDefined).length;
@@ -368,7 +374,7 @@ class ProjectServiceImpl implements ProjectService {
     final targetRef = _normalizeExternalRef(ref, defaultBranch: project.defaultBranch);
     final plan = _resolveGitPlan(project.remoteUrl, project.credentialsRef);
     final result = await _gitRunner(
-      buildRemoteOverrideArgs(project.remoteUrl, plan.remoteUrl, ['fetch', 'origin', targetRef]),
+      buildRemoteOverrideArgs(project.remoteUrl, plan.remoteUrl, ['fetch', 'origin', _fetchRefspec(targetRef)]),
       environment: plan.environment,
       workingDirectory: project.localPath,
     );
@@ -387,6 +393,14 @@ class ProjectServiceImpl implements ProjectService {
     _projects[project.id] = updated;
     await _persist();
     _log.info('Fetched latest for "${project.name}" (ref: $targetRef)');
+  }
+
+  // A bare `git fetch origin <branch>` only writes FETCH_HEAD in a single-branch
+  // (shallow) clone, so `origin/<branch>` never appears for the worktree base ref.
+  // Fully qualified refs and commit SHAs are not branch names and are fetched as given.
+  String _fetchRefspec(String ref) {
+    if (ref.startsWith('refs/') || _commitSha.hasMatch(ref)) return ref;
+    return '+refs/heads/$ref:refs/remotes/origin/$ref';
   }
 
   String _normalizeExternalRef(String? ref, {required String defaultBranch}) {
@@ -453,12 +467,11 @@ class ProjectServiceImpl implements ProjectService {
   // ---------------------------------------------------------------------------
 
   Project _createLocalProject() {
-    final cwd = Directory.current.path;
     return Project(
       id: '_local',
-      name: _deriveNameFromPath(cwd),
+      name: _deriveNameFromPath(_localDir),
       remoteUrl: '',
-      localPath: cwd,
+      localPath: _localDir,
       defaultBranch: 'main',
       status: ProjectStatus.ready,
       configDefined: false,

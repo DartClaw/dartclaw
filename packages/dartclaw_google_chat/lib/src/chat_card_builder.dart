@@ -1,7 +1,27 @@
 import 'dart:convert';
 
+import 'package:dartclaw_core/dartclaw_core.dart'
+    show
+        ChannelNotificationAction,
+        runActionNonceKey,
+        runActionRunIdKey,
+        runActionStepIdKey,
+        runApproveActionId,
+        runRequestChangesActionId,
+        runRequestChangesSubmitActionId;
+
 /// Maximum task description length before a card body is truncated.
 const cardDescriptionMaxLength = 2000;
+
+/// Name of the request-changes dialog's feedback input; the submission carries the text under this key.
+const requestChangesFeedbackInputName = 'feedback';
+
+/// Parameter key under which the dialog's submit button echoes the post the dialog was opened from.
+const requestChangesPostParameter = 'postMessageId';
+
+const _approveColor = {'red': 0.13, 'green': 0.59, 'blue': 0.33, 'alpha': 1.0};
+const _rejectColor = {'red': 0.84, 'green': 0.18, 'blue': 0.18, 'alpha': 1.0};
+const _changesColor = {'red': 0.98, 'green': 0.66, 'blue': 0.0, 'alpha': 1.0};
 
 /// Purpose-built Google Chat Cards v2 builder for DartClaw notifications.
 class ChatCardBuilder {
@@ -23,24 +43,12 @@ class ChatCardBuilder {
 
     final trimmedDescription = description?.trim();
     if (trimmedDescription != null && trimmedDescription.isNotEmpty) {
-      sections.add({
-        'widgets': [
-          {
-            'textParagraph': {'text': _escapeAndTruncateDescription(trimmedDescription)},
-          },
-        ],
-      });
+      sections.add(_paragraphSection(_escapeAndTruncateDescription(trimmedDescription)));
     }
 
     final trimmedErrorSummary = errorSummary?.trim();
     if ((status == 'failed' || status == 'error') && trimmedErrorSummary != null && trimmedErrorSummary.isNotEmpty) {
-      sections.add({
-        'widgets': [
-          {
-            'textParagraph': {'text': _escapeText(trimmedErrorSummary)},
-          },
-        ],
-      });
+      sections.add(_paragraphSection(_escapeText(trimmedErrorSummary)));
     }
 
     final timestampWidgets = <Map<String, dynamic>>[];
@@ -75,6 +83,76 @@ class ChatCardBuilder {
     );
   }
 
+  /// Builds a workflow run lifecycle card: the workflow name as the title, the
+  /// run [status], [facts] in order, then [body] and, for a failed run,
+  /// [errorSummary]. It carries a button per entry of [actions], each reporting
+  /// its action ID as the invoked function and [actionData] as its parameters;
+  /// with no [actions] it carries none.
+  Map<String, dynamic> runNotification({
+    required String runId,
+    required String title,
+    required String status,
+    Map<String, String> facts = const {},
+    String? body,
+    String? errorSummary,
+    List<ChannelNotificationAction> actions = const [],
+    Map<String, String> actionData = const {},
+  }) {
+    final sections = <Map<String, dynamic>>[_statusBadgeSection(status)];
+
+    if (facts.isNotEmpty) {
+      sections.add({
+        'widgets': [
+          for (final entry in facts.entries)
+            {
+              'decoratedText': {'topLabel': entry.key, 'text': _escapeText(entry.value), 'wrapText': true},
+            },
+        ],
+      });
+    }
+
+    final trimmedBody = body?.trim();
+    if (trimmedBody != null && trimmedBody.isNotEmpty) {
+      sections.add(_paragraphSection(_escapeAndTruncateDescription(trimmedBody)));
+    }
+
+    final trimmedErrorSummary = errorSummary?.trim();
+    if (status == 'failed' && trimmedErrorSummary != null && trimmedErrorSummary.isNotEmpty) {
+      sections.add(_paragraphSection(_escapeText(trimmedErrorSummary)));
+    }
+
+    if (actions.isNotEmpty) {
+      sections.add({
+        'widgets': [
+          {
+            'buttonList': {
+              'buttons': [
+                for (final action in actions)
+                  _actionButton(
+                    text: action.label,
+                    function: action.id,
+                    parameters: actionData,
+                    color: switch (action.id) {
+                      runApproveActionId => _approveColor,
+                      runRequestChangesActionId => _changesColor,
+                      _ => _rejectColor,
+                    },
+                    opensDialog: action.id == runRequestChangesActionId,
+                  ),
+              ],
+            },
+          },
+        ],
+      });
+    }
+
+    return _wrapCard(
+      cardId: 'run_$runId',
+      header: {'title': title, 'subtitle': _statusLabel(status)},
+      sections: sections,
+    );
+  }
+
   /// Builds an error notification card.
   Map<String, dynamic> errorNotification({
     required String title,
@@ -82,15 +160,7 @@ class ChatCardBuilder {
     String? taskId,
     String? sessionId,
   }) {
-    final sections = <Map<String, dynamic>>[
-      {
-        'widgets': [
-          {
-            'textParagraph': {'text': _escapeText(errorSummary.trim())},
-          },
-        ],
-      },
-    ];
+    final sections = <Map<String, dynamic>>[_paragraphSection(_escapeText(errorSummary.trim()))];
 
     final referenceWidgets = <Map<String, dynamic>>[];
     if (taskId != null && taskId.isNotEmpty) {
@@ -141,13 +211,7 @@ class ChatCardBuilder {
           },
         ],
       },
-      {
-        'widgets': [
-          {
-            'textParagraph': {'text': _escapeText(body.trim())},
-          },
-        ],
-      },
+      _paragraphSection(_escapeText(body.trim())),
     ];
 
     if (details != null && details.isNotEmpty) {
@@ -173,16 +237,71 @@ class ChatCardBuilder {
     return _wrapCard(
       cardId: 'confirmation',
       header: {'title': title, 'subtitle': 'Confirmation'},
-      sections: [
+      sections: [_paragraphSection(_escapeText(message.trim()))],
+    );
+  }
+
+  /// Builds the body of the request-changes dialog: a multiline feedback input and a submit button that
+  /// carries [runId], [stepId], [nonce] and the [postMessageId] it was opened from back under the submit action ID.
+  ///
+  /// A dialog submission is not documented to carry the message, so the post identity travels in the button.
+  Map<String, dynamic> requestChangesDialog({
+    required String runId,
+    required String stepId,
+    required String nonce,
+    required String postMessageId,
+  }) {
+    return {
+      'header': {'title': 'Request changes'},
+      'sections': [
         {
           'widgets': [
             {
-              'textParagraph': {'text': _escapeText(message.trim())},
+              'textInput': {
+                'name': requestChangesFeedbackInputName,
+                'label': 'What should change?',
+                'type': 'MULTIPLE_LINE',
+              },
+            },
+            {
+              'buttonList': {
+                'buttons': [
+                  _actionButton(
+                    text: 'Request changes',
+                    function: runRequestChangesSubmitActionId,
+                    parameters: {
+                      runActionRunIdKey: runId,
+                      runActionStepIdKey: stepId,
+                      runActionNonceKey: nonce,
+                      requestChangesPostParameter: postMessageId,
+                    },
+                    color: _changesColor,
+                  ),
+                ],
+              },
             },
           ],
         },
       ],
-    );
+    };
+  }
+
+  /// Builds the body of a dialog that shows only [message].
+  Map<String, dynamic> messageDialog(String message) {
+    return {
+      'header': {'title': 'Request changes'},
+      'sections': [_paragraphSection(_escapeText(message.trim()))],
+    };
+  }
+
+  Map<String, dynamic> _paragraphSection(String escapedText) {
+    return {
+      'widgets': [
+        {
+          'textParagraph': {'text': escapedText},
+        },
+      ],
+    };
   }
 
   Map<String, dynamic> _wrapCard({
@@ -209,14 +328,14 @@ class ChatCardBuilder {
               _actionButton(
                 text: 'Accept',
                 function: 'task_accept',
-                taskId: taskId,
-                color: const {'red': 0.13, 'green': 0.59, 'blue': 0.33, 'alpha': 1.0},
+                parameters: {'taskId': taskId},
+                color: _approveColor,
               ),
               _actionButton(
                 text: 'Reject',
                 function: 'task_reject',
-                taskId: taskId,
-                color: const {'red': 0.84, 'green': 0.18, 'blue': 0.18, 'alpha': 1.0},
+                parameters: {'taskId': taskId},
+                color: _rejectColor,
               ),
             ],
           },
@@ -244,8 +363,9 @@ class ChatCardBuilder {
   Map<String, dynamic> _actionButton({
     required String text,
     required String function,
-    required String taskId,
+    required Map<String, String> parameters,
     required Map<String, double> color,
+    bool opensDialog = false,
   }) {
     return {
       'text': text,
@@ -253,8 +373,9 @@ class ChatCardBuilder {
         'action': {
           'function': function,
           'parameters': [
-            {'key': 'taskId', 'value': taskId},
+            for (final entry in parameters.entries) {'key': entry.key, 'value': entry.value},
           ],
+          if (opensDialog) 'interaction': 'OPEN_DIALOG',
         },
       },
       'color': color,
@@ -288,11 +409,17 @@ class ChatCardBuilder {
     'rejected' => 'Rejected',
     'failed' => 'Failed',
     'error' => 'Error',
+    'started' => 'Started',
+    'awaiting_approval' => 'Awaiting Approval',
+    'finished' => 'Finished',
+    'step_completed' => 'Step Completed',
     _ => status,
   };
 
   String? _statusColor(String status) => switch (status) {
-    'running' => '#1a73e8',
+    'running' || 'started' || 'step_completed' => '#1a73e8',
+    'awaiting_approval' => '#f9ab00',
+    'finished' => '#1e8e3e',
     'review' => '#f9ab00',
     'accepted' => '#1e8e3e',
     'rejected' => '#d93025',

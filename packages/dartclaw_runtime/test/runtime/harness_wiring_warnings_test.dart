@@ -27,6 +27,7 @@ class _ContainerCapableSecurityWiring extends SecurityWiring {
   new({
     required super.config,
     required super.dataDir,
+    required super.runtimeCwd,
     required super.eventBus,
     required super.exitFn,
     required super.auditLogger,
@@ -229,6 +230,7 @@ void main() {
         final capable = _ContainerCapableSecurityWiring(
           config: config,
           dataDir: tempDir.path,
+          runtimeCwd: tempDir.path,
           eventBus: eventBus,
           exitFn: _unexpectedExit,
           auditLogger: GuardAuditLogger(dataDir: tempDir.path),

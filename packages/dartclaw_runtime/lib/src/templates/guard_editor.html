@@ -31,7 +31,7 @@
     <input class="form-input" name="value" data-guard-editor-value placeholder="Pattern, domain, or file glob"
            tl:attr="value=${guardValue},aria-invalid=${guardError ? 'true' : null}">
     <select class="form-select" name="level" data-guard-editor-level aria-label="File access level" tl:attr="hidden=${showLevel ? null : 'hidden'}">
-      <option value="no_access">No access</option><option value="read_only">Read only</option><option value="no_delete">No delete</option>
+      <option value="no_access">No access</option><option value="read_only">Read only</option><option value="no_delete">No delete</option><option value="allow">Allow</option>
     </select>
     <button type="submit" class="btn btn-primary btn-sm">Add</button>
   </form>
@@ -66,6 +66,7 @@
           <option value="no_access" tl:attr="selected=${level == 'no_access' ? 'selected' : null}">No access</option>
           <option value="read_only" tl:attr="selected=${level == 'read_only' ? 'selected' : null}">Read only</option>
           <option value="no_delete" tl:attr="selected=${level == 'no_delete' ? 'selected' : null}">No delete</option>
+          <option value="allow" tl:attr="selected=${level == 'allow' ? 'selected' : null}">Allow</option>
         </select>
       </div>
       <div class="dialog-footer">

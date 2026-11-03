@@ -39,6 +39,13 @@ extension WorkflowExecutorHelpers on WorkflowExecutor {
   // auto-framed by SkillPromptBuilder when `autoFrameContext` is true.
   List<String> _autoFrameVariableNames(WorkflowStep step) => step.workflowVariables;
 
+  /// The gate whose in-flight request-changes round re-enters [step], or `null`.
+  WorkflowStep? _revisionGateFor(WorkflowRun run, WorkflowDefinition definition, WorkflowStep step) {
+    final gateId = run.contextJson[workflowRevisionContextKey];
+    if (gateId is! String) return null;
+    return definition.steps.where((candidate) => candidate.id == gateId && candidate.revise == step.id).firstOrNull;
+  }
+
   /// Returns an updated [WorkflowRun] when [step].entryGate evaluates false.
   ///
   /// Unlike [WorkflowStep.gate], entryGate does not pause the run on false; it

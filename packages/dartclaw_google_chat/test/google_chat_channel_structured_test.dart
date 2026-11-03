@@ -115,25 +115,26 @@ void main() {
       expect(sentTexts, ['Producer text']);
     });
 
-    test('sendMessageWithThread', () async {
-      final threadName = await threadChannel.sendMessageWithThread(
+    test('sendToNewThread', () async {
+      final post = await threadChannel.threadedNotifications!.sendToNewThread(
         'spaces/AAA',
         ChannelResponse(text: 'Producer text', structuredPayload: cardPayload),
         threadKey: 'task-1',
       );
       expect(cardAttempts, 1);
       expect(sentTexts, ['Producer text']);
-      expect(threadName, 'spaces/AAA/threads/CCC');
+      expect(post?.threadId, 'spaces/AAA/threads/CCC');
     });
 
-    test('sendMessageToThreadName', () async {
-      await threadChannel.sendMessageToThreadName(
+    test('sendToThread', () async {
+      final post = await threadChannel.threadedNotifications!.sendToThread(
         'spaces/AAA',
         ChannelResponse(text: 'Producer text', structuredPayload: cardPayload),
-        threadName: 'spaces/AAA/threads/CCC',
+        threadId: 'spaces/AAA/threads/CCC',
       );
       expect(cardAttempts, 1);
       expect(sentTexts, ['Producer text']);
+      expect(post?.messageId, 'spaces/AAA/messages/BBB');
     });
   });
 }

@@ -14,6 +14,7 @@ export 'base_protocol_adapter.dart'
         stringifyMessageContent,
         stringifyValue,
         stringValue,
+        turnImageInput,
         warnOnUnmappedToolName,
         codexErrorSummary,
         codexFileChangeKind,

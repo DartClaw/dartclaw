@@ -6,6 +6,10 @@ import '../workflow/workflow_run_repository.dart';
 final class InMemoryWorkflowRunRepository implements WorkflowRunRepository {
   final Map<String, WorkflowRun> _runs = {};
 
+  /// Makes the next [update] lose its race once, as a concurrent writer would, so a test can prove a failed
+  /// update leaves the run as it was.
+  bool failNextUpdate = false;
+
   @override
   Future<void> insert(WorkflowRun run) async {
     if (_runs.containsKey(run.id)) throw ArgumentError('WorkflowRun already exists: ${run.id}');
@@ -30,6 +34,10 @@ final class InMemoryWorkflowRunRepository implements WorkflowRunRepository {
 
   @override
   Future<bool> update(WorkflowRun run, {WorkflowRunStatus? expectedStatus, DateTime? expectedUpdatedAt}) async {
+    if (failNextUpdate) {
+      failNextUpdate = false;
+      return false;
+    }
     final existing = _runs[run.id];
     if (existing == null ||
         (expectedStatus != null && existing.status != expectedStatus) ||

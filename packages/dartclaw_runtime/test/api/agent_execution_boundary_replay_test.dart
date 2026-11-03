@@ -78,7 +78,7 @@ void main() {
     );
     await tasks.transition(task.id, TaskStatus.running, now: DateTime.parse('2026-03-10T10:01:00Z'));
     await threadBindingStore.create(
-      ThreadBinding(
+      ThreadBinding.task(
         channelType: 'googlechat',
         threadId: 'spaces/AAA/threads/BBB',
         taskId: task.id,

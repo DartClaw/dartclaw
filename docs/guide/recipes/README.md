@@ -51,7 +51,7 @@ Already know what you want? Pick a specific recipe:
 | 2 | [Daily Memory Journal](02-daily-memory-journal.md) | Cron scheduling, observation capture, git sync | Low |
 | 3 | [Scheduled Task Queue](03-scheduled-task-queue.md) | Multiple cron/interval jobs, HEARTBEAT.md, delivery modes, task system | Low |
 | 4 | [Knowledge Inbox](04-knowledge-inbox.md) | Search agent, content guard, observation capture, cron scheduling | Medium |
-| 5 | [Contact/CRM Tracker](05-contact-crm-tracker.md) | WhatsApp/Signal/Google Chat DM allowlist, atomic memory curation, memory search | Medium |
+| 5 | [Contact/CRM Tracker](05-contact-crm-tracker.md) | WhatsApp/Signal/Google Chat/Slack DM allowlist, atomic memory curation, memory search | Medium |
 | 6 | [Research Assistant](06-research-assistant.md) | Search agent (tool policy cascade), memory, web UI | Medium |
 | 7 | [Nightly Reflection](07-nightly-reflection.md) | Cron scheduling, errors, learning capture, memory curation | Low |
 | 8 | [Using DartClaw in a Group](08-crowd-coding.md) | Google Chat Spaces, tool-driven tasks and workflows, governance, thread binding, emergency controls | Medium |

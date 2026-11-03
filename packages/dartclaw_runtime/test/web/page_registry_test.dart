@@ -80,6 +80,8 @@ void main() {
         '/memory/content',
         '/knowledge/wiki',
         '/knowledge/wiki/custom',
+        '/knowledge/source',
+        '/knowledge/source/custom',
         '/health',
         '/static/app.css',
         '/whatsapp/pairing',

@@ -134,6 +134,10 @@ typedef AdmitExecution = Future<void> Function(ExecutionRequest request);
 /// Releases a logical-session reservation previously made by [AdmitExecution].
 typedef ReleaseExecutionAdmission = void Function(String sessionId);
 
+/// Completes when the global admission cap has room. Reserves nothing; the
+/// caller re-attempts admission.
+typedef WhenAdmissionCapacityAvailable = Future<void> Function();
+
 final class WorkerCreationException implements Exception {
   const new(this.message);
 

@@ -194,6 +194,41 @@ void main() {
     await turnFuture;
   });
 
+  test('ACP sends a turn entry carrying images as its text alone, so the named attachment is all it gets', () async {
+    final process = FakeAcpProcess();
+    final harness = _harnessFor(process);
+    addTearDown(harness.dispose);
+
+    final startFuture = harness.start();
+    await process.respondTo('initialize', {'protocolVersion': 1});
+    await startFuture;
+
+    final turnFuture = harness.turn(
+      sessionId: 'image-turn',
+      messages: const [
+        {
+          'role': 'user',
+          'content': 'describe shot.png\n\n[rich_input_context: shot.png]',
+          'images': [
+            {'mediaType': 'image/png', 'data': 'UE5H'},
+          ],
+        },
+      ],
+      systemPrompt: '',
+    );
+    await process.respondTo('session/new', {'sessionId': 'acp-image-turn'});
+    final request = await process.waitForRequest('session/prompt');
+    expect(
+      (request['params'] as Map<String, dynamic>)['prompt'],
+      'describe shot.png\n\n[rich_input_context: shot.png]',
+    );
+    expect(process.capturedStdinJson.any((message) => message.toString().contains('UE5H')), isFalse);
+    await process.respondTo('session/prompt', {'text': 'a screenshot'});
+    await process.respondTo('session/close', {});
+
+    expect((await turnFuture).stopReason, isNot('error'));
+  });
+
   group('ACP harness S04 event routing', () {
     test('emits ordered DeltaEvent, ToolUseEvent, and ToolResultEvent without thought response pollution', () async {
       final process = FakeAcpProcess();

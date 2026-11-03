@@ -457,5 +457,50 @@ void main() {
       final finalRun = await h.repository.getById('run-1');
       expect(finalRun?.contextJson['gate.approval.message'], equals('Review result: all tests pass'));
     });
+
+    group('a requested-event listener reading the run', () {
+      Future<(WorkflowRun?, List<String>)> runApprovalGate({required String? approvals}) async {
+        final definition = h.makeDefinition(
+          steps: [
+            const WorkflowStep(id: 'gate', name: 'Gate', taskType: WorkflowTaskType.approval, prompts: ['Approve?']),
+          ],
+        );
+        final run = h.makeRun(definition).copyWith(contextJson: {'_workflow.approvals': ?approvals});
+        await h.repository.insert(run);
+        final context = WorkflowContext(data: {'_workflow.approvals': ?approvals});
+
+        WorkflowRun? seenByListener;
+        final order = <String>[];
+        final requestedSub = h.eventBus.on<WorkflowApprovalRequestedEvent>().listen((e) {
+          order.add('requested');
+          unawaited(h.repository.getById(e.runId).then((r) => seenByListener = r));
+        });
+        final statusSub = h.eventBus
+            .on<WorkflowRunStatusChangedEvent>()
+            .where((e) => e.newStatus == WorkflowRunStatus.awaitingApproval)
+            .listen((_) => order.add('status'));
+
+        await h.executor.execute(run, definition, context);
+        await Future<void>.delayed(Duration.zero);
+        await requestedSub.cancel();
+        await statusSub.cancel();
+        return (seenByListener, order);
+      }
+
+      test('finds the pending approval of a manual gate, ahead of the status event', () async {
+        final (seen, order) = await runApprovalGate(approvals: null);
+
+        expect(seen?.status, WorkflowRunStatus.awaitingApproval);
+        expect(seen?.contextJson['_approval.pending.stepId'], 'gate');
+        expect(order, ['requested', 'status']);
+      });
+
+      test('finds no pending approval when the policy auto-resolves the gate', () async {
+        final (seen, order) = await runApprovalGate(approvals: 'auto');
+
+        expect(seen?.contextJson['_approval.pending.stepId'], isNull);
+        expect(order, ['requested']);
+      });
+    });
   });
 }

@@ -235,6 +235,149 @@ void main() {
       );
     });
 
+    group('approval revise rules', () {
+      const prep = WorkflowStep(id: 'prep', name: 'Prep', prompts: ['p']);
+      const draft = WorkflowStep(id: 'draft', name: 'Draft', prompts: ['p']);
+      WorkflowStep gate({String? revise = 'draft', int? maxRevisions}) => WorkflowStep(
+        id: 'gate',
+        name: 'Gate',
+        taskType: WorkflowTaskType.approval,
+        revise: revise,
+        maxRevisions: maxRevisions,
+      );
+      const ship = WorkflowStep(id: 'ship', name: 'Ship', prompts: ['p']);
+
+      test('a gate revising an earlier top-level step validates, with the bound defaulting to 3', () {
+        final def = buildDef(steps: [prep, draft, gate(), ship]);
+
+        expect(validator.validate(def).errors, isEmpty);
+        expect(def.steps[2].effectiveMaxRevisions, 3);
+      });
+
+      test('a revise target that cannot be re-entered is refused naming the gate and the fix', () {
+        final cases = <({String name, WorkflowDefinition def, String contains})>[
+          (
+            name: 'a later step',
+            def: buildDef(
+              steps: [
+                prep,
+                gate(revise: 'ship'),
+                ship,
+              ],
+            ),
+            contains: 'after the gate',
+          ),
+          (
+            name: 'the gate itself',
+            def: buildDef(
+              steps: [
+                prep,
+                gate(revise: 'gate'),
+              ],
+            ),
+            contains: 'itself',
+          ),
+          (
+            name: 'an unknown step',
+            def: buildDef(
+              steps: [
+                prep,
+                gate(revise: 'nope'),
+              ],
+            ),
+            contains: 'does not exist',
+          ),
+          (
+            name: 'an approval step',
+            def: buildDef(
+              steps: [
+                prep,
+                const WorkflowStep(id: 'other-gate', name: 'Other', taskType: WorkflowTaskType.approval),
+                gate(revise: 'other-gate'),
+              ],
+            ),
+            contains: 'approval step "other-gate"',
+          ),
+          (
+            name: 'a step inside a loop',
+            def: buildDef(
+              steps: [prep, draft, gate(), ship],
+              loops: [
+                const WorkflowLoop(id: 'l', steps: ['draft'], maxIterations: 2, exitGate: 'draft.done == true'),
+              ],
+            ),
+            contains: 'inside a foreach, loop or parallel group',
+          ),
+          (
+            name: 'a step inside a foreach',
+            def: buildDef(
+              steps: [
+                prep,
+                const WorkflowStep(
+                  id: 'each',
+                  name: 'Each',
+                  mapOver: 'items',
+                  foreachSteps: ['per-item'],
+                  maxParallel: 1,
+                ),
+                const WorkflowStep(id: 'per-item', name: 'Per item', prompts: ['p']),
+                gate(revise: 'per-item'),
+              ],
+            ),
+            contains: 'inside a foreach, loop or parallel group',
+          ),
+          (
+            name: 'a gate inside a loop',
+            def: buildDef(
+              steps: [prep, draft, gate(), ship],
+              loops: [
+                const WorkflowLoop(id: 'l', steps: ['gate'], maxIterations: 2, exitGate: 'gate.done == true'),
+              ],
+            ),
+            contains: 'where request changes is not supported',
+          ),
+          (
+            name: 'a bound without revise',
+            def: buildDef(steps: [prep, gate(revise: null, maxRevisions: 2)]),
+            contains: 'without "revise"',
+          ),
+        ];
+        for (final testCase in cases) {
+          final errors = validator.validate(testCase.def).errors;
+          expect(
+            hasError(
+              errors,
+              type: WorkflowValidationErrorType.hybridStepConstraint,
+              stepId: 'gate',
+              messageContains: testCase.contains,
+            ),
+            isTrue,
+            reason: '${testCase.name}: ${errors.map((e) => e.message).toList()}',
+          );
+        }
+      });
+
+      test('a parallel-group member is not a top-level step to revise', () {
+        final def = buildDef(
+          steps: [
+            prep,
+            const WorkflowStep(id: 'a', name: 'A', prompts: ['p'], parallel: true),
+            const WorkflowStep(id: 'b', name: 'B', prompts: ['p'], parallel: true),
+            gate(revise: 'a'),
+          ],
+        );
+
+        expect(
+          hasError(
+            validator.validate(def).errors,
+            stepId: 'gate',
+            messageContains: 'inside a foreach, loop or parallel',
+          ),
+          isTrue,
+        );
+      });
+    });
+
     final hybridCases = [
       (
         name: 'approval step with parallel:true is a hard error',

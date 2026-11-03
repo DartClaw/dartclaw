@@ -239,6 +239,21 @@ void main() {
       service.stop();
     });
 
+    test('trusted turn context: a scheduled prompt turn carries surface cron and nothing channel-shaped', () async {
+      final job = ScheduledJob(
+        id: 'nightly',
+        prompt: 'Run the nightly check',
+        scheduleType: ScheduleType.interval,
+        intervalMinutes: 60,
+      );
+      final service = ScheduleService(turns: turns, sessions: sessions, jobs: []);
+
+      await service.executeJobForTesting(job);
+
+      expect(turns.lastProvenance, const TurnProvenance.cron());
+      expect(turns.lastProvenance?.senderId, isNull);
+    });
+
     test('prompt job forwards its runtime tool policy unchanged', () async {
       final job = ScheduledJob(
         id: 'policy-job',

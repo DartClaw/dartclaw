@@ -1463,6 +1463,55 @@ steps:
       expect(def.steps[1].entryGate, 'prd_source == synthesized');
     });
 
+    group('approval revise and maxRevisions', () {
+      const gateYaml = '''
+name: n
+description: d
+steps:
+  - id: draft
+    name: Draft
+    prompt: p
+  - id: gate
+    name: Gate
+    type: approval
+    prompt: Review
+    revise: draft
+    maxRevisions: 5
+''';
+
+      test('an approval gate parses both keys and its definition snapshot round-trips them', () {
+        final gate = parser.parse(gateYaml).steps[1];
+
+        expect([gate.revise, gate.maxRevisions, gate.effectiveMaxRevisions], ['draft', 5, 5]);
+        final restored = WorkflowDefinition.fromJson(parser.parse(gateYaml).toJson()).steps[1];
+        expect([restored.revise, restored.maxRevisions], ['draft', 5]);
+      });
+
+      test('an omitted bound is 3 with revise, absent without it, and neither key serializes when unset', () {
+        final gate = parser.parse(gateYaml.replaceAll('    maxRevisions: 5\n', '')).steps[1];
+        final plain = parser.parse(stepYaml('type: approval\nprompt: Review')).steps.single;
+
+        expect([gate.maxRevisions, gate.effectiveMaxRevisions], [null, 3]);
+        expect(plain.effectiveMaxRevisions, isNull);
+        expect(plain.toJson().keys, isNot(contains('revise')));
+        expect(plain.toJson().keys, isNot(contains('maxRevisions')));
+      });
+
+      test('both keys are refused on a step that is not an approval gate', () {
+        expectParseFormatError(stepYaml('prompt: p\nrevise: other'), messageContains: ['"revise"', 'approval']);
+        expectParseFormatError(stepYaml('prompt: p\nmaxRevisions: 2'), messageContains: ['"maxRevisions"', 'approval']);
+      });
+
+      test('a bound outside 1 to 10 is refused at parse time', () {
+        for (final bound in [0, 11, -1]) {
+          expectParseFormatError(
+            stepYaml('type: approval\nprompt: Review\nrevise: s\nmaxRevisions: $bound'),
+            messageContains: ['maxRevisions', '1 and 10'],
+          );
+        }
+      });
+    });
+
     test('parses gitStrategy.artifacts', () {
       final def = parser.parse(gitArtifactsWorkflowYaml);
       final artifacts = def.gitStrategy!.artifacts!;

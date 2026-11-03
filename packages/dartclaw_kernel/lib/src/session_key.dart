@@ -29,53 +29,114 @@ class SessionKey {
     return SessionKey(agentId: parts[1], scope: parts[2], identifiers: parts.sublist(3).join(':'));
   }
 
+  /// The conversation a `dm` or `group` key names, decoded, or `null` for any other scope and for a DM key
+  /// that names no peer (the shared DM key).
+  ///
+  /// `channelType` is `null` for a per-contact DM key, which spans channels. `recipientId` is the peer of a DM
+  /// key and the group of a group key. `threadId` is the key's `:thread:` suffix, when it has one.
+  ({String? channelType, String recipientId, String? threadId})? get channelRoute {
+    final parts = identifiers.split(':');
+    final threaded = parts.length >= 4 && parts[parts.length - 2] == 'thread';
+    final base = threaded ? parts.sublist(0, parts.length - 2) : parts;
+    final threadId = threaded ? Uri.decodeComponent(parts.last) : null;
+    switch (scope) {
+      case 'dm' when base.length == 2:
+        return (
+          channelType: base[0] == 'contact' ? null : Uri.decodeComponent(base[0]),
+          recipientId: Uri.decodeComponent(base[1]),
+          threadId: threadId,
+        );
+      case 'group' when base.length == 2 || base.length == 3:
+        return (
+          channelType: Uri.decodeComponent(base[0]),
+          recipientId: Uri.decodeComponent(base[1]),
+          threadId: threadId,
+        );
+      default:
+        return null;
+    }
+  }
+
   /// Builds the shared primary web session key for [agentId].
   static String webSession({String agentId = 'main'}) => SessionKey(agentId: agentId, scope: 'web').toString();
 
   /// Builds a shared DM session key used by all DM contacts for [agentId].
-  static String dmShared({String agentId = 'main'}) =>
-      SessionKey(agentId: agentId, scope: 'dm', identifiers: 'shared').toString();
+  ///
+  /// A non-null [threadId] gives each channel thread its own session.
+  static String dmShared({String agentId = 'main', String? threadId}) =>
+      SessionKey(agentId: agentId, scope: 'dm', identifiers: 'shared${_threadSuffix(threadId)}').toString();
 
   /// Builds a per-contact DM session key shared across channels.
-  static String dmPerContact({String agentId = 'main', required String peerId}) {
-    if (peerId.isEmpty) throw ArgumentError('peerId must not be empty');
-    return SessionKey(agentId: agentId, scope: 'dm', identifiers: 'contact:${Uri.encodeComponent(peerId)}').toString();
-  }
-
-  /// Builds a per-channel per-contact DM session key.
-  static String dmPerChannelContact({String agentId = 'main', required String channelType, required String peerId}) {
+  ///
+  /// A non-null [threadId] gives each channel thread its own session.
+  static String dmPerContact({String agentId = 'main', required String peerId, String? threadId}) {
     if (peerId.isEmpty) throw ArgumentError('peerId must not be empty');
     return SessionKey(
       agentId: agentId,
       scope: 'dm',
-      identifiers: '${Uri.encodeComponent(channelType)}:${Uri.encodeComponent(peerId)}',
+      identifiers: 'contact:${Uri.encodeComponent(peerId)}${_threadSuffix(threadId)}',
+    ).toString();
+  }
+
+  /// Builds a per-channel per-contact DM session key.
+  ///
+  /// A non-null [threadId] gives each channel thread its own session.
+  static String dmPerChannelContact({
+    String agentId = 'main',
+    required String channelType,
+    required String peerId,
+    String? threadId,
+  }) {
+    if (peerId.isEmpty) throw ArgumentError('peerId must not be empty');
+    return SessionKey(
+      agentId: agentId,
+      scope: 'dm',
+      identifiers: '${Uri.encodeComponent(channelType)}:${Uri.encodeComponent(peerId)}${_threadSuffix(threadId)}',
     ).toString();
   }
 
   /// Builds a shared group session key for a channel group.
-  static String groupShared({String agentId = 'main', required String channelType, required String groupId}) {
+  ///
+  /// A non-null [threadId] gives each channel thread its own session.
+  static String groupShared({
+    String agentId = 'main',
+    required String channelType,
+    required String groupId,
+    String? threadId,
+  }) {
     if (groupId.isEmpty) throw ArgumentError('groupId must not be empty');
     return SessionKey(
       agentId: agentId,
       scope: 'group',
-      identifiers: '${Uri.encodeComponent(channelType)}:${Uri.encodeComponent(groupId)}',
+      identifiers: '${Uri.encodeComponent(channelType)}:${Uri.encodeComponent(groupId)}${_threadSuffix(threadId)}',
     ).toString();
   }
 
   /// Builds a per-member group session key inside a specific group.
+  ///
+  /// A non-null [threadId] gives each channel thread its own session.
   static String groupPerMember({
     String agentId = 'main',
     required String channelType,
     required String groupId,
     required String peerId,
+    String? threadId,
   }) {
     if (groupId.isEmpty) throw ArgumentError('groupId must not be empty');
     if (peerId.isEmpty) throw ArgumentError('peerId must not be empty');
     return SessionKey(
       agentId: agentId,
       scope: 'group',
-      identifiers: '${Uri.encodeComponent(channelType)}:${Uri.encodeComponent(groupId)}:${Uri.encodeComponent(peerId)}',
+      identifiers:
+          '${Uri.encodeComponent(channelType)}:${Uri.encodeComponent(groupId)}:${Uri.encodeComponent(peerId)}'
+          '${_threadSuffix(threadId)}',
     ).toString();
+  }
+
+  static String _threadSuffix(String? threadId) {
+    if (threadId == null) return '';
+    if (threadId.isEmpty) throw ArgumentError('threadId must not be empty');
+    return ':thread:${Uri.encodeComponent(threadId)}';
   }
 
   /// Builds a scheduled-job session key for [jobId].

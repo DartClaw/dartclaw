@@ -195,6 +195,57 @@ void main() {
     });
   });
 
+  group('GoogleChatRestClient.editCardMessage', () {
+    final card = const ChatCardBuilder().confirmationCard(title: 'Done', message: 'Completed.');
+
+    test('patches cards_v2 and text with their own update mask', () async {
+      late http.Request captured;
+      final client = GoogleChatRestClient(
+        authClient: MockClient((request) async {
+          captured = request;
+          return http.Response('{}', 200);
+        }),
+      );
+
+      final ok = await client.editCardMessage('spaces/AAA/messages/BBB', card, 'Approved');
+
+      expect(ok, isTrue);
+      expect(captured.method, 'PATCH');
+      expect(
+        captured.url.toString(),
+        'https://chat.googleapis.com/v1/spaces/AAA/messages/BBB?updateMask=cards_v2,text',
+      );
+      expect(jsonDecode(captured.body), {...card, 'text': 'Approved'});
+    });
+
+    test('returns false on error', () async {
+      final client = GoogleChatRestClient(authClient: MockClient((request) async => http.Response('{}', 403)));
+
+      expect(await client.editCardMessage('spaces/AAA/messages/BBB', card, 'Approved'), isFalse);
+    });
+
+    test('returns false on transport exception', () async {
+      final client = GoogleChatRestClient(
+        authClient: MockClient((request) async => throw const SocketException('boom')),
+      );
+
+      expect(await client.editCardMessage('spaces/AAA/messages/BBB', card, 'Approved'), isFalse);
+    });
+
+    test('rejects invalid message names', () async {
+      var calls = 0;
+      final client = GoogleChatRestClient(
+        authClient: MockClient((request) async {
+          calls++;
+          return http.Response('{}', 200);
+        }),
+      );
+
+      expect(await client.editCardMessage('spaces/AAA', card, 'Approved'), isFalse);
+      expect(calls, 0);
+    });
+  });
+
   group('GoogleChatRestClient.send card', () {
     test('sends POST to correct URL with JSON body', () async {
       late http.Request captured;

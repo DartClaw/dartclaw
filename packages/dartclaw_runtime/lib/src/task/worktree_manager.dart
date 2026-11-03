@@ -60,10 +60,6 @@ final class _RegisteredWorktree {
 /// Hook invoked after a worktree is created and before it is returned.
 typedef WorktreeSkillMaterializer = Future<void> Function(String worktreePath);
 
-/// Source of the process working directory, injectable so tests never assign
-/// `Directory.current` (it is process-wide and leaks across parallel suites).
-typedef CurrentDirectoryProvider = String Function();
-
 /// Git worktree lifecycle manager for tasks that declare worktree isolation.
 ///
 /// Worktrees are keyed by the caller-supplied `taskId`, which must be globally
@@ -82,7 +78,7 @@ typedef CurrentDirectoryProvider = String Function();
 class WorktreeManager {
   static final _log = Logger('WorktreeManager');
 
-  final String? _projectDir;
+  final String _projectDir;
   final String _baseRef;
   final int _staleTimeoutHours;
   final String _worktreesDir;
@@ -96,12 +92,9 @@ class WorktreeManager {
   /// Injectable git runner for testing.
   final GitRunner _runGit;
 
-  /// Injectable working-directory source for testing.
-  final CurrentDirectoryProvider _currentDirectory;
-
   new({
     required String dataDir,
-    String? projectDir,
+    required String projectDir,
     String baseRef = 'main',
     int staleTimeoutHours = 24,
     String? worktreesDir,
@@ -109,9 +102,7 @@ class WorktreeManager {
     Future<Project?> Function(String projectId)? projectLookup,
     WorktreeSkillMaterializer? skillMaterializer,
     GitRunner? processRunner,
-    CurrentDirectoryProvider? currentDirectory,
   }) : _projectDir = projectDir,
-       _currentDirectory = currentDirectory ?? (() => Directory.current.path),
        _baseRef = baseRef,
        _staleTimeoutHours = staleTimeoutHours,
        _worktreesDir = worktreesDir ?? p.join(dataDir, 'worktrees'),
@@ -142,7 +133,7 @@ class WorktreeManager {
   }) async {
     await _ensureGitAvailable();
 
-    final effectiveProjectDir = project?.localPath ?? _defaultProjectDir;
+    final effectiveProjectDir = project?.localPath ?? _projectDir;
     final worktreePath = p.join(_worktreesDir, taskId);
     final persistedInfo = _parseWorktreeInfo(existingWorktreeJson);
 
@@ -336,7 +327,7 @@ class WorktreeManager {
     final info = _worktrees[taskId];
     final worktreePath = info?.path ?? p.join(_worktreesDir, taskId);
     final branch = normalizeGitRefOperand(info?.branch ?? 'dartclaw/task-$taskId', label: 'worktree branch');
-    final effectiveProjectDir = project?.localPath ?? _defaultProjectDir;
+    final effectiveProjectDir = project?.localPath ?? _projectDir;
 
     // Remove worktree
     final removeResult = await _runGit(['worktree', 'remove', worktreePath], workingDirectory: effectiveProjectDir);
@@ -426,7 +417,7 @@ class WorktreeManager {
   }
 
   /// Derives a unique branch name, appending `-N` suffix on collision.
-  Future<String> _resolveBranchName(String taskId, {String? projectDir}) async {
+  Future<String> _resolveBranchName(String taskId, {required String projectDir}) async {
     final base = normalizeGitRefOperand('dartclaw/task-$taskId', label: 'worktree branch');
 
     if (!await _branchExists(base, projectDir: projectDir)) return base;
@@ -439,8 +430,8 @@ class WorktreeManager {
     throw WorktreeException('Could not find available branch name for task $taskId');
   }
 
-  Future<bool> _branchExists(String branchName, {String? projectDir}) async {
-    final result = await _runGit(['branch', '--list', branchName], workingDirectory: projectDir ?? _defaultProjectDir);
+  Future<bool> _branchExists(String branchName, {required String projectDir}) async {
+    final result = await _runGit(['branch', '--list', branchName], workingDirectory: projectDir);
     return (result.stdout as String).trim().isNotEmpty;
   }
 
@@ -592,7 +583,7 @@ class WorktreeManager {
   ///
   /// Limitation: when the task row is missing (true orphan), the owning
   /// project cannot be recovered because worktree paths are UUID-keyed and do
-  /// not encode `projectId`. The fallback to `_defaultProjectDir` may leave a
+  /// not encode `projectId`. The fallback to `_projectDir` may leave a
   /// dangling worktree registration in the real owning repo; disk cleanup
   /// still succeeds. Encoding `projectId` in the worktree path would close
   /// this residual gap but is out of scope here.
@@ -600,18 +591,18 @@ class WorktreeManager {
     final projectLookup = _projectLookup;
     final projectId = task?.projectId;
     if (projectLookup == null || projectId == null || projectId.isEmpty || projectId == '_local') {
-      return _defaultProjectDir;
+      return _projectDir;
     }
     try {
       final project = await projectLookup(projectId);
       final localPath = project?.localPath;
       if (localPath == null || localPath.isEmpty) {
-        return _defaultProjectDir;
+        return _projectDir;
       }
       return localPath;
     } catch (error) {
       _log.warning('Failed to resolve project $projectId for stale reap; using default repo: $error');
-      return _defaultProjectDir;
+      return _projectDir;
     }
   }
 
@@ -635,6 +626,4 @@ class WorktreeManager {
     final trimmed = value?.trim();
     return trimmed == null || trimmed.isEmpty ? null : trimmed;
   }
-
-  String get _defaultProjectDir => _projectDir ?? _currentDirectory();
 }

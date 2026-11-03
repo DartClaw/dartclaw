@@ -4,6 +4,10 @@
 
 host: 0.0.0.0
 
+# PostgreSQL 14+; set DARTCLAW_DATABASE_URL first (examples/README.md).
+database:
+  url: ${DARTCLAW_DATABASE_URL}
+
 gateway:
   auth_mode: token
   token: ${DARTCLAW_TOKEN}

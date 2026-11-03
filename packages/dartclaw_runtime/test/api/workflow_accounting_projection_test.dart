@@ -50,7 +50,13 @@ void main() {
       ..getResult = run
       ..listResult = [run]
       ..recordListCalls = true;
-    final handler = workflowRoutes(workflows, tasks, InMemoryDefinitionSource([definition]), eventBus: eventBus).call;
+    final handler = workflowRoutes(
+      workflows,
+      tasks,
+      InMemoryDefinitionSource([definition]),
+      runControl: testRunControl(workflows),
+      eventBus: eventBus,
+    ).call;
     try {
       final list = await handler(Request('GET', Uri.parse('http://localhost/api/workflows/runs')));
       final detail = await handler(Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-1')));

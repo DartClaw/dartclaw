@@ -1,964 +1,397 @@
 # Task Execution Architecture
 
-How DartClaw creates, schedules, executes, reviews, and observes background tasks. Covers the full pipeline from task creation through coordinator admission, turn execution, artifact collection, and review lifecycle.
+How DartClaw creates, schedules, executes, reviews, and observes tasks: the task domain model and state machine, the `TaskExecutor` pipeline, worktree isolation and git delivery, review, task events and turn traces, multi-project binding, and budgets. It is the contributor reference for changing those code paths.
 
-**Current through**: 0.27 PostgreSQL-only task storage, conversation workspace and effective-context boundary, and
-awaited event persistence.
+Execution allocation (`ExecutionCoordinator`) and the turn lifecycle (`TurnManager`/`TurnRunner`) belong to [Control Protocol](control-protocol.md); this document covers only how tasks use them. Workflow-owned tasks are summarized where they share the task path; the workflow engine is in [Workflow Architecture](workflow-architecture.md). For *using* tasks (creating them, review flow, budgets, scheduling examples) read [`docs/guide/tasks.md`](../../docs/guide/tasks.md).
 
----
-
-## Audience & Scope
-
-This is the **contributor reference**. It documents how the task subsystem is built: the domain model, the execution pipeline and `TaskExecutor`/`_executeCore` internals, coordinator leases and worker reuse, turn execution and trace persistence, declared-worktree merge + PR plumbing, the review concurrency model, and how task events flow through observability. Use it when modifying the orchestrator, worktree lifecycle, or review/merge code paths — or when writing tests against any of those.
-
-For **using tasks** (creating tasks from the Web UI/API, container profile routing in practice, per-task budget overrides, the review user flow, automation and scheduling examples), read [`docs/guide/tasks.md`](../../docs/guide/tasks.md) and [`docs/guide/agents.md`](../../docs/guide/agents.md). This doc keeps the implementation contract — the full state machine including failure/cancel terminals and dispatch routing code paths — rather than re-explaining the user-facing concepts.
+**Current through**: 0.28.0
 
 ---
 
 ## 1. Overview
 
-A **task** is a background unit of work executed by an agent harness. Tasks decouple work submission from execution — any surface (Web UI, API, channel message, cron schedule, workflow step) can create a task, and the runtime handles queuing, dispatch, isolation, and review.
+A **task** is a background unit of work run by an agent harness. Any surface can create one: Web UI, HTTP API, `task_create` tool, channel message, cron schedule, or workflow step. Creation never executes inline. A poller dispatches queued tasks onto execution leases, and the result optionally goes through human review.
 
-Tasks flow through a well-defined state machine, are executed by harness runners acquired from a pool, produce observable events and artifacts, and optionally go through human review before acceptance.
+Design invariants:
 
-Key design principles:
-- **Decoupled creation and execution** — tasks are queued, not executed inline
-- **Optimistic locking** — version-based concurrency control prevents lost updates
-- **One post-governance execution authority** — task code requests a provider-neutral lease and never manages pool/cache state
-- **Capacity independent from owner lifetime** — per-provider leases bound active execution; host harnesses are opportunistically reused, while a logical-agent container is retained only for its exact owner and task/workflow containers end with their turn/step
-- **Fail-safe budgets** — budget enforcement defaults to open (proceed) on error
-- **Best-effort observability** — event recording never blocks the execution path
+- **Creation and execution are decoupled.** `TaskService` writes a row; `TaskExecutor` polls for `queued` rows.
+- **Optimistic locking.** Every status change is a compare-and-set on status and version.
+- **One execution authority.** Task code requests a provider-neutral lease from `ExecutionCoordinator` and never manages worker pools, caches, or containers.
+- **Budgets fail open on error.** A throwing pre-turn budget check lets the turn proceed (see [Budgets](#10-budgets)).
+- **Event recording is awaited, trace persistence is not.** Task events are durable before the status they describe is published; turn traces are fire-and-forget.
 
 ---
 
 ## 2. Task Domain Model
 
-### 2.1 Package Ownership
+### 2.1 Where the code lives
 
-The task domain is split across three packages following the DartClaw package decomposition:
+| Package | Task-related contents |
+|---|---|
+| `dartclaw_kernel` | `AgentExecution`, `WorkflowStepExecution`, `Project`/`PrConfig`/`ProjectStatus`, `TaskConfig`/`TaskBudgetConfig`, legacy-category refusals (`task_legacy_compatibility.dart`), `ScheduledTaskDefinition` |
+| `dartclaw_core` | `Task`, `TaskStatus`, `TaskArtifact`, `Goal`, `TaskEvent`/`TaskEventKind` (`lib/src/task/`); repositories (`storage/database_task_repository.dart`, `file_task_repository.dart`); `TaskEventService`, `TurnTraceService` (`storage/`); `TurnOutcome`, `ToolCallRecord`, `TurnTrace` (`turn/`); `ProjectService` interface |
+| `dartclaw_runtime` | `TaskService`, `TaskExecutor`, `TaskReviewService`, worktree/merge/push/PR services, `TaskBudgetPolicy`, observers (`lib/src/task/`); `ProjectServiceImpl` (`project/`); scheduling (`scheduling/`); wiring (`runtime/task_wiring.dart`) |
 
-```
-dartclaw_kernel       TaskStatus and legacy refusal constants
-dartclaw_core         Task, TaskStatus, TaskArtifact, Goal, repositories
-dartclaw_runtime       TaskService, TaskExecutor, review, worktrees, scheduling
-dartclaw_core      PostgreSQL repositories, TaskEventService, TurnTraceService
-```
+The server stores tasks in PostgreSQL; a standalone (no-server) run stores them in `FileExecutionStore`. Both are behind the same repository interfaces. Schemas, the standalone checkpoint, and write safety are in [Data Model](data-model.md).
 
 ### 2.2 Task
 
-Immutable value object in `dartclaw_core/lib/src/task/task.dart`.
+`Task` (`dartclaw_core/lib/src/task/task.dart`) is an immutable value object. `configJson` and `worktreeJson` are recursively frozen at construction; `copyWith` uses a sentinel to tell "not provided" from explicit `null`. Session, provider, model, and token budget are not task columns: `Task.sessionId`, `.provider`, `.model`, and `.maxTokens` resolve through the linked `AgentExecution` row, and `workflowRunId`/`stepIndex` through `WorkflowStepExecution` ([ADR-021](../adrs/021-agent-execution-primitive.md)). `TaskService.get`/`list` hydrate both rows in the joined storage query.
 
-| Field              | Type                    | Purpose                                             |
-|--------------------|-------------------------|-----------------------------------------------------|
-| `id`               | `String`                | Unique identifier                                   |
-| `title`            | `String`                | Short title for lists and review surfaces            |
-| `description`      | `String`                | Full task description or operator request            |
-| `status`           | `TaskStatus`            | Current lifecycle state                              |
-| `goalId`           | `String?`               | Parent goal for hierarchical planning                |
-| `acceptanceCriteria` | `String?`             | Criteria used during review                          |
-| `agentExecutionId` | `String?`               | FK to the shared `AgentExecution` runtime row        |
-| `configJson`       | `Map<String, dynamic>`  | Arbitrary immutable config (frozen on construction)  |
-| `worktreeJson`     | `Map<String, dynamic>?` | Git worktree metadata for isolated tasks             |
-| `version`          | `int`                   | Optimistic locking version (starts at 1)             |
-| `createdBy`        | `String?`               | Display name of requesting person/system             |
-| `projectId`        | `String?`               | Target project for worktree creation                 |
-| `workflowStepExecution` | `WorkflowStepExecution?` | Hydrated workflow-side execution metadata       |
-| `maxRetries`       | `int`                   | Maximum retry attempts (default 0)                   |
-| `retryCount`       | `int`                   | Consumed retry attempts                              |
-| `createdAt`        | `DateTime`              | Record creation timestamp                            |
-| `startedAt`        | `DateTime?`             | First execution start                                |
-| `completedAt`      | `DateTime?`             | Terminal state timestamp                             |
+`configJson` is the open-ended part of the contract. Keys the executor and review path read:
 
-Immutability is enforced via `_freezeJsonMap` — both `configJson` and `worktreeJson` are recursively made unmodifiable at construction time. The `copyWith` method uses a sentinel pattern to distinguish "not provided" from explicit `null`.
+| Key | Reader | Meaning |
+|---|---|---|
+| `needsWorktree` | `TaskConfigView` | `true` creates an isolated git worktree. The only trigger. |
+| `securityProfile` | `TaskConfigView` | `workspace` or `restricted`. Host-reserved: `TaskService.create` rejects it inside `configJson` and takes it as a top-level argument from the authenticated API. |
+| `allowedTools`, `readOnly` | `TaskConfigView` | Per-turn tool allowlist; read-only enforcement. A set `allowedTools` makes the worker single-use. |
+| `reviewMode` | `TaskConfigView` | `auto-accept`, `mandatory`, `worktree-only`; see [Review mode](#64-review-mode). |
+| `tokenBudget`, `budget` (deprecated) | `TaskConfigView`, `TaskBudgetPolicy` | Per-task token cap. |
+| `effort`, `requiredInputPath`, `_continueSessionId`, `_baseRef`/`baseRef` | `TaskConfigView` | Effort override; file that must exist before the turn; session to continue; worktree/diff base ref. |
+| `pushBackComment`, `pushBackCount` | review path | Feedback consumed by the next prompt; push-back counter. |
+| `lastError`, `errorSummary`, `_lastFailureKind` | `TaskFailureHandler` | Retry context and failure bookkeeping. |
+| `_tokenBudgetWarningFired` | `TaskBudgetPolicy` | Warn-once cell. |
+| `scheduleId` | `ScheduledTaskRunner` | Dedup key for scheduled tasks. |
 
-The familiar convenience accessors still exist on `Task`: `sessionId`, `provider`, `model`, `maxTokens`, `workflowRunId`, and `stepIndex`. Those values resolve through the linked `AgentExecution` and `WorkflowStepExecution` rows instead of being persisted as top-level task fields (see ADR-021).
+Keys starting with `_` are internal; `TaskCreationService` refuses them from callers.
 
 ### 2.3 Execution declarations
 
-Worktree isolation, artifact collection, review routing, prompt composition, and security profile are controlled by
-their own declarations and execution context. The legacy `tasks.type` column remains only for compatibility:
-new rows receive a neutral placeholder, while pre-upgrade `research` and undeclared `coding` rows are refused with
-migration guidance before execution.
+Worktree isolation, artifact collection, review routing, prompt scope, and security profile each come from their own declaration (`needsWorktree`, `reviewMode`, `securityProfile`, `readOnly`), not from a task "type". The legacy `tasks.type` column survives only for compatibility: new rows get a neutral placeholder, and pre-upgrade `research` rows or `coding` rows without a `needsWorktree` declaration are refused with migration guidance (`TaskLegacyRefusal`, failed non-retryably by the poller).
 
-For workflow-owned tasks specifically, authored workflow step types share the task execution path. The authored YAML type is preserved on the hydrated `WorkflowStepExecution` side-table row (`stepType`) for observability and review-mode compatibility, while write intent is expressed through `configJson.readOnly` (set when `step_config_policy.stepIsReadOnly()` holds).
+Workflow-owned tasks (`task.workflowStepExecution != null`) share this path. Their authored step type stays on the `WorkflowStepExecution` row, and write intent is `configJson.readOnly`. They branch inside `_executeCore` (see [3.4](#34-execution-core)).
 
-For workflow-owned agent steps, the one-shot branch runs a dedicated no-tools structured finalization turn after the main work turn, emitting a strict execution envelope (`outputs` + `step_outcome`) that the host reads as the only structured payload. Inline `<step-outcome>` parsing is reserved for steps that explicitly set `emitsOwnOutcome`; persisted pre-0.25 turns without an envelope marker fail with a re-run instruction.
+### 2.4 State machine
 
-### 2.4 TaskStatus State Machine
+Defined in `TaskStatus.validTransitions` (`dartclaw_core/lib/src/task/task_status.dart`). `Task.transition()` enforces it, sets `startedAt` on `running` and `completedAt` on terminal states, clears `completedAt` when a task returns to `queued`, and bumps `pushBackCount` on `review → queued`.
 
-Defined in `dartclaw_core/lib/src/task/task_status.dart`:
+[![Task lifecycle: status transitions](diagrams/tasks-lifecycle.svg)](diagrams/tasks-lifecycle.svg)
 
-```
-                            +-----------+
-                            |   draft   |
-                            +-----+-----+
-                                  |
-                      queued      |    cancelled
-                  +---------------+----------+
-                  |                           |
-            +-----v-----+             +------v------+
-            |  queued    |             |  cancelled  |  (terminal)
-            +-----+-----+             +-------------+
-                  |
-         running  |    cancelled / failed
-            +-----+----------+--------+
-            |                |        |
-      +-----v-----+   +-----v--+  +--v--------+
-      |  running   |   | failed |  | cancelled |
-      +--+--+--+---+   +---+----+  +-----------+
-         |  |  |            |
-         |  |  |     queued | (retry path)
-         |  |  |            |
-         |  |  +------------+
-         |  |
-         |  +---> interrupted ---> queued (resume)
-         |                    +---> cancelled
-         |
-         v
-    +----+----+
-    |  review  |
-    +--+--+--+-+
-       |  |  |
-       |  |  +---> queued (push back)
-       |  |  +---> running (push back with feedback delivery)
-       |  +------> rejected (terminal)
-       +---------> accepted (terminal)
-       +---------> failed
-```
+The figure and the table carry the same edges; a chip inside a box is an edge drawn without an arrow.
 
-Terminal states: `accepted`, `rejected`, `cancelled`, `failed`.
+| From | To |
+|---|---|
+| `draft` | `queued`, `cancelled` |
+| `queued` | `running`, `cancelled`, `failed` |
+| `running` | `review`, `accepted`, `interrupted`, `failed`, `cancelled` |
+| `interrupted` | `queued`, `cancelled` |
+| `review` | `accepted`, `rejected`, `queued`, `running`, `failed` |
+| `failed` | `queued` (retry or manual restart) |
+| `cancelled` | `failed` (only the workflow race correction, below) |
+| `accepted`, `rejected` | none |
 
-The `failed -> queued` transition enables automatic retry when `retryCount < maxRetries`. A failure kind repeated on consecutive attempts prevents retrying the same recurring error.
+`TaskStatus.terminal` is true for `accepted`, `rejected`, `cancelled`, and `failed`, even though `failed` has a retry edge. `updateFields` refuses terminal tasks, so retry bookkeeping is written while the task is still `running`. No production code enters `interrupted` today; the edges are reserved.
 
-Transitions are validated by `Task.transition()` which checks `TaskStatus.validTransitions`, updates timestamps (`startedAt` on running, `completedAt` on terminal), and increments `pushBackCount` in `configJson` on review-to-queued transitions.
+`cancelled → failed` exists for one case: a workflow turn failure that raced a dispose-cancel must win over the cancel. Only `TaskFailureHandler` calls it, gated by `correctCancelled`; generic cancellation is never rewritten.
 
-### 2.5 TaskArtifact
+### 2.5 TaskArtifact and Goal
 
-Persisted output produced by task execution (`dartclaw_core/lib/src/task/task_artifact.dart`):
+`TaskArtifact` (`task_artifact.dart`) is a named output with `kind` in `diff`, `document`, `data`, `branch`, `pr` and a `path` that is a file path or, for `pr`/`branch` artifacts, a URL or branch name.
 
-| Field      | Type           | Purpose                               |
-|------------|----------------|---------------------------------------|
-| `id`       | `String`       | Unique artifact ID                    |
-| `taskId`   | `String`       | Owning task                           |
-| `name`     | `String`       | Display name                          |
-| `kind`     | `ArtifactKind` | Classification: `diff`, `document`, `data`, `branch`, `pr` |
-| `path`     | `String`       | File path or URL                      |
-| `createdAt`| `DateTime`     | Recording timestamp                   |
+`Goal` (`goal.dart`) groups tasks and may carry `maxTokens` as an inherited budget. `GoalService` allows two levels only (a parent may not itself have a parent) and renders goal context for the prompt: title and mission, plus the parent's, truncated to 800 characters.
 
-### 2.6 Goal
+### 2.6 Optimistic locking
 
-Hierarchical planning context (`dartclaw_core/lib/src/task/goal.dart`):
-
-| Field          | Type       | Purpose                              |
-|----------------|------------|--------------------------------------|
-| `id`           | `String`   | Unique goal ID                       |
-| `title`        | `String`   | Human-readable name                  |
-| `parentGoalId` | `String?`  | Hierarchical parent                  |
-| `mission`      | `String`   | Mission statement / desired outcome  |
-| `maxTokens`    | `int?`     | Budget inherited by child tasks      |
-| `createdAt`    | `DateTime` | Creation timestamp                   |
-
-Goals group tasks and provide inherited token budgets. Budget resolution order: `Task.maxTokens` > legacy `configJson` > `Goal.maxTokens` > global `TaskBudgetConfig.defaultMaxTokens`.
-
-### 2.7 Version-Based Optimistic Locking
-
-`TaskService.transition()` uses `TaskRepository.updateIfStatus()` which applies the update only when the stored status matches the expected status. On mismatch:
-
-- **Version mismatch**: throws `VersionConflictException`
-- **Status mismatch**: throws `StateError`
-- **Missing task**: throws `ArgumentError`
-
-This prevents concurrent transitions from corrupting task state without requiring database-level locks.
+`TaskRepository.updateIfStatus` runs `UPDATE … WHERE id = ? AND status = ? AND version = ?` and increments `version`. `TaskService.transition` reads the task, applies `Task.transition`, writes, and on a miss re-reads to classify the failure: `VersionConflictException` when the version moved, `StateError` when only the status moved, `ArgumentError` when the task is gone. Callers (`TaskActionService`, `TaskReviewService`) map these to 409/404 results.
 
 ---
 
-## 3. Task Execution Pipeline
+## 3. Execution Pipeline
 
-### 3.1 End-to-End Flow
+### 3.1 End-to-end flow
 
-```
-  Task Creation                      EventBus                    TaskExecutor
-  ─────────────                      ────────                    ────────────
-  Web UI / API / Channel /     TaskStatusChanged
-  Schedule / Workflow Step  ──────────────────────>  [queued tasks]
-        |                                                  |
-        v                                                  v
-  TaskService.create()                             pollOnce() (2s timer)
-        |                                                  |
-        |  autoStart=true:                                 v
-        |  draft -> queued                          List queued tasks
-        |                                           Sort by createdAt
-        |                                                  |
-        v                                                  v
-  TaskStatusChangedEvent                           Resolve project status
-  TaskEventRecorder                                (waiting/error/ready)
-                                                           |
-                                                           v
-                                                   Global governance,
-                                                   then acquire worker lease
-                                                   from ExecutionCoordinator
-                                                           |
-                                                           v
-                                                   Checkout: queued -> running
-                                                           |
-                                                           v
-                                              ┌────────────────────────────┐
-                                              │   _executeCore()           │
-                                              │                            │
-                                              │  1. Resolve project        │
-                                              │  2. Create worktree        │
-                                              │     (when declared)        │
-                                              │  3. Create/reuse session   │
-                                              │  4. Pre-turn budget check  │
-                                              │  5. Compose prompt         │
-                                              │  6. Reserve turn           │
-                                              │  7. Execute turn           │
-                                              │  8. Wait for outcome       │
-                                              │  9. Record metrics         │
-                                              │ 10. Collect artifacts      │
-                                              │ 11. Transition status      │
-                                              │     (review/accepted)      │
-                                              └────────────────────────────┘
-                                                           |
-                                                           v
-                                                   Release execution lease;
-                                                   cache/dispose/quarantine
-```
+[![Task execution pipeline](diagrams/tasks-execution-pipeline.svg)](diagrams/tasks-execution-pipeline.svg)
 
-### 3.2 TaskService
+Steps 1 to 5 are one poll (3.3); steps 6 and 7 run unawaited (3.4, 3.5); step 8 releases the lease in a `finally` on every path. A retryable failure re-queues the task, so the next poll starts again at step 1.
 
-Business logic layer at `dartclaw_runtime/lib/src/task/task_service.dart`. Implements `WorkflowTaskService` (the minimal contract exposed to `dartclaw_core` for workflow execution).
+### 3.2 Entry points
 
-`TaskService.create()` creates or links an `AgentExecution` row in the same transaction as the task write when an execution row is required. `TaskService.get()` / `list()` hydrate the linked `AgentExecution` and `WorkflowStepExecution` rows through the joined storage query so dashboard/API consumers do not incur N+1 lookups for provider, session, or workflow-step metadata.
+| Class | Role |
+|---|---|
+| `TaskCreationService` | Validates an untrusted create body (types, retired `type`/`task_type`, reserved `_` keys, `needsWorktree` boolean, existing `projectId`, positive `maxTokens`). Used by the HTTP API and Web UI. |
+| `TaskService` | Business layer over `TaskRepository`: `create`, `transition`, `updateFields` (non-terminal only), `mergeConfigJson` (atomic key merge), artifacts. Implements `WorkflowTaskService`, the narrow contract `dartclaw_workflow` sees. Awaits `TaskEventRecorder` before firing `TaskStatusChangedEvent`; fires `TaskReviewReadyEvent` best-effort on entering `review`. |
+| `TaskActionService` | Surface-neutral `start`, `checkout`, `cancel`, `review` returning `TaskActionResult` (status code + code + message) for the HTTP layer. `start` on a `failed` task clears failure markers and resets `retryCount`. `cancel` removes the worktree and cancels the active turn. |
 
-The execution repository transactor delegates to `DatabaseBackend.transaction`. Participating repositories share the
-same PostgreSQL backend, so an action commits all its writes or rolls them back while preserving the original error.
-Unrelated seam operations wait until the action finishes; nested transactions reject with `NestedTransactionError`.
-
-Core operations:
-- **`create()`** – inserts task; when `autoStart=true`, records the draft-to-queued event before publishing `TaskStatusChangedEvent`
-- **`transition()`** – applies the lifecycle transition with optimistic locking, awaits durable event recording, then publishes the status change
-- **`updateFields()`** — updates mutable fields on non-terminal tasks (sessionId, worktreeJson, configJson, etc.)
-- **`addArtifact()`** — attaches artifact row to a task
-
-On entering `review` status, `TaskService` asynchronously fires `TaskReviewReadyEvent` with artifact count and kinds (best-effort, non-blocking).
+Create and link of the `AgentExecution` row share one `ExecutionRepositoryTransactor` transaction; nested transactions are rejected with `NestedTransactionError`.
 
 ### 3.3 TaskExecutor
 
-Central task orchestrator at `dartclaw_runtime/lib/src/task/task_executor.dart`. Runs a 2-second poll timer that dispatches queued tasks through the shared post-governance execution authority.
+`TaskExecutor` (`task/task_executor.dart`, helpers in `task_executor_helpers.dart`) polls every `pollInterval` (2 s). One poll (`_pollOnceInner`), per queued task in `createdAt` then `id` order:
 
-Two execution paths:
+1. Fail legacy-category rows (`TaskLegacyRefusal`), non-retryably.
+2. `_prepareQueuedTask`: unknown project fails, `cloning` waits (task stays queued), `error` fails.
+3. Hydrate the `WorkflowStepExecution`; create the task session with `SessionKey.taskSession(taskId:)` (or continue `_continueSessionId`; a missing or archived session fails the task) and link it to the `AgentExecution`.
+4. Resolve provider (task, then `agent.provider`, then the primary runner's) and execution policy from `securityProfile` through `ExecutionPolicyResolver`; a policy refusal fails the task.
+5. `ExecutionCoordinator.acquire` with `ExecutionAdmission.failFast`. Capacity is taken first and admission second (daily budget, session lock, loop pre-check, rate window), so a full lane leaves no admission side effects. A `null` lease (provider lane full) leaves the task queued; `BusyTurnException` (global session cap) leaves it queued and ends the pass; `LoopDetectedException` and `BudgetExhaustedException` fail the task non-retryably; worker-creation failures record a `taskError` event once and leave it queued.
+6. `_checkout` (queued → running). If it loses the race, the lease is released.
+7. Run `_executeCore` unawaited, tracked in `_activeExecutionTasks`; `finally` releases the lease.
 
-| Mode | Condition | Behavior |
-|------|-----------|----------|
-| **Server coordinator** | `ExecutionCoordinator` is wired | Acquires a provider worker lease; execution is bounded by `providers.<id>.pool_size` |
-| **SDK single-harness compatibility** | No multi-worker coordinator and one harness supplied | Serializes only ordinary background work whose provider and effective policy exactly match that harness; never used for server logical-agent execution |
+`workflowOnly: true` (zero-server workflow runs) restricts polling to workflow-owned tasks. `stop()` stops the timer, cancels active tasks (transition to `cancelled`, then `cancelTurn`), and drains.
 
-Poll cycle (`_pollOnceInner`):
-1. List all queued tasks, sort by `createdAt` (FIFO)
-2. For each task: check project readiness (`cloning` = wait, `error` = fail)
-3. Refuse a pre-upgrade `research` row; otherwise resolve the neutral or operator-declared security profile
-4. After global governance, request a provider-neutral worker lease for the exact provider and security profile
-5. Transition task to `running` (checkout)
-6. Execute asynchronously (`unawaited` in server coordinator mode)
-7. On completion: release the lease; the coordinator alone decides whether to cache, dispose, or quarantine the worker
+Tasks and workflow steps are polled, so they never block inside `acquire`. `ExecutionCoordinator` semantics (lanes, `pool_size`, worker reuse, quarantine) are in [Control Protocol §6.2](control-protocol.md#62-execution-allocation); what matters for tasks:
 
-Queued tasks may wait for provider capacity. `TaskExecutor` does not count processes, inspect cache compatibility, or trigger provider-specific spawning. `ExecutionCoordinator` creates a worker only after a lease is available and no healthy compatible cached worker exists.
+- Tasks and workflow steps use the worker lane, bounded by `providers.<id>.pool_size`. A single-harness SDK composition may run ordinary tasks on its primary runner only when provider and policy match exactly (`allowPrimaryBackgroundFallback`); the server never does.
+- A worker is single-use when the request carries execution-scoped construction inputs: a workflow step, `allowedTools`, an artifacts directory, or spawn environment. Other host workers may be cached after release.
+- A container worker serving a task is disposed with its turn. Container profiles, lifetimes, and naming are in [Security Architecture](security-architecture.md#profiles-and-authorities).
 
-### 3.4 Execution Core (`_executeCore`)
+**Placement.** `ExecutionPolicyResolver.resolveForTask` decides location (`tasks.execution`, else container when containers are enabled, else host) and profile (`workspace` or `restricted`, from `configJson.securityProfile`; omitted means `workspace`). The profile is declared only through the authenticated `POST /api/tasks` top-level `securityProfile` field. Channel and tool creation seams carry none, and a `securityProfile` inside `configJson` is rejected. A declared profile on a host-only task lane is refused rather than downgraded, and there is no provider or policy fallback.
 
-The shared execution logic for both pool and single-harness paths:
+### 3.4 Execution core
 
-1. **Project resolution** — looks up `Project` via `ProjectService`; calls `ensureFresh()` for auto-fetch (5-min cooldown)
-2. **Worktree setup** — when `configJson.needsWorktree` is `true`, creates an isolated git worktree via
-   `WorktreeManager` and registers its path with `TaskFileGuard`
-3. **Session management** — creates task session via `SessionKey.taskSession(taskId:)`, or reuses a continued session (`_continueSessionId` from workflow)
-4. **Budget check** — resolves effective budget (task > goal > global), checks cumulative tokens against threshold; warns at configurable % (default 80%), fails at 100%
-5. **Prompt composition** — builds the pending prompt with goal context, retry context, acceptance criteria, and working directory
-6. **Workflow step branch** – every workflow-owned task acquires a worker lease from the selected provider after the pre-turn governance/budget checks. The coordinator constructs a worker with the step's artifacts directory and spawn variables, and the task dispatches its complete prompt chain through that worker's guarded `TurnRunner`. It records the transcript in the task session, persists token/cost accounting, stores any native structured payload back onto the task config, and releases the lease after settlement.
-7. **Task-scoped behavior** — creates `BehaviorFileService` override for project-specific `CLAUDE.md`/`AGENTS.md`
-8. **Tool filter** — applies per-task `allowedTools` from `configJson`
-9. **Turn execution** — reserves turn, executes via runner, waits for outcome
-10. **Metrics recording** — coordinator settlement updates `RunnerObserver`; `TaskEventRecorder` records task token/tool
-    events and `TurnTraceService` persists task traces
-11. **Artifact collection** — `ArtifactCollector.collect()` gathers the diff from a worktree, or files modified since
-    task start when no worktree exists
-12. **Status transition** — transitions to `review` or `accepted` based on review mode
-13. **Auto-accept** — optional callback for automatic acceptance after review transition
+`_executeCore` receives the running task plus the leased runner and runs these steps. Every failure goes through `TaskFailureHandler` (3.5).
 
-The read-only mutation check prefers `task.worktreeJson['path']` over `project.localPath` when a worktree exists. Without
-that preference, read-only workflow steps would appear clean even when they mutated files inside their linked worktree.
+1. **Project.** `taskProjectId(task)` resolves `Task.projectId`, then legacy `configJson.projectId`. An unknown, `error`, or `cloning` project fails the task. A task with no project binding and no workflow ownership uses `ProjectService.defaultProject`. `ensureFresh` fetches (5-minute cooldown, ref-aware lock); a strict fetch (workflow tasks) fails the task on error. The resolved base ref is stored in `configJson._baseRef`. Base ref precedence: the explicit requested branch, then the symbolic `HEAD` of the local path (only for a workflow-orchestrated task on the `_local` project), then `project.defaultBranch`.
+2. **Worktree.** When `needsWorktree` is true, `WorktreeManager.create` makes the checkout, `TaskFileGuard.register` records it, and `worktreeJson` is persisted. Workflow tasks may instead attach to a workflow-shared worktree or branch ([Workflow Architecture](workflow-architecture.md)).
+3. **Execution directory.** `taskExecutionDirectory`: worktree path, else the project clone for a project-bound task, else the execution's workspace directory, else the process working directory. This is the checkout choice only; it does not assign an agent workspace principal or grant memory or skills.
+4. **Preconditions.** `requiredInputPath` must exist; read-only tasks snapshot `git status`; the task session must exist and not be archived.
+5. **Pre-turn budget check** ([Budgets](#10-budgets)); a warning becomes a system message.
+6. **Prompt.** `_composePendingMessage`: retry context from `lastError` when `retryCount > 0`, or the push-back prompt when `pushBackComment` is set; then title, description, working directory, goal context, acceptance criteria.
+7. **Workflow branch.** `WorkflowOneShotRunner` drives the complete prompt chain (initial prompt, follow-ups, optional no-tools structured-output finalizer) on the leased runner through `StepTurnRunner`, checking the budget before each prompt, writing token breakdown and provider session ID onto the step row, and firing `WorkflowCliTurnProgressEvent`. It records structured-output events but no `tokenUpdate`/`toolCalled` events and no turn trace. Wire formats and the envelope are in [Workflow Architecture](workflow-architecture.md).
+8. **Turn (ordinary tasks).** Insert the user message and clear `pushBackComment`. A task-scoped `BehaviorFileService` is used for workflow workspaces and project-bound tasks. Prompt scope is `restricted` for the `restricted` container profile, otherwise `task`. Then `reserveAdmittedTurn` (agent name `task`), `executeTurn`, `waitForOutcome`, `waitForExecutionSettled`. Turn internals are in [Control Protocol §6.3](control-protocol.md#63-reserve-execute-settle).
+9. **Record.** Awaited: one `tokenUpdate` event and one `toolCalled` event per retained `ToolCallRecord`. Then `unawaited` trace persistence ([Turn Traces](#8-turn-traces)).
+10. **Settle a completed turn.** Fail if a read-only task mutated its checkout (compared against the step-4 snapshot, taken in the execution directory so a worktree task is checked in its worktree); skip if the task was cancelled meanwhile; collect artifacts and record `artifactCreated`; fail non-retryably if `outcome.totalTokens` exceeds the task's token budget; transition to the post-completion status; call `onAutoAccept` when it is set, the status is `review`, and the task is not workflow-owned (workflow git promotion owns publish and merge there).
+11. **Settle a failed turn.** A loop detection on the outcome fails non-retryably; anything else is a retryable `turnFailure`.
 
-### 3.5 Retry Logic
+`onAutoAccept` is wired when `tasks.completion_action: accept`; it runs a normal `accept` review, so merge conflicts or push failures leave the task in `review` with the error logged.
 
-When a task fails and `retryCount < maxRetries`:
-1. `TaskFailureHandler.markFailedOrRetry` stores the sanitized message in `configJson['lastError']` and the failure kind's key in `configJson['_lastFailureKind']`
-2. Increments `retryCount`, clears `sessionId` for fresh session
-3. Transitions task back to `queued`
-4. On next poll cycle, task is picked up again
-5. Retry context is injected into the prompt from `lastError`: "Previous attempt failed: ... Approach the task differently"
-6. A failure whose kind equals the persisted `_lastFailureKind` fails the task permanently instead of retrying
+### 3.5 Failure and retry
 
-Each failure call site supplies a `TaskFailureKind` (`task/task_failure_kind.dart`): a `TaskFailureReason` for a reason the host decided, or a `TaskExecutionFailure` discriminated by the exception's runtime type. The persisted key is the only retry comparison -- no message text is normalised or parsed.
+`TaskFailureHandler.markFailedOrRetry` (`task_budget_policy_failure.dart`) is the only failure path. Each call site supplies a `TaskFailureKind` (`task_failure_kind.dart`): a `TaskFailureReason` the host decided (`projectSetup`, `budgetExceeded`, `loopDetected`, `turnFailure`, `containerCrash`, …), a `TaskLimitFailure` (`stall`, `turnTimeout`), or a `TaskExecutionFailure` keyed by the exception's runtime type. The persisted key is the only comparison; no message text is parsed.
 
-Non-retryable failures (loop detection, budget exceeded, missing project) skip the retry path entirely.
+When `retryable` and `retryCount < maxRetries`:
+
+1. If `configJson._lastFailureKind` equals this kind, fail permanently. A repeated failure kind is not retried.
+2. Otherwise store the sanitized message in `lastError` (first line, prefixes stripped, 200 characters) and the kind in `_lastFailureKind`, increment `retryCount`, clear the session ID, and transition `running → failed` (trigger `retry-in-progress`) then `failed → queued` (trigger `retry`).
+3. The next prompt starts with the retry context.
+
+Non-retryable call sites: project setup, missing required input or session, absent prompt, read-only mutation, budget exceeded, loop detected, execution-policy refusal. Terminal failures store `errorSummary` and record a `taskError` event.
+
+### 3.6 Cancellation and crashes
+
+Three observers keep task state and execution consistent (wired in `TaskWiring.wirePostServer`):
+
+- `TaskCancellationSubscriber`: on `running → cancelled`, cancels the active turn of the task's session.
+- `ContainerTaskFailureSubscriber`: on `ContainerCrashedEvent` naming a task, fails it through `markFailedOrRetry` (kind `containerCrash`); no-ops if the executor already settled the task.
+- `CompactionTaskEventSubscriber`: records a `compaction` event on the running task whose session compacted.
+
+`TaskNotificationSubscriber` sends channel notifications for channel-originated tasks; it is covered by [Channel & Messaging](channel-messaging-architecture.md).
 
 ---
 
-## 4. Execution Coordination
+## 4. Turns and Worker Placement
 
-### 4.1 Authority and lanes
+Tasks run through the same `TurnRunner` as every other surface; the runner is the single enforcement site for guards, liveness, and limits, and returns a `TurnOutcome`. The task-relevant facts:
 
-`ExecutionCoordinator` at `dartclaw_runtime/lib/src/execution_coordinator.dart` is the sole execution allocator after global governance. Task code uses only the worker lane. The complete surface map is:
+- The turn context carries `taskId`, the execution directory, model/effort overrides, `allowedTools`, `readOnly`, and the task prompt scope. Field lists live in `turn_manager.dart` (`TurnContext`) and `dartclaw_core/lib/src/turn/turn_outcome.dart`.
+- `TurnOutcome` carries what the task path persists: normalized token counts (`inputTokens`, `outputTokens`, `cacheReadTokens`, `cacheWriteTokens`, `tokenUsageComplete`), `toolCalls` (bounded: the first 63 plus the latest, with exact `toolCallCount`/`failedToolCallCount`), `limitBreach`, and `loopDetection`. How the runner derives them, including cache token normalization per provider, is in [Control Protocol §6.4](control-protocol.md#64-tool-calls-usage-and-outcome-fields).
+- Because the bound is applied before persistence, a task with more than 64 tool calls records at most 64 `toolCalled` events while `toolCallCount` stays exact.
 
-| Lane | Surfaces | Limit |
+---
+
+## 5. Worktrees and Git Delivery
+
+Tasks with `needsWorktree: true` get a git worktree, a structured diff for review, and a merge or push on accept. Tasks without one run in the execution directory from 3.4 and collect modified files instead.
+
+### 5.1 WorktreeManager
+
+`task/worktree_manager.dart`. Worktrees are keyed by the task UUID, except workflow-owned ones, keyed `wf-<token>` (a hash of the run id, plus `-map-<i>` per map item; `WorkflowWorktreeBinder`). Path: `<workspaceDir>/.dartclaw/worktrees/<taskId>/` (set in `TaskWiring`; the constructor default is `<dataDir>/worktrees`).
+
+- **Project-backed** (`Project` other than `_local`): `git worktree add <path> -b <branch> <ref>` in the project clone, where `<ref>` is `origin/<defaultBranch>` (or the project's local default branch when it has no remote).
+- **Local** (`_local`): `git branch` then `git worktree add` from `tasks.worktree.base_ref` (default `main`).
+- **Attach mode** (`createBranch: false`, workflow-shared worktrees): checks out an existing ref; detaches only when another worktree already holds the branch.
+- Branch name `dartclaw/task-<taskId>`, suffixed `-2`…`-100` on collision. `create` first reconciles existing state (adopts a matching registered worktree, removes a mismatched one, prunes a dangling one), and a failed workflow-skill materialization rolls the worktree back.
+- `cleanup` removes the worktree and branch, best-effort (warnings, no throw). `cleanupWorktree` also deregisters the `TaskFileGuard` entry.
+- `detectStaleWorktrees` runs once at startup (`tasks.worktree.stale_timeout_hours`, default 24). A directory older than the threshold whose task is missing or terminal is reaped; one whose task is still active is left with a warning.
+
+### 5.2 TaskFileGuard
+
+`task/task_file_guard.dart` is a registry of `taskId → canonical worktree path` with an `isAllowed(taskId, path)` containment check. `TaskExecutor` registers on worktree creation and `cleanupWorktree` deregisters. Nothing in `lib/` calls `isAllowed` today, so it records worktree ownership but does not enforce a boundary; containment comes from the container mounts and the guard chain ([Security Architecture](security-architecture.md)).
+
+### 5.3 DiffGenerator and ArtifactCollector
+
+`DiffGenerator.generate` runs inside the worktree and merges two passes by path: committed changes (`baseRef...branch`, three-dot) and uncommitted changes (`HEAD`), then adds untracked files as `added`. The result is a `DiffResult` of per-file entries (status, line counts, hunks, binary flag) with totals. User-visible git config stays in effect so diffs render as the operator's own git would.
+
+`ArtifactCollector.collect` first clears the task's existing artifacts, then:
+
+- worktree task: writes `diff.json` (kind `diff`) to `<dataDir>/tasks/<taskId>/artifacts/`;
+- other tasks: copies files modified since `task.startedAt` from the execution directory into that directory, excluding `.git`, the data dir, and the sessions dir. Kind comes from the extension (`.diff`/`.patch` → `diff`; `.json`, `.csv`, `.yaml`, `.yml`, `.xml`, `.txt` → `data`; else `document`). `configJson.artifactExtensions` narrows the scan; a malformed list collects nothing.
+
+### 5.4 MergeExecutor (local projects)
+
+`task/merge_executor.dart`, operating on the server's own checkout through `WorkflowGitPort`:
+
+1. `_assertPreMergeInvariants`: clean index, no untracked files that overlap the stash, and, when `expectedBaseSha` is given, an unmoved target. Violations throw `PreMergeInvariantException`.
+2. Record `HEAD` and branch, stash local changes, check out the base ref.
+3. Squash (default: `merge --squash` then commit `task(<id>): <title>`) or merge commit (`--no-ff`), per `tasks.worktree.merge_strategy`.
+4. On conflict: collect the conflicting files, restore (`reset --hard HEAD` after squash, `merge --abort` otherwise), return `MergeConflict`.
+5. Always restore the original branch or detached `HEAD` and pop the stash; a stash pop that collides with untracked files the merge produced resets and drops the stash.
+
+### 5.5 RemotePushService and PrCreator (external projects)
+
+`RemotePushService.push` runs `git push origin <branch>` in `Isolate.run` so the event loop is not blocked, after `describeProjectAuth` confirms the credential fits the remote. It returns a sealed `PushResult`: `PushSuccess`, `PushAuthFailure`, `PushRejected`, `PushError`, classified from stderr.
+
+Credentials are referenced, never copied: a project stores `credentialsRef`, and `resolveGitCredentialPlan` (`git_credential_env.dart`) turns the `CredentialsConfig` entry into a process environment at push time. `GIT_TERMINAL_PROMPT=0` and an empty credential helper are always set. SSH remotes get `GIT_SSH_COMMAND` (with `-i` for a key credential). A GitHub token rewrites the remote to its canonical HTTPS URL and uses a `GIT_ASKPASS` script that answers `x-access-token` and reads the token from a file under `<dataDir>/projects/`. Those askpass and token files exist on disk until `RemotePushService.dispose`.
+
+`PrCreator.create` calls the GitHub REST API directly (no `gh` CLI): `POST /repos/{owner}/{repo}/pulls` (title from the task, body from description, acceptance criteria and any notes, base `project.defaultBranch`, `draft` from `project.pr`), then `POST …/issues/{n}/labels` for `project.pr.labels`. It returns `PrCreated`, or `PrCreationFailed` for an incompatible credential, non-GitHub remote, missing token, or API error. A label failure after the PR exists still reports `PrCreationFailed` and names the PR URL. (`PrGhNotFound` is declared and handled but nothing produces it.)
+
+---
+
+## 6. Review
+
+### 6.1 TaskReviewService
+
+`task/task_review_service.dart` is the single review implementation. The Web UI and HTTP API reach it through `TaskActionService.review`, channel cards through `channelReviewHandler`, and agents through the `task_review` tool (full task IDs from `review_list`). The host does not parse channel prose for review verbs.
+
+| Action | Target | Behavior |
 |---|---|---|
-| Primary interactive | Main-agent user and channel turns | Fixed serialized capacity 1, outside provider `pool_size` |
-| Worker | Cron/system jobs, tasks, logical agents, workflow steps | Selected provider's `pool_size` |
+| `accept` | `accepted` | Worktree tasks: merge (local project) or push and PR (external project), then clean up the worktree |
+| `reject` | `rejected` | Clean up the worktree |
+| `push_back` | `running` | Requires a comment; see 6.3 |
 
-`providers.<id>.pool_size` is a hard ceiling on concurrent worker executions for that provider. It is not a harness-process count. No task, agent, cache, or container setting adds capacity.
+Review actions on one task are serialized by a per-task async lock (`_reviewLocks`). Results are the sealed `ReviewResult`: success, merge conflict, not found, invalid transition, invalid request, action failed.
 
-### 4.2 Task acquisition
+### 6.2 Accept flow
 
-A task request contains normalized provider identity, security profile, session ID, task ID, and admission behavior. A workflow request also carries its host-owned artifacts directory and spawn variables. Those request-scoped construction inputs make its worker single-use. The coordinator's remaining construction inputs are immutable. Task scheduling remains provider-neutral: concrete provider factories and adapter differences exist only in composition/wiring.
+[![Accepting a reviewed task](diagrams/tasks-accept-flow.svg)](diagrams/tasks-accept-flow.svg)
 
-Ordinary queued tasks wait for a lease. Nested logical-agent calls use fail-fast admission to avoid waiting on capacity held by their caller. There is no provider or security-profile fallback.
+Which path runs is decided by `taskTargetsExternalProject(task)`: `taskProjectId` is non-null and not `_local`. A merge conflict returns `ReviewMergeConflict` (HTTP 409 `MERGE_CONFLICT`); no diff, a push or PR failure, missing merge or push infrastructure, or a concurrent modification returns `ReviewActionFailed` (HTTP 500 `INTERNAL_ERROR`). Both leave the task in `review`. The local path cleans the worktree after the transition, the external path before it.
 
-### 4.3 Opportunistic worker reuse
+### 6.3 Push-back
 
-After the lease is granted, reusable-worker lookup prefers:
+1. Reject an empty comment.
+2. Transition `review → running` with `pushBackComment` set and `pushBackCount` incremented in `configJson`.
+3. Record a `pushBack` event.
+4. Best-effort `PushBackFeedbackDelivery`: when the task carries a `TaskOrigin`, the feedback is started as a human-input turn on the origin channel's session (wired in `service_wiring.dart`); failures are logged only. Tasks without an origin get no delivery.
 
-1. the exact session with the requested provider/profile; container reuse additionally requires the exact logical-agent principal;
-2. any healthy host worker with the same provider and identical effective execution policy;
-3. a fresh worker.
+The worktree is kept. `TaskExecutor` dispatches `queued` tasks only and nothing in it picks up a task that is already `running`, so a pushed-back task is not re-run by the executor on its own. `pushBackComment` is consumed by the prompt composer when the task is next dispatched.
 
-A provider/profile mismatch or unknown health means fresh creation. Cache behavior has no configuration knobs. An idle healthy host worker may be cached after release. A logical-agent container may be retained only for the same owner until discard, eviction, or shutdown. Other container workers and unhealthy workers are disposed.
+### 6.4 Review mode
 
-### 4.4 Replacement and quarantine
+`TaskConfigView.postCompletionStatus` maps `configJson.reviewMode` after a completed turn:
 
-Worker replacement requires confirmed teardown of the harness's managed root process. An unconfirmed exit is not a recoverable idle state: the worker is omitted from the cache and its capacity slot is quarantined, reducing effective provider capacity. DartClaw never starts an overlapping replacement against that slot.
+| Mode | Status after completion |
+|---|---|
+| `auto-accept` | `accepted` |
+| `worktree-only` | `review` if `needsWorktree`, else `accepted` |
+| `mandatory`, absent, or unknown | `review` |
 
-Workflow steps hold worker leases. Their provider process is lifecycle-owned by the harness; an unconfirmed teardown quarantines the worker lease after its worker is disposed, so no replacement overlaps the withheld slot.
-
-### 4.5 Containers and shutdown
-
-A security profile is a filesystem/capability template, not a running container. Each execution owner receives a dedicated container that never serves another principal. A logical-agent container spans that owner's turns and ends on discard, eviction, or shutdown; an ordinary task container ends with its turn. A workflow step's leased harness worker holds one authority for the complete prompt chain and releases it in `finally`. The complete execution policy – host, or container plus profile – participates in matching, and container reuse additionally requires the exact logical-agent owner.
-
-Coordinator shutdown stops admission, drains active leases, disposes cached harnesses, then tears down the fixed primary harness. Channel managers still reap their own children. Root-process termination confirmation is a replacement invariant, not merely an operational warning.
-
-### 4.6 SDK compatibility
-
-SDK hosts that supply a single harness without multi-worker coordination may serialize ordinary background tasks on it. The production server and logical-agent routing never select this fallback.
+Separately, `tasks.completion_action: accept` installs `onAutoAccept`, which accepts every task that reached `review`.
 
 ---
 
-## 5. Turn Execution
+## 7. Task Events and Live Progress
 
-### 5.1 TurnRunner
+### 7.1 TaskEvent
 
-Per-harness execution engine at `dartclaw_runtime/lib/src/turn_runner.dart`. Each `TurnRunner` encapsulates the full turn lifecycle for a single `AgentHarness`.
+`TaskEvent` (`dartclaw_core/lib/src/task/task_event.dart`) is an `id`, `taskId`, `timestamp`, `TaskEventKind`, and a `details` map. Producers are `TaskEventRecorder` methods:
 
-Key properties:
-- `profileId` — security profile (e.g. `workspace`, `restricted`)
-- `providerId` — agent provider (e.g. `claude`, `codex`)
+| Kind | Details | Recorded when |
+|---|---|---|
+| `statusChanged` | `oldStatus`, `newStatus`, `trigger` | every lifecycle transition (`TaskService`) |
+| `toolCalled` | `name`, `success`, `durationMs`, `errorType?`, `context?` | per retained tool call after an ordinary task turn |
+| `tokenUpdate` | `inputTokens`, `outputTokens`, `tokenUsageComplete`, `cacheReadTokens?`, `cacheWriteTokens?` | after an ordinary task turn |
+| `artifactCreated` | `name`, `kind` | artifact collection |
+| `pushBack` | `comment` | review push-back |
+| `taskError` | `message` | failure or provider-unavailable (`'error'` is the legacy name) |
+| `compaction` | `trigger`, `sessionId`, `preTokens?` | context compaction in the task's session |
+| `structuredOutputFinalizerUsed`, `…ValidationFailed`, `…FallbackUsed` | `stepId`, `outputKey`, reason | workflow structured-output finalization |
 
-### 5.2 TurnContext
+`structuredOutputInlineUsed` is retained only so historical rows still parse; nothing produces it.
 
-Metadata for an in-flight turn (`turn_manager.dart`):
+### 7.2 Persistence and recorder
 
-| Field | Type | Purpose |
-|-------|------|---------|
-| `turnId` | `String` | Unique turn identifier |
-| `sessionId` | `String` | Execution session |
-| `agentName` | `String` | Agent role (default `main`, `task` for tasks) |
-| `startedAt` | `DateTime` | Reservation timestamp |
-| `taskId` | `String?` | Associated task, when any |
-| `directory` | `String?` | Working directory override (worktree path) |
-| `model` | `String?` | Per-turn model override |
-| `effort` | `String?` | Per-turn reasoning effort override |
-| `systemPromptOverride` | `String?` | Authoritative non-empty system prompt override |
-| `maxTurns` | `int?` | Hard cap on harness turns |
-| `outputSchema` | `Map<String, dynamic>?` | Opaque provider-enforced output schema |
-| `providerSessionId` | `String?` | Provider-native session identity to resume |
-| `requestProviderSessionResume` | `bool` | Whether the provider should mint a durably resumable session |
-| `behaviorOverride` | `BehaviorFileService?` | Task-scoped behavior files |
-| `promptScope` | `PromptScope?` | Controls which workspace files are included |
-| `isHumanInput` | `bool` | Whether a fresh onboarding section is permitted |
-| `allowedTools` | `List<String>?` | Active-turn tool allowlist |
-| `readOnly` | `bool` | Whether the active turn is read-only |
+`TaskEventService.insert` completes before it returns (append-only `task_events`; schema in [Data Model](data-model.md)). `TaskEventRecorder._record` builds the event, awaits the insert, and only then fires `TaskEventCreatedEvent` on the `EventBus`; an insert failure propagates to the caller. The synchronous workflow callback that records `structuredOutputFallbackUsed` wraps the call and logs failures.
 
-`Task.projectId`, a generated worktree, and `TurnContext.directory` choose the task's execution checkout. They do not
-assign `agent.agents.<id>.workspace`, change a conversation workspace principal, or grant named-agent memory and skills.
-The task executor remains the authority for project and worktree selection; session workspace ownership is a separate
-conversation-session concern.
+### 7.3 Observability pipeline
 
-### 5.3 TurnOutcome
+[![Turn outcome to task events, traces and runner metrics](diagrams/tasks-turn-recording.svg)](diagrams/tasks-turn-recording.svg)
 
-Result of a completed turn:
+[![Live task delivery: events to the UI](diagrams/tasks-live-progress.svg)](diagrams/tasks-live-progress.svg)
 
-| Field | Type | Purpose |
-|-------|------|---------|
-| `turnId` | `String` | Unique turn identifier |
-| `sessionId` | `String` | Execution session |
-| `status` | `TurnStatus` | `completed`, `failed`, `cancelled` |
-| `inputTokens` | `int` | Input token count |
-| `outputTokens` | `int` | Output token count |
-| `cacheReadTokens` | `int` | Prompt cache read tokens |
-| `cacheWriteTokens` | `int` | Prompt cache write tokens |
-| `turnDuration` | `Duration` | Wall-clock turn time |
-| `toolCalls` | `List<ToolCallRecord>` | Bounded invocation detail (first 63 plus latest) |
-| `toolCallCount` | `int` | Exact invocation count |
-| `failedToolCallCount` | `int` | Exact failed or incomplete invocation count |
-| `toolCallsTruncated` | `bool` | Whether bounded detail omits records |
-| `completedAt` | `DateTime` | Completion timestamp |
-| `loopDetection` | `LoopDetection?` | Non-null when cancelled due to loop |
-| `responseText` | `String?` | Agent's final response text |
-| `errorMessage` | `String?` | Error details on failure |
-| `structuredOutput` | `Map<String, dynamic>?` | Provider-enforced payload; completed and guard-passed turns only |
-| `providerSessionId` | `String?` | Provider-native session identity; absent when unreported or guard-blocked |
-| `totalTokens` | `int` | Input plus output tokens |
-| `effectiveTokens` | `int` | Billing-weighted token count |
+The first figure is the write side, the second the read side. Sections 7.4 to 7.6 describe the tracker, the stream, and the observer.
 
-### 5.4 Turn Pipeline
+`EventBus` is a broadcast stream: an event with no subscriber is dropped and a subscriber exception never reaches the producer, so the stream opens with a `connected` snapshot for clients that join late. `TaskReviewReadyEvent` is not on the task stream; `EventBusSseBridge` relays it as `task_review_ready` on the global SSE broadcast.
 
-Global governance and execution admission precede the `TurnRunner` pipeline:
+Events are recorded when the turn completes, not while it streams, so a long single-turn task shows its first progress at turn end. Status changes, compaction events, and runner/capacity state are live.
 
-```
-TurnGovernanceEnforcer
-    |
-    v
-ExecutionCoordinator.acquire()
-    |
-    v
-reserveTurn() on leased runner
-    |
-    v
-TurnContext created
-    |
-    v
-Guard evaluation (TurnGuardEvaluator)
-  - messageReceived hook
-  - beforeToolCall hooks
-    |
-    v
-Message persistence (MessageService)
-    |
-    v
-Harness.turn() — streaming JSONL over stdin/stdout
-    |
-    v
-SSE event emission and liveness tracking (TurnLivenessTracker)
-    |
-    v
-Context monitoring (ContextMonitor)
-    |
-    v
-Outcome persistence
-  - Usage tracking
-  - Self-improvement service
-    |
-    v
-Crash recovery checkpoint (TurnStateStore)
-    |
-    v
-TurnOutcome returned to caller
-```
+### 7.4 TaskProgressTracker
 
-### 5.5 TurnManager
+`task/task_progress_tracker.dart` subscribes to `TaskEventCreatedEvent`, starts state on `running`, accumulates `tokenUpdate` totals and the latest `toolCalled` activity (`formatToolActivity` in `tool_call_summary.dart` maps tools to verbs such as "Reading"), and emits a `TaskProgressSnapshot` at most once per second per task on a broadcast stream. `progress` is a 0–100 percentage and `null` without a budget. A final `isComplete` snapshot is emitted when the task leaves `running`. At startup the server seeds running tasks from their stored events.
 
-Runs session-level turn lifecycle on the runner supplied by an execution lease. It does not select providers, count capacity, or choose cached workers. Main user/channel turns arrive on the fixed primary lease; cron/system jobs, tasks, and logical agents arrive on worker leases.
+### 7.5 SSE
+
+`GET /api/tasks/events` (`api/task_sse_routes.dart`) is the task stream. Message types: `connected` (initial review count, active tasks and workflows, runner snapshot, projects), `task_status_changed`, `task_progress`, `task_event`, `runner_state`, `execution_capacity`, `project_status`, `turn_wait_state`, `workflow_sidebar_update`. Transport details are in [Observability & Operations](observability-operations-architecture.md).
+
+### 7.6 RunnerObserver
+
+`task/runner_observer.dart` derives runner metrics from `ExecutionCoordinator.events`: lease acquire and release set busy and idle (with current task and session), `turnSettled` accumulates tokens, cache tokens, turns, errors, duration, and tool-call counts per runner, disposal removes the runner, and quarantine marks it `crashed`. `capacityStatus` aggregates the coordinator snapshot (configured, effective, active, available, queued, cached, quarantined). Metrics are in memory and reset on restart.
 
 ---
 
-## 6. Declared Worktree Support
+## 8. Turn Traces
 
-Tasks with `configJson.needsWorktree: true` use the git-isolation, diff-generation, and code-review infrastructure below.
+`TurnTrace` (`dartclaw_core/lib/src/turn/turn_trace.dart`) is a per-turn record: `id`, `sessionId`, `taskId?`, `runnerId?`, `model?`, `provider?`, start and end time, the four token counts, `isError`/`errorType`, and bounded `toolCalls` with exact `toolCallCount`, `failedToolCallCount`, and `toolCallsTruncated`. `totalTokens`, `effectiveTokens` (cache-weighted), and `durationMs` are derived.
 
-### 6.1 WorktreeManager
+`TaskExecutor._persistTrace` is the only producer, and only for ordinary task turns: it runs `unawaited` after the task events are recorded and logs a warning on failure. Workflow-owned turns and interactive turns have no trace, although the model allows a null `taskId`. `model` is the task's override, not the resolved model.
 
-Git worktree lifecycle manager at `dartclaw_runtime/lib/src/task/worktree_manager.dart`.
-
-**Creation** — two modes:
-- **Project-backed**: single-step `git worktree add <path> -b <branch> origin/<defaultBranch>` from the project's clone directory
-- **Local fallback**: two-step `git branch` + `git worktree add` from the local base ref
-
-Branch naming: `dartclaw/task-<taskId>`, with `-N` suffix on collision (up to 100 attempts).
-
-Worktree path: `<dataDir>/worktrees/<taskId>/`
-
-**Cleanup** — removes worktree directory and deletes the branch. Best-effort (logs warnings, does not throw).
-
-**Stale detection** — `detectStaleWorktrees()` checks for worktrees older than the configured timeout (default 24 hours).
-
-### 6.2 TaskFileGuard
-
-Per-task file access registry at `dartclaw_runtime/lib/src/task/task_file_guard.dart`.
-
-Maintains a `Map<String, String>` of `taskId -> canonicalized worktree path`. The harness uses `isAllowed(taskId, filePath)` to validate that file operations stay within the task's worktree boundary.
-
-Registration lifecycle:
-1. `register(taskId, worktreePath)` — on worktree creation
-2. `deregister(taskId)` — on worktree cleanup or task review completion
-
-### 6.3 DiffGenerator
-
-Generates structured diff data at `dartclaw_runtime/lib/src/task/diff_generator.dart`.
-
-Uses three-dot diff (`baseRef...branch`) to show only changes introduced on the branch. Produces `DiffResult` containing:
-- Per-file `DiffFileEntry` with status (added/modified/deleted/renamed), line counts, and hunks
-- Summary totals: `totalAdditions`, `totalDeletions`, `filesChanged`
-
-### 6.4 MergeExecutor
-
-Handles merging a task branch onto the base branch at `dartclaw_runtime/lib/src/task/merge_executor.dart`.
-
-Supports two strategies:
-- **Squash merge** (default): `git merge --squash` + commit
-- **Merge commit**: `git merge --no-ff`
-
-Conflict handling: on merge conflict, aborts the merge, restores the original state (stash pop), and returns `MergeConflict` with conflicting file list.
-
-### 6.5 RemotePushService
-
-Pushes branches to remote repositories at `dartclaw_runtime/lib/src/task/remote_push_service.dart`.
-
-Runs `git push` via `Isolate.run()` to avoid blocking the main event loop. This was the first use of `Isolate.run()` in DartClaw (introduced in 0.14).
-
-Credentials are resolved from `CredentialsConfig` and injected via `GIT_SSH_COMMAND` / `GIT_ASKPASS` environment variables — never stored in the container or task config.
-
-Returns sealed `PushResult`: `PushSuccess`, `PushAuthFailure`, `PushRejected`, `PushError`.
-
-### 6.6 PrCreator
-
-Creates GitHub pull requests at `dartclaw_runtime/lib/src/task/pr_creator.dart`.
-
-Calls the GitHub REST API directly via `HttpClient` (`POST /repos/{owner}/{repo}/pulls`), authenticated with the project's resolved `github-token` credential — no `gh` CLI dependency. Returns a sealed `PrCreationResult`: `PrCreated` (with URL), `PrCreationFailed` (incompatible credential, non-GitHub remote, or API error), or `PrGhNotFound` (manual follow-up required).
-
-PR metadata: title from task title, body from task description + acceptance criteria.
-
-Base branch is `project.defaultBranch`; `draft` and `labels` come from `project.pr` (`PrConfig`). Labels are applied via a follow-up `POST /repos/{owner}/{repo}/issues/{number}/labels` call.
-
-### 6.7 ArtifactCollector
-
-Produced-output artifact collection at `dartclaw_runtime/lib/src/task/artifact_collector.dart`.
-
-- A task with `worktreeJson` produces `diff.json` through `DiffGenerator`.
-- A task without a worktree collects every workspace file modified since `task.startedAt`, with artifact kind inferred
-  from the extension.
-- An optional `configJson.artifactExtensions` list narrows the non-worktree scan to the declared extensions.
-
-Artifacts are stored at `<dataDir>/tasks/<taskId>/artifacts/`. Existing artifacts are cleared before each collection pass.
+`TurnTraceService` (`storage/turn_trace_service.dart`) stores to the `turns` table, with the tool-call list in a JSON envelope (`records`, `count`, `failedCount`, `truncated`; legacy bare arrays still decode). `query` filters on `taskId`, `sessionId`, `runnerId`, `model`, `provider`, `since`, `until`, orders newest first, and clamps `limit` to 500. `GET /api/traces` and `GET /api/traces/<id>` (`api/trace_routes.dart`) expose it; the summary (token, duration, tool-call totals, trace count) covers the full filtered set, not the page.
 
 ---
 
-## 7. Task Review Workflow
+## 9. Multi-Project
 
-### 7.1 TaskReviewService
+A **project** is a git checkout a task runs against ([ADR-017](../adrs/017-multi-project-architecture.md)). `Project` (`dartclaw_kernel/lib/src/project_runtime.dart`) holds `remoteUrl`, `localPath` (`<dataDir>/projects/<id>/`), `defaultBranch`, `credentialsRef`, `cloneStrategy`, `PrConfig` (`strategy` `branchOnly`/`githubPr`, `draft`, `labels`), and `ProjectStatus` (`cloning`, `ready`, `error`, `stale`). The reserved id `_local` is the server's own checkout and has no remote.
 
-Shared lifecycle service at `dartclaw_runtime/lib/src/task/task_review_service.dart`.
+`ProjectService` (interface in `dartclaw_core/lib/src/project/`, implementation `dartclaw_runtime/lib/src/project/project_service_impl.dart`) registers config-defined projects (read-only) and runtime-created ones (`projects.json`).
 
-Three review actions:
+- `defaultProject`: the config project marked default, else the first external project, else `_local`.
+- `ensureFresh(project, {ref, strict})`: no-op without a remote; otherwise fetches in an isolate, skipping within `projects.fetchCooldownMinutes` (default 5) unless a `ref` is given, and sharing one in-flight fetch per project/ref/strictness. Non-strict failures log and proceed with local state; strict failures throw.
 
-| Action | Target Status | Additional Behavior |
-|--------|---------------|---------------------|
-| `accept` | `accepted` | Merge (local) or push (project-backed), cleanup worktree |
-| `reject` | `rejected` | Cleanup worktree |
-| `push_back` | `running` | Inject feedback, increment pushBackCount, resume execution |
+Binding: `taskProjectId(task)` (`task_project_ref.dart`) returns `Task.projectId`, then legacy `configJson.projectId`, else `null`. `taskTargetsExternalProject` is true when that id is set and not `_local`, which selects push-and-PR over local merge on accept. Execution resolution (3.4) differs slightly: an unbound, non-workflow task executes against `defaultProject`, while review keys off `taskProjectId` only.
 
-### 7.2 Accept Flow
-
-```
-review() called with action="accept"
-    |
-    v
-Task has worktreeJson?
-    |
-    +-- No --> Transition to accepted
-    |
-    +-- Yes --> Is project-backed?
-                    |
-                    +-- Yes --> RemotePushService.push()
-                    |               |
-                    |               +-- PushSuccess --> PrCreator.create()
-                    |               |                       |
-                    |               |                       +-- PrCreated: store PR URL artifact
-                    |               |                       +-- PrGhNotFound: store instructions
-                    |               |                       +-- PrCreationFailed: store warning
-                    |               |
-                    |               +-- Push failure --> return ReviewActionFailed
-                    |
-                    +-- No --> MergeExecutor.merge()
-                                    |
-                                    +-- MergeSuccess --> Transition to accepted
-                                    +-- MergeConflict --> Store conflict artifact,
-                                                          return ReviewMergeConflict
-```
-
-### 7.3 Push-Back Flow
-
-1. Validates non-empty comment
-2. Transitions task from `review` to `running`
-3. Records `PushBack` event on task timeline
-4. Delivers feedback as new turn message to the task's session (best-effort via `PushBackFeedbackDelivery` callback)
-5. On next execution, the push-back prompt is composed with the feedback text
-
-### 7.4 Review Surfaces
-
-Review decisions reach `TaskReviewService` through the task UI and HTTP API or through the registered `task_review`
-agent tool. `review_list` supplies full task IDs before a tool call. Channel messages themselves remain ordinary model
-turns; the host does not parse review prose before routing.
-
-### 7.5 Concurrency Control
-
-`TaskReviewService` uses per-task async locks (`_reviewLocks`) to serialize concurrent review actions on the same task. This prevents race conditions where two reviewers simultaneously try to accept/reject the same task.
-
-### 7.6 Review Mode
-
-`TaskExecutor` determines post-completion status based on `configJson['reviewMode']`:
-
-| Mode | Behavior |
-|------|----------|
-| `auto-accept` | Task transitions directly to `accepted` |
-| `mandatory` | All tasks go to `review` |
-| `worktree-only` | Tasks declaring `needsWorktree: true` go to `review`; others auto-accept |
-| _(default)_ | All tasks go to `review` |
-
-An optional `onAutoAccept` callback allows automatic acceptance after the review transition.
+Credentials are covered in 5.5; mount and guard scoping for project clones is in [Security Architecture](security-architecture.md).
 
 ---
 
-## 8. Task Events and Observability
+## 10. Budgets
 
-### 8.1 TaskEvent Model
+One engine, two scopes. `BudgetEngine` (`governance/budget_engine.dart`) owns the arithmetic (threshold comparison, percentage, warn-once gating) and does no I/O or error handling; each scope supplies the limit, the consumption reading, and the warn-once cell, and its consumer decides what a breach means.
 
-Sealed-class event hierarchy in `dartclaw_kernel/lib/src/task_event.dart`:
+[![Task budgets: limit ladder and evaluation](diagrams/tasks-budget.svg)](diagrams/tasks-budget.svg)
 
-| Kind | Details Structure | When Recorded |
-|------|-------------------|---------------|
-| `StatusChanged` | `{oldStatus, newStatus, trigger}` | Every lifecycle transition |
-| `ToolCalled` | `{name, success, durationMs, ?errorType, ?context}` | Each tool invocation during execution |
-| `ArtifactCreated` | `{name, kind}` | Artifact added to task |
-| `PushBack` | `{comment}` | Review push-back with feedback |
-| `TokenUpdate` | `{inputTokens, outputTokens, ?cacheReadTokens, ?cacheWriteTokens}` | After each completed turn |
-| `TaskErrorEvent` | `{message}` | Error during execution |
-| `Compaction` | `{trigger, sessionId, ?preTokens}` | Context compaction during agent execution |
+### 10.1 Per-task scope
 
-### 8.2 Persistence Layer
+`TaskBudgetPolicy` (`task/task_budget_policy.dart`) resolves the limit through the five-rung ladder in the figure (`resolveTokenBudget`, first positive value wins). The figure marks the two rungs the post-turn check does not see as `not post-turn` (see Known divergence below).
 
-`TaskEventService` in `dartclaw_core/lib/src/storage/task_event_service.dart`:
+`checkBudget` runs before each turn (and before each workflow prompt). It reads cumulative session cost from `KvService` (`session_cost:<sessionId>`, written only for durable sessions; no reading counts as under budget):
 
-- PostgreSQL `task_events` table (append-only)
-- Awaited writes through the shared `DatabaseBackend`; schema is prepared before construction
-- Indexed on `task_id`, `(task_id, kind)`, and `timestamp`
-- Queries: `listForTask()` (chronological), `countForTask()`
+- At `tasks.budget.warning_threshold` (default 0.8): returns a system message asking the agent to wrap up, fires `BudgetWarningEvent`, and sets `configJson._tokenBudgetWarningFired`.
+- At 100%: writes a `budget-exceeded` artifact and fails the task non-retryably. A terminal breach does not consume the warn-once cell.
+- Any exception: proceeds. The fail-open wrapper lives here, not in the engine, because the daily scope shares the engine and must not fail open.
 
-Schema:
-```sql
-CREATE TABLE task_events (
-    id        TEXT PRIMARY KEY,
-    task_id   TEXT NOT NULL,
-    timestamp TEXT NOT NULL,
-    kind      TEXT NOT NULL,
-    details   TEXT NOT NULL DEFAULT '{}'
-);
-```
+**Known divergence.** `TaskConfigView.tokenBudget` stops before `Goal.maxTokens` and the config default, and `TaskExecutor` uses it for the post-turn overrun check. A task budgeted only by its goal or the config default is therefore checked before a turn but not after it. Three display-only readers are shorter still and read `configJson` alone: `TaskProgressTracker._resolveTokenBudget`, `server.dart` (progress seeding), and `web/pages/tasks_page.dart`. Add no further truncated copy. Unifying the post-turn check changes behavior (goal-budgeted tasks that complete today would start failing) and needs its own decision.
 
-### 8.3 TaskEventRecorder
+### 10.2 Global daily scope
 
-Centralized recording service at `dartclaw_runtime/lib/src/task/task_event_recorder.dart`.
-
-Each convenience method returns `Future<void>` and its caller awaits completion:
-
-1. Constructs a `TaskEvent` with appropriate kind and details
-2. Awaits the insert through `TaskEventService`; a write failure propagates
-3. Fires `TaskEventCreatedEvent` on the `EventBus` only after the insert succeeds
-
-The synchronous workflow structured-output callback catches and logs recording failures through its explicit asynchronous wrapper.
-
-Methods: `recordStatusChanged()`, `recordToolCalled()`, `recordArtifactCreated()`, `recordPushBack()`, `recordTokenUpdate()`, `recordError()`, `recordCompaction()`.
-
-### 8.4 TaskProgressTracker
-
-Throttled progress tracking at `dartclaw_runtime/lib/src/task/task_progress_tracker.dart`.
-
-Subscribes to `TaskEventCreatedEvent` on the `EventBus`, accumulates token usage and current tool activity per task, and emits `TaskProgressSnapshot` updates at most once per second per task via a broadcast stream.
-
-`TaskProgressSnapshot`:
-- `taskId` — task identifier
-- `progress` — percentage 0-100 (null if no budget set)
-- `currentActivity` — human-readable tool activity (e.g. "Reading src/main.dart")
-- `tokensUsed` — cumulative tokens
-- `tokenBudget` — configured budget
-- `isComplete` — true when task leaves running state
-
-Activity formatting is handled by `formatToolActivity()` in `tool_call_summary.dart`, which maps tool names to user-friendly verbs (Read -> "Reading", Bash -> "Running", Grep -> "Searching").
-
-SSE clients subscribe to the broadcast stream for live `task_progress` events.
-
-### 8.5 RunnerObserver
-
-Per-runner runtime metrics at `dartclaw_runtime/lib/src/task/runner_observer.dart`.
-
-Tracks per-runner cumulative turn metrics: tokens, completed turns, errors, cache tokens, duration, and tool-call stats.
-`TurnRunner` reports each terminal outcome once through `ExecutionCoordinator`, so primary and worker turns share one
-metrics path. Current busy/free/task/session state also comes from coordinator lease events and snapshots, not independent
-lifecycle authority. Disposed workers are removed from current metrics after their disposal event. Workflow executions
-have a worker identity for the life of their lease, and the workflow path drives that runner for every turn.
-
-Provider summaries expose configured, effective, active, queued, cached, and quarantined counts. Available worker capacity is `effective - active`; cached process count never changes it. Metrics are in-memory and reset on restart. Lease transitions fire `RunnerStateChangedEvent` or its execution-capacity equivalent for SSE propagation.
+`BudgetEnforcer` (`governance/budget_enforcer.dart`) reads daily totals from `UsageTracker`, timezone-aware via `BudgetConfig.timezone`, with a fixed 80% warning constant and a warn-once marker (`budget_warning_posted_at`) in the persisted daily aggregate; the first crossing of either threshold consumes the day's single warning. It has no error handling: a storage failure surfaces rather than admitting an over-budget turn. `TurnGovernanceEnforcer` maps the result: at 100% with `BudgetAction.block` it throws `BudgetExhaustedException` (which the poller turns into a non-retryable task failure); otherwise it broadcasts `budget_warning` and continues. The daily guardrail and the per-task cap are separate controls ([Observability & Operations](observability-operations-architecture.md), Usage Tracking; [Security Architecture](security-architecture.md) for governance).
 
 ---
 
-## 9. Turn Traces
+## 11. Scheduled Tasks
 
-### 9.1 TurnTrace Model
+`ScheduledTaskRunner` (`scheduling/scheduled_task_runner.dart`) turns each enabled `ScheduledTaskDefinition` (a `scheduling.jobs` entry with `type: task`) into a callback-backed `ScheduledJob` with id `auto-task-<definitionId>`. When it fires it lists non-terminal tasks whose `configJson.scheduleId` matches and skips if one is open (missed fires are not backfilled); otherwise it calls `TaskService.create` with id `sched-<definitionId>-<ms>-<4hex>`, the definition's title, description, acceptance criteria, `autoStart`, and `model`/`effort`/`tokenBudget` in `configJson`, trigger `system`.
 
-Rich per-turn record persisted to PostgreSQL (`dartclaw_core`):
-
-| Field | Type | Purpose |
-|-------|------|---------|
-| `id` | `String` | Turn identifier |
-| `sessionId` | `String` | Execution session |
-| `taskId` | `String?` | Associated task (null for interactive turns) |
-| `runnerId` | `int?` | Pool runner index |
-| `model` | `String?` | Model used |
-| `provider` | `String?` | Provider used |
-| `startedAt` | `DateTime` | Turn start |
-| `endedAt` | `DateTime` | Turn end |
-| `inputTokens` | `int` | Input token count |
-| `outputTokens` | `int` | Output token count |
-| `cacheReadTokens` | `int` | Cache read tokens |
-| `cacheWriteTokens` | `int` | Cache write tokens |
-| `isError` | `bool` | Whether the turn failed |
-| `errorType` | `String?` | Error classification |
-| `toolCalls` | `List<ToolCallRecord>` | Bounded records (first 63 plus latest) |
-| `toolCallCount` | `int` | Exact invocation count |
-| `failedToolCallCount` | `int` | Exact failed or incomplete invocation count |
-| `toolCallsTruncated` | `bool` | Whether bounded detail omits records |
-
-### 9.2 Storage
-
-`TurnTraceService` in `dartclaw_core/lib/src/storage/turn_trace_service.dart`:
-
-- PostgreSQL `turns` table, co-located with other relational records
-- Indexed on `session_id`, `task_id`, `started_at`, `model`, `provider`
-- Fire-and-forget writes (callers use `unawaited`)
-
-Schema:
-```sql
-CREATE TABLE turns (
-    id                 TEXT PRIMARY KEY,
-    session_id         TEXT NOT NULL,
-    task_id            TEXT,
-    runner_id          INTEGER,
-    model              TEXT,
-    provider           TEXT,
-    started_at         TEXT NOT NULL,
-    ended_at           TEXT NOT NULL,
-    input_tokens       INTEGER NOT NULL DEFAULT 0,
-    output_tokens      INTEGER NOT NULL DEFAULT 0,
-    cache_read_tokens  INTEGER NOT NULL DEFAULT 0,
-    cache_write_tokens INTEGER NOT NULL DEFAULT 0,
-    is_error           INTEGER NOT NULL DEFAULT 0,
-    error_type         TEXT,
-    tool_calls         TEXT  -- JSON envelope; legacy JSON arrays remain readable
-);
-```
-
-### 9.3 Query API
-
-`GET /api/traces` supports filtering by `taskId`, `sessionId`, `runnerId`, `model`, `provider`, `since`, `until`, plus pagination (`limit`, `offset`).
-
-Returns `TraceQueryResult`: paginated trace list + `TurnTraceSummary` aggregates (total tokens, total duration, exact total tool calls, trace count) over the full filtered result set.
-
-Introduced in 0.14.
-
----
-
-## 10. Multi-Project Support
-
-### 10.1 Project Model
-
-Defined in `dartclaw_kernel` (see [ADR-017](../adrs/017-multi-project-architecture.md)):
-
-| Field | Type | Purpose |
-|-------|------|---------|
-| `id` | `String` | Unique project identifier |
-| `name` | `String` | Display name |
-| `remoteUrl` | `String` | Remote repository URL |
-| `localPath` | `String` | Clone directory: `<dataDir>/projects/<projectId>/` |
-| `defaultBranch` | `String` | Base branch for worktrees |
-| `credentialsRef` | `String?` | Reference to credentials config entry |
-| `pr` | `PrConfig` | PR creation settings (strategy, draft, labels) |
-| `status` | `ProjectStatus` | `ready`, `cloning`, `error` |
-
-### 10.2 ProjectService
-
-Interface in `dartclaw_core`, implementation in `dartclaw_runtime/lib/src/project/project_service_impl.dart`.
-
-Key operations:
-- **`get(id)`** — returns project by ID
-- **`getDefaultProject()`** — returns the implicit `_local` project for backward compatibility
-- **`ensureFresh(project)`** — auto-fetch with 5-min cooldown + per-project lock, runs in `Isolate.run()`
-
-### 10.3 Task-Project Binding
-
-`taskProjectId()` in `task_project_ref.dart` resolves the project for a task:
-1. `Task.projectId` field (first-class)
-2. Legacy `configJson['projectId']` (backward compat)
-3. `null` — uses default project (`_local`)
-
-`taskTargetsExternalProject()` returns true when the project is not `_local`, which triggers the remote push flow instead of local merge on accept.
-
-### 10.4 Credential Security
-
-Credentials are **reference-based** — the task and project configs store a `credentialsRef` string that references an entry in the operator's `CredentialsConfig`. Actual credential values are resolved at push time by `resolveGitCredentialEnv()` and injected via environment variables:
-
-- `GIT_SSH_COMMAND` — for SSH key authentication
-- `GIT_ASKPASS` — for HTTPS token authentication (writes a temp askpass script)
-
-Credential values never appear in task config, container environment, or log output.
-
----
-
-## 11. Task Scheduling
-
-### 11.1 ScheduleService
-
-Time-based job executor at `dartclaw_runtime/lib/src/scheduling/schedule_service.dart`.
-
-Uses single-shot `Timer` + reschedule pattern for accurate cron intervals. Jobs run in isolated sessions (`SessionKey.cronSession`) on provider worker leases; cron/system execution never occupies the primary-interactive lane.
-
-### 11.2 ScheduledTaskRunner
-
-Bridges `ScheduledTaskDefinition` config entries into `ScheduledJob` instances at `dartclaw_runtime/lib/src/scheduling/scheduled_task_runner.dart`.
-
-Each enabled definition becomes a callback-based job that:
-1. **Dedup check**: finds non-terminal tasks with matching `scheduleId` in `configJson`
-2. **Skip if open**: logs and skips if a matching open task exists
-3. **Create task**: calls `TaskService.create()` with schedule metadata
-
-Task ID format: `sched-<scheduleId>-<timestamp>-<random4hex>`
-
-Config propagation: `model`, `effort`, `tokenBudget` from the schedule definition flow into `configJson`.
-
-### 11.3 CronParser
-
-Parses standard 5-field cron expressions. Calculates next fire time from current time.
-
----
-
-## 12. Budget Enforcement
-
-One engine, two scopes, two consumers. `BudgetEngine`
-(`dartclaw_runtime/lib/src/governance/budget_engine.dart`) owns the only copy of
-the budget arithmetic — the threshold comparison, the percentage, and the
-warn-once gating. A `BudgetScope` supplies the limit, the consumption reading
-and the warn-once cell; the consumer decides what a breach means. The engine
-does no I/O of its own and catches nothing, so each scope keeps its own error
-posture.
-
-The daily guardrail and the per-task cap remain two deliberately layered
-*controls* (see
-[Observability & Operations](observability-operations-architecture.md#token-accounting-0164));
-only their implementation is shared.
-
-```
-BudgetEngine.evaluate(scope)
-    |
-    +-- scope.limit               -- null/0 -> BudgetOutcome.under, no read
-    +-- scope.readConsumption()   -- null   -> BudgetOutcome.under
-    +-- ratio >= 1.0              -> BudgetOutcome.exceeded
-    +-- ratio >= threshold        -> BudgetOutcome.warning
-    +-- otherwise                 -> BudgetOutcome.under
-```
-
-### 12.1 Per-Task Scope
-
-`TaskBudgetPolicy` in `dartclaw_runtime/lib/src/task/task_budget_policy.dart`.
-
-The effective budget resolves through one five-rung ladder,
-`TaskBudgetPolicy.resolveTokenBudget()`:
-
-```
-Task.maxTokens             (first-class field)
-  |
-  +-- null --> configJson['tokenBudget']     (legacy)
-                  |
-                  +-- null --> configJson['budget']    (deprecated)
-                                  |
-                                  +-- null --> Goal.maxTokens
-                                                  |
-                                                  +-- null --> TaskBudgetConfig.defaultMaxTokens
-```
-
-Pre-turn check in `checkBudget()`:
-- Reads cumulative session cost from `KvService` (`session_cost:<sessionId>`)
-- At the configurable warning threshold (default 80%): injects a warning system
-  message, fires `BudgetWarningEvent`, and writes the per-task warn-once cell
-  (`configJson['_tokenBudgetWarningFired']`)
-- At 100%: fails the task non-retryably with `TaskFailureReason.budgetExceeded`
-  and writes a `budget-exceeded` artifact. A terminal breach does **not** consume
-  the warn-once cell
-- **Fail-safe**: any exception during the budget check defaults to proceed (open
-  policy). The wrapper lives here, not in `BudgetEngine` — the daily guardrail
-  shares the engine and must not fail open
-
-**Known divergence — four shorter ladders survive, and one of them enforces.**
-`TaskConfigView.tokenBudget` (`task/task_config_view.dart`) reads
-`task.maxTokens` and `configJson` only, stopping before `Goal.maxTokens` and
-`TaskBudgetConfig.defaultMaxTokens`. `TaskExecutor` resolves the *post*-turn
-overrun limit through it, so a task budgeted only by its goal or by the config
-default is checked before a turn and not after it. Three further readers are
-display-only and shorter still, reading `configJson` alone:
-`task/task_progress_tracker.dart`, `server.dart` and `web/pages/tasks_page.dart`.
-This set is closed: no new truncated copy may be added. Unifying the post-turn
-check is a live behaviour change — goal-budgeted tasks that complete today would
-start failing — so it needs its own decision and its own story.
-
-### 12.2 Global Daily Scope
-
-`BudgetEnforcer` in `dartclaw_runtime/lib/src/governance/budget_enforcer.dart`:
-
-- Reads daily totals from `UsageTracker.dailySummaryForDate()`
-- Timezone-aware: supports `UTC`, `UTC+N`, `UTC-N`, and IANA names via
-  `BudgetConfig.timezone`
-- Warning threshold is a fixed 80% constant in code, not a config key
-- Its warn-once marker (`budget_warning_posted_at`) lives in the persisted daily
-  aggregate, so one warning per day survives a restart. Reaching 100% consumes
-  the day's warning too
-- No error handling: a storage failure surfaces to the caller rather than
-  silently allowing an over-budget turn
-- `status()` backs the `/status` card
-
-### 12.3 Integration with Governance
-
-`TurnGovernanceEnforcer` is the daily scope's consumer and owns the
-block-vs-warn mapping the engine deliberately does not: at or above 100% with
-`BudgetAction.block` it throws `BudgetExhaustedException`; otherwise it
-broadcasts `budget_warning` (SSE), notifies the originating channel, and lets
-the turn proceed.
-
-```
-TurnGovernanceEnforcer
-    |
-    +-- SlidingWindowRateLimiter (per-sender + global)
-    +-- BudgetEnforcer (daily token budget scope)
-    +-- LoopDetector (turn depth, token velocity, tool fingerprinting)
-```
-
-See [Security Architecture](security-architecture.md) for the full governance model.
+`ScheduleService` and the other job types are covered in [Observability & Operations](observability-operations-architecture.md#10-scheduling-and-heartbeat). Prompt-type jobs run on provider worker leases, never the primary lane.
 
 ---
 
 ## Cross-References
 
-- [System Architecture](system-architecture.md) — component map, package DAG, deployment model
-- [Control Protocol](control-protocol.md) — harness interface, JSONL protocol, stream events, tool approval chain
-- [Security Architecture](security-architecture.md) — guard pipeline, TaskFileGuard integration, container isolation, governance enforcement
-- [Data Model](data-model.md) — PostgreSQL schema, file stores, worktree storage, entity relationships
-- [Workflow Architecture](workflow-architecture.md) — workflow steps create tasks via `WorkflowTaskService`, session continuation across steps
-- [ADR-017](../adrs/017-multi-project-architecture.md) — multi-project design decisions and credential model
-- [ADR-021](../adrs/021-agent-execution-primitive.md) — `AgentExecution` + `WorkflowStepExecution` decomposition; `Task` carries nested `agentExecution` / `workflowStepExecution` objects
-- [ADR-022](../adrs/022-workflow-run-status-and-step-outcome-protocol.md) — portable `<step-outcome>` protocol; `TaskExecutor` preserves task lifecycle fallback when the marker is missing
-- [ADR-023](../adrs/023-workflow-task-boundary.md) – behavioural contract for the workflow↔task boundary; names the `_isWorkflowOrchestrated` branch and guarded workflow worker path as intentional
+- [System Architecture](system-architecture.md): package DAG, composition root, wiring
+- [Control Protocol](control-protocol.md): execution allocation, turn lifecycle, tool calls and usage fields
+- [Security Architecture](security-architecture.md): guards, container isolation, governance enforcement
+- [Data Model](data-model.md): `tasks`, `task_events`, `turns` schemas, standalone checkpoint
+- [Workflow Architecture](workflow-architecture.md): workflow steps as tasks, structured-output envelope, shared worktrees
+- [Observability & Operations](observability-operations-architecture.md): SSE transport, usage tracking, scheduling
+- [Channel & Messaging](channel-messaging-architecture.md): `ChannelTaskBridge`, task notifications
+- ADRs: [017](../adrs/017-multi-project-architecture.md) multi-project and credentials; [021](../adrs/021-agent-execution-primitive.md) `AgentExecution`/`WorkflowStepExecution`; [022](../adrs/022-workflow-run-status-and-step-outcome-protocol.md) step outcome; [023](../adrs/023-workflow-task-boundary.md) workflow↔task boundary

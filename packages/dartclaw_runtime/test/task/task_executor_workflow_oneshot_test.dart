@@ -11,7 +11,7 @@ import 'package:dartclaw_runtime/src/turn_wait_status.dart' show TurnCancelReaso
 import 'package:dartclaw_testing/dartclaw_testing.dart'
     show FakeAgentHarness, InMemoryTaskEventService, InMemoryWorkflowStepExecutionRepository;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show WorkflowTaskConfig, executionEnvelopeMarkerKey, executionEnvelopeVersion;
+    show WorkflowTaskConfig, executionEnvelopeMarkerKey, executionEnvelopeVersion, verdictPreset;
 import 'package:fake_async/fake_async.dart';
 import 'package:test/test.dart';
 
@@ -932,6 +932,59 @@ void main() {
         .singleWhere((event) => event.kind.name == 'structuredOutputValidationFailed');
     expect(failure.details['failureReason'], 'malformed_envelope');
   });
+
+  for (final (severity, accepted) in [('low', true), ('blocker', false)]) {
+    test(
+      'a verdict finding with severity "$severity" is ${accepted ? 'accepted' : 'rejected as malformed_envelope'}',
+      () async {
+        final eventService = await useEventRecorder();
+        final verdictEnvelope = <String, dynamic>{
+          ..._summaryEnvelopeSchema,
+          'properties': {
+            ...(_summaryEnvelopeSchema['properties'] as Map<String, dynamic>),
+            'outputs': {
+              'type': 'object',
+              'additionalProperties': false,
+              'required': ['verdict'],
+              'properties': {'verdict': verdictPreset.schema},
+            },
+          },
+        };
+        Map<String, dynamic> envelopeWith(String severity) => {
+          'outputs': {
+            'verdict': {
+              'pass': true,
+              'findings_count': 1,
+              'findings': [
+                {'severity': severity, 'location': 'lib/a.dart:1', 'description': 'd'},
+              ],
+              'summary': 's',
+            },
+          },
+          'step_outcome': {'outcome': 'succeeded', 'reason': 'ok'},
+        };
+        await createStep('verdict-$severity', structuredSchema: verdictEnvelope);
+        await drive(
+          [
+            const TurnResult(providerSessionId: 'provider-session'),
+            TurnResult(providerSessionId: 'provider-session', structuredOutput: envelopeWith(severity)),
+          ],
+          replies: const ['Working'],
+        );
+
+        final status = (await context.tasks.get('verdict-$severity'))?.status;
+        final failures = (await eventService.listForTask('verdict-$severity'))
+            .where((event) => event.kind.name == 'structuredOutputValidationFailed');
+        if (accepted) {
+          expect(status, TaskStatus.review);
+          expect(failures, isEmpty);
+        } else {
+          expect(status, TaskStatus.failed);
+          expect(failures.single.details['failureReason'], 'malformed_envelope');
+        }
+      },
+    );
+  }
 
   test('worker construction receives step artifacts once and capacity is released', () async {
     final artifactsDir = '${context.tempDir.path}/step-artifacts';

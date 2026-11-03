@@ -18,7 +18,7 @@ receipts retain that meaning. Report scoped functional evidence separately rathe
 | Profile | Port | Run command | Purpose |
 |---|---|---|---|
 | `plain` | 3335 | `bash dev/testing/profiles/plain/run.sh` | Minimal seeded data, no channels. Backs `UI-SMOKE-TEST.md` and most `scenarios/session-*` scenarios. |
-| `channels` | 3336 | `bash dev/testing/profiles/channels/run.sh` | WhatsApp + Signal channels enabled. Hardware pairing flow is documented in `dartclaw-private/docs/testing/channel-e2e-manual.md`. |
+| `channels` | 3336 | `bash dev/testing/profiles/channels/run.sh` | WhatsApp, Signal, Google Chat and Slack channels (Slack off until the owner enables it). Hardware pairing flow and Slack setup are documented in `dartclaw-private/docs/testing/channel-e2e-manual.md`. |
 | `governance` | 3337 | `bash dev/testing/profiles/governance/run.sh` | Tight governance limits + budget seeding. Backs the governance-enforcement scenario. |
 | `visual` | 3338 | `bash dev/testing/profiles/visual/run.sh` | Desktop visual smoke profile. Feature-visibility flags on so Health/Memory/Tasks/Projects/Workflows all render with seeded content. |
 | `workflows` | 3333 | `bash dev/testing/profiles/workflows/run.sh` | Codex-first workflow execution against the `DartClaw/workflow-test-todo-app` fixture repo. Publish runs need a GitHub token; `run.sh` takes `GITHUB_TOKEN`, else the fixture askpass file, else `gh auth token`. |
@@ -31,11 +31,10 @@ receipts retain that meaning. Report scoped functional evidence separately rathe
 
 ## Evidence and milestone records
 
-Keep reusable runners and test instructions under `dev/testing/`. The single 0.27 result authority is
-[`0.27-qualification.md`](0.27-qualification.md); producer runs append actual candidate/environment-bound evidence or
-explicit holds there. During implementation, keep scenario mappings and working ledgers beside the exported plan in
-`dev/bundle/docs/specs/<version>/`. Remove that bundle before release under the
-[spec lifecycle](../state/SPEC-LIFECYCLE.md); this 0.27 ledger retains its release holds and results.
+Keep reusable runners and test instructions under `dev/testing/`. Version-specific qualification ledgers and milestone
+runbooks live in the plan bundle `dev/bundle/docs/specs/<version>/` (canonically in private `docs/specs/<version>/`),
+never in this directory; remove the bundle before release under the [spec lifecycle](../state/SPEC-LIFECYCLE.md).
+Scenarios under `scenarios/` stay durable and carry no version or ledger-row references.
 
 Store run artifacts under `.agent_temp/`. Record the command, environment, tested revision and working-tree changes,
 exit status, and artifact paths. Distinguish focused evidence from full-suite results, working-tree results from

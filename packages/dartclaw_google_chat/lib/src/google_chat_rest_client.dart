@@ -359,6 +359,38 @@ class GoogleChatRestClient {
     });
   }
 
+  /// Replaces the card content and text of an existing Google Chat message.
+  ///
+  /// A text-only [editMessage] leaves a card's buttons in place, so this patches
+  /// `cards_v2` alongside `text`.
+  Future<bool> editCardMessage(String messageName, Map<String, dynamic> card, String text) async {
+    if (!messageNamePattern.hasMatch(messageName)) {
+      _log.warning('Rejected Google Chat card edit for invalid message name "$messageName"');
+      return false;
+    }
+
+    final messageIndex = messageName.indexOf('/messages/');
+    final spaceName = messageName.substring(0, messageIndex);
+
+    return _queueFor(spaceName).enqueue<bool>(() async {
+      try {
+        final response = await _client.patch(
+          Uri.parse('$_apiBase/$messageName?updateMask=cards_v2,text'),
+          headers: const {'content-type': 'application/json'},
+          body: jsonEncode({...card, 'text': text}),
+        );
+        if (response.statusCode < 200 || response.statusCode >= 300) {
+          _log.warning('Google Chat card edit failed for $messageName with HTTP ${response.statusCode}');
+          return false;
+        }
+        return true;
+      } on Exception catch (error, stackTrace) {
+        _log.warning('Google Chat card edit failed for $messageName', error, stackTrace);
+        return false;
+      }
+    });
+  }
+
   /// Deletes a Google Chat message. Returns true on success or 404.
   Future<bool> deleteMessage(String messageName) async {
     if (!messageNamePattern.hasMatch(messageName)) {

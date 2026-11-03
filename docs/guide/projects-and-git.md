@@ -189,18 +189,14 @@ WorktreeManager.create(taskId, project)
   --> git worktree add <worktreesDir>/<taskId> dartclaw/task-<taskId>
   |
   v
-TaskFileGuard.register(taskId, worktreePath)
-  |
-  v
 Agent harness spawned with cwd = worktree path
-  --> all file operations constrained to worktree
   |
   v
 Task completes --> enters review state
   |
   +-- Accept --> push branch + create PR (if configured) --> cleanup
   +-- Reject --> cleanup (no push)
-  +-- Push back --> task re-queued with feedback (worktree preserved)
+  +-- Push back --> task returns to running with feedback (worktree preserved)
   +-- Failure --> worktree preserved for inspection
 ```
 
@@ -324,7 +320,7 @@ In containerized mode, project clones are mounted read-only:
 | `/project` | `<dataDir>/projects/` | Read-only | All project clones accessible to the agent |
 | `/workspace` | `<dataDir>/workspace/` | Read-write | Behavior files (SOUL.md, etc.) |
 
-`TaskFileGuard` enforces per-task scoping -- a task targeting `my-app` cannot read files from the `docs-site` project clone, even though both are under the same mount. Tasks explicitly declared with the `restricted` profile have no workspace mount at all.
+There is no per-task file scoping inside that mount: a task targeting `my-app` can read the `docs-site` clone. Tasks explicitly declared with the `restricted` profile have no workspace mount at all.
 
 ### Path Translation
 
@@ -345,13 +341,11 @@ External project repositories can include their own `CLAUDE.md` and `AGENTS.md` 
 
 File operations within worktrees are protected by multiple layers:
 
-1. **TaskFileGuard** -- per-task path containment. Registers the worktree path on creation, validates every file access with `path.isWithin()`. Canonicalizes paths to prevent symlink escapes.
+1. **FileGuard** (global) -- blocks access to sensitive paths (`.ssh`, `.aws`, credentials). It does not confine a task to its own worktree.
 
-2. **FileGuard** (global) -- blocks access to sensitive paths (`.ssh`, `.aws`, credentials) regardless of worktree containment.
+2. **CommandGuard** -- blocks destructive git operations (`git push --force`, `git reset --hard`, `git clean -f`) across all contexts.
 
-3. **CommandGuard** -- blocks destructive git operations (`git push --force`, `git reset --hard`, `git clean -f`) across all contexts.
-
-4. **Container isolation** -- kernel-level namespace separation with `network:none` and `--cap-drop ALL`.
+3. **Container isolation** -- kernel-level namespace separation with `network:none` and `--cap-drop ALL`.
 
 ## Worktree Preservation on Failure
 

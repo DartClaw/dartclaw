@@ -1,9 +1,11 @@
 # Project Learnings
 
-<!-- Traps only, one bullet each: `- **{title}** – …`, trap + pointer, under 200 chars; postmortem depth lives in
-     the spec archive, an ADR, or an architecture doc. Bar: "Would a competent developer with code and git access
-     still get bitten?" Skills read this document whole. Maintain it directly; the ceiling is the Project Document Index
-     row – at the ceiling, prune this file, never shard it. Delete entries once encoded as checks or stale. -->
+<!-- Traps only, one bullet each: `- **{title}** – …`, trap + pointer; postmortem depth lives in
+     an ADR or an architecture doc. An entry is admitted only if a frontier model does not already know it, the code
+     and git history do not already carry it, and it outlives the current initiative. Skills read this document whole:
+     read it before appending, so no reworded duplicate lands, keep it short, and delete entries once encoded as checks
+     or stale. A topic that outgrows this index moves to `learnings/<topic-slug>.md` and leaves one pointer line here;
+     open a shard only when the task names its topic. -->
 
 ## Dart Language
 
@@ -37,7 +39,7 @@
 - **Standalone `claude` reads keychain OAuth only when `USER` is in the spawn env.** `HOME`+`PATH` alone → "not logged in". The provider spawn sanitize deliberately keeps `USER` – never add an allowlist that drops it. Logged-out CLIs abort via `ProviderAuthPreflight` before skill introspection.
 - **Standalone harness startup is deferred behind the auth preflight.** CLI wiring splits into `wirePreHarness()` (no spawn) and `startHarnesses(providers)`; run/resume/retry derive the referenced-provider set, preflight it, then start only those. The executor-level preflight stays as the in-engine backstop for connected mode.
 - **A skill the harness activates by slash line must not declare `user-invocable: false`.** Claude Code 2.1.x refuses the `/skill` form for such skills and the step answers with no tool calls; `disable-model-invocation: true` keeps a host-invoked skill out of the menu while the slash form still works.
-- **Claude may remove a finished subagent from its background list before starting that agent's notification turn.** Under 2.1.x `Agent` backgrounds by default; a process restart before the notification loses its report. `ClaudeCodeHarness` holds a successful turn while a non-`local_bash` task is listed or its notification turn is owed (`control-protocol.md` § 4.8), bounded by the turn timeout.
+- **Claude may remove a finished subagent from its background list before starting that agent's notification turn.** Under 2.1.x `Agent` backgrounds by default; a process restart before the notification loses its report. `ClaudeCodeHarness` holds a successful turn while a non-`local_bash` task is listed or its notification turn is owed (`control-protocol.md` § 3.4), bounded by the turn timeout.
 
 ### Codex
 - **Write `CODEX_HOME/config.toml` before spawning.** Later edits are unreliable as a control surface; see the `developerInstructions` entry for what the file does *not* govern.
@@ -107,6 +109,7 @@
 - **Suppress binary's built-in tools when providing MCP equivalents.** Add tool names to `disallowedTools` in `HarnessConfig`.
 - **`includeParentEnvironment: false` is load-bearing with an explicit `environment:` map.** `Process.start` otherwise re-inherits the parent env past the sanitized overlay; spawn via `SafeProcess`.
 - **Sanitize git subprocess env, not just the binary.** `.git/config` can route through `core.sshCommand`, hooks, filters, and credential helpers that spawn shell children.
+- **Gating a chat action means gating its MCP tool twin in the same change.** The card gate left `task_review` open via the agent, `/bind` left `task_bind`; make the tool `TurnAwareMcpTool`.
 - **Collapse whitespace where a one-line report is assembled, not per text source.** A provider error, filename, or OS string the pipeline never authored can otherwise forge a report line.
 
 ## Package Architecture
@@ -144,7 +147,13 @@
 ### Signal
 - **Sealed-sender: pairing UUID vs later `sourceNumber`.** Allowlist must handle both forms and self-heal on first dual-form message. UUIDs are mixed-case – lowercase before storage and lookup.
 
+### Slack
+- **One mention arrives twice, as `app_mention` and `message`.** Only `message` carries `files`, so process it and ack-drop `app_mention`; the app must subscribe `message.*` (`SlackChannel._handleEvent`).
+- **A slash command's reply must carry its message id.** The adapter matches `sourceMessageId` to the stored `response_url`; a reply path that drops the id posts the answer publicly (`ReservedCommandHandler`).
+- **A signing secret has no token shape, so a regex redactor keeps part of it.** Register it as a literal (`MessageRedactor.registerLiterals`), fully masked; `readBounded` decodes to a String, so Events API verification reads raw bytes (`readBoundedRequestBytes`).
+
 ### Session routing
+- **A `:thread:<id>` key suffix breaks positional key readers.** Decode channel keys through `SessionKey.channelRoute`; a positional split of `identifiers` gives Slack thread sessions no announce or loop-detection route.
 - **A `channel`-surface execution request is re-routed onto the primary's provider and policy.** `ExecutionCoordinator._laneFor` sends `ExecutionSurface.channel` to the primary lane, so a channel session pinned to another provider would silently run as the primary. A pinned channel turn must present the logical-agent surface (`TurnManager._reserveExecutionForSession`), keeping `wait` admission.
 
 ## Workflow Engine
@@ -162,6 +171,7 @@
 - **Loop crash recovery needs a checkpoint after every successful sibling step.** Checkpointing only at iteration boundaries loses outputs the next sibling depends on.
 - **Workflow start must preflight and persist effective `PROJECT`/`BRANCH` before any workflow task is created**, and local-path projects need their dirty-tree / branch-mismatch gate at the same seam. Deferring either leaks tasks against a live checkout.
 - **Resolve a null `gitStrategy` as the default `auto` before keying behavior on the mode.** All resolution flows through `step_config_policy.resolveWorktreeMode`; the concurrency clamp keys on the *resolved* mode so clamp and dispatcher agree – fix at the resolution layer, never a clamp special-case.
+- **Standard crash recovery derives the resume step from completed tasks, so it breaks wherever a flow re-runs a step the tasks already finished.** A request-changes round re-enters an earlier step; `_recoverRun` therefore restarts a run carrying `_revision.gateId` at `currentStepIndex`. Any new rewind needs the same cursor-first rule. Keep a revise gate's `entryGate` independent of run context: `_revision.gateId` outlives a gate that is false on the return pass.
 - **A foreach dependency-hold pause has no resume path.** After a settled-failed story blocks a dependent, `workflow resume` re-pauses immediately – cancel and start a fresh run; discovery re-derives only unfinished stories.
 - **Workflow git cleanup must run after child-task shutdown and walk the full run-owned set.** Shared-key cleanup is insufficient for `per-map-item` workflows; standalone teardown must preserve non-terminal (approval-held, paused, running) git state for resume.
 - **Artifact auto-commit must verify task worktree paths are real git worktrees, and use output resolver semantics, not raw output formats.** List-shaped filesystem outputs can be `lines` yet still be load-bearing artifacts.
@@ -218,7 +228,7 @@
 - **Prove env-export fidelity with a micro-canary, not a full live run.** One live provider turn whose prompt runs `mkdir -p "$VAR"` covers the only unit-untestable link: provider-CLI → shell-tool env inheritance + expansion.
 - **Green unit suites hide wiring gaps.** Tests injecting absolute paths/null deps prove units, not the product. Require ≥1 test driving the real composition root + path discovery.
 - **A bare `exit(...)` in a `Process` fake kills the test runner while `dart test` reports success.** Unqualified `exit(0)` binds to `dart:io`'s top-level; call `this.exit(...)` and treat a dropping test count as a failure.
-- **`dart test` runs suites as isolates in ONE process – `Directory.current` is shared.** A suite that assigns it moves the cwd under every concurrent suite; inject the working directory instead (`WorktreeManager(currentDirectory:)`). `apps/dartclaw_cli` still carries this hazard.
+- **`dart test` runs suites as isolates in ONE process – `Directory.current` is shared.** A suite that assigns it moves the cwd under every concurrent suite; inject the working directory instead (`WorktreeManager(projectDir:)`). `apps/dartclaw_cli` and one `dartclaw_kernel` config test still carry this hazard.
 - **Tests must never spawn `dart run <workspace script>`.** Concurrent suites racing the shared `.dart_tool/native_assets.yaml` abort the VM; run dependency-free tools from a hermetic temp copy instead.
 - **Package-scoped `dart analyze`/`dart test` can stay green while the workspace fails to build.** Removing a barrel export or retyping a cross-package contract breaks consumers the scoped gate never sees – always run workspace-wide analyze + all-package tests.
 - **.dart templates compile into the serve VM; static/.html reload from disk.** Long-running serves render stale .dart output – verify "no consumers" sweeps against source; test edits on a fresh port.
@@ -243,8 +253,8 @@
 
 ## Specs / Documentation
 
+- **A `git grep` Verify over `dev/` or `docs/` matches the bundle's own FIS, PRD and research.** It can never go clean; exclude `':!dev/bundle'` and dry-run it before relying on it.
 - **Multi-restatement spec docs.** When fixing a fact, grep all restatements; verify new claims against code; check the inventory measures the AC's property; diff applied edits vs the finding list.
-- **`ops update-fis design-change` only rewrites Intent + Acceptance Scenarios** – it hard-blocks Final-Validation/Structural-Criteria edits; use a direct edit + an `observations` audit block.
 - **A checklist item naming a recorder in another story has no owner.** Verify the artifact exists before relying on it; absence is a gate defect.
 - **Cross-story deferral can land a seam nowhere.** Chained "story X owns it" deferrals shipped a type whose only `throw` was a fake – grep the producer before done.
 - **rg-verify spec deletion lists.** "Zero usage"/"only consumer is X" claims need `rg` proof against shipped assets (workflow YAMLs, templates).
@@ -262,6 +272,7 @@
 
 ## Testing
 
+- **A single-test run of a skip-tagged suite exits 0 having run nothing.** Integration/slow suites (e.g. the Docker parity suite) need `--run-skipped`, or the "pass" proves nothing.
 - **Template comments ship in rendered pages.** `tasks_s11_test`/`task_detail_template_test` assert no `—` over the whole page and `inbox_template_test` bans a state-attribute name in prose, sidebar included – a template comment fails tests far from the edit.
 - **Bound-asserting tests must enumerate the set** – a test named 'only/every/no other' must assert with unorderedEquals/containsAll, never isNot(contains(...)).
 - **Fixtures built by the code under test never exercise its parser.** `writePage`-built fixtures meant `_readPage` never parsed foreign input – four data-loss bugs, suite green. Write raw literals.
@@ -270,6 +281,7 @@
 - **An ordering test must fail at the step *between* the two writes.** A payload rejected during extraction can't tell "wiki write last" from "wiki write first".
 - **A report category no test asserts on can ship inverted for its whole life.** Wiki `orphan` had zero assertions and read the wrong direction of the link graph.
 - **`dev/fitness` test files fail at 1430 lines, 110% of the 1300-line target; the breach shows in the workspace gate only.** Put a new group in a sibling file with its own `setUp`.
+- **The `fast` tier skips `dev/fitness`.** Its barrel allowlist is line-keyed: one added `show` name in `dartclaw_runtime.dart` shifts 20 entries, red only in CI. Run `dart test dev/fitness` after barrel edits.
 - **The conversation-loop browser profile is outside CI.** Chat UI changes pass CI while its assertions drift – `q1-e11` had never run. Rerun it after touching chat markup.
 - **Stage an identity marker outside its fresh destination.** A crash that leaves the temporary file inside an otherwise empty home makes the retry correctly refuse that now-nonempty unmarked directory.
 

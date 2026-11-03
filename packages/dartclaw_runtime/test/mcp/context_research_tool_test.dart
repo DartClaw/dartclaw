@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_runtime/src/auth/source_link_token.dart';
 import 'package:dartclaw_runtime/src/mcp/citation_packet.dart';
 import 'package:dartclaw_runtime/src/mcp/context_research_tool.dart';
 import 'package:dartclaw_runtime/src/mcp/mcp_server.dart';
@@ -48,6 +49,7 @@ void main() {
     int tokenBudget = 1200,
     WikiSearchSource? wiki,
     CitationSourceResolver? sourceResolver,
+    ContextResearchSourceLinker? sourceLinker,
   }) {
     return ContextResearchTool(
       scopeResolver: (_) async =>
@@ -56,6 +58,7 @@ void main() {
       kg: kg,
       synthesizer: synthesizer ?? _candidateSynthesizer,
       sourceResolverFactory: sourceResolver == null ? null : (_) => sourceResolver,
+      sourceLinker: sourceLinker,
       metricsSink: (event) async => metrics.add(event),
       defaultTokenBudget: tokenBudget,
     );
@@ -91,7 +94,7 @@ void main() {
     expect(decoded.toJson(), packet.toJson());
   });
 
-  test('S01 TI03 TI06 one call synthesizes a cited packet across all three layers', () async {
+  test('TI03 TI06 one call synthesizes a cited packet across all three layers', () async {
     File('${workspace.path}/wiki/kg.md')
         .writeAsStringSync('---\nprovenance: human-authored\n---\nTemporal KG decision wiki.');
     final factId = await kg.addFact(
@@ -196,7 +199,7 @@ void main() {
     },
   );
 
-  test('S03 one Context Research request traverses wiki once and keeps native provenance', () async {
+  test('one Context Research request traverses wiki once and keeps native provenance', () async {
     memory.results = const [
       MemorySearchResult(
         text: 'duplicate wiki page',
@@ -220,7 +223,7 @@ void main() {
     expect(sourceList, contains(predicate<Map<String, dynamic>>((source) => source['locator'] == 'entry-1')));
   });
 
-  test('S02 TI04 fabricated citation is flagged unattributed and resolver is reusable', () async {
+  test('TI04 fabricated citation is flagged unattributed and resolver is reusable', () async {
     File('${workspace.path}/wiki/kg.md').writeAsStringSync('Temporal KG wiki source.');
     memory.results = const [MemorySearchResult(text: 'Memory source exists.', source: 'MEMORY.md', score: 1)];
     final result = await tool(
@@ -292,6 +295,152 @@ void main() {
     expect(sourceList.map((ref) => ref['locator']), ['wiki/kg.md', 'MEMORY.md']);
   });
 
+  group('sourceLinkerFor', () {
+    final key = 'a' * 64;
+    String tokenOf(String? url) => Uri.parse(url!).queryParameters['t']!;
+
+    test('mints a signed link under base_url that only the gateway token verifies', () {
+      final url = sourceLinkerFor(baseUrl: 'https://dartclaw.example/team', signed: true, key: key)!(
+        CitationLayer.wiki,
+        'wiki/a b.md',
+      );
+
+      expect(url, startsWith('https://dartclaw.example/team/knowledge/source?t='));
+      expect(validateSourceLinkToken(tokenOf(url), key: key), (layer: 'wiki', locator: 'wiki/a b.md'));
+      expect(validateSourceLinkToken(tokenOf(url), key: 'b' * 64), isNull);
+    });
+
+    test('a trailing slash on base_url does not double the separator', () {
+      final url = sourceLinkerFor(baseUrl: 'https://dartclaw.example/', signed: true, key: key)!(CitationLayer.kg, '7');
+
+      expect(url, startsWith('https://dartclaw.example/knowledge/source?t='));
+    });
+
+    test('reads base_url as notification links do: padding trimmed, blank meaning unset', () {
+      final padded = sourceLinkerFor(baseUrl: ' https://dartclaw.example/ ', signed: true, key: key)!(
+        CitationLayer.kg,
+        '7',
+      );
+
+      expect(padded, startsWith('https://dartclaw.example/knowledge/source?t='));
+      expect(sourceLinkerFor(baseUrl: '  ', signed: true, key: key)!(CitationLayer.kg, '7'), isNull);
+    });
+
+    test('mints an unsigned link under auth_mode none', () {
+      final url = sourceLinkerFor(baseUrl: 'http://localhost:3000', signed: false)!(CitationLayer.kg, '7');
+
+      expect(validateSourceLinkToken(tokenOf(url)), (layer: 'kg', locator: '7'));
+    });
+
+    test('mints nothing without base_url, or when a signed deployment has no key', () {
+      expect(sourceLinkerFor(baseUrl: null, signed: true, key: key), isNull);
+      expect(sourceLinkerFor(baseUrl: 'https://dartclaw.example', signed: true), isNull);
+    });
+  });
+
+  group('source links', () {
+    String link(CitationLayer layer, String locator) =>
+        'https://dartclaw.example/knowledge/source?t=${layer.wireName}-$locator';
+
+    Future<List<Map<String, dynamic>>> citedSources(ToolResult result) async =>
+        (((_decodeResult(result)['packet'] as Map<String, dynamic>)['sourceList']) as List)
+            .cast<Map<String, dynamic>>();
+
+    Future<int> seedAllLayers() async {
+      File('${workspace.path}/wiki/kg.md').writeAsStringSync('Temporal KG decision wiki.');
+      memory.results = const [
+        MemorySearchResult(
+          text: 'Memory says temporal KG avoids overwrite.',
+          source: 'entry-1',
+          score: 1,
+          role: 'memory',
+          locator: 'entry-1',
+        ),
+      ];
+      return kg.addFact(
+        entity: 'temporal KG',
+        predicate: 'decision',
+        value: 'preserve history',
+        validFrom: '2026-06-01T00:00:00Z',
+        source: 'kg-source',
+      );
+    }
+
+    test('a wiki and a graph source carry a host link, a memory source never does', () async {
+      final factId = await seedAllLayers();
+
+      final sources = await citedSources(
+        await tool(sourceLinker: link, sourceResolver: _AlwaysResolvingSource()).callAsAgent({'query': 'temporal KG'}),
+      );
+
+      final byLayer = {for (final source in sources) source['layer'] as String: source};
+      expect(byLayer['wiki']!['url'], link(CitationLayer.wiki, 'wiki/kg.md'));
+      expect(byLayer['kg']!['url'], link(CitationLayer.kg, '$factId'));
+      expect(byLayer['memory'], isNotNull);
+      expect(byLayer['memory']!.containsKey('url'), isFalse);
+    });
+
+    test('no reference carries a url when the deployment serves no links', () async {
+      await seedAllLayers();
+
+      final sources = await citedSources(
+        await tool(sourceResolver: _AlwaysResolvingSource()).callAsAgent({'query': 'temporal KG'}),
+      );
+
+      expect(sources, isNotEmpty);
+      expect(sources.where((source) => source.containsKey('url')), isEmpty);
+    });
+
+    test('the tool description tells the model to link a source by its url', () {
+      expect(tool().description, contains('url'));
+    });
+
+    test('a url in synthesis output is discarded and an unresolved reference gets none', () async {
+      File('${workspace.path}/wiki/kg.md').writeAsStringSync('Temporal KG wiki source.');
+      const forged = 'https://attacker.example/phish';
+
+      for (final linker in <ContextResearchSourceLinker?>[link, null]) {
+        final result = await tool(
+          sourceLinker: linker,
+          synthesizer: (_) async => jsonEncode({
+            'statements': [
+              {
+                'text': 'A resolved and an unresolved claim.',
+                'sourceRefs': [
+                  {'layer': 'wiki', 'locator': 'wiki/kg.md', 'label': 'Wiki', 'role': 'wiki', 'url': forged},
+                  {'layer': 'wiki', 'locator': 'wiki/missing.md', 'label': 'Missing', 'role': 'wiki', 'url': forged},
+                ],
+              },
+            ],
+            'sourceList': [
+              {'layer': 'wiki', 'locator': 'wiki/kg.md', 'label': 'Wiki', 'role': 'wiki', 'url': forged},
+              {'layer': 'wiki', 'locator': 'wiki/missing.md', 'label': 'Missing', 'role': 'wiki', 'url': forged},
+            ],
+          }),
+        ).callAsAgent({'query': 'Temporal KG'});
+
+        final statement =
+            (((_decodeResult(result)['packet'] as Map<String, dynamic>)['statements']) as List).single
+                as Map<String, dynamic>;
+        final refs = (statement['sourceRefs'] as List).cast<Map<String, dynamic>>();
+        expect(jsonEncode(_decodeResult(result)), isNot(contains(forged)));
+        expect(refs.map((ref) => ref['locator']), ['wiki/kg.md']);
+        expect(refs.single['url'], linker == null ? isNull : link(CitationLayer.wiki, 'wiki/kg.md'));
+      }
+    });
+
+    test('SourceRef serializes a url only when present and hydration ignores one', () {
+      const linked = SourceRef(layer: CitationLayer.wiki, locator: 'wiki/a.md', label: 'A', url: 'https://x/y');
+
+      expect(linked.toJson()['url'], 'https://x/y');
+      expect(
+        const SourceRef(layer: CitationLayer.wiki, locator: 'wiki/a.md', label: 'A').toJson(),
+        isNot(contains('url')),
+      );
+      expect(SourceRef.fromJson(linked.toJson()).url, isNull);
+    });
+  });
+
   test('synthesis cannot cite a live source that retrieval did not supply', () async {
     File('${workspace.path}/wiki/retrieved.md').writeAsStringSync('Unique retrieval needle.');
     File('${workspace.path}/wiki/unrelated.md').writeAsStringSync('Completely orthogonal material.');
@@ -358,7 +507,7 @@ void main() {
     expect(packet['degradedLayers'], contains('memory'));
   });
 
-  test('S03 TI05 identical repeat queries re-synthesize and can see a new KG fact', () async {
+  test('TI05 identical repeat queries re-synthesize and can see a new KG fact', () async {
     var dispatches = 0;
     memory.results = const [MemorySearchResult(text: 'Initial memory source.', source: 'MEMORY.md', score: 1)];
     final result1 = await tool(
@@ -390,7 +539,7 @@ void main() {
     expect(metrics.last.cacheBypass, isTrue);
   });
 
-  test('S04 TI06 no sources found returns explicit non-fabricated packet', () async {
+  test('TI06 no sources found returns explicit non-fabricated packet', () async {
     final result = await tool().callAsAgent({'query': 'no matches'});
     final json = _decodeResult(result);
     final packet = json['packet'] as Map<String, dynamic>;
@@ -400,7 +549,7 @@ void main() {
     expect(packet['statements'], isEmpty);
   });
 
-  test('S05 TI07 empty and oversized queries return isError before retrieval or synthesis', () async {
+  test('TI07 empty and oversized queries return isError before retrieval or synthesis', () async {
     final empty = await tool().callAsAgent({'query': '   '});
     final oversized = await ContextResearchTool(
       scopeResolver: (_) async =>
@@ -416,7 +565,7 @@ void main() {
     expect(memory.searchCalls, 0);
   });
 
-  test('S06 TI08 over-budget synthesis truncates while preserving citations and metrics', () async {
+  test('TI08 over-budget synthesis truncates while preserving citations and metrics', () async {
     memory.results = List.generate(
       5,
       (i) => MemorySearchResult(
@@ -463,7 +612,7 @@ void main() {
     expect(metrics.single.truncated, isTrue);
   });
 
-  test('S07 TI03 TI06 failed KG layer is reported while wiki and memory still synthesize', () async {
+  test('TI03 TI06 failed KG layer is reported while wiki and memory still synthesize', () async {
     File('${workspace.path}/wiki/kg.md').writeAsStringSync('Temporal KG wiki source.');
     memory.results = const [MemorySearchResult(text: 'Memory source survives.', source: 'MEMORY.md', score: 1)];
     final throwingKg = _ThrowingKg(backend);

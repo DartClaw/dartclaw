@@ -1,0 +1,141 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 896" width="1000" height="896" role="img" aria-labelledby="title desc">
+  <title id="title">Run approval from chat</title>
+  <desc id="desc">WorkflowRunNotificationSubscriber issues a nonce-bearing interaction through WorkflowService, posts Approve and Reject buttons through the channel adapter and binds the sent message to the interaction. A click goes through ChannelRunApprovalHandler to WorkflowRunControl.handleApproval; a refusal answers the clicker (Slack ephemerally), and any resolution makes the subscriber edit the post once to remove the buttons.</desc>
+  <style>
+
+    svg { --bg:#f6f7f9; --card:#ffffff; --ink:#1e2030; --ink2:#4c4f69; --ink3:#6c6f85; --rule:#ccd0da; --edge:#8c8fa1; --hi:#1e66f5; --on:#ffffff; --panel:#1e1e2e; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+      --host:#40a02b; --host-d:#1f5c2a; --host-l:#2d7a1f; --ext:#e07c4f; --ext-d:#a8481c; --ext-l:#b5531f; --store:#179299; --store-d:#0f5f63; --store-l:#0e7377;
+      --sec:#d20f39; --sec-d:#9b0c2c; --sec-l:#b80d33; --chan:#8839ef; --chan-d:#5d23a8; --chan-l:#7027d4; --neu:#7c7f93; --neu-d:#4c4f69; --neu-l:#5c5f77; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#181825; --card:#1e1e2e; --ink:#cdd6f4; --ink2:#bac2de; --ink3:#9399b2; --rule:#45475a; --edge:#7f849c; --hi:#89b4fa; --on:#f5f7ff; --panel:#11111b; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+        --host:#a6e3a1; --host-d:#2f6b3a; --host-l:#a6e3a1; --ext:#fab387; --ext-d:#8f4a24; --ext-l:#fab387; --store:#94e2d5; --store-d:#1f6460; --store-l:#94e2d5;
+        --sec:#f38ba8; --sec-d:#8a2c45; --sec-l:#f38ba8; --chan:#cba6f7; --chan-d:#5e3f94; --chan-l:#cba6f7; --neu:#9399b2; --neu-d:#45475a; --neu-l:#bac2de; }
+    }
+    text { fill: var(--ink); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .mono, .kick, .badge text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+    .bg { fill: var(--bg); }
+    .title { font-size: 21px; font-weight: 700; }
+    .lede { fill: var(--ink3); font-size: 13px; }
+    .kick { font-size: 10.5px; font-weight: 600; letter-spacing: .1em; fill: var(--kl, var(--ink3)); }
+    .k-host { --k:var(--host); --kd:var(--host-d); --kl:var(--host-l); }
+    .k-ext { --k:var(--ext); --kd:var(--ext-d); --kl:var(--ext-l); }
+    .k-store { --k:var(--store); --kd:var(--store-d); --kl:var(--store-l); }
+    .k-sec { --k:var(--sec); --kd:var(--sec-d); --kl:var(--sec-l); }
+    .k-chan { --k:var(--chan); --kd:var(--chan-d); --kl:var(--chan-l); }
+    .k-neu { --k:var(--neu); --kd:var(--neu-d); --kl:var(--neu-l); }
+    .band { fill: color-mix(in srgb, var(--k) 6%, var(--bg)); stroke: color-mix(in srgb, var(--k) 50%, var(--bg)); stroke-width: 1.4; stroke-dasharray: 7 5; }
+    .box { stroke-width: 1.5; }
+    .tint .box { fill: color-mix(in srgb, var(--k) 13%, var(--card)); stroke: var(--k); }
+    .line .box { fill: var(--card); stroke: var(--k); }
+    .ghost .box { fill: none; stroke: var(--k); stroke-dasharray: 5 4; }
+    .solid .box { fill: var(--kd); stroke: var(--kd); }
+    .name { font-size: 14.5px; font-weight: 700; }
+    .sub { font-size: 11.5px; fill: var(--ink2); }
+    .mono { font-size: 11.5px; fill: var(--ink2); }
+    .solid text { fill: var(--on); }
+    .solid .sub, .solid .mono { fill: var(--on); fill-opacity: .82; }
+    .badge rect { fill: none; stroke: var(--kl); stroke-width: 1.2; }
+    .badge text { font-size: 9.5px; font-weight: 700; letter-spacing: .06em; fill: var(--kl); text-anchor: middle; }
+    .solid .badge rect { stroke: var(--on); stroke-opacity: .7; }
+    .solid .badge text { fill: var(--on); }
+    .e path { fill: none; stroke: var(--ec, var(--edge)); stroke-width: var(--ew, 1.6px); marker-end: var(--em, url(#ah)); }
+    .e.main path { stroke: var(--ec, var(--host)); stroke-width: var(--ew, 2.4px); marker-end: var(--em, url(#ah-main)); }
+    .e.bad path { stroke: var(--ec, var(--sec)); marker-end: var(--em, url(#ah-bad)); }
+    .e.dash path { stroke-dasharray: 6 4; }
+    .el { font-size: 11px; fill: var(--ink2); paint-order: stroke; stroke: var(--halo, var(--bg)); stroke-width: 4px; stroke-linejoin: round; }
+    .in-host .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    .ah { fill: var(--edge); } .ah-main { fill: var(--host); } .ah-bad { fill: var(--sec); } .ah-hi { fill: var(--hi); }
+    .panel { fill: var(--panel); }
+    .panel-kick { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10.5px; font-weight: 700; letter-spacing: .12em; fill: var(--panel-kick); }
+    .p1 { fill: var(--panel-ink); font-size: 13px; }
+    .p1 tspan.b { font-weight: 700; }
+    .p2 { fill: var(--panel-sub); font-size: 12.5px; }
+    .lg { font-size: 11px; fill: var(--ink2); }
+    .chip rect { fill: color-mix(in srgb, var(--k) 10%, var(--card)); stroke: var(--k); stroke-width: 1; }
+    .chip text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10px; font-weight: 600; fill: var(--kl); }
+    .step circle { fill: var(--kd); } .step text { fill: var(--on); font-size: 11px; font-weight: 700; text-anchor: middle; }
+    /* Interaction, effective only when the SVG is opened directly. */
+    .n { cursor: pointer; }
+    .n:hover .box, a:focus-visible .box { stroke: var(--hi); stroke-width: 2.8; }
+    .d { display: none; pointer-events: none; }
+    .n:hover .d, a:focus-visible .d { display: inline; }
+    svg:has(.n:hover) .d0, svg:has(a:focus-visible) .d0 { display: none; }
+    svg:has(.n:hover) .edges .e { opacity: .14; }
+    .e.join path { marker-end: none; }
+    .band.inner { fill: none; stroke-dasharray: 3 4; }
+    .mono-name { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13.5px; }
+    .life { fill: none; stroke: var(--edge); stroke-width: 1.3; stroke-dasharray: 2 5; }
+    .edges .el { --halo: color-mix(in srgb, var(--neu) 6%, var(--bg)); }
+    svg:has(#sub:hover) .edges :is(.f-sub,.t-sub) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#svc:hover) .edges :is(.f-svc,.t-svc) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#ad:hover) .edges :is(.f-ad,.t-ad) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#chat:hover) .edges :is(.f-chat,.t-chat) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+  </style>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-main" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path class="ah-main" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-bad" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="ah-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="896"/>
+
+  <text class="kick" x="24" y="32">SEQUENCE · RUN APPROVAL FROM CHAT</text>
+  <text class="title" x="24" y="58">Run approval from chat</text>
+  <text class="lede" x="24" y="80">A click resolves a run through one single-use nonce and the admin gate; the subscriber, never the adapter, edits the post.</text>
+
+  <g class="k-neu"><rect class="band" x="24" y="176" width="952" height="258" rx="14"/><text class="kick" x="40" y="198">ISSUE AND POST</text></g>
+  <g class="k-neu"><rect class="band" x="24" y="446" width="952" height="220" rx="14"/><text class="kick" x="40" y="468">CLICK AND RESOLVE</text></g>
+  <g class="k-neu"><rect class="band" x="24" y="678" width="952" height="164" rx="14"/><text class="kick" x="40" y="700">EDIT THE POST · ANY RESOLUTION SOURCE</text></g>
+  <path class="life" d="M144,164 V842"/>
+  <path class="life" d="M400,164 V842"/>
+  <path class="life" d="M665,164 V842"/>
+  <path class="life" d="M893,164 V842"/>
+
+  <g class="edges">
+    <g class="e dash f-svc t-sub"><path d="M400,226 H146"/><text class="el" x="364" y="218" text-anchor="end">WorkflowApprovalRequestedEvent</text><g class="step k-host"><circle cx="380" cy="226" r="10"/><text x="380" y="230">1</text></g></g>
+    <g class="e  f-sub t-svc"><path d="M144,272 H398"/><text class="el" x="180" y="264" text-anchor="start">issueApprovalInteraction (nonce)</text><g class="step k-host"><circle cx="164" cy="272" r="10"/><text x="164" y="276">2</text></g></g>
+    <g class="e  f-sub t-ad"><path d="M144,318 H663"/><text class="el" x="180" y="310" text-anchor="start">post: Approve / Reject + nonce</text><g class="step k-host"><circle cx="164" cy="318" r="10"/><text x="164" y="322">3</text></g></g>
+    <g class="e  f-ad t-chat"><path d="M665,364 H891"/><text class="el" x="701" y="356" text-anchor="start">approval post with buttons</text><g class="step k-host"><circle cx="685" cy="364" r="10"/><text x="685" y="368">4</text></g></g>
+    <g class="e  f-sub t-svc"><path d="M144,410 H398"/><text class="el" x="180" y="402" text-anchor="start">bindApprovalPost: message id</text><g class="step k-host"><circle cx="164" cy="410" r="10"/><text x="164" y="414">5</text></g></g>
+    <g class="e  f-chat t-ad"><path d="M893,500 H667"/><text class="el" x="857" y="492" text-anchor="end">click Approve or Reject</text><g class="step k-host"><circle cx="873" cy="500" r="10"/><text x="873" y="504">6</text></g></g>
+    <g class="e  f-ad t-svc"><path d="M665,546 H402"/><text class="el" x="629" y="538" text-anchor="end">ChannelRunApprovalHandler(request)</text><g class="step k-host"><circle cx="645" cy="546" r="10"/><text x="645" y="550">7</text></g></g>
+    <g class="e  f-svc t-ad"><path d="M400,592 H663"/><text class="el" x="436" y="584" text-anchor="start">Resolved | Refused | Failed</text><g class="step k-host"><circle cx="420" cy="592" r="10"/><text x="420" y="596">8</text></g></g>
+    <g class="e dash bad f-ad t-chat"><path d="M665,638 H891"/><text class="el" x="701" y="630" text-anchor="start">refused or failed: answered to the clicker</text><g class="step k-sec"><circle cx="685" cy="638" r="10"/><text x="685" y="642">9</text></g></g>
+    <g class="e dash f-svc t-sub"><path d="M400,732 H146"/><text class="el" x="364" y="724" text-anchor="end">WorkflowApprovalResolvedEvent</text><g class="step k-host"><circle cx="380" cy="732" r="10"/><text x="380" y="736">10</text></g></g>
+    <g class="e  f-sub t-ad"><path d="M144,778 H663"/><text class="el" x="180" y="770" text-anchor="start">ThreadedNotifications.edit</text><g class="step k-host"><circle cx="164" cy="778" r="10"/><text x="164" y="782">11</text></g></g>
+    <g class="e  f-ad t-chat"><path d="M665,824 H891"/><text class="el" x="701" y="816" text-anchor="start">post edited: Approved by &lt;name&gt;</text><g class="step k-host"><circle cx="685" cy="824" r="10"/><text x="685" y="828">12</text></g></g>
+  </g>
+
+  <a href="../channel-messaging-architecture.md#61-delivery"><g class="n tint k-host" id="sub">
+    <title>task/workflow_run_notification_subscriber.dart. Renders the post, issues the interaction, binds the sent message, and edits the post once on resolution.</title>
+    <rect class="box" x="24" y="100" width="240" height="64" rx="9"/>
+    <text class="name" x="36" y="123">subscriber</text>
+    <text class="sub" x="36" y="141">WorkflowRunNotificationSubscriber</text>
+  </g></a>
+  <a href="../channel-messaging-architecture.md#62-run-approvals-from-chat"><g class="n solid k-host" id="svc">
+    <title>issueApprovalInteraction and bindApprovalPost hold the single-use nonce; WorkflowRunControl.handleApproval holds the policy. Admin check, nonce check and resolution. Every call writes one RunApprovalGate audit entry, except a request-changes check. State lives in dartclaw_workflow.</title>
+    <rect class="box" x="290" y="100" width="220" height="64" rx="9"/>
+    <text class="name mono-name" x="302" y="123">WorkflowService</text>
+    <text class="sub" x="302" y="141">+ WorkflowRunControl</text>
+  </g></a>
+  <a href="../channel-messaging-architecture.md#62-run-approvals-from-chat"><g class="n tint k-chan" id="ad">
+    <title>parses a click and calls ChannelRunApprovalHandler. Never checks admin status and never edits the post. WhatsApp and Signal render no buttons and use the workflow_resume and workflow_cancel tools.</title>
+    <rect class="box" x="560" y="100" width="210" height="64" rx="9"/>
+    <text class="name" x="572" y="123">channel adapter</text>
+    <text class="sub" x="572" y="141">Slack or Google Chat</text>
+  </g></a>
+  <a href="../channel-messaging-architecture.md#62-run-approvals-from-chat"><g class="n line k-chan" id="chat">
+    <title>the clicker, identified as the inbound path identifies senders: Slack user ID, Google Chat users/&lt;id&gt;. An empty governance.admin_senders makes every member an admin.</title>
+    <rect class="box" x="810" y="100" width="166" height="64" rx="9"/>
+    <text class="name" x="822" y="123">chat user</text>
+    <text class="sub" x="822" y="141">admin sender</text>
+  </g></a>
+  <g transform="translate(24,862)">
+    <g class="tint k-host"><rect class="box" x="0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="22" y="10">DartClaw component</text>
+    <g class="tint k-chan"><rect class="box" x="155.60000000000002" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="177.60000000000002" y="10">chat platform side</text>
+    <g class="e "><path d="M311.20000000000005,6 H343.20000000000005"/></g><text class="lg" x="351.20000000000005" y="10">call or post</text>
+    <g class="e dash"><path d="M447.6,6 H479.6"/></g><text class="lg" x="487.6" y="10">event</text>
+    <g class="e dash bad"><path d="M540.6,6 H572.6"/></g><text class="lg" x="580.6" y="10">answer to the clicker</text>
+  </g>
+</svg>

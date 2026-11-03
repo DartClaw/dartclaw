@@ -82,6 +82,8 @@ relevant declarations directly. The table below presents that declaration for au
 | `model` | string | default | Provider-specific model override for agent steps |
 | `effort` | string | none | Provider-specific reasoning effort override |
 | `entryGate` | string | none | Condition expression; false skips the step and continues. Not evaluated on a `foreach` controller – put it on the controller's first per-item step |
+| `revise` | string | none | Approval steps only: ID of an earlier top-level non-approval step the gate re-runs, with the reviewer's feedback, when an admin requests changes. Naming it turns on the Request changes outcome |
+| `maxRevisions` | int | `3` with `revise` | Approval steps only: bound on request-changes rounds at the gate, 1 to 10; needs `revise` |
 | `inputs` | list | `[]` | Context keys this step reads and auto-frames unless already referenced |
 | `outputs` | map | none | Output format configs; keys are the step's context-write set |
 | `continueSession` / `continue_session` | bool or string | `false` | Reuse the preceding agent step's root session, or target an explicit earlier step ID |
@@ -125,7 +127,7 @@ Supported leaf forms:
 - `<key> isEmpty`
 - `<key> isNotEmpty`
 
-Compound expressions split on `||` into OR groups and on `&&` inside each group. Parentheses, NOT, and deeper nesting are not supported. Keys may be bare context keys such as `gating_findings_count` or dotted keys such as `plan-review.findings_count`.
+Compound expressions split on `||` into OR groups and on `&&` inside each group. Parentheses, NOT, and deeper nesting are not supported. Keys may be bare context keys such as `gating_findings_count` or dotted keys such as `plan-review.findings_count`. A key that names no context value reads the workflow variable of that name, so `entryGate: "PLAN_REVIEW == true"` works on a variable declared under `variables:`; a context value with the same name wins.
 
 ### Tool Surface and `allowedTools`
 
@@ -181,6 +183,27 @@ One Claude-specific gotcha: under the non-interactive permission mode workflow s
 ```
 
 The run pauses with approval metadata stored in workflow context. Resume records the decision as approved and continues; cancel records the decision as rejected and can include optional feedback. With run policy `auto`, approval steps are auto-accepted and audited under `_approval.auto_resolved.<stepId>`.
+
+#### Request changes
+
+A gate can offer a third outcome. Name an earlier top-level step in `revise` and the reviewer can send the run back to it with feedback instead of rejecting it:
+
+```yaml
+- id: plan
+  name: Plan
+  skill: andthen:plan
+  prompt: "--auto {{context.prd}}"
+- id: plan-approval
+  name: Approve Plan
+  type: approval
+  prompt: "Review the plan: {{context.plan}}"
+  revise: plan
+  maxRevisions: 3
+```
+
+Request changes re-runs the `revise` step even when its `entryGate` is false, runs every step after it, and pauses at the same gate again. Steps before the `revise` step do not re-run. Its prompt ends with a line naming the round and the reviewer's feedback in one block; a prompt that already contains `{{context.<gateId>.approval.feedback}}` (here `{{context.plan-approval.approval.feedback}}`) receives the text there instead, and no block is appended. The gate's context keys are `<gateId>.approval.status` (`changes_requested` while the round runs, `pending` once the gate returns), `<gateId>.approval.feedback` (the latest text, trimmed) and `<gateId>.approval.revision` (rounds so far). `maxRevisions` bounds the rounds, 1 to 10, default 3; at the bound the gate offers only Approve and Reject. The validator refuses a `revise` that names the gate itself, a later step, an unknown step, an approval step, or a step (or gate) inside a `foreach`, loop or parallel group, and `maxRevisions` without `revise`. A step that fails during a round fails the run as usual; `retry` re-runs it with the same feedback. Under run policy `auto` the gate approves itself and never requests changes. The run page (feedback field), `POST /api/workflows/runs/<id>/request-changes`, the `workflow_request_changes` tool, a Slack modal and a Google Chat dialog all resolve it; chat and tool callers must be in `governance.admin_senders`.
+
+The built-in `plan-and-implement` ships one such gate. It is skipped unless you start the run with the variable `PLAN_REVIEW=true`; then the run pauses after `plan` with the plan path, and Request changes re-runs `plan` with the feedback before any story is implemented. Approve starts the stories; Reject cancels the run.
 
 ### `bash` Steps
 
@@ -340,7 +363,7 @@ Use these by name in `schema:` or as string shorthand under `outputs:`. Defined 
 
 | Preset | Output Shape | Use For |
 |---|---|---|
-| `verdict` | `{pass, findings_count, findings[], summary}` | Code/doc review or QA evaluation |
+| `verdict` | `{pass, findings_count, findings[], summary}`; `findings` lists every finding, `severity` is one of `critical`, `high`, `medium`, `low` | Code/doc review or QA evaluation; the host lists a completed run's non-gating findings in a [follow-up draft](workflows.md#follow-up-draft-from-review-findings) |
 | `story_specs` | `{items[]}` story records | Story-level foreach pipelines |
 | `non_negative_integer` | Scalar integer `>= 0` | Counts and readiness counters |
 | `narrative_text` | Single string | Generic free-text summaries/results; semantics live in inline `description:` |

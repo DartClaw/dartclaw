@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
+import 'package:dartclaw_runtime/src/auth/source_link_token.dart';
 import 'package:dartclaw_runtime/src/mcp/mcp_server.dart'
     show McpCallerIdentity, McpCallerPolicy, McpKnowledgeScope, McpProtocolHandler;
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager, TurnRunner;
@@ -23,7 +24,12 @@ void main() {
     curationResults = [];
     agentDir = p.join(root.path, 'agents', 'a', 'workspace');
     final config = DartclawConfig(
-      server: ServerConfig(dataDir: root.path, claudeExecutable: Platform.resolvedExecutable),
+      server: ServerConfig(
+        dataDir: root.path,
+        claudeExecutable: Platform.resolvedExecutable,
+        baseUrl: 'https://dartclaw.example',
+      ),
+      governance: const GovernanceConfig(adminSenders: ['admin-a']),
       agent: AgentConfig(
         provider: 'claude',
         definitions: [
@@ -332,6 +338,184 @@ void main() {
       contains('"status":"no_result"'),
     );
   });
+
+  test('context_research links wiki and graph sources under base_url and leaves memory sources bare', () async {
+    final agent = await runtime.sessionService.createSession(
+      workspace: AgentWorkspace.pinned(agentId: 'a', directory: agentDir),
+    );
+    final handler = runtime.server!.mcpHandler.scopedTo(
+      const _AllowMemoryAndContext(),
+      callerIdentity: McpCallerIdentity(authorityId: 'agent:a', sessionId: agent.id, agentId: 'a'),
+    );
+
+    final researched = jsonDecode(await _call(handler, 'context_research', {'query': 'service-marker'})) as Map;
+    final sources = ((researched['packet'] as Map)['sourceList'] as List).cast<Map<String, dynamic>>();
+
+    final wiki = sources.firstWhere((source) => source['layer'] == 'wiki');
+    expect(wiki['url'], startsWith('https://dartclaw.example/knowledge/source?t='));
+    // auth_mode none: the token carries no signature and names the cited page.
+    expect(validateSourceLinkToken(Uri.parse(wiki['url'] as String).queryParameters['t']!), (
+      layer: 'wiki',
+      locator: 'wiki/owner.md',
+    ));
+    final memory = sources.where((source) => source['layer'] == 'memory');
+    expect(memory, isNotEmpty);
+    expect(memory.where((source) => source.containsKey('url')), isEmpty);
+  });
+
+  group('shared knowledge write gate', () {
+    // The runtime fixture's prepared backend stores no KG rows, so a granted kg_add cannot complete here: the
+    // refusal arm runs through the registered tools, and the allow arm through wiki_write.
+    final kgAdd = (
+      tool: 'kg_add',
+      args: <String, dynamic>{
+        'entity': 'gate test',
+        'predicate': 'status',
+        'value': 'recorded',
+        'valid_from': '2026-10-06T00:00:00Z',
+        'source': 'gate-test',
+      },
+    );
+    final kgInvalidate = (
+      tool: 'kg_invalidate',
+      args: <String, dynamic>{'id': 1, 'invalidated_at': '2026-10-06T00:00:00Z', 'reason': 'gate-test'},
+    );
+    ({String tool, Map<String, dynamic> args}) wikiWrite(String slug) => (
+      tool: 'wiki_write',
+      args: {
+        'slug': slug,
+        'title': 'Gate Test',
+        'body': 'Written during a channel turn.',
+        'sources': ['gate-test'],
+      },
+    );
+
+    TurnProvenance channelTurn(ChannelType type, String sender) => TurnProvenance.channel(
+      channelType: type,
+      sessionKey: 'agent:main:group:${type.name}:g1',
+      recipientId: 'g1',
+      senderId: sender,
+    );
+    McpProtocolHandler asTurn(TurnProvenance? turn) => runtime.server!.mcpHandler.forHarness(() => turn);
+    Future<String> run(McpProtocolHandler handler, ({String tool, Map<String, dynamic> args}) call) =>
+        _callRaw(handler, call.tool, call.args);
+    Future<List<AuditEntry>> gateEntries(String dataDir) async =>
+        (await AuditLogReader(dataDir: dataDir).read(pageSize: 200)).entries
+            .where((entry) => entry.guard == 'KnowledgeWriteGate')
+            .toList();
+    File wikiFile(String slug) => File(p.join(root.path, 'workspace', 'wiki', '$slug.md'));
+
+    test(
+      'a non-admin channel turn is refused on every shared-write tool and channel, and each attempt is audited',
+      () async {
+        for (final type in [ChannelType.whatsapp, ChannelType.googlechat]) {
+          final handler = asTurn(channelTurn(type, 'sender-b'));
+          for (final call in [wikiWrite('denied-${type.name}'), kgAdd, kgInvalidate]) {
+            expect(await run(handler, call), contains('admin_senders'), reason: '${call.tool} on ${type.name}');
+          }
+          expect(wikiFile('denied-${type.name}').existsSync(), isFalse);
+        }
+
+        final entries = await gateEntries(root.path);
+        expect(entries, hasLength(6));
+        expect(entries.map((entry) => entry.decision).toSet(), {'deny'});
+        expect(entries.map((entry) => entry.peerId).toSet(), {'sender-b'});
+        expect(entries.map((entry) => entry.principal).toSet(), {'sender-b'});
+        expect(
+          {for (final entry in entries) (entry.tool, entry.channel)},
+          {
+            for (final tool in ['wiki_write', 'kg_add', 'kg_invalidate'])
+              for (final channel in ['whatsapp', 'googlechat']) (tool, channel),
+          },
+        );
+      },
+    );
+
+    test('an admin channel turn writes and is audited with its channel and sender', () async {
+      final handler = asTurn(channelTurn(ChannelType.whatsapp, 'admin-a'));
+
+      expect(await run(handler, wikiWrite('admin-written')), contains('created'));
+
+      expect(wikiFile('admin-written').existsSync(), isTrue);
+      final entries = await gateEntries(root.path);
+      expect(entries.map((entry) => (entry.tool, entry.decision, entry.channel, entry.peerId)).toSet(), {
+        ('wiki_write', 'allow', 'whatsapp', 'admin-a'),
+      });
+    });
+
+    test('with no admin_senders configured every channel sender is an admin and is audited', () async {
+      final open = await _buildOpenGovernanceRuntime(root);
+      addTearDown(open.shutdown);
+      final handler = open.server!.mcpHandler.forHarness(() => channelTurn(ChannelType.signal, 'anyone'));
+
+      expect(await run(handler, wikiWrite('open-governance')), contains('created'));
+
+      final entries = await gateEntries(p.join(root.path, 'open'));
+      expect(entries.single.decision, 'allow');
+      expect(entries.single.peerId, 'anyone');
+      expect(entries.single.channel, 'signal');
+    });
+
+    test(
+      'web chat, scheduled turns, the gateway token and a turn-less caller write as before, unaudited by the gate',
+      () async {
+        final callers = <String, McpProtocolHandler>{
+          'web chat': asTurn(const TurnProvenance.web(sessionKey: 'agent:main:web:')),
+          'scheduled turn': asTurn(const TurnProvenance.cron()),
+          'no turn': asTurn(null),
+          'gateway token': runtime.server!.mcpHandler,
+        };
+
+        for (final entry in callers.entries) {
+          final slug = 'caller-${entry.key.replaceAll(' ', '-')}';
+          expect(await run(entry.value, wikiWrite(slug)), contains('created'), reason: entry.key);
+          expect(wikiFile(slug).existsSync(), isTrue, reason: entry.key);
+        }
+        expect(await gateEntries(root.path), isEmpty);
+      },
+    );
+
+    test('a temporary conversation is refused with its own message before the gate looks at the sender', () async {
+      final temporary = await runtime.sessionService.createSession(retention: ConversationRetention.process);
+      final handler = runtime.server!.mcpHandler.scopedTo(
+        const _AllowDurableWrites(),
+        callerIdentity: McpCallerIdentity(
+          authorityId: 'temporary:${temporary.id}',
+          sessionId: temporary.id,
+          agentId: 'main',
+        ),
+        activeTurn: () => channelTurn(ChannelType.whatsapp, 'admin-a'),
+      );
+
+      expect(
+        await run(handler, wikiWrite('temporary-channel')),
+        contains('Temporary conversations cannot write durable knowledge'),
+      );
+      expect(wikiFile('temporary-channel').existsSync(), isFalse);
+      expect(await gateEntries(root.path), isEmpty);
+    });
+
+    test('memory_observe and memory_apply from a non-admin channel turn are not gated', () async {
+      final agent = await runtime.sessionService.createSession(
+        workspace: AgentWorkspace.pinned(agentId: 'a', directory: agentDir),
+      );
+      final handler = runtime.server!.mcpHandler.scopedTo(
+        const _AllowMemoryAndContext(),
+        callerIdentity: McpCallerIdentity(authorityId: 'agent:a', sessionId: agent.id, agentId: 'a'),
+        activeTurn: () => channelTurn(ChannelType.whatsapp, 'sender-b'),
+      );
+
+      expect(
+        await _call(handler, 'memory_observe', {'text': 'channel observation', 'role': 'observation'}),
+        contains('collectionRevision'),
+      );
+      expect(
+        await _callRaw(handler, 'memory_apply', {'expectedRevision': 0, 'operations': []}),
+        isNot(contains('admin_senders')),
+      );
+      expect(await gateEntries(root.path), isEmpty);
+    });
+  });
 }
 
 Future<String> _call(McpProtocolHandler handler, String name, Map<String, dynamic> arguments) async {
@@ -435,4 +619,36 @@ class _ImmediateHarness extends FakeAgentHarness {
     await Future<void>.delayed(Duration.zero);
     return const TurnResult(finalText: 'Use the supplied owner candidate.');
   }
+}
+
+/// A runtime whose governance names no admin senders, so every sender is an admin.
+Future<DartclawRuntime> _buildOpenGovernanceRuntime(Directory parent) async {
+  final dataDir = Directory(p.join(parent.path, 'open'))..createSync(recursive: true);
+  final config = DartclawConfig(
+    server: ServerConfig(dataDir: dataDir.path, claudeExecutable: Platform.resolvedExecutable),
+    agent: const AgentConfig(provider: 'claude'),
+    providers: ProvidersConfig(
+      entries: {'claude': ProviderEntry(executable: Platform.resolvedExecutable, poolSize: 0)},
+    ),
+    credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'test-key')}),
+    gateway: const GatewayConfig(authMode: 'none'),
+    security: const SecurityConfig(contentGuardEnabled: false),
+  );
+  final searchIndexes = <PostgresFtsTable, InMemoryFullTextIndex>{};
+  return DartclawRuntime.build(
+    config,
+    dataDir: dataDir.path,
+    port: 3000,
+    harnessFactory: HarnessFactory()..register('claude', (_) => FakeAgentHarness()),
+    taskBackendFactory: (_) async => openPreparedTaskBackend(),
+    taskBackendIsPrepared: true,
+    searchIndexFactory: (_, table, {required withinTransaction}) =>
+        searchIndexes.putIfAbsent(table, InMemoryFullTextIndex.new),
+    stderrLine: (_) {},
+    exitFn: _unexpectedExit,
+    resolvedConfigPath: (File(p.join(dataDir.path, 'dartclaw.yaml'))..writeAsStringSync('# test config\n')).path,
+    messageRedactor: MessageRedactor(),
+    resolvedAssets: const ResolvedAssets.embedded(),
+    runWorkflowSkillsBootstrap: false,
+  );
 }

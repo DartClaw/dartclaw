@@ -533,6 +533,32 @@ void main() {
       expect(outcome.outputs['bash1.error'], isNot(contains('bash steps require Git Bash')));
     });
 
+    test('refuses a context without a data directory', () async {
+      const step = WorkflowStep(id: 'bash1', name: 'Bash 1', taskType: WorkflowTaskType.bash, prompts: ['echo hello']);
+      final definition = h.makeDefinition(steps: [step]);
+      final executionContext = StepExecutionContext(
+        taskService: h.taskService,
+        eventBus: h.eventBus,
+        kvService: h.kvService,
+        repository: h.repository,
+        gateEvaluator: GateEvaluator(),
+        contextExtractor: ContextExtractor(
+          taskService: h.taskService,
+          messageService: h.messageService,
+          dataDir: h.tempDir.path,
+          workflowStepExecutionRepository: h.workflowStepExecutionRepository,
+        ),
+        run: h.makeRun(definition),
+        definition: definition,
+        workflowContext: WorkflowContext(),
+      );
+
+      await expectLater(
+        bashStepRun(const ActionNode(stepId: 'bash1'), executionContext),
+        throwsA(isA<StateError>().having((e) => e.message, 'message', contains('dataDir'))),
+      );
+    });
+
     test('executor resolves Git Bash through the injected Windows capabilities', () async {
       final executor = h.makeExecutor(platformCapabilities: _windowsCapabilitiesWithInvalidGitBash(h.tempDir));
       final definition = h.makeDefinition(

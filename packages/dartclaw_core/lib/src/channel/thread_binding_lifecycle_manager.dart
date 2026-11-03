@@ -91,7 +91,7 @@ class ThreadBindingLifecycleManager {
     final expired = await _store.removeExpiredBindings(cutoff);
     for (final binding in expired) {
       _log.info(
-        'Removed thread binding for task ${binding.taskId} '
+        'Removed thread binding for task ${binding.targetId} '
         '(reason: idle timeout, last activity: ${binding.lastActivity.toIso8601String()})',
       );
     }

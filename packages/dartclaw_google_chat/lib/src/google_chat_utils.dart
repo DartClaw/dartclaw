@@ -1,6 +1,19 @@
 /// Shared utilities for Google Chat message parsing and filtering.
 library;
 
+import 'package:dartclaw_core/dartclaw_core.dart' show ChannelResponse;
+
+/// The plain text delivered for [response] when its card is absent or refused.
+///
+/// A card with no producer text falls to a generic line, never to a paraphrase
+/// of the card.
+String outboundFallbackText(ChannelResponse response) {
+  if (response.text.isNotEmpty) {
+    return response.text;
+  }
+  return response.structuredPayload == null ? '' : 'DartClaw sent an update.';
+}
+
 /// Safely casts a value to `Map<String, dynamic>`, or returns `null`.
 ///
 /// Handles both `Map<String, dynamic>` (direct match) and generic `Map`

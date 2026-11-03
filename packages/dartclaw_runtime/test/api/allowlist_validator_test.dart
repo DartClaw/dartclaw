@@ -43,6 +43,13 @@ void main() {
       expect(validateAllowlistEntry('google_chat', '123'), isNotNull);
     });
 
+    test('a Slack DM entry is a user ID, never a channel ID', () {
+      expect(validateAllowlistEntry('slack', 'U0123ABCD'), isNull);
+      expect(validateAllowlistEntry('slack', 'W0123ABCD'), isNull);
+      expect(validateAllowlistEntry('slack', 'C0123ABCD'), isNotNull);
+      expect(validateAllowlistEntry('slack', 'u0123abcd'), isNotNull);
+    });
+
     test('an entry is never canonicalized outside Signal', () {
       expect(canonicalAllowlistEntry('whatsapp', 'ABC@s.whatsapp.net'), 'ABC@s.whatsapp.net');
     });

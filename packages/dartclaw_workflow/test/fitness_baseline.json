@@ -865,7 +865,6 @@
       "packages/dartclaw_runtime/lib/src/task/worktree_manager.dart::WorktreeManager::_deleteDirectoryIfExists": 2,
       "packages/dartclaw_runtime/lib/src/task/worktree_manager.dart::WorktreeManager::_samePath": 1,
       "packages/dartclaw_runtime/lib/src/task/worktree_manager.dart::WorktreeManager::_trimmedOrNull": 6,
-      "packages/dartclaw_runtime/lib/src/task/worktree_manager.dart::WorktreeManager::get _defaultProjectDir": 3,
       "packages/dartclaw_workflow/lib/src/workflow/aggregate_step_runner.dart::#top::executeAggregateStep": 13,
       "packages/dartclaw_workflow/lib/src/workflow/aggregate_step_runner.dart::#top::aggregatedReviewReportPath": 4,
       "packages/dartclaw_workflow/lib/src/workflow/aggregate_step_runner.dart::#top::reviewReportPathOutputKey": 10,

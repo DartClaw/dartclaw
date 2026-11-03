@@ -114,6 +114,7 @@ extension _TaskExecutorHelpers on TaskExecutor {
             required List<String>? allowedTools,
             required bool readOnly,
             PromptScope? promptScope,
+            TurnProvenance? provenance,
           }) => runner.reserveAdmittedTurn(
             sessionId,
             agentName: 'task',
@@ -125,6 +126,7 @@ extension _TaskExecutorHelpers on TaskExecutor {
             allowedTools: allowedTools,
             readOnly: readOnly,
             promptScope: promptScope,
+            provenance: provenance,
           ),
       executeTurn: runner.executeTurn,
       waitForOutcome: runner.waitForOutcome,

@@ -2,10 +2,11 @@ import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
 import 'dart:convert';
 
-import 'package:dartclaw_core/dartclaw_core.dart' show CanonicalTool;
+import 'package:dartclaw_core/dartclaw_core.dart' show CanonicalTool, TurnProvenance;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:test/test.dart';
 
+import '../../mcp/mcp_test_support.dart' show TurnProbeTool;
 import 'gateway_test_support.dart';
 
 const _canonicals = {
@@ -14,6 +15,7 @@ const _canonicals = {
   'sessions_spawn': CanonicalTool.sessionsSpawn,
   'memory_apply': CanonicalTool.memoryApply,
   'memory_observe': CanonicalTool.memoryObserve,
+  'turn_probe': CanonicalTool.sessionsSend,
 };
 
 const _toolResponse = {
@@ -134,6 +136,83 @@ void main() {
         surface.handle(_request(body: 'x' * 128)),
         throwsA(isA<GatewayDenied>().having((e) => e.status, 'status', 413)),
       );
+    });
+  });
+
+  group('trusted turn context', () {
+    late TurnProbeTool probe;
+    late McpProtocolHandler probeRegistry;
+
+    setUp(() {
+      probe = TurnProbeTool();
+      probeRegistry = McpProtocolHandler()
+        ..registerTool(probe)
+        ..registerTool(RecordingMcpTool('web_fetch', called));
+    });
+
+    TurnProvenance turnFrom(String sender, String thread) => TurnProvenance.channel(
+      channelType: ChannelType.googlechat,
+      recipientId: 'spaces/AAA',
+      threadId: thread,
+      sessionKey: 'shared-session',
+      senderId: sender,
+    );
+
+    test(
+      'two sequential turns in one session see their own sender, and a call after the turn ends sees none',
+      () async {
+        TurnProvenance? active;
+        final surface = _surface(
+          probeRegistry,
+          {'sessions_send'},
+          caller: principal(sessionId: 'authority-1', logicalAgentId: 'ana'),
+          activeTurn: () => active,
+        );
+
+        final seen = <String?>[];
+        for (final turn in [turnFrom('users/alice', 'T1'), turnFrom('users/bob', 'T2'), null]) {
+          active = turn;
+          await _call(surface, 'turn_probe');
+          seen.add(probe.contexts.last.turn?.senderId);
+        }
+
+        expect(seen, ['users/alice', 'users/bob', null]);
+        expect(probe.contexts.map((context) => context.agentId).toSet(), {'ana'});
+      },
+    );
+
+    test('the primary authority, which has no session, resolves the primary harness turn at call time', () async {
+      final turn = turnFrom('users/alice', 'T1');
+      TurnProvenance? primaryHarnessTurn;
+      final surface = _surface(
+        probeRegistry,
+        {'sessions_send'},
+        caller: const GatewayPrincipal(
+          sessionId: 'primary',
+          providerId: 'claude',
+          policy: ExecutionPolicy.container('workspace'),
+        ),
+        activeTurn: () => primaryHarnessTurn,
+      );
+
+      await _call(surface, 'turn_probe');
+      primaryHarnessTurn = turn;
+      await _call(surface, 'turn_probe');
+
+      expect(probe.contexts.map((context) => context.turn), [null, turn]);
+      expect(probe.contexts.last.sessionId, isNull);
+    });
+
+    test('a tool that does not opt in is called as before, whatever turn is running', () async {
+      final surface = _surface(probeRegistry, {
+        'web_search',
+        'web_fetch',
+      }, activeTurn: () => turnFrom('users/alice', 'T1'));
+
+      final response = await _call(surface, 'web_fetch');
+
+      expect(response['result'], isNotNull);
+      expect(called, ['web_fetch']);
     });
   });
 
@@ -342,8 +421,10 @@ McpBridgeSurface _surface(
   void Function(String toolName)? onDenied,
   int maxRequestBytes = 1024 * 1024,
   GatewayPrincipal? caller,
+  TurnProvenance? Function()? activeTurn,
 }) => McpBridgeSurface(
   handler: () => registry,
+  activeTurn: activeTurn,
   principal: caller ?? principal(logicalAgentId: 'search-agent'),
   allowedCanonicalTools: allowed,
   toolCanonicals: _canonicals,

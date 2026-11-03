@@ -3,7 +3,12 @@ import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'dart:io';
 
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show WorkflowGitIntegrationBranchResult, WorkflowGitPublishResult, WorkflowPublishStatus;
+    show
+        WorkflowGitIntegrationBranchResult,
+        WorkflowGitPublishResult,
+        WorkflowPublishStatus,
+        TaskStatus,
+        workflowFollowUp;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -142,6 +147,43 @@ void main() {
     expect(spec, contains('--auto $feature'));
     expect(spec, isNot(contains('feature/discovery-baseline')));
   });
+
+  test(
+    'story-and-implement: an integrated-review verdict below the gating severity yields a follow-up draft',
+    () async {
+      final trace = await driver.executeBuiltInWorkflow(
+        workflowFileName: 'story-and-implement.yaml',
+        variables: {'FEATURE': 'Add validate step', 'PROJECT': 'demo-project', 'BRANCH': 'main'},
+        responseForStep: (queued) async => switch (queued.stepKey) {
+          'integrated-review' => StubResponse(
+            outputs: {
+              ...reviewReportContext(
+                queued.stepKey,
+                stepArtifactsDir: stepArtifactsDirForTask(queued.task),
+                findingsCount: 1,
+                gatingFindingsCount: 0,
+              ),
+              'integrated-review.verdict': {
+                'pass': true,
+                'findings_count': 1,
+                'findings': [
+                  {'severity': 'low', 'location': 'lib/a.dart:3', 'description': 'rename this'},
+                ],
+                'summary': 's',
+              },
+            },
+          ),
+          _ => specAndImplementCommonStub(queued),
+        },
+      );
+
+      final run = trace.finalRun!;
+      expect(run.status, WorkflowRunStatus.completed, reason: run.errorMessage);
+      final draft = (await driver.harness.taskService.list(status: TaskStatus.draft)).single;
+      expect(draft.description, contains('[low] lib/a.dart:3: rename this'));
+      expect(workflowFollowUp(run), (taskId: draft.id, count: 1));
+    },
+  );
 
   test('story-and-implement integration enters remediation when integrated-review finds issues and exits after re-review is clean', () async {
     final trace = await driver.executeBuiltInWorkflow(

@@ -138,10 +138,10 @@ void main() {
   group('buildLoopInfo', () {
     test('empty loops returns empty list', () {
       final definition = WorkflowDefinition(name: 'test', description: '', steps: const [], variables: const {});
-      expect(buildLoopInfo(definition, {}), isEmpty);
+      expect(buildLoopInfo(definition, _makeRun()), isEmpty);
     });
 
-    test('returns loop membership with current iteration from context', () {
+    test('returns loop membership with current iteration from the persisted context data', () {
       final definition = WorkflowDefinition(
         name: 'test',
         description: '',
@@ -156,8 +156,12 @@ void main() {
           ),
         ],
       );
-      final contextJson = {'loop.review-loop.iteration': 2};
-      final result = buildLoopInfo(definition, contextJson);
+      final run = _makeRun(
+        contextJson: {
+          'data': {'loop.review-loop.iteration': 2},
+        },
+      );
+      final result = buildLoopInfo(definition, run);
 
       expect(result, hasLength(1));
       expect(result.first['loopId'], 'review-loop');
@@ -176,7 +180,7 @@ void main() {
           const WorkflowLoop(id: 'loop-a', steps: ['step1'], maxIterations: 5, exitGate: 'done'),
         ],
       );
-      final result = buildLoopInfo(definition, {});
+      final result = buildLoopInfo(definition, _makeRun());
       expect(result.first['currentIteration'], 0);
     });
   });

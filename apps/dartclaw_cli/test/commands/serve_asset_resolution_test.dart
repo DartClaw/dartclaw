@@ -87,6 +87,7 @@ Future<({Handler handler, List<LogRecord> logs})> _startUntilBindFailure(
   late Handler handler;
   final command = ServeCommand(
     config: config,
+    environment: {'DARTCLAW_HOME': config.server.dataDir},
     taskBackendFactory: (_) async => openPreparedTaskBackend(),
     taskBackendIsPrepared: true,
     searchIndexFactory: _inMemorySearchIndex,
@@ -213,6 +214,7 @@ void main() {
         templatesDir: p.join(tempDir.path, 'missing-templates'),
         staticDir: staticAssets.path,
       ),
+      environment: {'DARTCLAW_HOME': tempDir.path},
       stderrLine: stderrLines.add,
       exitFn: (code) => throw _ExitIntercept(code),
       runWorkflowSkillsBootstrap: false,

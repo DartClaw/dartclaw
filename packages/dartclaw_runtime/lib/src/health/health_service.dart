@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart' show PubSubHealthReporter;
+import 'package:dartclaw_slack/dartclaw_slack.dart' show SlackHealthReporter;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
@@ -38,6 +39,7 @@ class HealthService {
   final String _tasksDir;
   final UsageTracker? _usageTracker;
   PubSubHealthReporter? _pubsubReporter;
+  SlackHealthReporter? _slackReporter;
   final DateTime _startedAt;
 
   int _cachedSessionCount = 0;
@@ -63,6 +65,9 @@ class HealthService {
 
   /// Sets the Pub/Sub health reporter (late injection for wiring order).
   set pubsubReporter(PubSubHealthReporter? reporter) => _pubsubReporter = reporter;
+
+  /// Sets the Slack health reporter (late injection for wiring order).
+  set slackReporter(SlackHealthReporter? reporter) => _slackReporter = reporter;
 
   /// Returns the current Pub/Sub health status, or null if not configured.
   Map<String, dynamic>? get pubsubHealth => _pubsubReporter?.status;
@@ -95,6 +100,11 @@ class HealthService {
     final pubsubReporter = _pubsubReporter;
     if (pubsubReporter != null) {
       result['pubsub'] = pubsubReporter.status;
+    }
+
+    final slackReporter = _slackReporter;
+    if (slackReporter != null) {
+      result['slack'] = slackReporter.status;
     }
 
     return result;

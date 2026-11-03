@@ -1,4 +1,4 @@
-import 'package:dartclaw_core/dartclaw_core.dart' show TurnOutcome;
+import 'package:dartclaw_core/dartclaw_core.dart' show TurnOutcome, TurnProvenance;
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
 import '../turn_runner.dart';
@@ -25,6 +25,7 @@ final class StepTurnRunner {
     String? providerSessionId,
     bool requestProviderSessionResume = false,
     Duration? turnTimeout,
+    TurnProvenance? provenance,
   }) async {
     final turnId = await _runner.reserveAdmittedTurn(
       sessionId,
@@ -42,6 +43,7 @@ final class StepTurnRunner {
       providerSessionId: providerSessionId,
       requestProviderSessionResume: requestProviderSessionResume,
       promptScope: PromptScope.task,
+      provenance: provenance,
     );
 
     try {

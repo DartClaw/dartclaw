@@ -1,6 +1,6 @@
 [mcp_servers.chrome-devtools]
 args = [
-    "chrome-devtools-mcp@latest",
+    "chrome-devtools-mcp@1.10.1",
     "--headless",
     "--isolated",
     "--chromeArg=--no-sandbox",
@@ -20,6 +20,6 @@ hooks = true
 
 [[hooks.Stop.hooks]]
 type = "command"
-command = "bash -lc 'cd \"$(git rev-parse --show-toplevel)\" && dart format --line-length=120 . >/dev/null && printf \"{}\"'"
+command = "bash -lc 'cd \"$(git rev-parse --show-toplevel)\" && bash dev/tools/format_changed.sh >/dev/null 2>&1; printf \"{}\"'"
 timeout = 120
-statusMessage = "Running dart format..."
+statusMessage = "Formatting changed Dart files..."

@@ -1,0 +1,191 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 716" width="1000" height="716" role="img" aria-labelledby="title desc">
+  <title id="title">Reconfigurable services</title>
+  <desc id="desc">ConfigNotifier calls reconfigure on each registered Reconfigurable whose watchKeys match ConfigDelta.changedKeys: security.* reaches SecurityWiring, logging.* the redactor adapter, workspace.* the git-sync reconfigurer, sessions.* SessionResetService, server.* SessionLockManager and MessageQueueReconfigurer, context.* ContextMonitor and ResultTrimmer, alerts.* AlertRouter. A watch key naming a restart-tier or undeclared section is refused at registration.</desc>
+  <style>
+
+    svg { --bg:#f6f7f9; --card:#ffffff; --ink:#1e2030; --ink2:#4c4f69; --ink3:#6c6f85; --rule:#ccd0da; --edge:#8c8fa1; --hi:#1e66f5; --on:#ffffff; --panel:#1e1e2e; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+      --host:#40a02b; --host-d:#1f5c2a; --host-l:#2d7a1f; --ext:#e07c4f; --ext-d:#a8481c; --ext-l:#b5531f; --store:#179299; --store-d:#0f5f63; --store-l:#0e7377;
+      --sec:#d20f39; --sec-d:#9b0c2c; --sec-l:#b80d33; --chan:#8839ef; --chan-d:#5d23a8; --chan-l:#7027d4; --neu:#7c7f93; --neu-d:#4c4f69; --neu-l:#5c5f77; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#181825; --card:#1e1e2e; --ink:#cdd6f4; --ink2:#bac2de; --ink3:#9399b2; --rule:#45475a; --edge:#7f849c; --hi:#89b4fa; --on:#f5f7ff; --panel:#11111b; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+        --host:#a6e3a1; --host-d:#2f6b3a; --host-l:#a6e3a1; --ext:#fab387; --ext-d:#8f4a24; --ext-l:#fab387; --store:#94e2d5; --store-d:#1f6460; --store-l:#94e2d5;
+        --sec:#f38ba8; --sec-d:#8a2c45; --sec-l:#f38ba8; --chan:#cba6f7; --chan-d:#5e3f94; --chan-l:#cba6f7; --neu:#9399b2; --neu-d:#45475a; --neu-l:#bac2de; }
+    }
+    text { fill: var(--ink); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .mono, .kick, .badge text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+    .bg { fill: var(--bg); }
+    .title { font-size: 21px; font-weight: 700; }
+    .lede { fill: var(--ink3); font-size: 13px; }
+    .kick { font-size: 10.5px; font-weight: 600; letter-spacing: .1em; fill: var(--kl, var(--ink3)); }
+    .k-host { --k:var(--host); --kd:var(--host-d); --kl:var(--host-l); }
+    .k-ext { --k:var(--ext); --kd:var(--ext-d); --kl:var(--ext-l); }
+    .k-store { --k:var(--store); --kd:var(--store-d); --kl:var(--store-l); }
+    .k-sec { --k:var(--sec); --kd:var(--sec-d); --kl:var(--sec-l); }
+    .k-chan { --k:var(--chan); --kd:var(--chan-d); --kl:var(--chan-l); }
+    .k-neu { --k:var(--neu); --kd:var(--neu-d); --kl:var(--neu-l); }
+    .band { fill: color-mix(in srgb, var(--k) 6%, var(--bg)); stroke: color-mix(in srgb, var(--k) 50%, var(--bg)); stroke-width: 1.4; stroke-dasharray: 7 5; }
+    .box { stroke-width: 1.5; }
+    .tint .box { fill: color-mix(in srgb, var(--k) 13%, var(--card)); stroke: var(--k); }
+    .line .box { fill: var(--card); stroke: var(--k); }
+    .ghost .box { fill: none; stroke: var(--k); stroke-dasharray: 5 4; }
+    .solid .box { fill: var(--kd); stroke: var(--kd); }
+    .name { font-size: 14.5px; font-weight: 700; }
+    .sub { font-size: 11.5px; fill: var(--ink2); }
+    .mono { font-size: 11.5px; fill: var(--ink2); }
+    .solid text { fill: var(--on); }
+    .solid .sub, .solid .mono { fill: var(--on); fill-opacity: .82; }
+    .badge rect { fill: none; stroke: var(--kl); stroke-width: 1.2; }
+    .badge text { font-size: 9.5px; font-weight: 700; letter-spacing: .06em; fill: var(--kl); text-anchor: middle; }
+    .solid .badge rect { stroke: var(--on); stroke-opacity: .7; }
+    .solid .badge text { fill: var(--on); }
+    .e path { fill: none; stroke: var(--ec, var(--edge)); stroke-width: var(--ew, 1.6px); marker-end: var(--em, url(#ah)); }
+    .e.main path { stroke: var(--ec, var(--host)); stroke-width: var(--ew, 2.4px); marker-end: var(--em, url(#ah-main)); }
+    .e.bad path { stroke: var(--ec, var(--sec)); marker-end: var(--em, url(#ah-bad)); }
+    .e.dash path { stroke-dasharray: 6 4; }
+    .el { font-size: 11px; fill: var(--ink2); paint-order: stroke; stroke: var(--halo, var(--bg)); stroke-width: 4px; stroke-linejoin: round; }
+    .in-host .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    .ah { fill: var(--edge); } .ah-main { fill: var(--host); } .ah-bad { fill: var(--sec); } .ah-hi { fill: var(--hi); }
+    .panel { fill: var(--panel); }
+    .panel-kick { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10.5px; font-weight: 700; letter-spacing: .12em; fill: var(--panel-kick); }
+    .p1 { fill: var(--panel-ink); font-size: 13px; }
+    .p1 tspan.b { font-weight: 700; }
+    .p2 { fill: var(--panel-sub); font-size: 12.5px; }
+    .lg { font-size: 11px; fill: var(--ink2); }
+    .chip rect { fill: color-mix(in srgb, var(--k) 10%, var(--card)); stroke: var(--k); stroke-width: 1; }
+    .chip text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10px; font-weight: 600; fill: var(--kl); }
+    .step circle { fill: var(--kd); } .step text { fill: var(--on); font-size: 11px; font-weight: 700; text-anchor: middle; }
+    /* Interaction, effective only when the SVG is opened directly. */
+    .n { cursor: pointer; }
+    .n:hover .box, a:focus-visible .box { stroke: var(--hi); stroke-width: 2.8; }
+    .d { display: none; pointer-events: none; }
+    .n:hover .d, a:focus-visible .d { display: inline; }
+    svg:has(.n:hover) .d0, svg:has(a:focus-visible) .d0 { display: none; }
+    svg:has(.n:hover) .edges .e { opacity: .14; }
+    .e.join path { marker-end: none; }
+    .band.inner { fill: none; stroke-dasharray: 3 4; }
+    .mono-name { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13.5px; }
+    .edges .el { --halo: color-mix(in srgb, var(--neu) 6%, var(--bg)); }
+    svg:has(#delta:hover) .edges :is(.f-delta,.t-delta) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#restart:hover) .edges :is(.f-restart,.t-restart) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#r1:hover) .edges :is(.f-r1,.t-r1) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#r2:hover) .edges :is(.f-r2,.t-r2) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#r3:hover) .edges :is(.f-r3,.t-r3) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#r4:hover) .edges :is(.f-r4,.t-r4) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#r5:hover) .edges :is(.f-r5,.t-r5) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#r6:hover) .edges :is(.f-r6,.t-r6) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#r7:hover) .edges :is(.f-r7,.t-r7) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#r8:hover) .edges :is(.f-r8,.t-r8) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#r9:hover) .edges :is(.f-r9,.t-r9) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+  </style>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-main" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path class="ah-main" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-bad" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="ah-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="716"/>
+  <!-- Details panel: painted first so node details (.d) draw on top -->
+  <rect class="panel" x="16" y="620" width="968" height="80" rx="12"/>
+  <text class="panel-kick" x="36" y="644">DETAILS</text>
+  <g class="d0"><text class="p1" x="36" y="668">Hover a service for what it applies; its watch key lights up. Click it to open its section.</text><text class="p2" x="36" y="688">reconfigure is synchronous and must not throw; a throw is logged and the other services still run.</text></g>
+
+  <text class="kick" x="24" y="32">FAN-OUT · Reconfigurable.watchKeys</text>
+  <text class="title" x="24" y="58">Reconfigurable services</text>
+  <text class="lede" x="24" y="80">Nine services watch seven reloadable sections. A service runs only when its watch key matches a changed key of the delta.</text>
+
+
+
+  <g class="edges">
+    <g class="e join f-delta t-r1 t-r2 t-r3 t-r4 t-r5 t-r6 t-r7 t-r8 t-r9"><path d="M244,342 H300 M300,134 V550"/></g>
+    <g class="e  f-delta t-r1"><path d="M300,134 H418"/><text class="el" x="359" y="126" text-anchor="middle">security.*</text></g>
+    <g class="e  f-delta t-r2"><path d="M300,186 H418"/><text class="el" x="359" y="178" text-anchor="middle">logging.*</text></g>
+    <g class="e  f-delta t-r3"><path d="M300,238 H418"/><text class="el" x="359" y="230" text-anchor="middle">workspace.*</text></g>
+    <g class="e  f-delta t-r4"><path d="M300,290 H418"/><text class="el" x="359" y="282" text-anchor="middle">sessions.*</text></g>
+    <g class="e  f-delta t-r5"><path d="M300,342 H418"/><text class="el" x="359" y="334" text-anchor="middle">server.*</text></g>
+    <g class="e  f-delta t-r6"><path d="M300,394 H418"/><text class="el" x="359" y="386" text-anchor="middle">server.*</text></g>
+    <g class="e  f-delta t-r7"><path d="M300,446 H418"/><text class="el" x="359" y="438" text-anchor="middle">context.*</text></g>
+    <g class="e  f-delta t-r8"><path d="M300,498 H418"/><text class="el" x="359" y="490" text-anchor="middle">context.*</text></g>
+    <g class="e  f-delta t-r9"><path d="M300,550 H418"/><text class="el" x="359" y="542" text-anchor="middle">alerts.*</text></g>
+  </g>
+
+  <a href="../configuration-architecture.md#reload-triggers"><g class="n solid k-host" id="delta">
+    <rect class="box" x="24" y="304" width="220" height="76" rx="9"/>
+    <text class="name mono-name" x="36" y="327">ConfigDelta</text>
+    <text class="sub" x="36" y="345">one &lt;section&gt;.* in changedKeys</text>
+    <text class="sub" x="36" y="361">per reloadable section</text>
+    <g class="d"><text class="p1" x="36" y="668"><tspan class="b">ConfigDelta</tspan> · ConfigNotifier builds it once per reload and filters it by each service's watchKeys</text><text class="p2" x="36" y="688">hasChanged matches by prefix in both directions: watch key context.reserve_tokens matches changed key context.*.</text></g>
+  </g></a>
+  <a href="../configuration-architecture.md#confignotifier"><g class="n ghost k-neu" id="restart">
+    <rect class="box" x="24" y="440" width="220" height="76" rx="9"/>
+    <text class="name" x="36" y="463">restart-tier section</text>
+    <text class="sub" x="36" y="481">no service can watch it:</text>
+    <text class="sub" x="36" y="497">register() throws ArgumentError</text>
+    <g class="d"><text class="p1" x="36" y="668"><tspan class="b">restart-tier section</tspan> · register() refuses a watch key whose section is restart-tier or undeclared</text><text class="p2" x="36" y="688">Tier keys are DartclawConfig field names, not YAML keys: a guards.* watcher would sit dead where security.* fires.</text></g>
+  </g></a>
+  <a href="../configuration-architecture.md#reconfigurable-services"><g class="n tint k-sec" id="r1">
+    <rect class="box" x="420" y="112" width="556" height="44" rx="9"/>
+    <text class="name mono-name" x="432" y="131">SecurityWiring</text>
+    <text class="sub" x="432" y="147">rebuilds the guard chain</text>
+    <g class="d"><text class="p1" x="36" y="668"><tspan class="b">SecurityWiring</tspan> · rebuilds the guard chain from the new declarations, swapping the list atomically (security_wiring.dart)</text><text class="p2" x="36" y="688">guards.content.* stays restart-tier although any security change rebuilds the chain; that over-reports in the safe direction.</text></g>
+  </g></a>
+  <a href="../configuration-architecture.md#reconfigurable-services"><g class="n tint k-sec" id="r2">
+    <rect class="box" x="420" y="164" width="556" height="44" rx="9"/>
+    <text class="name mono-name" x="432" y="183">_MessageRedactorAdapter</text>
+    <text class="sub" x="432" y="199">replaces redaction patterns</text>
+    <g class="d"><text class="p1" x="36" y="668"><tspan class="b">_MessageRedactorAdapter</tspan> · replaces the redaction patterns from logging.redact_patterns (security_wiring.dart)</text><text class="p2" x="36" y="688">logging.level, format and file stay restart-tier.</text></g>
+  </g></a>
+  <a href="../configuration-architecture.md#live-field-side-effects"><g class="n tint k-host" id="r3">
+    <rect class="box" x="420" y="216" width="556" height="44" rx="9"/>
+    <text class="name mono-name" x="432" y="235">WorkspaceGitSyncReconfigurer</text>
+    <text class="sub" x="432" y="251">push flag via RuntimeToggleApplier</text>
+    <g class="chip k-neu"><rect x="760" y="223" width="206" height="16" rx="8"/><text x="767" y="235">clears an ephemeral push toggle</text></g>
+    <g class="d"><text class="p1" x="36" y="668"><tspan class="b">WorkspaceGitSyncReconfigurer</tspan> · applies the git-sync push flag through RuntimeToggleApplier (runtime_toggle_applier.dart)</text><text class="p2" x="36" y="688">A persisted workspace.* reload clears an ephemeral push toggle, deliberately, so RuntimeConfig reports the value in force.</text></g>
+  </g></a>
+  <a href="../session-state-architecture.md#sessionresetservice"><g class="n tint k-host" id="r4">
+    <rect class="box" x="420" y="268" width="556" height="44" rx="9"/>
+    <text class="name mono-name" x="432" y="287">SessionResetService</text>
+    <text class="sub" x="432" y="303">reset hour, idle timeout</text>
+    <g class="d"><text class="p1" x="36" y="668"><tspan class="b">SessionResetService</tspan> · re-reads the daily reset hour and the idle timeout (session_reset_service.dart)</text><text class="p2" x="36" y="688">sessions.dm_scope and group_scope are live fields handled by ScopeReconciler, not by this service.</text></g>
+  </g></a>
+  <a href="../session-state-architecture.md#sessionlockmanager"><g class="n tint k-host" id="r5">
+    <rect class="box" x="420" y="320" width="556" height="44" rx="9"/>
+    <text class="name mono-name" x="432" y="339">SessionLockManager</text>
+    <text class="sub" x="432" y="355">max parallel turns</text>
+    <g class="chip k-neu"><rect x="822" y="327" width="144" height="16" rx="8"/><text x="829" y="339">a raise wakes waiters</text></g>
+    <g class="d"><text class="p1" x="36" y="668"><tspan class="b">SessionLockManager</tspan> · applies concurrency.max_parallel_turns (session_lock_manager.dart)</text><text class="p2" x="36" y="688">A raise wakes callers parked in whenCapacityAvailable(), which reserves nothing: a woken caller retries and may lose the race.</text></g>
+  </g></a>
+  <a href="../configuration-architecture.md#reconfigurable-services"><g class="n tint k-ext" id="r6">
+    <rect class="box" x="420" y="372" width="556" height="44" rx="9"/>
+    <text class="name mono-name" x="432" y="391">MessageQueueReconfigurer</text>
+    <text class="sub" x="432" y="407">channel MessageQueue slot cap</text>
+    <g class="chip k-ext"><rect x="766" y="379" width="200" height="16" rx="8"/><text x="773" y="391">only when a channel is enabled</text></g>
+    <g class="d"><text class="p1" x="36" y="668"><tspan class="b">MessageQueueReconfigurer</tspan> · the channel MessageQueue's own slot cap (message_queue_reconfigurer.dart)</text><text class="p2" x="36" y="688">Registered only when a channel is enabled (channel_wiring.dart).</text></g>
+  </g></a>
+  <a href="../configuration-architecture.md#reconfigurable-services"><g class="n tint k-host" id="r7">
+    <rect class="box" x="420" y="424" width="556" height="44" rx="9"/>
+    <text class="name mono-name" x="432" y="443">ContextMonitor</text>
+    <text class="sub" x="432" y="459">reserve tokens, warning threshold</text>
+    <g class="d"><text class="p1" x="36" y="668"><tspan class="b">ContextMonitor</tspan> · applies context.reserve_tokens and the warning threshold (context_monitor.dart)</text><text class="p2" x="36" y="688">context.warning_threshold is a live field, also applied through ConfigChangeSubscriber.</text></g>
+  </g></a>
+  <a href="../configuration-architecture.md#reconfigurable-services"><g class="n tint k-host" id="r8">
+    <rect class="box" x="420" y="476" width="556" height="44" rx="9"/>
+    <text class="name mono-name" x="432" y="495">ResultTrimmer</text>
+    <text class="sub" x="432" y="511">host tool-result byte cap</text>
+    <g class="d"><text class="p1" x="36" y="668"><tspan class="b">ResultTrimmer</tspan> · soft-trims oversized tool results to head plus tail at context.max_result_bytes (result_trimmer.dart)</text><text class="p2" x="36" y="688">McpProtocolHandler applies it to the successful text result of every tools/call; the truncation marker is never dropped.</text></g>
+  </g></a>
+  <a href="../configuration-architecture.md#reconfigurable-services"><g class="n tint k-host" id="r9">
+    <rect class="box" x="420" y="528" width="556" height="44" rx="9"/>
+    <text class="name mono-name" x="432" y="547">AlertRouter</text>
+    <text class="sub" x="432" y="563">targets, routes, cooldowns</text>
+    <g class="d"><text class="p1" x="36" y="668"><tspan class="b">AlertRouter</tspan> · re-reads alert targets, routes, cooldown and burst threshold (alert_router.dart)</text><text class="p2" x="36" y="688">A section added to DartclawConfig without a tier once left this router dead; config_section_tier_coverage_test.dart now fails on that gap.</text></g>
+  </g></a>
+  <g transform="translate(24,594)">
+    <g class="solid k-host"><rect class="box" x="0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="22" y="10">delta</text>
+    <g class="tint k-host"><rect class="box" x="75.0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="97.0" y="10">service</text>
+    <g class="tint k-sec"><rect class="box" x="162.4" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="184.4" y="10">security</text>
+    <g class="tint k-ext"><rect class="box" x="256.0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="278.0" y="10">conditional</text>
+    <g class="ghost k-neu"><rect class="box" x="368.2" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="390.2" y="10">no service</text>
+    <g class="e "><path d="M474.2,6 H506.2"/></g><text class="lg" x="514.2" y="10">watch key matched</text>
+  </g>
+</svg>

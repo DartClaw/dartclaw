@@ -7,12 +7,14 @@ import 'package:logging/logging.dart';
 
 /// Constructs and exposes the project management service.
 class ProjectWiring {
-  new({required this.config, required String dataDir, required EventBus eventBus})
+  new({required this.config, required String dataDir, required String runtimeCwd, required EventBus eventBus})
     : _dataDir = dataDir,
+      _runtimeCwd = runtimeCwd,
       _eventBus = eventBus;
 
   final DartclawConfig config;
   final String _dataDir;
+  final String _runtimeCwd;
   final EventBus _eventBus;
 
   static final _log = Logger('ProjectWiring');
@@ -31,6 +33,7 @@ class ProjectWiring {
 
     _projectService = ProjectServiceImpl(
       dataDir: _dataDir,
+      localDir: _runtimeCwd,
       projectConfig: config.projects,
       credentials: config.credentials,
       eventBus: _eventBus,

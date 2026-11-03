@@ -15,6 +15,7 @@ DartClaw is **pragmatic, lightweight, adaptable, and approachable**. This is a p
 - **Reuse before you build.** Extend an existing seam, type, or package before adding one – prove the existing ones can't carry it first.
 - **Root causes over workarounds.** When something fights you, diagnose it or surface it – never paper over it with wrappers, fallbacks, retries, or special cases.
 - **Scope is a contract.** Every changed line traces to the request or active spec; adjacent "improvements" get surfaced, not done.
+- **Single user, breaking changes acceptable.** Fix production code that causes a test hazard or defect in the same change; never defer a fix because it touches production code.
 - **Approachable over clever.** Plain, readable code beats elegant indirection – the codebase must stay small, auditable, and easy to pick up.
 - **When in doubt, leave it out.** Missing is cheap to add later; bloat is expensive to remove. Cutting scope is a legitimate resolution.
 - **Model-first delegation.** Judgment belongs to the model, behind a schema or tool contract. The host validates once, bounds, persists and enforces – and never re-derives, repairs, defaults or overrules a model-supplied value; a value that fails its contract fails the step and is re-asked. No repair ladders, sentinel defaults, or prose scraping over model or user text. Documented templates: `memory_journal.dart`, `heartbeat_job.dart`, `merge_resolve_coordinator.dart` + `dartclaw-merge-resolve/SKILL.md`, `review_artifact_policy.dart`, `content_classifier.dart`/`anthropic_api_classifier.dart`, `execution_envelope_schema.dart`/`prompt_augmenter.dart`.
@@ -25,7 +26,7 @@ Both rules are binding in full text in [ADR-054](dev/adrs/054-model-first-delega
 
 ### Repository Layout
 
-- `packages/` – Dart pub workspace: core runtime, ACP provider support (`dartclaw_acp`), storage, security, config, channels, workflows, testing utilities, server, and the client tier. Each has its own `lib/`, `test/`, `pubspec.yaml`. `packages/dartclaw_client/` is the dependency-free HTTP/SSE client for a running server; `packages/dartclaw/` is the umbrella and re-exports the client tier only (client + models), never the runtime.
+- `packages/` – Dart pub workspace: kernel, core runtime, ACP provider support (`dartclaw_acp`), search, channels, workflows, the hosted runtime, the container bridge, testing utilities, and the client tier. Each has its own `lib/`, `test/`, `pubspec.yaml`. `packages/dartclaw_client/` is the dependency-free HTTP/SSE client for a running server; `packages/dartclaw/` is the umbrella and re-exports the client tier only (client + kernel), never the runtime.
 - `apps/dartclaw_cli/` – CLI app (AOT-compilable): `serve`, `status`, `service`, `rebuild-index`.
 - `docs/` – end-user reference and guides. `dev/` – contributor and agent working knowledge: state, architecture, guidelines, specs, testing profiles, build/CI tooling. `dev/fitness/` is also a workspace member (`dartclaw_fitness`): the repo-wide architecture gates, pinned to zero production dependencies – see its `README.md`.
 
@@ -46,36 +47,30 @@ Keep this root file lean – cross-cutting rules here, package-specific ones in 
 
 ## Project Document Index
 
-This table is the main registry of document locations relevant to development and project management, read by AndThen skills and other skills / commands. Ceilings are starting budgets per read. At the ceiling, prune dispensable entries before raising it; never split the document into shards. Transient rows carry `–`.
+Documents here are read whole when their trigger matches, so keep them short and trim stale entries when you append. Split one that grows too long into topic files beside it, leaving a pointer line per file in it; open a topic file only when the task names its topic. Skills refer to documents by entry name, so keep names stable.
 
-| Document Type | Location | Ceiling | When to read |
-|---------------|----------|---------|--------------|
-| Learnings | `dev/state/LEARNINGS.md` | 300 lines | Known traps, one bullet each; read whole at task start. Add after the admission test (unknown to a frontier model, absent from code and history, outlives the initiative); at the ceiling prune, never shard |
-| Product | `dev/state/PRODUCT.md` | 700 words | **Canonical.** Vision, philosophy, scope, architecture, Proportionality (stage, scale, standing non-goals). Read before clarifying or specifying a feature |
-| Roadmap (private) | `../dartclaw-private/docs/ROADMAP.md` | 450 lines | Sole roadmap: active milestone, follow-ups and future scope. Maintainers update it when milestones open or ship. Public-only work uses the assigned requirements or exported plan; do not create a public mirror |
-| Tech stack | `dev/state/STACK.md` | 150 lines | Languages, packages, external services. Read before choosing a library or runtime |
-| Ubiquitous language | `dev/state/UBIQUITOUS_LANGUAGE.md` | 300 lines | Domain glossary – use these terms in code, docs, naming; update when a term changes |
-| Prompt surfaces | `dev/state/PROMPT-SURFACES.md` | 150 lines | Before adding or re-contracting a host-authored model-facing prompt, a schema over model output, or a parser of a model reply: the inventory of every prompt surface with its output contract and validating component. Keep it current in the same change |
-| Architecture reference | `dev/architecture/` (`system-`, `security-`, `configuration-`, `control-protocol`, `task-execution-`, `workflow-`, `session-state-`, `data-model`, `channel-messaging-`, `cli-api-`, `observability-operations-architecture.md`) | 1600 lines/file | Canonical deep-dive per subsystem – e.g. `control-protocol.md` for harness spawn/CLI flags/provider protocols, `security-architecture.md` for container/setting isolation + guards, `configuration-architecture.md` for the config schema. Read before changing or reasoning about a subsystem; don't reverse-engineer from source when a doc exists |
-| Context Map | `dev/architecture/context-map.md` | 300 lines | Strategic-design view: bounded contexts, subdomain classification, context-mapping patterns. `andthen:architecture` supports this analysis; canonical source for context names in models and glossary grouping |
-| Architecture Model | `.agent_temp/models/architecture-model.json` | – | Transient typed projection for atlas rendering; regenerate with `andthen:describe --model`. The code is the record |
-| Domain Model | `.agent_temp/models/domain-model.json` | – | Transient typed projection of the Ubiquitous Language for atlas rendering; regenerate with `andthen:describe --model`. The UL document is the record |
-| Decisions | `dev/state/DECISIONS.md` | 150 lines | Index of record: ADRs (ID, title, status, scope) + load-bearing non-ADR decisions ("Still Current") + supersession lineage. Read before proposing or changing a design choice. § Still Current bullets are hand-written; maintain FIS design-change lines directly when closing a plan |
-| ADRs | `dev/adrs/` (+ public-safe research appendices in `dev/adrs/research/`) | 600 lines/file | Full ADR text; status/scope inventory lives in `DECISIONS.md` |
-| Tech debt backlog | `dev/state/TECH-DEBT-BACKLOG.md` | 400 lines | Known debt requiring requirements input or an architecture decision – a last resort, never a cleanup list. Read when working in an area with a listed item; maintain directly after a qualifying decision |
-| Spec lifecycle | `dev/state/SPEC-LIFECYCLE.md` | 100 lines | When exported implementation bundle files appear or disappear |
-| Specs & plans | `dev/bundle/docs/specs/` (support docs in `dev/bundle/docs/`, private `docs/` layout preserved) | 700 lines/file | PRDs, implementation plans, FIS, story breakdowns per `<version-or-feature>`. Transient copies for public workflow runs; canonical in private. ADRs are not bundled. A FIS past the ceiling is a story too big: decompose it, never prune it |
-| User-facing docs | `docs/guide/` (`getting-started`, `configuration`, `customization`, `security`, `governance`, `agents`, `workflows`, `workflows-reference`, `tasks`, `web-ui-and-api`, `cli-reference`, `deployment`, channel guides, `recipes/`, …) + `docs/sdk/` (`quick-start`, `packages`) | 1200 lines/file | Read the relevant guide before changing user-facing behavior, config keys, CLI, channels, web UI, or the SDK surface – e.g. `configuration.md` documents `providers.*`, `workflows-reference.md` documents workflow YAML fields. **Keep them current** in the same change (same currency discipline as package `AGENTS.md`) |
-| Changelog | `CHANGELOG.md` | 200 lines/release | Shipped history per release; update on every user-facing change |
-| Built-in workflows | `dev/tools/dartclaw-workflows/README.md` (+ § below) | 200 lines | Running shipped workflows against this checkout |
-| Development & architecture | `dev/guidelines/DEVELOPMENT-ARCHITECTURE-GUIDELINES.md` | 150 lines | Before coding, architecture, UX/UI, or review work: CUPID, DDD, scalability/resilience, coding standards, and § Review Defect Classes – the two named classes every review reports as defects (*prose parsing / repair ladder / sentinel over model or user text*; *second implementation of an existing seam*) |
-| Dart style | `dev/guidelines/DART-EFFECTIVE-GUIDELINES.md` | 600 lines | Before writing Dart: style, documentation, usage, API design, async, error handling, Dart 3.x features, linter config |
-| Package boundaries | `dev/guidelines/DART-PACKAGE-GUIDELINES.md` | 400 lines | When touching pubspec or workspace packages: structure, versioning, pub.dev scoring, publishing |
-| Testing strategy | `dev/guidelines/TESTING-STRATEGY.md` | 650 lines | Before writing tests: philosophy, four-layer pyramid, async patterns, coverage, shared fakes, anti-patterns |
-| HTMX patterns | `dev/guidelines/HTMX-GUIDELINES.md` | 250 lines | Before writing web UI fragments: attributes, server-side rendering, streaming updates, error handling, security |
-| Trellis templates | `dev/guidelines/TRELLIS-GUIDELINES.md` | 150 lines | Before writing templates: escaping rules, fragment patterns, HTMX integration, security |
-| Design system | `dev/design-system/DESIGN.md` (+ `tokens.css`, `components.css`, `icons.css`, `showcase.html`) | 1450 lines | Single source of truth for visual design; YAML frontmatter follows the [DESIGN.md spec](https://github.com/google-labs-code/design.md). Before any UI/CSS/template work |
-| Key dev commands | `dev/guidelines/KEY_DEVELOPMENT_COMMANDS.md` | 350 lines | Before/after modifying code; the Testing section declares the `fast` and `full` tiers and the run-one-test row used by `andthen:exec-plan` |
+Create a document that does not exist yet, and its entry here, from `project-document-templates.md`, or through a subagent that invokes the `andthen:init` skill with `seed <name>` when that file is not loaded. Planning documents (PRDs, plans, FIS, roadmap, research, wireframes) are canonical in the private repo `../dartclaw-private/`, absent from a public-only checkout; public work sees them only as exported bundles.
+
+- **Product** – `dev/state/PRODUCT.md`: vision, philosophy, scope, non-goals (firmly rejected concepts included), Proportionality facts. Read before proposing a feature, a design, or new machinery, or triaging a request: features anchor to it, and its stage and scale size what gets built.
+- **Roadmap** – `../dartclaw-private/docs/ROADMAP.md` (private): the sole roadmap – active milestone, follow-ups, future scope. Read when sequencing work across milestones; maintainers update it when a milestone opens or ships. Public-only work uses its assigned requirements or exported plan; never create a public mirror.
+- **Specs & Plans** – `dev/bundle/docs/specs/<version-or-feature>/` (support docs in `dev/bundle/docs/`, private `docs/` layout preserved): transient exported copies of the `prd.md`, `plan.json`, and one FIS per story (`s01-*.md`, …) that are canonical in private `docs/specs/`; ADRs are not bundled, and `dev/state/SPEC-LIFECYCLE.md` says when bundle files appear and disappear. Read the governing FIS before implementing; update the FIS and its story's `plan.json` row as execution proceeds. `plan.json` has one writer per copy at a time, so a `plan` breakdown's story subagents never write it. An oversized FIS is a story too big: decompose it (`OVERSIZE:`), never trim it.
+- **Decisions** – `dev/state/DECISIONS.md`: ADR index, Still Current notes, supersession lineage. Read before proposing or changing a design or architecture choice; settled decisions are not relitigated without new evidence.
+- **ADRs** – `dev/adrs/` (public-safe research appendices in `dev/adrs/research/`). Read the ADR a decision cites before revisiting it; add one per new decision.
+- **Architecture** – `dev/architecture/system-architecture.md`, plus one deep-dive per subsystem beside it (e.g. `control-protocol.md` for harness spawn, CLI flags and provider protocols, `security-architecture.md` for container and setting isolation and guards, `configuration-architecture.md` for the config schema) and `architecture-governance.md`. Hand-written SVG figures in `dev/architecture/diagrams/` (recipe figures: `docs/guide/recipes/diagrams/`) are the source of truth; conventions and the render check are in its `README.md`. Read before changing or reasoning about a component, a boundary, or data flow, rather than reverse-engineering from source; update the doc and its figure in the same change.
+- **Context Map** – `dev/architecture/context-map.md`: bounded contexts, subdomain classification, integration patterns; the canonical source for context names in models and glossary grouping. Read before placing a feature, boundary, or integration; update when a context or its relationships change.
+- **Ubiquitous Language** – `dev/state/UBIQUITOUS_LANGUAGE.md`: canonical terms and the synonyms to avoid. Read before naming, renaming, or describing domain concepts; add a row when a term settles.
+- **Prompt Surfaces** – `dev/state/PROMPT-SURFACES.md`: every host-authored model-facing prompt, schema over model output, and parser of a model reply, with its output contract and validating component. Read before adding or re-contracting one; keep it current in the same change.
+- **Guidelines** – `dev/guidelines/`. Read a guideline when its condition under Project Guidelines and Standards matches the task.
+- **Design System** – `dev/design-system/`: `DESIGN.md` is canonical (tokens and rationale; YAML frontmatter per the [DESIGN.md spec](https://github.com/google-labs-code/design.md)), with `tokens.css`, `components.css`, `icons.css`, and `showcase.html` rendering it. Read before writing UI markup, styles, or templates; update when a token or component is added.
+- **Visual Validation** – `dev/guidelines/VISUAL-VALIDATION-WORKFLOW.md`: how the UI is served, authenticated, and captured, viewports, the UI smoke test (`dev/testing/UI-SMOKE-TEST.md`), and the testing profiles. Read before capturing a screen.
+- **Learnings** – `dev/state/LEARNINGS.md`. Read at task start; add a bullet when bitten by a non-obvious failure that passes its admission test.
+- **Tech Debt** – `dev/state/TECH-DEBT-BACKLOG.md`: only debt that needs a requirements input or an architecture decision. Read when working in an area that has a listed item; add an entry when deferring such a fix.
+- **Key Dev Commands** – `dev/guidelines/KEY_DEVELOPMENT_COMMANDS.md`: run, build, CI-equivalent gate, and the `fast`, `full`, and run-one-test tiers. Read before running verification; update when a command changes.
+- **Testing Strategy** – `dev/guidelines/TESTING-STRATEGY.md`: philosophy, four-layer pyramid, async patterns, coverage, shared fakes, anti-patterns. Read before authoring tests; update when a convention changes.
+- **User Guide** – `docs/guide/` (`getting-started`, `configuration`, `customization`, `security`, `governance`, `agents`, `workflows`, `workflows-reference`, `tasks`, `web-ui-and-api`, `cli-reference`, `deployment`, channel guides, `recipes/`, …) and `docs/sdk/` (`quick-start`, `packages`). Read the relevant guide before changing user-facing behavior, config keys, CLI, channels, web UI, or the SDK surface – e.g. `configuration.md` documents `providers.*`, `workflows-reference.md` documents workflow YAML fields; keep it current in the same change.
+- **Changelog** – `CHANGELOG.md`: shipped history per release. Add an entry on every user-facing change.
+- **Built-in Workflows** – `dev/tools/dartclaw-workflows/README.md` (and § Built-in DartClaw Workflows below). Read before running a shipped workflow against this checkout.
+- **Agent Temp** – `.agent_temp/`: scratch workspace for reviews, research, and QA; never ship from it.
 
 
 ---
@@ -93,10 +88,19 @@ Run from this checkout: `dev/tools/dartclaw-workflows/run.sh` – full documenta
 
 ## Rules and Guardrails
 
+### Project Guidelines and Standards
+- **Read** `dev/guidelines/DEVELOPMENT-ARCHITECTURE-GUIDELINES.md` before coding, architecture, UX/UI, or review work: CUPID, DDD, scalability/resilience, coding standards, and § Review Defect Classes – the two named classes every review reports as defects (*prose parsing / repair ladder / sentinel over model or user text*; *second implementation of an existing seam*).
+- **Read** `dev/guidelines/DART-EFFECTIVE-GUIDELINES.md` before writing Dart: style, documentation, usage, API design, async, error handling, Dart 3.x features, linter config.
+- **Read** `dev/guidelines/DART-PACKAGE-GUIDELINES.md` when touching a pubspec or workspace package: structure, versioning, pub.dev scoring, publishing.
+- **Read** `dev/guidelines/HTMX-GUIDELINES.md` before writing web UI fragments: attributes, server-side rendering, streaming updates, error handling, security.
+- **Read** `dev/guidelines/TRELLIS-GUIDELINES.md` before writing templates: escaping rules, fragment patterns, HTMX integration, security.
+- **Read** `dev/guidelines/RELEASE_PREPARATION.md` when preparing or shipping a release (§ Release Preparation below).
+
 ### Vital Conventions
 - Single-threaded – add isolates only if profiling shows a bottleneck.
 - Vendored third-party assets (e.g. highlight.js) live in `packages/dartclaw_runtime/lib/src/static/` – see its `VENDORS.md` for versions and upgrade instructions.
 - Never reference specific story IDs or titles in code, filenames, or user-facing docs (project/development documents are the exception).
+- Version-specific documents (qualification ledgers, milestone runbooks) live in the plan bundle `dev/bundle/docs/specs/<version>/` and canonically in private `docs/specs/<version>/`, never elsewhere in the public tree.
 - Tests must run on Linux CI and local macOS – prefer Dart APIs over platform-specific shell flags; see `TESTING-STRATEGY.md` for POSIX file-permission checks.
 - **Tech debt backlog is a last resort** – `dev/state/TECH-DEBT-BACKLOG.md` is reserved for items that **cannot** be resolved without further requirements input or an architecture decision. Fixable now with current understanding → fix now, or capture it in an active spec/FIS. Entries describing known cleanups invite rot and dilute signal.
 - **Timestamps** – always run `date '+%Y-%m-%d %H:%M %Z'` before writing one. Never guess; internal time may be the wrong timezone.
@@ -122,20 +126,7 @@ Run the full CI-equivalent gate from `KEY_DEVELOPMENT_COMMANDS.md` before pushin
 For release preparation, the evidence-reuse procedure in `RELEASE_PREPARATION.md` satisfies this gate: retain completed
 review proof, verify unchanged inputs, and run affected checks. GitHub CI runs on the final squash commit.
 
-Example configs: `bash examples/run.sh` – defaults to `dev.yaml` (no auth, guards off), data in `.dartclaw-example/`. Pick a config with `bash examples/run.sh production --port 8080`.
-
-
----
-
-
-## Visual Validation Workflow
-
-The `andthen:visual-validation` skill auto-reads this `## Visual Validation Workflow` section first; follow the linked references.
-
-- `dev/guidelines/VISUAL-VALIDATION-WORKFLOW.md` – full conventions for visual validation
-- `dev/testing/UI-SMOKE-TEST.md` – test cases TC-01…TC-31. Run via `bash dev/testing/profiles/plain/run.sh`. Trigger: _"Run the UI smoke test"_
-- `dev/testing/README.md` – testing profiles (`plain`, `channels`, `governance`, `visual`, `workflows`) and AI-native scenarios (`dev/testing/scenarios/`)
-- Tooling: `agent-browser` skill (`open <url>` → `snapshot -i` → `click @e1` / `fill @e2 "text"` → re-snapshot); `chrome-devtools` skill for deeper inspection, JS execution, debugging
+Example configs: `bash examples/run.sh` – defaults to `dev.yaml` (no auth, guards off), data in `.dartclaw-example/`. It needs `DARTCLAW_DATABASE_URL` pointing at a PostgreSQL 14+ database whose schema `doctor --fix` has bootstrapped once (`examples/README.md`). Pick a config with `bash examples/run.sh production --port 8080`.
 
 
 ---
@@ -144,6 +135,11 @@ The `andthen:visual-validation` skill auto-reads this `## Visual Validation Work
 ## Release Preparation
 
 See `dev/guidelines/RELEASE_PREPARATION.md` for the release preparation workflow, gates, and sequence.
+
+**Shipping a version branch is releasing it.** `andthen:ship` on `feat/<version>` runs release preparation through the
+scope-frozen commit (release sequence step 1) before it publishes, because that branch merges only as the release.
+Its bundle deletion is the exported-bundle cleanup, done after the private PRD is consolidated
+(`dev/state/SPEC-LIFECYCLE.md`), and live or owner checks it cannot run are reported as holds.
 
 Treat the existing `HOMEBREW_TAP_TOKEN` scope as an operator-maintained invariant. Do not request reconfirmation during
 routine releases; audit it only after token rotation/widening or a relevant environment/repository-protection change.
@@ -171,7 +167,6 @@ routine releases; audit it only after token rotation/widening or a relevant envi
 
 - **Dart** – https://dart.dev/guides – language reference, core libraries, effective Dart
 - **Claude Code CLI** – https://code.claude.com/docs/en/headless – JSONL control protocol (stream-json)
-- **sqlite3 (Dart)** – https://pub.dev/packages/sqlite3 – raw SQLite bindings (search index only, no ORM)
 - **HTMX** – https://htmx.org/docs/ – attribute reference
 
 

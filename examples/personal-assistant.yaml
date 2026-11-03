@@ -6,6 +6,10 @@
 name: Jarvis
 data_dir: ~/.dartclaw-assistant
 
+# PostgreSQL 14+; set DARTCLAW_DATABASE_URL first (examples/README.md).
+database:
+  url: ${DARTCLAW_DATABASE_URL}
+
 agent:
   model: sonnet
   max_turns: 100

@@ -642,6 +642,9 @@ final class _OperatorApprovalHarness extends FakeAgentHarness
   bool? lastApproved;
 
   @override
+  HarnessTurnContext? get activeTurnContext => context;
+
+  @override
   void setTurnContext(HarnessTurnContext? context) {
     this.context = context;
   }

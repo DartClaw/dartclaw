@@ -189,6 +189,8 @@ export 'src/usage_config.dart' show UsageConfig;
 export 'src/workflow_config.dart'
     show
         WorkflowApprovalPolicy,
+        WorkflowChatNotificationEvent,
+        WorkflowChatNotificationsConfig,
         WorkflowCleanupConfig,
         WorkflowConfig,
         WorkflowRoleDefaultsConfig,
@@ -211,6 +213,7 @@ export 'src/sliding_window_rate_limiter.dart' show SlidingWindowRateLimiter;
 export 'src/prompt_scope.dart' show PromptScope;
 export 'src/turn_origin.dart' show TurnOrigin;
 export 'src/path_canonicalization.dart' show canonicalizePathWithExistingAncestors;
+export 'src/constant_time.dart' show constantTimeEquals;
 export 'src/string_util.dart' show truncate;
 export 'src/http_request.dart' show HttpClientFactory, httpRequest;
 export 'src/dynamic_reader.dart' show normalizeDynamicMap;

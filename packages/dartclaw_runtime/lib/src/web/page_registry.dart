@@ -1,5 +1,6 @@
 import 'dart:collection';
 
+import '../auth/source_link_token.dart' show sourceLinkPath;
 import '../templates/sidebar.dart';
 import 'dashboard_page.dart';
 
@@ -99,6 +100,7 @@ final _reservedRoutePatterns = <({String label, String? method, _RouteMatcher ma
   ),
   (label: '/memory/content', method: null, matches: (route) => _matchesReservedPath(route, '/memory/content')),
   (label: '/knowledge/wiki', method: null, matches: (route) => _matchesReservedPath(route, '/knowledge/wiki')),
+  (label: sourceLinkPath, method: null, matches: (route) => _matchesReservedPath(route, sourceLinkPath)),
   (label: '/health', method: null, matches: (route) => route == '/health'),
   (label: '/static/', method: null, matches: (route) => _matchesReservedPrefixOnly(route, '/static/')),
   (label: '/whatsapp/', method: null, matches: (route) => _matchesReservedPrefixOnly(route, '/whatsapp/')),

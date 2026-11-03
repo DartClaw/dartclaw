@@ -126,6 +126,7 @@ void main() {
     harnessWiring = HarnessWiring(
       config: config,
       dataDir: tempDir.path,
+      runtimeCwd: tempDir.path,
       port: 3333,
       harnessFactory: factory,
       exitFn: _unexpectedExit,
@@ -163,6 +164,7 @@ void main() {
     harnessWiring = HarnessWiring(
       config: config,
       dataDir: tempDir.path,
+      runtimeCwd: tempDir.path,
       port: 3333,
       harnessFactory: factory,
       exitFn: _unexpectedExit,
@@ -230,6 +232,7 @@ void main() {
     harnessWiring = HarnessWiring(
       config: config,
       dataDir: tempDir.path,
+      runtimeCwd: tempDir.path,
       port: 0,
       harnessFactory: fakeFactory(['claude']),
       exitFn: _unexpectedExit,
@@ -271,6 +274,24 @@ void main() {
     await expectLater(() => wireHarness(fakeFactory(['claude'])), throwsStateError);
   });
 
+  test('the coordinator reports admission capacity from the shared global lock manager', () async {
+    await wireStorageAndSecurity();
+    await wireHarness(fakeFactory(['claude']));
+    final locks = harnessWiring!.lockManager;
+    for (var slot = 0; slot < locks.maxParallel; slot++) {
+      await locks.acquire('slot-$slot');
+    }
+
+    var signalled = false;
+    final waiting = harnessWiring!.executions.whenAdmissionCapacityAvailable().then((_) => signalled = true);
+    await pumpEventQueue();
+    expect(signalled, isFalse);
+
+    locks.release('slot-0');
+    await waiting;
+    expect(signalled, isTrue);
+  });
+
   test('primary runner keeps interactive prompt while spawned worker gets lean task prompt', () async {
     config = config.copyWith(
       providers: ProvidersConfig(
@@ -293,7 +314,13 @@ void main() {
     expect(recordedConfigs, hasLength(2));
     expect(createdHarnesses, hasLength(2));
     expect(recordedConfigs.first.harnessConfig.mcpServerUrl, 'http://localhost:3333/mcp');
-    expect(recordedConfigs.first.harnessConfig.mcpGatewayToken, isNull);
+    // Each host harness presents a bearer minted for it alone, never a shared token.
+    expect(recordedConfigs.first.harnessConfig.mcpGatewayToken, isNotNull);
+    expect(recordedConfigs.last.harnessConfig.mcpGatewayToken, isNotNull);
+    expect(
+      recordedConfigs.last.harnessConfig.mcpGatewayToken,
+      isNot(recordedConfigs.first.harnessConfig.mcpGatewayToken),
+    );
 
     // Primary and task harnesses each get a layered chain: all base security
     // guards plus their own per-runner TaskToolFilterGuard.
@@ -595,7 +622,8 @@ void main() {
 
     final harnessConfig = recordedConfigs.single.harnessConfig;
     expect(harnessConfig.mcpServerUrl, 'http://localhost:3333/mcp');
-    expect(harnessConfig.mcpGatewayToken, isNull);
+    expect(harnessConfig.mcpGatewayToken, isNotNull);
+    expect(harnessWiring!.resolvedGatewayToken, isNull);
   });
 
   test('unknown search providers do not suppress the native search tool', () async {

@@ -25,6 +25,7 @@ const _configDeclarationPaths = <String>{
   'packages/dartclaw_runtime/lib/src/runtime_config.dart',
   'packages/dartclaw_google_chat/lib/src/google_chat_config.dart',
   'packages/dartclaw_signal/lib/src/signal_config.dart',
+  'packages/dartclaw_slack/lib/src/slack_config.dart',
   'packages/dartclaw_whatsapp/lib/src/whatsapp_config.dart',
   'packages/dartclaw_acp/lib/src/acp_config.dart',
   'packages/dartclaw_acp/lib/src/acp_config_parser.dart',

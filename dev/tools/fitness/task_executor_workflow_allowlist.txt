@@ -18,3 +18,4 @@ workflowRunRepository: _workflowRunRepository, | workflow-run-repository-binder-
 late final WorkflowOneShotRunner _workflowOneShotRunner = WorkflowOneShotRunner( | workflow-one-shot-runner-creation
 workflowStepExecutionRepository: _workflowStepExecutionRepository, | workflow-one-shot-runner-step-execution-repository-arg
 outcome = await _workflowOneShotRunner.execute( | workflow-one-shot-runner-execute
+final provenance = await delegatedTurnProvenance(task, _workflowRunRepository); | delegated-turn-provenance-run-origin-lookup

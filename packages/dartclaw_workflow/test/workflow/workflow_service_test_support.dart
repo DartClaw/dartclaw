@@ -65,21 +65,27 @@ final class WorkflowServiceTestHarness {
     messageService = MessageService(baseDir: sessionsDir);
     kvService = KvService(filePath: p.join(tempDir.path, 'kv.json'));
 
-    workflowService = WorkflowService(
-      repository: repository,
-      taskService: taskService,
-      messageService: messageService,
-      persistencePorts: WorkflowPersistencePorts(
-        taskRepository: taskRepository,
-        agentExecutionRepository: agentExecutionRepository,
-        workflowStepExecutionRepository: workflowStepExecutionRepository,
-        executionRepositoryTransactor: executionTransactor,
-      ),
-      eventBus: eventBus,
-      kvService: kvService,
-      dataDir: tempDir.path,
+    _persistencePorts = WorkflowPersistencePorts(
+      taskRepository: taskRepository,
+      agentExecutionRepository: agentExecutionRepository,
+      workflowStepExecutionRepository: workflowStepExecutionRepository,
+      executionRepositoryTransactor: executionTransactor,
     );
+    workflowService = newService();
   }
+
+  late WorkflowPersistencePorts _persistencePorts;
+
+  /// A service over the same stores, as a restarted process would build.
+  WorkflowService newService() => WorkflowService(
+    repository: repository,
+    taskService: taskService,
+    messageService: messageService,
+    persistencePorts: _persistencePorts,
+    eventBus: eventBus,
+    kvService: kvService,
+    dataDir: tempDir.path,
+  );
 
   Future<void> tearDown({WorkflowService? currentService}) async {
     final services = <WorkflowService>{workflowService, ?currentService};

@@ -20,6 +20,7 @@ const _entryMotionTemplates = {
   'session_info.html',
   'settings.html',
   'signal_pairing.html',
+  'source_view.html',
   'task_detail.html',
   'tasks.html',
   'whatsapp_pairing.html',

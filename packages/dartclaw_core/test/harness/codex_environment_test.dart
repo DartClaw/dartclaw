@@ -391,6 +391,68 @@ void main() {
         expect(File(p.join(home, 'skills', 'local-skill.md')).readAsStringSync(), '# local');
       });
 
+      /// The operator's Codex permission profile: a selector plus the tables
+      /// that define it, as a deny-secrets baseline writes them.
+      const operatorProfile =
+          'default_permissions = "andthen"\n\n'
+          '[permissions.andthen]\nextends = ":workspace"\n\n'
+          '[permissions.andthen.filesystem]\n"~/.ssh" = "deny"\n\n'
+          '[permissions.andthen.filesystem.":workspace_roots"]\n"**/.env" = "deny"\n';
+
+      void plantOperatorConfig(String config) {
+        Directory(p.join(root.path, '.codex')).createSync(recursive: true);
+        File(p.join(root.path, '.codex', 'config.toml')).writeAsStringSync(config);
+      }
+
+      test('carries the operator permission profile, so its denies hold in the store', () async {
+        plantOperatorConfig('$operatorProfile\n[plugins."andthen@andthen"]\nenabled = true\n');
+
+        final home = await build().setup();
+
+        final config = File(p.join(home, 'config.toml')).readAsStringSync();
+        expect(config, contains('[permissions.andthen.filesystem.":workspace_roots"]\n"**/.env" = "deny"'));
+        expect(config, contains('[permissions.andthen.filesystem]\n"~/.ssh" = "deny"'));
+        expect(
+          config.indexOf('default_permissions = "andthen"'),
+          allOf(isNonNegative, lessThan(config.indexOf('\n['))),
+          reason: 'a top-level key after the first table header would belong to that table',
+        );
+        expect(config, contains('[plugins."andthen@andthen"]'));
+
+        completeDedicatedCodexHome(
+          dedicatedHome,
+          platformCapabilities: PlatformCapabilities(environment: {'HOME': root.path}),
+        );
+        await build().setup();
+        expect(
+          File(p.join(home, 'config.toml')).readAsStringSync(),
+          config,
+          reason: 'every prepare re-derives the same bytes',
+        );
+      });
+
+      test('does not carry permission tables the operator never selects', () async {
+        // Codex refuses to load a config that defines profiles but sets no
+        // `default_permissions`, so carrying these would stop every worker.
+        plantOperatorConfig('[permissions.andthen]\nextends = ":workspace"\n');
+
+        final home = await build().setup();
+
+        expect(File(p.join(home, 'config.toml')).readAsStringSync(), isNot(contains('permissions')));
+      });
+
+      test('a profile the operator removed leaves the store on the next prepare', () async {
+        plantOperatorConfig(operatorProfile);
+        await build().setup();
+
+        plantOperatorConfig('model = "gpt-5.6-sol"\n');
+        await build().setup();
+
+        final config = File(p.join(dedicatedHome, 'config.toml')).readAsStringSync();
+        expect(config, isNot(contains('permissions')));
+        expect(config, contains('be careful'));
+      });
+
       test('mirrors capabilities from an exported CODEX_HOME before the default home', () async {
         plantOperatorPlugins();
         final customCodex = Directory(p.join(root.path, 'custom-codex'))..createSync();

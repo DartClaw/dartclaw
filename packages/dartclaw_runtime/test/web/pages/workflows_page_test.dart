@@ -10,7 +10,15 @@ import 'package:dartclaw_runtime/src/templates/sidebar.dart';
 import 'package:dartclaw_runtime/src/web/pages/workflows_page.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' show InMemoryTaskRepository;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show WorkflowDefinition, WorkflowDefinitionSource, WorkflowRun, WorkflowService, WorkflowStep, WorkflowVariable;
+    show
+        OutputConfig,
+        WorkflowDefinition,
+        WorkflowDefinitionSource,
+        WorkflowRun,
+        WorkflowRunOrigin,
+        WorkflowService,
+        WorkflowStep,
+        WorkflowVariable;
 import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
@@ -165,7 +173,7 @@ void main() {
 
     test('shows workflow runs when runs exist', () async {
       final def = _makeDefinition();
-      await workflows.start(def, const {});
+      await workflows.start(def, const {}, origin: WorkflowRunOrigin.unknown);
 
       final context = _makeContext(workflowService: workflows, taskService: tasks);
       final response = await page.handler(_get('/workflows'), context);
@@ -195,7 +203,7 @@ void main() {
 
     test('status filter passes to service query', () async {
       final def = _makeDefinition();
-      await workflows.start(def, const {});
+      await workflows.start(def, const {}, origin: WorkflowRunOrigin.unknown);
       final paused = (await workflows.list()).first;
       await workflows.pause(paused.id);
 
@@ -208,7 +216,7 @@ void main() {
 
     test('definition filter passes to service query', () async {
       final def = _makeDefinition(name: 'fix-bug');
-      await workflows.start(def, const {});
+      await workflows.start(def, const {}, origin: WorkflowRunOrigin.unknown);
 
       final context = _makeContext(workflowService: workflows, taskService: tasks);
       // Filter for a different definition — should return no runs.
@@ -314,7 +322,7 @@ void main() {
 
     test('returns 200 with workflow HTML for known run', () async {
       final def = _makeDefinition();
-      await workflows.start(def, const {});
+      await workflows.start(def, const {}, origin: WorkflowRunOrigin.unknown);
       final runs = await workflows.list();
       expect(runs, isNotEmpty);
       final runId = runs.first.id;
@@ -329,7 +337,7 @@ void main() {
 
     test('renders step cards for all definition steps', () async {
       final def = _makeDefinition();
-      await workflows.start(def, const {});
+      await workflows.start(def, const {}, origin: WorkflowRunOrigin.unknown);
       final runs = await workflows.list();
       final runId = runs.first.id;
 
@@ -377,6 +385,55 @@ void main() {
       expect(response.statusCode, 200);
       expect(body, contains('timed_out'));
       expect(body, contains('timeout'));
+    });
+
+    test('offers Request changes only while the pending gate names a revise step with revisions left', () async {
+      final now = DateTime.parse('2026-03-24T10:00:00Z');
+      Future<String> render(String id, {String? revise, int revision = 0, int? maxRevisions}) async {
+        final def = WorkflowDefinition(
+          name: 'revise-wf',
+          description: 'A gate that revises its draft.',
+          steps: [
+            const WorkflowStep(id: 'draft', name: 'Draft', prompts: ['Draft']),
+            WorkflowStep(
+              id: 'gate',
+              name: 'Gate',
+              taskType: WorkflowTaskType.approval,
+              prompts: const ['Review'],
+              revise: revise,
+              maxRevisions: maxRevisions,
+            ),
+          ],
+        );
+        await workflowRepo.insert(
+          WorkflowRun(
+            id: id,
+            definitionName: def.name,
+            status: WorkflowRunStatus.awaitingApproval,
+            startedAt: now,
+            updatedAt: now,
+            currentStepIndex: 2,
+            definitionJson: def.toJson(),
+            contextJson: {
+              '_approval.pending.stepId': 'gate',
+              'data': <String, dynamic>{'gate.approval.status': 'pending', 'gate.approval.revision': revision},
+            },
+          ),
+        );
+        final context = _makeContext(workflowService: workflows, taskService: tasks);
+        return (await page.handler(_get('/workflows/$id'), context)).readAsString();
+      }
+
+      final open = await render('run-open', revise: 'draft');
+      final atBound = await render('run-bound', revise: 'draft', revision: 2, maxRevisions: 2);
+      final none = await render('run-none');
+
+      expect(open, contains('workflow-request-changes"'));
+      expect(open, contains('Revision 0 of 3'));
+      expect(atBound, isNot(contains('workflow-request-changes"')));
+      expect(atBound, contains('Revision limit reached (2 of 2)'));
+      expect(none, isNot(contains('workflow-request-changes"')));
+      expect(none, isNot(contains('Revision ')));
     });
 
     test('renders completed taskless steps from persisted context data', () async {
@@ -483,6 +540,53 @@ void main() {
       expect(await skipped.readAsString(), contains('Tokens: <span class="workflow-step-metric-value">0</span>'));
     });
 
+    test('shows step context inputs and outputs persisted under the context data map', () async {
+      final now = DateTime.parse('2026-03-24T10:00:00Z');
+      const definition = WorkflowDefinition(
+        name: 'build-and-review',
+        description: 'test',
+        variables: {},
+        steps: [
+          WorkflowStep(
+            id: 'build',
+            name: 'Build',
+            taskType: WorkflowTaskType.bash,
+            prompts: ['make build'],
+            outputs: {'build_log': OutputConfig()},
+          ),
+          WorkflowStep(
+            id: 'review',
+            name: 'Review',
+            prompts: ['Review {{context.build_log}}'],
+            outputs: {'verdict': OutputConfig()},
+          ),
+        ],
+      );
+      await workflowRepo.insert(
+        WorkflowRun(
+          id: 'run-data-outputs',
+          definitionName: definition.name,
+          status: WorkflowRunStatus.completed,
+          startedAt: now,
+          updatedAt: now,
+          currentStepIndex: 2,
+          definitionJson: definition.toJson(),
+          contextJson: const {
+            'data': {'build_log': 'bash-output-value', 'verdict': 'agent-output-value'},
+          },
+        ),
+      );
+      final context = _makeContext(workflowService: workflows, taskService: tasks);
+      final bash = await (await page.handler(_get('/workflows/run-data-outputs/steps/0'), context)).readAsString();
+      final agent = await (await page.handler(_get('/workflows/run-data-outputs/steps/1'), context)).readAsString();
+
+      expect(bash, contains('bash-output-value'));
+      expect(bash, isNot(contains('(not yet set)')));
+      expect(agent, contains('bash-output-value'), reason: 'context input read from the data map');
+      expect(agent, contains('agent-output-value'));
+      expect(agent, isNot(contains('(not yet set)')));
+    });
+
     test('returns 400 for invalid step index', () async {
       final context = _makeContext(workflowService: workflows, taskService: tasks);
       final response = await page.handler(_get('/workflows/run-001/steps/notanumber'), context);
@@ -497,7 +601,7 @@ void main() {
     });
 
     test('returns 400 for out-of-range step index', () async {
-      await workflows.start(_makeDefinition(), const {});
+      await workflows.start(_makeDefinition(), const {}, origin: WorkflowRunOrigin.unknown);
       final runId = (await workflows.list()).first.id;
       final context = _makeContext(workflowService: workflows, taskService: tasks);
       final response = await page.handler(_get('/workflows/$runId/steps/2'), context);
@@ -519,7 +623,7 @@ void main() {
 
     test('returns step detail fragment for known run', () async {
       final def = _makeDefinition();
-      await workflows.start(def, const {});
+      await workflows.start(def, const {}, origin: WorkflowRunOrigin.unknown);
       final runs = await workflows.list();
       final runId = runs.first.id;
 
@@ -533,7 +637,7 @@ void main() {
 
   group('WorkflowsPage step card fragment', () {
     test('matches the full page card and carries progress out of band', () async {
-      await workflows.start(_makeDefinition(), const {});
+      await workflows.start(_makeDefinition(), const {}, origin: WorkflowRunOrigin.unknown);
       final runId = (await workflows.list()).first.id;
       final context = _makeContext(workflowService: workflows, taskService: tasks);
       final full = await (await page.handler(_get('/workflows/$runId'), context)).readAsString();
@@ -555,7 +659,7 @@ void main() {
     });
 
     test('refuses an out-of-range card like the step detail route', () async {
-      await workflows.start(_makeDefinition(), const {});
+      await workflows.start(_makeDefinition(), const {}, origin: WorkflowRunOrigin.unknown);
       final runId = (await workflows.list()).first.id;
       final context = _makeContext(workflowService: workflows, taskService: tasks);
 

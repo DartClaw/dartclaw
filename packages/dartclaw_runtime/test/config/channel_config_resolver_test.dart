@@ -2,6 +2,7 @@ import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:dartclaw_signal/dartclaw_signal.dart';
+import 'package:dartclaw_slack/dartclaw_slack.dart';
 import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
 import 'package:test/test.dart';
 
@@ -16,6 +17,46 @@ void main() {
       expect(resolveChannelConfig<GoogleChatConfig>(config, ChannelType.googlechat).enabled, isFalse);
       expect(resolveChannelConfig<SignalConfig>(config, ChannelType.signal).executable, 'signal-cli');
       expect(resolveChannelConfig<WhatsAppConfig>(config, ChannelType.whatsapp).gowaExecutable, 'whatsapp');
+      expect(resolveChannelConfig<SlackConfig>(config, ChannelType.slack).enabled, isFalse);
+    });
+
+    test('resolves Slack from YAML and counts it as an enabled channel', () {
+      final config = loadDartclawConfig(
+        configPath: 'dartclaw.yaml',
+        fileReader: _yaml('''
+credentials:
+  slack_bot:
+    api_key: \${SLACK_BOT_TOKEN}
+  slack_app:
+    api_key: \${SLACK_APP_TOKEN}
+channels:
+  slack:
+    enabled: true
+    bot_token_credential: slack_bot
+    app_token_credential: slack_app
+'''),
+        env: const {'HOME': '/home/user', 'SLACK_BOT_TOKEN': 'xoxb-1-2-bot', 'SLACK_APP_TOKEN': 'xapp-1-2-app'},
+      );
+
+      expect(resolveChannelConfig<SlackConfig>(config, ChannelType.slack).botTokenCredential, 'slack_bot');
+      expect(anyChannelEnabled(config), isTrue);
+    });
+
+    test('reads channels.slack.streaming from YAML and warns on a non-bool', () {
+      final off = loadDartclawConfig(
+        configPath: 'dartclaw.yaml',
+        fileReader: _yaml('channels:\n  slack:\n    streaming: false\n'),
+        env: const {'HOME': '/home/user'},
+      );
+      final invalid = loadDartclawConfig(
+        configPath: 'dartclaw.yaml',
+        fileReader: _yaml('channels:\n  slack:\n    streaming: nope\n'),
+        env: const {'HOME': '/home/user'},
+      );
+
+      expect(resolveChannelConfig<SlackConfig>(off, ChannelType.slack).streaming, isFalse);
+      expect(resolveChannelConfig<SlackConfig>(invalid, ChannelType.slack).streaming, isTrue);
+      expect(invalid.warnings.where((warning) => warning.contains('slack.streaming')), hasLength(1));
     });
 
     test('rejects ChannelType.web, which has no config section', () {

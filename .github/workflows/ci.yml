@@ -42,7 +42,11 @@ jobs:
       - name: Analyze
         run: dart analyze --fatal-infos
 
+      # ubuntu-26.04 caps /tmp below what the suite's per-file kernel .dill
+      # files need; the runner temp dir sits on the work disk.
       - name: Test
+        env:
+          TMPDIR: ${{ runner.temp }}
         run: bash dev/tools/test_workspace.sh
 
       - name: Architecture check

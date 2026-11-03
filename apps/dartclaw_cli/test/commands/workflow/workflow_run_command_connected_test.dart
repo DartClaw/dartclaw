@@ -8,6 +8,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowTaskType;
 import 'package:args/command_runner.dart';
 import 'package:dartclaw_cli/src/commands/workflow/workflow_run_command.dart';
 import 'package:dartclaw_client/dartclaw_client.dart';
+import 'package:dartclaw_kernel/dartclaw_kernel.dart' show DartclawConfig;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowDefinition, WorkflowStep;
 import 'package:test/test.dart';
 
@@ -458,6 +459,7 @@ void main() {
     test('standalone mode aborts when a server is reachable without --force', () async {
       final errorOutput = <String>[];
       final command = WorkflowRunCommand(
+        config: const DartclawConfig.defaults(),
         reachabilityProbe: (_) async => true,
         stderrLine: errorOutput.add,
         exitFn: fakeExit,

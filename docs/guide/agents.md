@@ -97,7 +97,7 @@ Each entry under `agent.agents.<id>` supports:
 | Key | Default | Purpose |
 |-----|---------|---------|
 | `description` | `"Agent: <id>"` | Human-readable description exposed in the `sessions_spawn` tool schema |
-| `prompt` | Search prompt for `search`; blank otherwise | Authoritative persona for the logical agent's turn. An explicit prompt replaces workspace `SOUL.md`; a blank prompt inherits `SOUL.md` when the agent has a workspace. With an `output_schema`, the rendered output contract is appended to that persona |
+| `prompt` | Search prompt for `search`; blank otherwise | Extra instruction appended to the agent's behavior files (`SOUL.md`, `USER.md`, `TOOLS.md`, `AGENTS.md` in its workspace); it never replaces them. Edit `data_dir/agents/<id>/workspace/SOUL.md` to change the agent's persona. Under the `restricted` profile the files are omitted and the prompt is the whole persona. With an `output_schema`, the rendered output contract follows the prompt. Blank adds nothing |
 | `provider` | `agent.provider` | Harness provider for this agent's conversations; IDs are trimmed and lowercased |
 | `security_profile` | `restricted` for `search`; otherwise provider default or `workspace` | Worker isolation profile: `workspace` or `restricted` |
 | `tools` | `[]` | Optional closed allowlist; empty or absent means no sandbox allowlist |
@@ -172,13 +172,14 @@ A bound conversation executes as the agent. Its session is pinned to the agent's
 set for that conversation – and under a container policy the bridged MCP grant is the agent's. The agent's `model` and
 `effort` apply unless the row, the channel scope or the crowd-coding fallback set their own; the row's win.
 
-Its prompt is the persona over the task composition: the agent's `prompt` stands where its workspace `SOUL.md` stands
-(a blank `prompt` inherits `SOUL.md`), followed by its `USER.md`, `TOOLS.md`, `AGENTS.md` and the channel-origin section.
-The owner's behavior files, recent errors and memory index are not composed in. A persona with a managed workspace
+Its prompt is the task composition of the agent's own workspace: `SOUL.md`, `USER.md`, `TOOLS.md` and `AGENTS.md`, then
+the agent's `prompt` as extra instruction, then the `output_schema` contract when one is declared. A bound channel turn
+adds the channel-origin section after that. The `prompt` never replaces `SOUL.md`; to change the persona, edit
+`data_dir/agents/<id>/workspace/SOUL.md`. The owner's behavior files, recent errors and memory index are not composed in. A persona with a managed workspace
 writes its own daily activity log and reads and writes only its own corpus through `memory_read`, `memory_search`, and
 the memory write tools, subject to its `tools` policy. An unconfigured persona writes no owner log and has no owner-memory
-fallback. An agent resolving to the `restricted` container profile retains its explicit prompt while omitting workspace
-behavior files and native skill roots.
+fallback. An agent resolving to the `restricted` container profile omits workspace
+behavior files and native skill roots, so its `prompt` is then the whole persona (the built-in `search` agent works this way).
 
 Each persona chatting concurrently consumes a `providers.<id>.pool_size` worker slot on its provider; a bound turn waits
 for a slot rather than failing fast the way a nested `sessions_spawn` does. Web sessions stay on the primary agent.

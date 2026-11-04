@@ -44,6 +44,7 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 
 ### Changed
 
+- **Breaking:** a logical agent's `prompt` (`agent.agents.<id>.prompt`) is now extra instruction appended after its workspace `SOUL.md`, `USER.md`, `TOOLS.md` and `AGENTS.md`, not a replacement for `SOUL.md`. If you used `prompt` to override the persona, move that text into `data_dir/agents/<id>/workspace/SOUL.md`. Under the `restricted` profile the prompt is still the whole persona (the built-in `search` agent is unchanged), and an `output_schema` contract still comes last.
 - Slack DM pairing (`dm_access: pairing`) can now be confirmed through the `dm-pairing` routes and the allowlist API, which accept `slack`; before, the code Slack sent could never be approved.
 - Bounded request-body reading, trusted-proxy remote-key selection, failed-auth events and the 1 MiB payload limit for webhooks now have one owner in `dartclaw_core`; the GitHub, Google Chat, MCP and gateway-auth routes keep their behavior and status codes.
 - `dartclaw doctor`, `dartclaw secrets audit` and setup accept a Slack credential reference whose entry exists only in the credential store (`dartclaw secrets set`); presence is judged by the `slack.credentials` row.

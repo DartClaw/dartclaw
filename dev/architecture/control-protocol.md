@@ -402,8 +402,8 @@ Process termination: `cancel()` closes stdin and requests termination; the seria
 | Scope | Content |
 |---|---|
 | `primary` | `SOUL.md`, `USER.md`, channel origin, `TOOLS.md`, memory-audience guidance, recent errors, `AGENTS.md`, the bounded memory index projection, and for `replace` harnesses the compact-instructions block; onboarding only for human input |
-| `task` | `SOUL.md` (or the agent's soul override), agent `USER.md` when the workspace is agent-scoped, origin, `TOOLS.md`, `AGENTS.md`, a memory-retrieval hint instead of memory |
-| `restricted` | `TOOLS.md` only (or the soul override), plus a memory hint; falls back to a one-line default prompt |
+| `task` | `SOUL.md` (or a frozen snapshot's soul override), agent `USER.md` when the workspace is agent-scoped, origin, `TOOLS.md`, `AGENTS.md`, then a logical agent's `prompt` and its output contract, a memory-retrieval hint instead of memory |
+| `restricted` | `TOOLS.md` only, or a logical agent's `prompt` alone when it has one (then its output contract), plus a memory hint; falls back to a one-line default prompt |
 
 The memory block is `promptMemoryProjection()`: the canonical `MEMORY.md` index read through `MemoryCorpusService.snapshot`, validated against the collection revision and capped at 32 KiB and 150 lines by default; an unavailable, over-budget or invalid index renders a degraded notice instead. Errors and memory are omitted when personal memory is disabled. Project `SOUL.md` is no longer read (the provider reads `CLAUDE.md`/`AGENTS.md` itself).
 

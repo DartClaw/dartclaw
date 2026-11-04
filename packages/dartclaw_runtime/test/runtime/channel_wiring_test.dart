@@ -285,7 +285,7 @@ void main() {
         expect(reservedTurn.origin, origin);
         expect(reservedTurn.systemPromptOverride, isNull);
         expect(reservedTurn.workerPolicy, isNull, reason: 'the pinned session supplies its own policy');
-        expect(reservedTurn.behaviorOverride?.soulOverride, 'You are Ana.');
+        expect(reservedTurn.behaviorOverride?.agentPrompt, 'You are Ana.');
         expect(reservedTurn.behaviorOverride?.workspaceDir, behavior.workspaceDir);
 
         final executedTurn = turns.executed.single;

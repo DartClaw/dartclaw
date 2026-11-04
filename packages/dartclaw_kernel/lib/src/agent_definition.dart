@@ -89,7 +89,11 @@ class AgentDefinition {
   /// Human-readable description exposed in the spawn tool schema.
   final String description;
 
-  /// System prompt used for this agent's turns.
+  /// Extra instructions appended to the agent's behavior files (SOUL.md,
+  /// USER.md, TOOLS.md, AGENTS.md) in its managed workspace.
+  ///
+  /// Under the restricted container profile the workspace files are omitted and
+  /// this is the whole persona. Blank adds nothing.
   final String prompt;
 
   /// Optional harness provider. Null inherits the deployment's primary provider.

@@ -161,7 +161,7 @@ class SetupVerificationResult {
 /// [verify] projects its shared rows into the existing setup outcomes.
 class SetupChecks {
   final Future<BinaryProbe> Function(String executable) _probeBinary;
-  final Future<bool> Function(int port) _portFree;
+  final Future<bool> Function(String host, int port) _portFree;
   final void Function(Directory probeDir) _writeProbeFile;
   final DartclawConfig Function(String configPath) _loadConfig;
   final Future<bool> Function(String configPath) _configParseable;
@@ -173,7 +173,7 @@ class SetupChecks {
 
   new({
     Future<BinaryProbe> Function(String executable)? probeBinary,
-    Future<bool> Function(int port)? portFree,
+    Future<bool> Function(String host, int port)? portFree,
     void Function(Directory probeDir)? writeProbeFile,
     DartclawConfig Function(String configPath)? loadConfig,
     Future<bool> Function(String configPath)? configParseable,
@@ -197,8 +197,9 @@ class SetupChecks {
   /// [diagnose] run.
   ///
   /// `init`'s port prompt asks before preflight does, and the two must not be
-  /// able to disagree — including under an injected `portFree`.
-  Future<bool> portAvailable(int port) => _portFree(port);
+  /// able to disagree — including under an injected `portFree`. Init always
+  /// writes the default host, so that is the address probed before a config exists.
+  Future<bool> portAvailable(int port) => _portFree(const ServerConfig().host, port);
 
   /// Runs the pre-write checks for [providers] on [port] with [instanceDir].
   ///
@@ -227,7 +228,7 @@ class SetupChecks {
       }
     }
 
-    if (!workflowTrack && !await _portFree(port)) {
+    if (!workflowTrack && !await portAvailable(port)) {
       errors.add(
         'Port $port is already in use. '
         'Choose a different port with --port or stop the existing process.',
@@ -269,6 +270,7 @@ class SetupChecks {
       configPath: configPath,
       providerIds: providerIds,
       instanceDir: instanceDir,
+      host: config.server.host,
       port: port,
       skipPortCheck: skipPortCheck,
       loadedConfig: config,
@@ -372,6 +374,7 @@ class SetupChecks {
       configPath: configPath,
       providerIds: providers,
       instanceDir: config.server.dataDir,
+      host: config.server.host,
       port: config.server.port,
       skipPortCheck: serverOverride != null,
       loadedConfig: config,
@@ -861,6 +864,7 @@ class SetupChecks {
     required String configPath,
     required List<String> providerIds,
     required String instanceDir,
+    required String host,
     required int port,
     required bool skipPortCheck,
     DartclawConfig? loadedConfig,
@@ -899,7 +903,7 @@ class SetupChecks {
       ),
     );
     if (!skipPortCheck) {
-      final free = await _portFree(port);
+      final free = await _portFree(host, port);
       rows.add(
         DiagnosticRow(
           id: 'server.port',
@@ -1006,10 +1010,13 @@ class SetupChecks {
     }
   }
 
-  static Future<bool> _defaultPortFree(int port) async {
+  // Binds the host string exactly as `serve` does: `localhost` resolves to
+  // `::1` first on macOS, so a fixed IPv4 probe reported a running server's
+  // port as free and the doctor never asked that server for its state.
+  static Future<bool> _defaultPortFree(String host, int port) async {
     ServerSocket? s;
     try {
-      s = await ServerSocket.bind(InternetAddress.loopbackIPv4, port);
+      s = await ServerSocket.bind(host, port);
       return true;
     } on SocketException {
       return false;

@@ -50,7 +50,7 @@ SetupChecks _passingChecks() => SetupChecks(
   probeBinary: (_) async => (outcome: BinaryProbeOutcome.responded, version: null),
   configParseable: (_) async => true,
   writeProbeFile: (_) {},
-  portFree: (_) async => true,
+  portFree: (_, _) async => true,
   providerVerified: (_, _, _) async => true,
 );
 
@@ -59,7 +59,7 @@ SetupChecks _preflightFailureChecks() => SetupChecks(
   probeBinary: (_) async => (outcome: BinaryProbeOutcome.notFound, version: null),
   configParseable: (_) async => true,
   writeProbeFile: (_) {},
-  portFree: (_) async => true,
+  portFree: (_, _) async => true,
   providerVerified: (_, _, _) async => true,
 );
 
@@ -71,7 +71,7 @@ SetupChecks _postWriteFailureChecks() => SetupChecks(
   probeBinary: (_) async => (outcome: BinaryProbeOutcome.responded, version: null),
   configParseable: (_) async => false,
   writeProbeFile: (_) {},
-  portFree: (_) async => true,
+  portFree: (_, _) async => true,
   providerVerified: (_, _, _) async => true,
 );
 
@@ -80,7 +80,7 @@ SetupChecks _unverifiedChecks() => SetupChecks(
   probeBinary: (_) async => (outcome: BinaryProbeOutcome.responded, version: null),
   configParseable: (_) async => true,
   writeProbeFile: (_) {},
-  portFree: (_) async => true,
+  portFree: (_, _) async => true,
   providerVerified: (_, _, _) async => false,
 );
 
@@ -124,7 +124,7 @@ class _RecordingChecks extends SetupChecks {
         probeBinary: (_) async => (outcome: BinaryProbeOutcome.responded, version: null),
         configParseable: (_) async => true,
         writeProbeFile: (_) {},
-        portFree: (_) async => true,
+        portFree: (_, _) async => true,
         providerVerified: providerVerified ?? ((_, _, _) async => true),
       );
 
@@ -389,7 +389,7 @@ void main() {
           probeBinary: (_) async => (outcome: BinaryProbeOutcome.responded, version: null),
           configParseable: (_) async => true,
           writeProbeFile: (_) {},
-          portFree: (port) async => port != 3333,
+          portFree: (_, port) async => port != 3333,
           providerVerified: (_, _, _) async => true,
         ),
         loadConfig: (_) => null,
@@ -708,7 +708,7 @@ void main() {
         probeBinary: (_) async => (outcome: BinaryProbeOutcome.responded, version: null),
         configParseable: (_) async => true,
         writeProbeFile: (_) {},
-        portFree: (_) async => true,
+        portFree: (_, _) async => true,
         providerVerified: (_, _, _) async => true,
       );
       for (final launch in ['foreground', 'background', 'service']) {

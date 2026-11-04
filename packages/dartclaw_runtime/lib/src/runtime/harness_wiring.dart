@@ -253,9 +253,11 @@ class HarnessWiring {
   ///
   /// The harness does not exist when its launch options are built, so the bearer
   /// resolves the turn through [bind], called once the harness has been created.
-  ({String bearer, void Function(AgentHarness harness) bind}) _mintMcpBearer() {
+  ({String bearer, void Function(AgentHarness harness) bind}) _mintMcpBearer({
+    bool Function(String toolName)? listsTool,
+  }) {
     AgentHarness? owner;
-    final bearer = mcpBearers.mint(() => _activeTurnOf(owner));
+    final bearer = mcpBearers.mint(() => _activeTurnOf(owner), listsTool: listsTool);
     return (
       bearer: bearer,
       bind: (harness) {
@@ -264,6 +266,18 @@ class HarnessWiring {
       },
     );
   }
+
+  /// Which own MCP tools `tools/list` shows a logical agent's host worker.
+  ///
+  /// The decision is `ToolPolicyGuard`'s own, asked with the canonical and raw names the Claude hook presents for
+  /// the same call, so a tool listed here is one the guard admits. Codex presents the raw name `mcp_tool_call`, so
+  /// it differs only for an entry spelled `mcp__dartclaw__<tool>`, which the listing then shows and the guard refuses.
+  bool Function(String toolName) _listsMcpToolFor(String agentId) =>
+      (toolName) => _security.toolPolicyCascade.isAllowed(
+        agentId,
+        (_ownMcpToolCanonicals[toolName] ?? CanonicalTool.mcpCall).stableName,
+        rawProviderToolName: 'mcp__${dartclawMcpServerName}__$toolName',
+      );
 
   static TurnProvenance? _activeTurnOf(AgentHarness? harness) =>
       harness is HarnessTurnContextSink ? (harness as HarnessTurnContextSink).activeTurnContext?.provenance : null;
@@ -1129,7 +1143,9 @@ class HarnessWiring {
         );
         final workerBearer = request.policy.isContainer || _harnessConfig.mcpServerUrl == null
             ? null
-            : _mintMcpBearer();
+            : _mintMcpBearer(
+                listsTool: request.logicalAgentId == null ? null : _listsMcpToolFor(request.logicalAgentId!),
+              );
         final workerHarnessConfig = _harnessConfig.copyWith(
           appendSystemPrompt: workerPrompt,
           disallowedTools: disallowedTools,

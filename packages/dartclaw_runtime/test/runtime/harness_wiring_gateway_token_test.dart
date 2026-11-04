@@ -170,7 +170,8 @@ void main() {
       final primaryTurn = chatTurn('users/alice');
       final workerTurn = chatTurn('users/bob');
       final resolvers = [
-        for (final config in configs) harnessWiring!.mcpBearers.resolve(config.harnessConfig.mcpGatewayToken!)!,
+        for (final config in configs)
+          harnessWiring!.mcpBearers.resolve(config.harnessConfig.mcpGatewayToken!)!.activeTurn,
       ];
 
       expect([for (final resolve in resolvers) resolve()], [null, null]);

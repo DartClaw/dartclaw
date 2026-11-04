@@ -67,8 +67,8 @@ Handler mcpRoute(
     for (final entry in scopedHandlers.entries) {
       if (constantTimeEquals(bearer, entry.key)) resolved ??= entry.value;
     }
-    final activeTurn = harnessBearers?.resolve(bearer);
-    if (activeTurn != null) resolved ??= handler.forHarness(activeTurn);
+    final harness = harnessBearers?.resolve(bearer);
+    if (harness != null) resolved ??= handler.forHarness(harness.activeTurn, listsTool: harness.listsTool);
     return resolved;
   }
 
@@ -89,8 +89,8 @@ Handler mcpRoute(
     final authHeader = request.headers['authorization'];
     final bearer = authHeader != null && authHeader.startsWith('Bearer ') ? authHeader.substring(7) : null;
     if (gatewayToken == null) {
-      final activeTurn = bearer == null ? null : harnessBearers?.resolve(bearer);
-      if (activeTurn != null) caller = handler.forHarness(activeTurn);
+      final harness = bearer == null ? null : harnessBearers?.resolve(bearer);
+      if (harness != null) caller = handler.forHarness(harness.activeTurn, listsTool: harness.listsTool);
     } else {
       final resolved = bearer == null ? null : resolveCaller(bearer);
       final remoteKey = requestRemoteKey(request, trustedProxies: trustedProxies) ?? 'unknown';

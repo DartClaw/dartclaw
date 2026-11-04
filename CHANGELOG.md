@@ -52,6 +52,7 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 
 ### Fixed
 
+- A channel-bound agent with a closed `tools` list is now offered only the DartClaw tools that list allows when container isolation is off. Before, `tools/list` showed it every DartClaw tool, and it tried tools the guard refused (`memory_search`, `Read`) and gave up without calling `context_research`. Calls are checked exactly as before.
 - A workflow run on a branch other than the default of a project cloned with the default `shallow` strategy (for example `code-review` with `BRANCH: feat/x`) no longer fails with `invalid reference: origin/<branch>`. The pre-run fetch now writes `origin/<branch>`, which also repairs clones already on disk.
 - The run page's loop steps show the loop's actual iteration ("Iteration 1/3"); they showed "Iteration 0/3" whatever ran, because the count was read from the wrong place in the run's context. `buildLoopInfo` now takes the `WorkflowRun`.
 - A project added under `projects:` no longer reads as `error` ("clone was interrupted by restart") while its first clone runs at startup; it stays `cloning` until the clone finishes.

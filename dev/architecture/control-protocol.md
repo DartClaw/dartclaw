@@ -454,7 +454,7 @@ DartClaw exposes tools to harnesses through the internal MCP server, `McpProtoco
 | Bearer | Reaches | Principal |
 |---|---|---|
 | Gateway token | The full tool set | The deployment (`system`) |
-| Host-minted harness bearer (`HarnessMcpBearers`, one per host harness, valid while the harness lives) | The full tool set, with the harness's active turn attached as `TurnProvenance` for tools that read it | The turn |
+| Host-minted harness bearer (`HarnessMcpBearers`, one per host harness, valid while the harness lives) | The full tool set, with the harness's active turn attached as `TurnProvenance` for tools that read it; a logical agent's worker lists only the tools `ToolPolicyCascade.isAllowed` admits for that agent (`tools/list` only, `tools/call` is not narrowed) | The turn |
 | Configured named client (`gateway.mcp_clients`, requires `auth_mode: token`) | Only `context_research`, `kg_query`, `kg_timeline` (`contextEngineProfileTools`), shared knowledge scope only; refusals are audited | `mcp-client:<name>` |
 | None | Only on an authentication-disabled loopback deployment, which also requires an exact loopback `Host` and, when sent, a loopback `Origin` | Deployment |
 

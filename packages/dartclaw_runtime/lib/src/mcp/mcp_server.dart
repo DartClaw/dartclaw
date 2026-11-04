@@ -101,6 +101,7 @@ class McpProtocolHandler {
       _auditLogger = auditLogger,
       _toolCanonicals = const {},
       _activeTurn = null,
+      _listsTool = null,
       _resultTrimmer = resultTrimmer ?? ResultTrimmer();
 
   new _scoped(
@@ -112,6 +113,7 @@ class McpProtocolHandler {
     this._auditLogger,
     this._toolCanonicals,
     this._activeTurn,
+    this._listsTool,
   ) : _started = true;
 
   static final _log = Logger('McpProtocolHandler');
@@ -128,6 +130,7 @@ class McpProtocolHandler {
   final GuardAuditLogger? _auditLogger;
   final Map<String, CanonicalTool> _toolCanonicals;
   final TurnProvenance? Function()? _activeTurn;
+  final bool Function(String toolName)? _listsTool;
   final ResultTrimmer _resultTrimmer;
   bool _started = false;
 
@@ -161,22 +164,29 @@ class McpProtocolHandler {
     _auditLogger,
     toolCanonicals,
     activeTurn,
+    null,
   );
 
   /// A handler for one host harness presenting its own minted bearer.
   ///
   /// It authorizes and identifies exactly as the unscoped handler does, so only
   /// a tool that opts in sees anything more, through [activeTurn].
-  McpProtocolHandler forHarness(TurnProvenance? Function() activeTurn) => McpProtocolHandler._scoped(
-    _tools,
-    null,
-    null,
-    _resultTrimmer,
-    _guardChain,
-    _auditLogger,
-    _toolCanonicals,
-    activeTurn,
-  );
+  ///
+  /// [listsTool] narrows `tools/list` only, to the tools the harness's agent may
+  /// call, so the model is not offered tools the harness guard will refuse.
+  /// `tools/call` is unchanged: refusal stays with the harness's `ToolPolicyGuard`.
+  McpProtocolHandler forHarness(TurnProvenance? Function() activeTurn, {bool Function(String toolName)? listsTool}) =>
+      McpProtocolHandler._scoped(
+        _tools,
+        null,
+        null,
+        _resultTrimmer,
+        _guardChain,
+        _auditLogger,
+        _toolCanonicals,
+        activeTurn,
+        listsTool,
+      );
 
   /// Register a tool. Must be called before the server starts handling requests.
   void registerTool(McpTool tool) {
@@ -274,8 +284,10 @@ class McpProtocolHandler {
 
   String _handleToolsList(Object id) {
     final policy = _policy;
+    final listsTool = _listsTool;
     final tools = _tools.values
         .where((t) => policy == null || policy.allows(t.name))
+        .where((t) => listsTool == null || listsTool(t.name))
         .map((t) => {'name': t.name, 'description': t.description, 'inputSchema': t.inputSchema})
         .toList();
     return _successResponse(id, {'tools': tools});

@@ -44,7 +44,9 @@ Subscribe to the `message.*` events even though `app_mention` is listed: DartCla
 
 In the Events API manifest, replace `dartclaw.example.com` with your public host before importing, and keep the path equal to `channels.slack.webhook_path`.
 
-Checked against docs.slack.dev on 2026-10-06: a read of the app manifest field reference, not a Slack import: Slack's own manifest validation, and the `assistant_view` key in particular, run when you import the file. If Slack rejects a field, the import dialog names it; correct that field in your copy.
+Slack imported the Socket Mode manifest on 2026-11-04 with two warnings you can ignore. It says the app needs more setup for Socket Mode: that is the app-level token in step 3 of the setup below. It says the agent view (`assistant_view`) does not subscribe to `assistant_thread_started`: DartClaw does not use that event, and messages in an agent thread arrive as ordinary DMs. If Slack rejects a field, the import dialog names it; correct that field in your copy.
+
+Slack may also prompt you to move the app to its new agent experience (`agent_view`). Don't accept it yet: the move cannot be undone, and this release is built and tested on `assistant_view`.
 
 ## Credentials
 

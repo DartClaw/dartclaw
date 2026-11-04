@@ -95,6 +95,10 @@ member of an allowlisted channel whose agent holds the tool reads the whole shar
 and each call runs a model turn on the owner's budget (see [Cost](#cost)). Grant the tool to a channel's agent only when
 that holds for the whole channel.
 
+**Name the tool in the prompt.** A closed `tools` list is enforced when the agent calls a tool; outside container
+isolation the agent still sees every DartClaw tool. Give the agent a `prompt` that says to answer with
+`context_research`, or it may try tools it cannot use and give up.
+
 **Source links.** With `base_url` set, every wiki page and knowledge graph fact in a research packet carries a `url`,
 and the tool tells the agent to link the source by it. A link opens that one source read-only in a browser, with no
 DartClaw login, so `base_url` must be an address the channel's members can reach. It opens until the gateway token

@@ -196,8 +196,8 @@ The agent resolves a run in conversation with `workflow_resume`, `workflow_cance
 agent:
   agents:
     eng-bot:
-      prompt: You answer questions about our engineering knowledge and run workflows when asked.
-      tools: [context_research, workflow_run, workflow_status, workflow_resume, workflow_cancel, workflow_request_changes]
+      prompt: You answer questions about our engineering knowledge with context_research and cite its sources. Run, check or resolve workflows, and record facts or wiki pages, only when asked.
+      tools: [context_research, wiki_write, kg_add, workflow_run, workflow_status, workflow_resume, workflow_cancel, workflow_request_changes]
 channels:
   slack:
     group_access: allowlist

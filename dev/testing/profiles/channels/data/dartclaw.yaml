@@ -78,8 +78,11 @@ agent:
   agents:
     eng-bot:
       description: Answers from shared knowledge and runs workflows for the Slack channel
+      prompt: You answer questions about our engineering knowledge with context_research and cite its sources. Run, check or resolve workflows, and record facts or wiki pages, only when asked.
       tools:
         - context_research
+        - wiki_write
+        - kg_add
         - workflow_run
         - workflow_status
         - workflow_resume

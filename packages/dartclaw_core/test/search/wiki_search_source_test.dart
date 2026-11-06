@@ -188,6 +188,20 @@ Dart macros and pattern matching roadmap synthesis.
     expect(result.text.runes.length, lessThanOrEqualTo(240));
   });
 
+  test('a wider excerpt returns a page under its bound whole and windows a longer one the same way', () async {
+    final filler = 'word ' * 120;
+    final page = '# Falcon\n\nFalcon opening. ${filler}Falcon closing.';
+    File(p.join(workspace.path, 'wiki', 'dart.md')).writeAsStringSync(page);
+    final source = WikiSearchSource(workspaceDir: workspace.path);
+
+    final whole = (await source.searchScan('falcon', excerptRunes: 2000)).results.single;
+    final windowed = (await source.searchScan('falcon', excerptRunes: 300)).results.single;
+
+    expect(whole.text, page.replaceAll(RegExp(r'\s+'), ' ').trim());
+    expect(windowed.text, allOf(contains('Falcon opening'), contains('Falcon closing'), contains(' … ')));
+    expect(windowed.text.runes.length, lessThanOrEqualTo(300));
+  });
+
   test('a page whose matches sit inside one window keeps a single contiguous snippet', () async {
     final filler = 'word ' * 120;
     File(p.join(workspace.path, 'wiki', 'dart.md')).writeAsStringSync('${filler}falcon nest falcon $filler');

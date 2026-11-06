@@ -199,6 +199,30 @@ void main() {
     },
   );
 
+  // A 240-rune search snippet split between the first and last match dropped
+  // the middle of this page, so synthesis could not state the freeze rule.
+  test('a wiki page longer than a search snippet reaches synthesis whole', () async {
+    const freeze = 'During a release week the environment is frozen: no deploys from Monday until the release ships.';
+    File('${workspace.path}/wiki/deploy-window.md').writeAsStringSync(
+      '---\nprovenance: human-authored\n---\n# Qualification Deploy Window\n\n'
+      'Deploys to the qualification environment are allowed on Thursdays between 14:00 and 16:00 CET. '
+      '$freeze The release owner can lift the freeze for a fix that blocks the release.',
+    );
+    ContextResearchSynthesisRequest? captured;
+
+    await tool(
+      synthesizer: (request) {
+        captured = request;
+        return _candidateSynthesizer(request);
+      },
+    ).callAsAgent({'query': 'deploys to the qualification environment during a release week'});
+
+    final wikiText = captured!.candidates.singleWhere((c) => c.sourceRef.layer == CitationLayer.wiki).text;
+    expect(wikiText, contains(freeze));
+    expect(wikiText, contains('16:00 CET'));
+    expect(wikiText, isNot(contains('…')));
+  });
+
   test('one Context Research request traverses wiki once and keeps native provenance', () async {
     memory.results = const [
       MemorySearchResult(
@@ -719,7 +743,7 @@ final class _CountingWiki extends WikiSearchSource {
   int calls = 0;
 
   @override
-  Future<WikiSearchScan> searchScan(String query) async {
+  Future<WikiSearchScan> searchScan(String query, {int excerptRunes = WikiSearchSource.searchSnippetRunes}) async {
     calls++;
     return const WikiSearchScan(
       results: [

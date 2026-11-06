@@ -131,6 +131,10 @@ final class ContextResearchTool extends ContextualMcpTool {
   final int _candidateLimit;
   final int _defaultTokenBudget;
 
+  // Synthesis answers from the candidate text alone, so a wiki candidate carries the page rather than a
+  // search-result snippet; this bounds the synthesis input at about 48k runes across 24 candidates.
+  static const _wikiCandidateRunes = 2000;
+
   /// Creates the `context_research` MCP tool.
   new({
     required ContextResearchScopeResolver scopeResolver,
@@ -294,7 +298,7 @@ final class ContextResearchTool extends ContextualMcpTool {
   Future<_RetrievalResult> _retrieve(String query, ContextResearchScope scope) async {
     final memoryFuture = _retrieveMemory(query, scope);
     final wikiFuture = _captureLayer(CitationLayer.wiki, () async {
-      final scan = await _wiki.searchScan(query);
+      final scan = await _wiki.searchScan(query, excerptRunes: _wikiCandidateRunes);
       return _LayerResult(
         candidates: scan.results
             .map(

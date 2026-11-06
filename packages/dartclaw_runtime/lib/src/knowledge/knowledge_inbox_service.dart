@@ -479,7 +479,7 @@ ${jsonEncode(body)}
       agentName: 'cron:$jobId',
       effort: effort,
       maxTurns: 1,
-      allowedTools: const ['__knowledge_inbox_no_tools__'],
+      allowedTools: const [TaskToolFilterGuard.noToolsPolicy],
       readOnly: true,
       promptScope: PromptScope.task,
     );

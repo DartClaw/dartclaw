@@ -147,7 +147,7 @@ Future<OutboundMcpPool?> _registerMcpTools(
         signed: config.gateway.authMode != 'none',
         key: harness.resolvedGatewayToken,
       ),
-      synthesizer: ContextResearchTool.logicalAgentSynthesizer(harness.logicalAgentSessions),
+      synthesizer: ContextResearchTool.oneShotSynthesizer(harness.logicalAgentSessions),
       metricsSink: (metrics) async {
         ctx.eventBus.fire(
           ContextResearchMetricsEvent(

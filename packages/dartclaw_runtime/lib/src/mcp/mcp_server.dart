@@ -101,6 +101,7 @@ class McpProtocolHandler {
       _auditLogger = auditLogger,
       _toolCanonicals = const {},
       _activeTurn = null,
+      _harnessIdentity = null,
       _listsTool = null,
       _resultTrimmer = resultTrimmer ?? ResultTrimmer();
 
@@ -113,6 +114,7 @@ class McpProtocolHandler {
     this._auditLogger,
     this._toolCanonicals,
     this._activeTurn,
+    this._harnessIdentity,
     this._listsTool,
   ) : _started = true;
 
@@ -130,6 +132,7 @@ class McpProtocolHandler {
   final GuardAuditLogger? _auditLogger;
   final Map<String, CanonicalTool> _toolCanonicals;
   final TurnProvenance? Function()? _activeTurn;
+  final McpCallerIdentity? Function()? _harnessIdentity;
   final bool Function(String toolName)? _listsTool;
   final ResultTrimmer _resultTrimmer;
   bool _started = false;
@@ -165,28 +168,39 @@ class McpProtocolHandler {
     toolCanonicals,
     activeTurn,
     null,
+    null,
   );
 
   /// A handler for one host harness presenting its own minted bearer.
   ///
-  /// It authorizes and identifies exactly as the unscoped handler does, so only
-  /// a tool that opts in sees anything more, through [activeTurn].
+  /// It authorizes as the unscoped handler does and resolves the harness's running turn through [activeTurn], for a
+  /// tool that opts in to it.
+  ///
+  /// [identity] resolves, at each call, whom the harness is serving: `null` while it runs no turn. A
+  /// [ContextualMcpTool] then runs as that caller and is refused while there is none, where the unscoped handler
+  /// would hand it no context at all. The identity reaches the context a tool receives and the audit entry, never
+  /// the guard chain: the harness's own `ToolPolicyGuard` has already decided this call under the names its
+  /// provider presents, and a second decision here under this seam's names could only disagree with it.
   ///
   /// [listsTool] narrows `tools/list` only, to the tools the harness's agent may
   /// call, so the model is not offered tools the harness guard will refuse.
   /// `tools/call` is unchanged: refusal stays with the harness's `ToolPolicyGuard`.
-  McpProtocolHandler forHarness(TurnProvenance? Function() activeTurn, {bool Function(String toolName)? listsTool}) =>
-      McpProtocolHandler._scoped(
-        _tools,
-        null,
-        null,
-        _resultTrimmer,
-        _guardChain,
-        _auditLogger,
-        _toolCanonicals,
-        activeTurn,
-        listsTool,
-      );
+  McpProtocolHandler forHarness(
+    TurnProvenance? Function() activeTurn, {
+    McpCallerIdentity? Function()? identity,
+    bool Function(String toolName)? listsTool,
+  }) => McpProtocolHandler._scoped(
+    _tools,
+    null,
+    null,
+    _resultTrimmer,
+    _guardChain,
+    _auditLogger,
+    _toolCanonicals,
+    activeTurn,
+    identity,
+    listsTool,
+  );
 
   /// Register a tool. Must be called before the server starts handling requests.
   void registerTool(McpTool tool) {
@@ -323,20 +337,20 @@ class McpProtocolHandler {
       return _errorResponse(id, -32602, validationError);
     }
 
-    final refusal = await _evaluateDispatch(tool, args);
+    final identity = _callerIdentity ?? _harnessIdentity?.call();
+    final refusal = await _evaluateDispatch(tool, args, identity);
     ToolResult result;
     if (refusal != null) {
       result = refusal;
     } else {
       try {
-        final callerIdentity = _callerIdentity;
         result = await switch (tool) {
-          TurnAwareMcpTool() when _policy != null && callerIdentity == null => Future<ToolResult>.value(
+          TurnAwareMcpTool() when _policy != null && identity == null => Future<ToolResult>.value(
             const ToolResult.error('Tool requires authenticated caller context'),
           ),
-          TurnAwareMcpTool() => tool.callWithTurn(args, _callerContext(callerIdentity, turn: _activeTurn?.call())),
-          ContextualMcpTool() when callerIdentity != null => tool.callWithContext(args, _callerContext(callerIdentity)),
-          ContextualMcpTool() when _policy != null => Future<ToolResult>.value(
+          TurnAwareMcpTool() => tool.callWithTurn(args, _callerContext(identity, turn: _activeTurn?.call())),
+          ContextualMcpTool() when identity != null => tool.callWithContext(args, _callerContext(identity)),
+          ContextualMcpTool() when _policy != null || _harnessIdentity != null => Future<ToolResult>.value(
             const ToolResult.error('Tool requires authenticated caller context'),
           ),
           _ => tool.call(args),
@@ -384,9 +398,11 @@ class McpProtocolHandler {
   /// denial, an unknown name and a schema rejection reach neither the guard nor
   /// the sink. The entry records that the dispatch was *authorized*, not that
   /// the tool ran.
-  Future<ToolResult?> _evaluateDispatch(McpTool tool, Map<String, dynamic> args) async {
+  ///
+  /// [identity] attributes the audit entry. The guard chain sees only the transport's own [_callerIdentity], never a
+  /// host harness's (see [forHarness]).
+  Future<ToolResult?> _evaluateDispatch(McpTool tool, Map<String, dynamic> args, McpCallerIdentity? identity) async {
     final chain = _guardChain;
-    final identity = _callerIdentity;
     final principal = identity?.authorityId ?? mcpStewardPrincipal;
 
     if (chain != null) {
@@ -395,8 +411,8 @@ class McpProtocolHandler {
         verdict = await chain.evaluateBeforeToolCall(
           _toolCanonicals[tool.name]?.stableName ?? tool.name,
           args,
-          sessionId: identity?.sessionId,
-          agentId: identity?.agentId,
+          sessionId: _callerIdentity?.sessionId,
+          agentId: _callerIdentity?.agentId,
           rawProviderToolName: tool.name,
         );
       } catch (error) {

@@ -59,6 +59,9 @@ Handler mcpRoute(
       ),
   };
 
+  McpProtocolHandler forHarness(HarnessMcpCaller harness) =>
+      handler.forHarness(harness.activeTurn, identity: harness.identity, listsTool: harness.listsTool);
+
   /// Resolves [bearer] without short-circuiting, so the number of comparisons
   /// does not reveal which credential a guess was closest to.
   McpProtocolHandler? resolveCaller(String bearer) {
@@ -68,7 +71,7 @@ Handler mcpRoute(
       if (constantTimeEquals(bearer, entry.key)) resolved ??= entry.value;
     }
     final harness = harnessBearers?.resolve(bearer);
-    if (harness != null) resolved ??= handler.forHarness(harness.activeTurn, listsTool: harness.listsTool);
+    if (harness != null) resolved ??= forHarness(harness);
     return resolved;
   }
 
@@ -90,7 +93,7 @@ Handler mcpRoute(
     final bearer = authHeader != null && authHeader.startsWith('Bearer ') ? authHeader.substring(7) : null;
     if (gatewayToken == null) {
       final harness = bearer == null ? null : harnessBearers?.resolve(bearer);
-      if (harness != null) caller = handler.forHarness(harness.activeTurn, listsTool: harness.listsTool);
+      if (harness != null) caller = forHarness(harness);
     } else {
       final resolved = bearer == null ? null : resolveCaller(bearer);
       final remoteKey = requestRemoteKey(request, trustedProxies: trustedProxies) ?? 'unknown';

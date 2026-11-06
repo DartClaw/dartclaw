@@ -9,6 +9,7 @@ import 'package:dartclaw_runtime/src/mcp/mcp_server.dart'
     show McpCallerIdentity, McpCallerPolicy, McpKnowledgeScope, McpProtocolHandler;
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager, TurnRunner;
 import 'package:path/path.dart' as p;
+import 'package:shelf/shelf.dart' show Request;
 import 'package:test/test.dart';
 
 Never _unexpectedExit(int code) => throw StateError('Unexpected exit($code)');
@@ -18,8 +19,11 @@ void main() {
   late DartclawRuntime runtime;
   late List<Map<String, dynamic>> curationResults;
   late String agentDir;
+  // What a host harness does mid-turn: call back into `/mcp` with the bearer it was spawned with.
+  Future<void> Function(_ImmediateHarness harness)? duringTurn;
 
   setUp(() async {
+    duringTurn = null;
     root = Directory.systemTemp.createTempSync('service_memory_scope_');
     curationResults = [];
     agentDir = p.join(root.path, 'agents', 'a', 'workspace');
@@ -85,7 +89,11 @@ void main() {
       harnessFactory: HarnessFactory()
         ..register(
           'claude',
-          (factoryConfig) => _ImmediateHarness(factoryConfig, onCurationResult: curationResults.add),
+          (factoryConfig) => _ImmediateHarness(
+            factoryConfig,
+            onCurationResult: curationResults.add,
+            duringTurn: (harness) async => await duringTurn?.call(harness),
+          ),
         ),
       taskBackendFactory: (_) async => openPreparedTaskBackend(),
       taskBackendIsPrepared: true,
@@ -363,6 +371,109 @@ void main() {
     expect(memory.where((source) => source.containsKey('url')), isEmpty);
   });
 
+  group('host harness bearer', () {
+    // A host harness (the `claude` or `codex` CLI DartClaw spawns) calls `/mcp` with the bearer minted for it. The
+    // call runs through the real server route, so the bearer, the identity it resolves and the tool are all live.
+    Future<String> mcpCall(String bearer, String tool, Map<String, dynamic> arguments) async {
+      final response = await runtime.server!.handler(
+        Request(
+          'POST',
+          Uri.parse('http://localhost/mcp'),
+          headers: {'host': 'localhost', 'authorization': 'Bearer $bearer', 'content-type': 'application/json'},
+          body: jsonEncode({
+            'jsonrpc': '2.0',
+            'id': 1,
+            'method': 'tools/call',
+            'params': {'name': tool, 'arguments': arguments},
+          }),
+        ),
+      );
+      expect(response.statusCode, 200);
+      return response.readAsString();
+    }
+
+    // Runs one turn, as a logical agent's spawned session or as the owner's chat, and has the harness running it
+    // research from inside it. Other turns the research itself starts (the synthesizer's) are left alone.
+    Future<String> researchDuringTurn({
+      String? agent,
+      Future<void> Function(_ImmediateHarness harness)? beforeCall,
+    }) async {
+      late String answer;
+      duringTurn = (harness) async {
+        if (harness.activeTurnContext?.agentName != (agent ?? 'main')) return;
+        await beforeCall?.call(harness);
+        answer = await mcpCall(harness.bearer, 'context_research', {'query': 'service-marker'});
+      };
+      if (agent != null) {
+        await _callRaw(runtime.server!.mcpHandler, 'sessions_spawn', {'agent': agent, 'message': 'research'});
+        return answer;
+      }
+      final owner = await runtime.sessionService.createSession();
+      final turnId = await runtime.server!.turns.reserveTurn(
+        owner.id,
+        agentName: 'main',
+        workerPolicy: const ExecutionPolicy.host(),
+      );
+      runtime.server!.turns.executeTurn(
+        owner.id,
+        turnId,
+        const [
+          {'role': 'user', 'content': 'research'},
+        ],
+        source: 'api',
+        agentName: 'main',
+      );
+      await runtime.server!.turns.waitForOutcome(owner.id, turnId);
+      return answer;
+    }
+
+    test('a logical agent researches its own private scope plus the shared sources', () async {
+      final answer = await researchDuringTurn(agent: 'a');
+
+      expect(answer, isNot(contains('"isError":true')));
+      expect(answer, allOf(contains('agent-service-marker'), contains('shared-service-marker')));
+      expect(answer, isNot(anyOf(contains('owner-service-marker'), contains('agent-wiki-boundary-marker'))));
+    });
+
+    test('the owner researches owner scope, never an agent private scope', () async {
+      final answer = await researchDuringTurn();
+
+      expect(answer, isNot(contains('"isError":true')));
+      expect(answer, allOf(contains('owner-service-marker'), contains('shared-service-marker')));
+      expect(answer, isNot(contains('agent-service-marker')));
+    });
+
+    test('an agent bearer is refused for a turn bound to the owner session, so it never reads owner memory', () async {
+      final owner = await runtime.sessionService.createSession();
+
+      final answer = await researchDuringTurn(
+        agent: 'a',
+        beforeCall: (harness) async => harness.setTurnContext(
+          HarnessTurnContext(sessionId: owner.id, turnId: 'forged', source: 'api', agentName: 'a'),
+        ),
+      );
+
+      expect(answer, allOf(contains('"isError":true'), contains('no pinned memory workspace')));
+      expect(answer, isNot(anyOf(contains('owner-service-marker'), contains('shared-service-marker'))));
+    });
+
+    test('a bearer is refused for a contextual tool once its turn has ended', () async {
+      late String bearer;
+      await researchDuringTurn(agent: 'a', beforeCall: (harness) async => bearer = harness.bearer);
+
+      final answer = await mcpCall(bearer, 'context_research', {'query': 'service-marker'});
+
+      expect(answer, allOf(contains('"isError":true'), contains('authenticated caller')));
+      expect(answer, isNot(anyOf(contains('owner-service-marker'), contains('agent-service-marker'))));
+    });
+
+    test('a direct call with the shared deployment credential stays refused', () async {
+      final answer = await _callRaw(runtime.server!.mcpHandler, 'context_research', {'query': 'service-marker'});
+
+      expect(answer, allOf(contains('"isError":true'), contains('authenticated caller')));
+    });
+  });
+
   group('shared knowledge write gate', () {
     // The runtime fixture's prepared backend stores no KG rows, so a granted kg_add cannot complete here: the
     // refusal arm runs through the registered tools, and the allow arm through wiki_write.
@@ -576,11 +687,20 @@ class _AllowDurableWrites implements McpCallerPolicy {
   void onDenied(String toolName) {}
 }
 
-class _ImmediateHarness extends FakeAgentHarness {
-  new(this.config, {required this.onCurationResult}) : super(supportsNoWorkTools: true);
+class _ImmediateHarness extends FakeAgentHarness implements HarnessTurnContextSink {
+  new(this.config, {required this.onCurationResult, required this.duringTurn}) : super(supportsNoWorkTools: true);
 
   final HarnessFactoryConfig config;
   final void Function(Map<String, dynamic> result) onCurationResult;
+  final Future<void> Function(_ImmediateHarness harness) duringTurn;
+
+  @override
+  HarnessTurnContext? activeTurnContext;
+
+  @override
+  void setTurnContext(HarnessTurnContext? context) => activeTurnContext = context;
+
+  String get bearer => config.harnessConfig.mcpGatewayToken!;
 
   @override
   Future<TurnResult> turn({
@@ -615,6 +735,7 @@ class _ImmediateHarness extends FakeAgentHarness {
       final content = (result['content'] as List).single as Map<String, dynamic>;
       onCurationResult(jsonDecode(content['text'] as String) as Map<String, dynamic>);
     }
+    await duringTurn(this);
     emit(ToolUseEvent(toolName: 'file_read', toolId: 'fixture-read', input: const {'path': 'fixture.md'}));
     await Future<void>.delayed(Duration.zero);
     return const TurnResult(finalText: 'Use the supplied owner candidate.');

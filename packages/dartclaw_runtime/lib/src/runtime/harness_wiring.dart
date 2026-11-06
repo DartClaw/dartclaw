@@ -9,7 +9,7 @@ import 'package:path/path.dart' as p;
 
 import '../concurrency/session_lock_manager.dart' show SessionLockNow, SessionLockTimerFactory;
 import '../mcp/harness_mcp_bearers.dart';
-import '../mcp/mcp_server.dart' show McpCallerContext;
+import '../mcp/mcp_server.dart' show McpCallerContext, McpCallerIdentity, mcpStewardPrincipal;
 import 'model_catalogue_discovery.dart';
 import 'storage_wiring.dart';
 import 'security_wiring.dart';
@@ -253,11 +253,18 @@ class HarnessWiring {
   ///
   /// The harness does not exist when its launch options are built, so the bearer
   /// resolves the turn through [bind], called once the harness has been created.
+  /// [logicalAgentId] is the agent the harness is leased for; null for the owner's primary harness and for a worker
+  /// that serves no logical agent.
   ({String bearer, void Function(AgentHarness harness) bind}) _mintMcpBearer({
+    String? logicalAgentId,
     bool Function(String toolName)? listsTool,
   }) {
     AgentHarness? owner;
-    final bearer = mcpBearers.mint(() => _activeTurnOf(owner), listsTool: listsTool);
+    final bearer = mcpBearers.mint(
+      () => _activeTurnOf(owner),
+      identity: () => _mcpCallerOf(_activeTurnContextOf(owner), logicalAgentId),
+      listsTool: listsTool,
+    );
     return (
       bearer: bearer,
       bind: (harness) {
@@ -279,8 +286,24 @@ class HarnessWiring {
         rawProviderToolName: 'mcp__${dartclawMcpServerName}__$toolName',
       );
 
-  static TurnProvenance? _activeTurnOf(AgentHarness? harness) =>
-      harness is HarnessTurnContextSink ? (harness as HarnessTurnContextSink).activeTurnContext?.provenance : null;
+  static HarnessTurnContext? _activeTurnContextOf(AgentHarness? harness) =>
+      harness is HarnessTurnContextSink ? (harness as HarnessTurnContextSink).activeTurnContext : null;
+
+  static TurnProvenance? _activeTurnOf(AgentHarness? harness) => _activeTurnContextOf(harness)?.provenance;
+
+  /// Whom a host harness's MCP call serves: the session its running turn is bound to, as the host memory tools
+  /// read it from the same turn context, and the logical agent it was leased for.
+  ///
+  /// The agent comes from the lease rather than from the context's `agentName`, which also names non-agent turns
+  /// (`task`, `cron:<id>`) that [McpCallerIdentity.agentId] must not claim. The principal is the steward for the
+  /// owner's harness, as for the gateway token, and `agent:<id>` for an agent's, the form its memory principal takes.
+  static McpCallerIdentity? _mcpCallerOf(HarnessTurnContext? turn, String? logicalAgentId) => turn == null
+      ? null
+      : McpCallerIdentity(
+          authorityId: logicalAgentId == null ? mcpStewardPrincipal : 'agent:$logicalAgentId',
+          sessionId: turn.sessionId,
+          agentId: logicalAgentId,
+        );
 
   void _revokeMcpBearer(AgentHarness harness) {
     final bearer = _mcpBearerByHarness.remove(harness);
@@ -1144,6 +1167,7 @@ class HarnessWiring {
         final workerBearer = request.policy.isContainer || _harnessConfig.mcpServerUrl == null
             ? null
             : _mintMcpBearer(
+                logicalAgentId: request.logicalAgentId,
                 listsTool: request.logicalAgentId == null ? null : _listsMcpToolFor(request.logicalAgentId!),
               );
         final workerHarnessConfig = _harnessConfig.copyWith(

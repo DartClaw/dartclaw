@@ -199,6 +199,27 @@ void main() {
       expect([for (final resolve in resolvers) resolve()], [primaryTurn, null]);
     });
 
+    test('each bearer names the session its harness is running as the owner, and nobody outside a turn', () async {
+      await wireWithRecordingFactory(GatewayConfig(authMode: 'token', token: 'c' * 64));
+      await acquireHostWorker();
+      final identities = [
+        for (final config in configs)
+          harnessWiring!.mcpBearers.resolve(config.harnessConfig.mcpGatewayToken!)!.identity!,
+      ];
+      HarnessTurnContext context(String sessionId) =>
+          HarnessTurnContext(sessionId: sessionId, turnId: 't', source: 'channel', agentName: 'workflow-step');
+
+      expect([for (final identity in identities) identity()], [null, null]);
+      harnesses[0].setTurnContext(context('primary-session'));
+      harnesses[1].setTurnContext(context('worker-session'));
+
+      // `agentName` names non-agent turns too, so a worker leased for no logical agent claims none.
+      expect([for (final identity in identities) identity()].map((i) => (i!.authorityId, i.sessionId, i.agentId)), [
+        ('system', 'primary-session', null),
+        ('system', 'worker-session', null),
+      ]);
+    });
+
     test('a worker bearer stops resolving once its harness is disposed', () async {
       await wireWithRecordingFactory(GatewayConfig(authMode: 'token', token: 'c' * 64));
       await acquireHostWorker();

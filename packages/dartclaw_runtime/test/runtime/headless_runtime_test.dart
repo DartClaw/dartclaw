@@ -214,12 +214,6 @@ steps:
     expect(worker.lastSystemPrompt, isNot(contains('Memory retrieval')));
     expect(worker.lastSystemPrompt, isNot(contains('memory_read')));
     expect(worker.lastDirectory, workflowWorkspace.path);
-    expect(factoryConfig.onMemoryApply, isNull);
-    expect(factoryConfig.onMemoryObserve, isNull);
-    expect(factoryConfig.onContextualMemoryApply, isNull);
-    expect(factoryConfig.onContextualMemoryObserve, isNull);
-    expect(factoryConfig.onMemorySearch, isNull);
-    expect(factoryConfig.onMemoryRead, isNull);
     expect(factoryConfig.ownMcpToolCanonicals.keys.where((name) => name.startsWith('memory_')), isEmpty);
     expect(runtime.selfImprovement, isNull);
 

@@ -1088,7 +1088,7 @@ them by default, and a named MCP client has none. Container isolation changes wh
 
 ## Memory MCP Tools
 
-These tools are available to the agent during conversations. They're exposed via an in-process MCP server inside the Dart host, and agents reach them over the JSONL control protocol.
+These tools are available to the agent during conversations. They're served by DartClaw's `/mcp` endpoint, which each harness reaches with a bearer minted for it (a container harness through its own bridge), so they need a running `dartclaw serve`.
 
 | Tool | Parameters | Description |
 |------|-----------|-------------|

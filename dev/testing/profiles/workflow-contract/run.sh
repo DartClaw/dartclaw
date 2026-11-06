@@ -18,8 +18,8 @@ fi
 
 TESTS=(
   "packages/dartclaw_workflow/test/workflow/built_in_workflow_contracts_test.dart"
-  "packages/dartclaw_workflow/test/workflow/workflow_builtin_story_and_implement_test.dart"
-  "packages/dartclaw_workflow/test/workflow/workflow_builtin_plan_and_implement_test.dart"
+  "packages/dartclaw_workflow/test/workflow/workflow_builtin_implement_story_test.dart"
+  "packages/dartclaw_workflow/test/workflow/workflow_builtin_implement_prd_test.dart"
   "packages/dartclaw_workflow/test/workflow/workflow_builtin_code_review_test.dart"
   "packages/dartclaw_workflow/test/workflow/context_extractor_test.dart"
   "packages/dartclaw_workflow/test/workflow/context_extractor_path_outputs_test.dart"

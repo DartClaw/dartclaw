@@ -62,7 +62,7 @@ void main() {
 
     test('S03: story reviews and the plan review merge; a story that needed remediation contributes nothing', () {
       final findings = collectFollowUpFindings(
-        _builtIn('plan-and-implement.yaml'),
+        _builtIn('implement-prd.yaml'),
         _context({
           'story_results': [
             {
@@ -87,9 +87,9 @@ void main() {
       expect(_locations(findings), ['story1.dart:1', 'plan.dart:9']);
     });
 
-    test('plan-and-implement: a remediated plan review is superseded by the bare re-review verdict', () {
+    test('implement-prd: a remediated plan review is superseded by the bare re-review verdict', () {
       final findings = collectFollowUpFindings(
-        _builtIn('plan-and-implement.yaml'),
+        _builtIn('implement-prd.yaml'),
         _context({
           'story_results': <Object?>[],
           'plan-review.verdict': _verdict([_finding('high', 'plan.dart:1')]),
@@ -102,9 +102,9 @@ void main() {
       expect(_locations(findings), ['plan.dart:2']);
     });
 
-    test('story-and-implement: an integrated-review verdict with a zero gating count lists its low finding', () {
+    test('implement-story: an integrated-review verdict with a zero gating count lists its low finding', () {
       final findings = collectFollowUpFindings(
-        _builtIn('story-and-implement.yaml'),
+        _builtIn('implement-story.yaml'),
         _context({
           'integrated-review.verdict': _verdict([_finding('low', 'x.dart:1')]),
           'integrated-review.gating_findings_count': 0,

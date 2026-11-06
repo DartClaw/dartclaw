@@ -889,7 +889,7 @@ mcp_servers:
         'POST',
         Uri.parse('http://localhost/api/workflows/run'),
         body: jsonEncode({
-          'definition': 'story-and-implement',
+          'definition': 'implement-story',
           'variables': {'FEATURE': 'Missing ref regression', 'PROJECT': 'alpha', 'BRANCH': 'missing/ref'},
         }),
         headers: {'content-type': 'application/json', 'host': 'localhost'},

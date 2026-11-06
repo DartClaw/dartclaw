@@ -56,7 +56,7 @@ void main() {
             .map((file) => p.basename(file.path))
             .toList()
           ..sort();
-    expect(names, equals(['code-review.yaml', 'plan-and-implement.yaml', 'story-and-implement.yaml']));
+    expect(names, equals(['code-review.yaml', 'implement-prd.yaml', 'implement-story.yaml']));
 
     final copiedAgain = await WorkflowMaterializer.materialize(
       dataDir: tempDir.path,
@@ -100,7 +100,7 @@ void main() {
       }
     });
 
-    for (final name in ['code-review.yaml', 'plan-and-implement.yaml', 'story-and-implement.yaml']) {
+    for (final name in ['code-review.yaml', 'implement-prd.yaml', 'implement-story.yaml']) {
       final sourcePath = p.join(_workflowDefinitionsDir, name);
       File(sourcePath).copySync(p.join(sourceDir.path, name));
     }
@@ -128,7 +128,7 @@ void main() {
       }
     });
 
-    for (final name in ['code-review.yaml', 'plan-and-implement.yaml', 'story-and-implement.yaml']) {
+    for (final name in ['code-review.yaml', 'implement-prd.yaml', 'implement-story.yaml']) {
       final sourcePath = p.join(_workflowDefinitionsDir, name);
       File(sourcePath).copySync(p.join(sourceDir.path, name));
     }
@@ -153,7 +153,7 @@ void main() {
       }
     });
 
-    for (final name in ['plan-and-implement.yaml', 'story-and-implement.yaml']) {
+    for (final name in ['implement-prd.yaml', 'implement-story.yaml']) {
       File(p.join(_workflowDefinitionsDir, name)).copySync(p.join(sourceDir.path, name));
     }
 
@@ -222,7 +222,7 @@ void main() {
       }
     });
 
-    for (final name in ['plan-and-implement.yaml', 'story-and-implement.yaml']) {
+    for (final name in ['implement-prd.yaml', 'implement-story.yaml']) {
       File(p.join(_workflowDefinitionsDir, name)).copySync(p.join(sourceDir.path, name));
     }
 

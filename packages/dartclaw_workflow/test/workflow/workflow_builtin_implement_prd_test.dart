@@ -22,9 +22,9 @@ void main() {
   setUp(driver.setUp);
   tearDown(driver.tearDown);
 
-  test('plan-and-implement integration runs per-story foreach pipeline after merged plan step', () async {
+  test('implement-prd integration runs per-story foreach pipeline after merged plan step', () async {
     final trace = await driver.executeBuiltInWorkflow(
-      workflowFileName: 'plan-and-implement.yaml',
+      workflowFileName: 'implement-prd.yaml',
       variables: {'FEATURE': 'Ship validate step', 'PROJECT': 'demo-project', 'BRANCH': 'main', 'MAX_PARALLEL': '1'},
       responseForStep: (queued) async {
         return switch (queued.stepKey) {
@@ -87,7 +87,7 @@ void main() {
               },
             },
           ),
-          _ => planAndImplementCommonStub(
+          _ => implementPrdCommonStub(
             queued,
             storyResult: 'STORY_RESULT_${queued.mapIndex == 0 ? 'ALPHA' : 'BETA'}',
             branch: queued.mapIndex == 0 ? 'story-alpha' : 'story-beta',
@@ -151,7 +151,7 @@ void main() {
           },
         },
       ),
-      _ => planAndImplementCommonStub(queued),
+      _ => implementPrdCommonStub(queued),
     };
 
     const reviewVars = {
@@ -209,7 +209,7 @@ void main() {
       })
     >
     startWithReview({required bool planOnDisk, String planReview = 'true'}) async {
-      final definition = await driver.loadBuiltIn('plan-and-implement.yaml');
+      final definition = await driver.loadBuiltIn('implement-prd.yaml');
       driver.ensureProject('demo-project');
       final variables = {...reviewVars, 'PLAN_REVIEW': planReview};
       final stubs = driver.attachStubs(
@@ -229,7 +229,7 @@ void main() {
 
     test('without PLAN_REVIEW the gate is one skipped step and the run is unchanged', () async {
       final trace = await driver.executeBuiltInWorkflow(
-        workflowFileName: 'plan-and-implement.yaml',
+        workflowFileName: 'implement-prd.yaml',
         variables: reviewVars,
         responseForStep: (queued) => respond(queued, planOnDisk: false),
       );
@@ -284,7 +284,7 @@ void main() {
     });
 
     test('under the auto approvals policy the gate approves itself and never requests changes', () async {
-      final definition = await driver.loadBuiltIn('plan-and-implement.yaml');
+      final definition = await driver.loadBuiltIn('implement-prd.yaml');
       driver.ensureProject('demo-project');
       final variables = {...reviewVars, 'PLAN_REVIEW': 'true'};
       final stubs = driver.attachStubs(
@@ -312,9 +312,9 @@ void main() {
     });
   });
 
-  test('plan-and-implement integration binds project-aware steps to the workflow PROJECT', () async {
+  test('implement-prd integration binds project-aware steps to the workflow PROJECT', () async {
     final trace = await driver.executeBuiltInWorkflow(
-      workflowFileName: 'plan-and-implement.yaml',
+      workflowFileName: 'implement-prd.yaml',
       variables: {
         'FEATURE': 'Project binding check for plan workflow',
         'PROJECT': 'demo-project',
@@ -364,7 +364,7 @@ void main() {
               },
             },
           ),
-          _ => planAndImplementCommonStub(
+          _ => implementPrdCommonStub(
             queued,
             storyResult: 'PROJECT_BOUND_RESULT',
             branch: 'project-bound-story',
@@ -386,10 +386,10 @@ void main() {
   });
 
   test(
-    'plan-and-implement marks per-story analysis steps as worktree-bound when map parallelism resolves to per-map-item',
+    'implement-prd marks per-story analysis steps as worktree-bound when map parallelism resolves to per-map-item',
     () async {
       final trace = await driver.executeBuiltInWorkflow(
-        workflowFileName: 'plan-and-implement.yaml',
+        workflowFileName: 'implement-prd.yaml',
         variables: {
           'FEATURE': 'Per-map-item worktree flag check',
           'PROJECT': 'demo-project',
@@ -431,7 +431,7 @@ void main() {
                 },
               },
             ),
-            _ => planAndImplementCommonStub(
+            _ => implementPrdCommonStub(
               queued,
               branch: 'story-branch-${queued.mapIndex}',
               worktreePath: '/tmp/worktrees/story-${queued.mapIndex}',
@@ -448,10 +448,10 @@ void main() {
     },
   );
 
-  test('plan-and-implement discovery prompt excludes authored feature text', () async {
+  test('implement-prd discovery prompt excludes authored feature text', () async {
     const feature = 'FEATURE_SHOULD_NOT_APPEAR_IN_DISCOVERY_PROMPT';
     final trace = await driver.executeBuiltInWorkflow(
-      workflowFileName: 'plan-and-implement.yaml',
+      workflowFileName: 'implement-prd.yaml',
       variables: {
         'FEATURE': feature,
         'PROJECT': 'demo-project',
@@ -496,7 +496,7 @@ void main() {
               },
             },
           ),
-          _ => planAndImplementCommonStub(queued, storyResult: 'STORY_RESULT'),
+          _ => implementPrdCommonStub(queued, storyResult: 'STORY_RESULT'),
         };
       },
     );
@@ -509,10 +509,10 @@ void main() {
     expect(discover, isNot(contains('feature/discovery-baseline')));
   });
 
-  test('plan-and-implement threads authored feature only into discovery', () async {
+  test('implement-prd threads authored feature only into discovery', () async {
     const feature = 'Create exactly two thin note stories from this request.';
     final trace = await driver.executeBuiltInWorkflow(
-      workflowFileName: 'plan-and-implement.yaml',
+      workflowFileName: 'implement-prd.yaml',
       variables: {'FEATURE': feature, 'PROJECT': 'demo-project', 'BRANCH': 'main', 'MAX_PARALLEL': '1'},
       responseForStep: (queued) async {
         return switch (queued.stepKey) {
@@ -543,7 +543,7 @@ void main() {
               },
             },
           ),
-          _ => planAndImplementCommonStub(queued, storyResult: 'Implemented the thin story.'),
+          _ => implementPrdCommonStub(queued, storyResult: 'Implemented the thin story.'),
         };
       },
     );
@@ -558,9 +558,9 @@ void main() {
     expect(plan, isNot(contains('<FEATURE>')));
   });
 
-  test('plan-and-implement normalizes relative story spec paths against the emitted plan path', () async {
+  test('implement-prd normalizes relative story spec paths against the emitted plan path', () async {
     final trace = await driver.executeBuiltInWorkflow(
-      workflowFileName: 'plan-and-implement.yaml',
+      workflowFileName: 'implement-prd.yaml',
       variables: {
         'FEATURE': 'Normalize story spec paths',
         'PROJECT': 'demo-project',
@@ -591,7 +591,7 @@ void main() {
               },
             },
           ),
-          _ => planAndImplementCommonStub(queued),
+          _ => implementPrdCommonStub(queued),
         };
       },
     );
@@ -603,10 +603,10 @@ void main() {
   });
 
   test(
-    'plan-and-implement integration enters remediation when plan-review finds issues and exits after re-validation',
+    'implement-prd integration enters remediation when plan-review finds issues and exits after re-validation',
     () async {
       final trace = await driver.executeBuiltInWorkflow(
-        workflowFileName: 'plan-and-implement.yaml',
+        workflowFileName: 'implement-prd.yaml',
         variables: {
           'FEATURE': 'Loop until findings are cleared',
           'PROJECT': 'demo-project',
@@ -733,7 +733,7 @@ void main() {
     };
 
     final trace = await driver.executeBuiltInWorkflow(
-      workflowFileName: 'plan-and-implement.yaml',
+      workflowFileName: 'implement-prd.yaml',
       variables: {'FEATURE': 'Follow-ups', 'PROJECT': 'demo-project', 'BRANCH': 'main', 'MAX_PARALLEL': '1'},
       responseForStep: (queued) async {
         return switch (queued.stepKey) {
@@ -793,7 +793,7 @@ void main() {
               'plan-review.verdict': verdict('medium', 'plan.dart:9'),
             },
           ),
-          _ => planAndImplementCommonStub(
+          _ => implementPrdCommonStub(
             queued,
             branch: 'story-branch-${queued.mapIndex}',
             worktreePath: '/tmp/worktrees/story-${queued.mapIndex}',
@@ -813,15 +813,15 @@ void main() {
   });
 
   // A6: discovery/reuse/resume fast-path matrix. Each row drives the shipped
-  // plan-and-implement graph with a distinct discover-plan-state payload and
+  // implement-prd graph with a distinct discover-plan-state payload and
   // asserts the resulting prd/plan/implement/plan-review step counts (plus the
   // implement-prompt path where the original test did). One row per original
   // behavioral case; a failing row names its scenario.
-  group('plan-and-implement discovery/reuse/resume matrix', () {
+  group('implement-prd discovery/reuse/resume matrix', () {
     for (final row in _discoveryMatrix) {
-      test('plan-and-implement ${row.name}', () async {
+      test('implement-prd ${row.name}', () async {
         final trace = await driver.executeBuiltInWorkflow(
-          workflowFileName: 'plan-and-implement.yaml',
+          workflowFileName: 'implement-prd.yaml',
           variables: {'FEATURE': row.feature, 'PROJECT': 'demo-project', 'BRANCH': 'main', 'MAX_PARALLEL': '1'},
           responseForStep: (queued) async {
             switch (queued.stepKey) {
@@ -844,7 +844,7 @@ void main() {
                   },
                 );
               default:
-                return planAndImplementCommonStub(
+                return implementPrdCommonStub(
                   queued,
                   branch: 'matrix-story',
                   worktreePath: '/tmp/worktrees/matrix-story',

@@ -427,8 +427,8 @@ void main() {
     test('maintained inline verification commands pass the substituted artifacts path as one argument', () async {
       final customDir = findAncestorDir(['.dartclaw/workflows/custom']);
       for (final file in const [
-        'story-and-implement-inline.yaml',
-        'plan-and-implement-inline.yaml',
+        'implement-story-inline.yaml',
+        'implement-prd-inline.yaml',
         'review-and-remediate-inline.yaml',
       ]) {
         final definition = WorkflowDefinitionParser().parse(File(p.join(customDir, file)).readAsStringSync());

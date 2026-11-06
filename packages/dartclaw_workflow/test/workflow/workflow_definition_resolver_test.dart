@@ -16,7 +16,7 @@ void main() {
     });
 
     test('applies stepDefaults pattern to steps without explicit provider/model', () async {
-      final def = await parser.parseFile(builtInWorkflowPath('plan-and-implement.yaml'));
+      final def = await parser.parseFile(builtInWorkflowPath('implement-prd.yaml'));
       final resolved = resolver.resolve(def);
       final plan = resolved.steps.firstWhere((s) => s.id == 'plan');
       expect(plan.provider, '@planner');
@@ -76,7 +76,7 @@ steps:
     });
 
     test('round-trips the three built-in workflows through emitYaml → parser', () async {
-      for (final name in ['plan-and-implement.yaml', 'story-and-implement.yaml', 'code-review.yaml']) {
+      for (final name in ['implement-prd.yaml', 'implement-story.yaml', 'code-review.yaml']) {
         final def = await parser.parseFile(builtInWorkflowPath(name));
         final resolved = resolver.resolve(def);
         final yaml = resolver.emitYaml(resolved);
@@ -95,9 +95,9 @@ steps:
     });
 
     test('emitYaml preserves each path output\'s declared selector through reparse', () async {
-      final def = await parser.parseFile(builtInWorkflowPath('plan-and-implement.yaml'));
+      final def = await parser.parseFile(builtInWorkflowPath('implement-prd.yaml'));
       final resolved = resolver.resolve(def);
-      final reparsed = parser.parse(resolver.emitYaml(resolved), sourcePath: 'resolved:plan-and-implement.yaml');
+      final reparsed = parser.parse(resolver.emitYaml(resolved), sourcePath: 'resolved:implement-prd.yaml');
 
       // Three `format: path` outputs on one step whose only discriminator is the
       // declared selector: dropping it from the emit would collapse them onto the
@@ -116,7 +116,7 @@ steps:
     });
 
     test('sliceStep emits a single-step document that parses cleanly', () async {
-      final def = await parser.parseFile(builtInWorkflowPath('plan-and-implement.yaml'));
+      final def = await parser.parseFile(builtInWorkflowPath('implement-prd.yaml'));
       final resolved = resolver.resolve(def);
       final slice = resolver.sliceStep(resolved, 'plan');
       expect(slice, isNotNull);

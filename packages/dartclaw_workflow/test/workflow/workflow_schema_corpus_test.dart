@@ -22,11 +22,11 @@ void main() {
 
   test('all seven maintained workflows validate against the emitted schema', () {
     final paths = [
-      for (final name in ['plan-and-implement', 'story-and-implement', 'code-review'])
+      for (final name in ['implement-prd', 'implement-story', 'code-review'])
         p.join(root, 'packages', 'dartclaw_workflow', 'lib', 'src', 'workflow', 'definitions', '$name.yaml'),
       for (final name in [
-        'plan-and-implement-inline',
-        'story-and-implement-inline',
+        'implement-prd-inline',
+        'implement-story-inline',
         'review-and-remediate-inline',
         'multi-agent-review-inline',
       ])

@@ -7,7 +7,7 @@
 #
 # CLI commands:
 #   bash dev/testing/profiles/workflows/run.sh workflow list
-#   bash dev/testing/profiles/workflows/run.sh workflow run plan-and-implement -v 'REQUIREMENTS=...'
+#   bash dev/testing/profiles/workflows/run.sh workflow run implement-prd -v 'FEATURE=...'
 #   bash dev/testing/profiles/workflows/run.sh workflow status <run-id>
 #   bash dev/testing/profiles/workflows/run.sh workflow validate <file.yaml>
 #   bash dev/testing/profiles/workflows/run.sh tasks show <task-id> --json

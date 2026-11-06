@@ -1,6 +1,6 @@
 // Shared driver + stub helpers for the built-in workflow integration suites.
 //
-// The three per-workflow files (story-and-implement / plan-and-implement /
+// The three per-workflow files (implement-story / implement-prd /
 // code-review) each create a [BuiltInWorkflowDriver], call its setUp/tearDown
 // from the test hooks, and invoke [BuiltInWorkflowDriver.executeBuiltInWorkflow]
 // to run a shipped definition against a stubbed turn loop.
@@ -59,7 +59,7 @@ class StubResponse {
   const new({required this.outputs, this.worktreeJson, this.outcome, this.reason = ''});
 }
 
-StubResponse specAndImplementCommonStub(
+StubResponse implementStoryCommonStub(
   QueuedStep queued, {
   String specPath = 'docs/specs/test/spec.md',
   String specSource = 'synthesized',
@@ -91,7 +91,7 @@ StubResponse specAndImplementCommonStub(
   };
 }
 
-StubResponse planAndImplementCommonStub(
+StubResponse implementPrdCommonStub(
   QueuedStep queued, {
   String storyResult = 'Implemented the story.',
   String branch = 'story-branch',

@@ -21,11 +21,11 @@ void main() {
   setUp(driver.setUp);
   tearDown(driver.tearDown);
 
-  test('story-and-implement integration preserves the step context chain when validation passes', () async {
+  test('implement-story integration preserves the step context chain when validation passes', () async {
     final trace = await driver.executeBuiltInWorkflow(
-      workflowFileName: 'story-and-implement.yaml',
+      workflowFileName: 'implement-story.yaml',
       variables: {'FEATURE': 'Add validate step', 'PROJECT': 'demo-project', 'BRANCH': 'main'},
-      responseForStep: (queued) async => specAndImplementCommonStub(
+      responseForStep: (queued) async => implementStoryCommonStub(
         queued,
         diffSummary: 'IMPLEMENT_DIFF_MARKER',
         remediationSummary: 'No remediation needed',
@@ -40,12 +40,12 @@ void main() {
     expectReviewOutputDir(trace.tasksForStep('integrated-review').single);
   });
 
-  test('story-and-implement reuses an existing FIS without synthesis', () async {
+  test('implement-story reuses an existing FIS without synthesis', () async {
     final trace = await driver.executeBuiltInWorkflow(
-      workflowFileName: 'story-and-implement.yaml',
+      workflowFileName: 'implement-story.yaml',
       variables: {'FEATURE': 'dev/specs/test/s01-pre-authored.md', 'PROJECT': 'demo-project', 'BRANCH': 'main'},
       responseForStep: (queued) async =>
-          specAndImplementCommonStub(queued, specPath: 'dev/specs/test/s01-pre-authored.md', specSource: 'existing'),
+          implementStoryCommonStub(queued, specPath: 'dev/specs/test/s01-pre-authored.md', specSource: 'existing'),
     );
 
     expect(trace.finalRun?.status, WorkflowRunStatus.completed);
@@ -54,11 +54,11 @@ void main() {
     expect(trace.tasksForStep('integrated-review'), isNotEmpty);
   });
 
-  test('story-and-implement synthesizes an inline description before implementation', () async {
+  test('implement-story synthesizes an inline description before implementation', () async {
     final trace = await driver.executeBuiltInWorkflow(
-      workflowFileName: 'story-and-implement.yaml',
+      workflowFileName: 'implement-story.yaml',
       variables: {'FEATURE': 'A vague feature description', 'PROJECT': 'demo-project', 'BRANCH': 'main'},
-      responseForStep: (queued) async => specAndImplementCommonStub(queued),
+      responseForStep: (queued) async => implementStoryCommonStub(queued),
     );
 
     expect(trace.finalRun?.status, WorkflowRunStatus.completed);
@@ -69,11 +69,11 @@ void main() {
     expect(order.indexOf('spec'), lessThan(order.indexOf('implement')));
   });
 
-  test('story-and-implement stops before implementation when synthesis emits an empty path', () async {
+  test('implement-story stops before implementation when synthesis emits an empty path', () async {
     final trace = await driver.executeBuiltInWorkflow(
-      workflowFileName: 'story-and-implement.yaml',
+      workflowFileName: 'implement-story.yaml',
       variables: {'FEATURE': 'A feature requiring a FIS', 'PROJECT': 'demo-project', 'BRANCH': 'main'},
-      responseForStep: (queued) async => specAndImplementCommonStub(queued, specPath: ''),
+      responseForStep: (queued) async => implementStoryCommonStub(queued, specPath: ''),
     );
 
     expect(trace.finalRun?.status, WorkflowRunStatus.failed);
@@ -81,7 +81,7 @@ void main() {
     expect(trace.tasksForStep('implement'), isEmpty);
   });
 
-  test('story-and-implement stops before synthesis and implementation when a written PRD is rejected', () async {
+  test('implement-story stops before synthesis and implementation when a written PRD is rejected', () async {
     const feature = 'docs/specs/test/prd.md';
     final projectDir = Directory(p.join(driver.tempDir.path, 'projects', 'demo-project'));
     final prd = File(p.join(projectDir.path, feature));
@@ -91,30 +91,30 @@ void main() {
     );
 
     final trace = await driver.executeBuiltInWorkflow(
-      workflowFileName: 'story-and-implement.yaml',
+      workflowFileName: 'implement-story.yaml',
       variables: {'FEATURE': feature, 'PROJECT': 'demo-project', 'BRANCH': 'main'},
       detectResponseForFeature: (value) {
         expect(value, feature);
         return const StubResponse(
           outputs: {},
           outcome: 'failed',
-          reason: 'Written requirements belong in plan-and-implement',
+          reason: 'Written requirements belong in implement-prd',
         );
       },
-      responseForStep: (queued) async => specAndImplementCommonStub(queued),
+      responseForStep: (queued) async => implementStoryCommonStub(queued),
     );
 
     expect(trace.finalRun?.status, WorkflowRunStatus.failed);
-    expect(trace.finalRun?.errorMessage, contains('Written requirements belong in plan-and-implement'));
+    expect(trace.finalRun?.errorMessage, contains('Written requirements belong in implement-prd'));
     expect(trace.tasksForStep('spec'), isEmpty);
     expect(trace.tasksForStep('implement'), isEmpty);
   });
 
-  test('story-and-implement integration binds project-aware steps to the workflow PROJECT', () async {
+  test('implement-story integration binds project-aware steps to the workflow PROJECT', () async {
     final trace = await driver.executeBuiltInWorkflow(
-      workflowFileName: 'story-and-implement.yaml',
+      workflowFileName: 'implement-story.yaml',
       variables: {'FEATURE': 'Project binding check', 'PROJECT': 'demo-project', 'BRANCH': 'main'},
-      responseForStep: (queued) async => specAndImplementCommonStub(queued, includeRemediation: true),
+      responseForStep: (queued) async => implementStoryCommonStub(queued, includeRemediation: true),
     );
 
     expect(trace.finalRun?.status, WorkflowRunStatus.completed);
@@ -132,12 +132,12 @@ void main() {
     expect(trace.tasksForStep('re-review'), isEmpty);
   });
 
-  test('story-and-implement: spec step receives FEATURE but does not leak BRANCH text', () async {
+  test('implement-story: spec step receives FEATURE but does not leak BRANCH text', () async {
     const feature = 'FEATURE_SENTINEL_VALUE';
     final trace = await driver.executeBuiltInWorkflow(
-      workflowFileName: 'story-and-implement.yaml',
+      workflowFileName: 'implement-story.yaml',
       variables: {'FEATURE': feature, 'PROJECT': 'demo-project', 'BRANCH': 'feature/discovery-baseline'},
-      responseForStep: (queued) async => specAndImplementCommonStub(queued, includeRemediation: true),
+      responseForStep: (queued) async => implementStoryCommonStub(queued, includeRemediation: true),
     );
 
     // spec opts in to FEATURE via workflowVariables; the spec step's prompt
@@ -148,46 +148,43 @@ void main() {
     expect(spec, isNot(contains('feature/discovery-baseline')));
   });
 
-  test(
-    'story-and-implement: an integrated-review verdict below the gating severity yields a follow-up draft',
-    () async {
-      final trace = await driver.executeBuiltInWorkflow(
-        workflowFileName: 'story-and-implement.yaml',
-        variables: {'FEATURE': 'Add validate step', 'PROJECT': 'demo-project', 'BRANCH': 'main'},
-        responseForStep: (queued) async => switch (queued.stepKey) {
-          'integrated-review' => StubResponse(
-            outputs: {
-              ...reviewReportContext(
-                queued.stepKey,
-                stepArtifactsDir: stepArtifactsDirForTask(queued.task),
-                findingsCount: 1,
-                gatingFindingsCount: 0,
-              ),
-              'integrated-review.verdict': {
-                'pass': true,
-                'findings_count': 1,
-                'findings': [
-                  {'severity': 'low', 'location': 'lib/a.dart:3', 'description': 'rename this'},
-                ],
-                'summary': 's',
-              },
-            },
-          ),
-          _ => specAndImplementCommonStub(queued),
-        },
-      );
-
-      final run = trace.finalRun!;
-      expect(run.status, WorkflowRunStatus.completed, reason: run.errorMessage);
-      final draft = (await driver.harness.taskService.list(status: TaskStatus.draft)).single;
-      expect(draft.description, contains('[low] lib/a.dart:3: rename this'));
-      expect(workflowFollowUp(run), (taskId: draft.id, count: 1));
-    },
-  );
-
-  test('story-and-implement integration enters remediation when integrated-review finds issues and exits after re-review is clean', () async {
+  test('implement-story: an integrated-review verdict below the gating severity yields a follow-up draft', () async {
     final trace = await driver.executeBuiltInWorkflow(
-      workflowFileName: 'story-and-implement.yaml',
+      workflowFileName: 'implement-story.yaml',
+      variables: {'FEATURE': 'Add validate step', 'PROJECT': 'demo-project', 'BRANCH': 'main'},
+      responseForStep: (queued) async => switch (queued.stepKey) {
+        'integrated-review' => StubResponse(
+          outputs: {
+            ...reviewReportContext(
+              queued.stepKey,
+              stepArtifactsDir: stepArtifactsDirForTask(queued.task),
+              findingsCount: 1,
+              gatingFindingsCount: 0,
+            ),
+            'integrated-review.verdict': {
+              'pass': true,
+              'findings_count': 1,
+              'findings': [
+                {'severity': 'low', 'location': 'lib/a.dart:3', 'description': 'rename this'},
+              ],
+              'summary': 's',
+            },
+          },
+        ),
+        _ => implementStoryCommonStub(queued),
+      },
+    );
+
+    final run = trace.finalRun!;
+    expect(run.status, WorkflowRunStatus.completed, reason: run.errorMessage);
+    final draft = (await driver.harness.taskService.list(status: TaskStatus.draft)).single;
+    expect(draft.description, contains('[low] lib/a.dart:3: rename this'));
+    expect(workflowFollowUp(run), (taskId: draft.id, count: 1));
+  });
+
+  test('implement-story integration enters remediation when integrated-review finds issues and exits after re-review is clean', () async {
+    final trace = await driver.executeBuiltInWorkflow(
+      workflowFileName: 'implement-story.yaml',
       variables: {'FEATURE': 'Simplify-code workflows', 'PROJECT': 'demo-project', 'BRANCH': 'main'},
       responseForStep: (queued) async {
         return switch (queued.stepKey) {
@@ -226,10 +223,10 @@ void main() {
   });
 
   test(
-    'story-and-implement narrows to the re-review report after the first remediation pass clears the aggregate',
+    'implement-story narrows to the re-review report after the first remediation pass clears the aggregate',
     () async {
       final trace = await driver.executeBuiltInWorkflow(
-        workflowFileName: 'story-and-implement.yaml',
+        workflowFileName: 'implement-story.yaml',
         variables: {'FEATURE': 'Harden remediation loop', 'PROJECT': 'demo-project', 'BRANCH': 'main'},
         responseForStep: (queued) async {
           return switch (queued.stepKey) {
@@ -277,106 +274,103 @@ void main() {
     },
   );
 
-  test(
-    'story-and-implement commits generated artifacts to a local-path workflow branch and publishes to origin',
-    () async {
-      final tempDir = driver.tempDir;
-      final projectId = 'local-path-project';
-      final repoDir = Directory(p.join(tempDir.path, 'projects', projectId))..createSync(recursive: true);
-      final originDir = Directory(p.join(tempDir.path, 'origin.git'))..createSync(recursive: true);
+  test('implement-story commits generated artifacts to a local-path workflow branch and publishes to origin', () async {
+    final tempDir = driver.tempDir;
+    final projectId = 'local-path-project';
+    final repoDir = Directory(p.join(tempDir.path, 'projects', projectId))..createSync(recursive: true);
+    final originDir = Directory(p.join(tempDir.path, 'origin.git'))..createSync(recursive: true);
 
-      ProcessResult runGit(List<String> args, {String? workingDirectory}) {
-        final result = Process.runSync('git', args, workingDirectory: workingDirectory ?? repoDir.path);
-        if (result.exitCode != 0) {
-          fail('git ${args.join(' ')} failed in ${workingDirectory ?? repoDir.path}: ${result.stderr}');
-        }
-        return result;
+    ProcessResult runGit(List<String> args, {String? workingDirectory}) {
+      final result = Process.runSync('git', args, workingDirectory: workingDirectory ?? repoDir.path);
+      if (result.exitCode != 0) {
+        fail('git ${args.join(' ')} failed in ${workingDirectory ?? repoDir.path}: ${result.stderr}');
       }
+      return result;
+    }
 
-      runGit(['init', '--bare'], workingDirectory: originDir.path);
-      runGit(['init', '-b', 'main']);
-      runGit(['config', 'user.name', 'Workflow Test']);
-      runGit(['config', 'user.email', 'workflow-test@example.com']);
-      File(p.join(repoDir.path, 'README.md')).writeAsStringSync('# local-path\n');
-      File(p.join(repoDir.path, 'docs', 'specs', 'test', 'baseline-note.md'))
-        ..createSync(recursive: true)
-        ..writeAsStringSync('# Baseline\n');
-      runGit(['add', 'README.md', 'docs/specs/test/baseline-note.md']);
-      runGit(['commit', '-m', 'initial']);
-      runGit(['remote', 'add', 'origin', originDir.path]);
-      runGit(['push', '-u', 'origin', 'main']);
-      final mainHeadBefore = (runGit(['rev-parse', 'main']).stdout as String).trim();
+    runGit(['init', '--bare'], workingDirectory: originDir.path);
+    runGit(['init', '-b', 'main']);
+    runGit(['config', 'user.name', 'Workflow Test']);
+    runGit(['config', 'user.email', 'workflow-test@example.com']);
+    File(p.join(repoDir.path, 'README.md')).writeAsStringSync('# local-path\n');
+    File(p.join(repoDir.path, 'docs', 'specs', 'test', 'baseline-note.md'))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('# Baseline\n');
+    runGit(['add', 'README.md', 'docs/specs/test/baseline-note.md']);
+    runGit(['commit', '-m', 'initial']);
+    runGit(['remote', 'add', 'origin', originDir.path]);
+    runGit(['push', '-u', 'origin', 'main']);
+    final mainHeadBefore = (runGit(['rev-parse', 'main']).stdout as String).trim();
 
-      String? workflowBranch;
-      final turnAdapter = standardTurnAdapter(
-        initializeWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async {
-          workflowBranch = 'workflow/$runId';
-          runGit(['checkout', '-b', workflowBranch!, baseRef]);
-          return WorkflowGitIntegrationBranchResult(integrationBranch: workflowBranch!);
-        },
-        publishWorkflowBranch: ({required runId, required projectId, required branch}) async {
-          runGit(['push', 'origin', branch]);
-          runGit(['checkout', 'main']);
-          return WorkflowGitPublishResult(
-            status: WorkflowPublishStatus.success,
-            branch: branch,
-            remote: 'origin',
-            prUrl: '',
-          );
-        },
-      );
+    String? workflowBranch;
+    final turnAdapter = standardTurnAdapter(
+      initializeWorkflowGit: ({required runId, required projectId, required baseRef, required perMapItem}) async {
+        workflowBranch = 'workflow/$runId';
+        runGit(['checkout', '-b', workflowBranch!, baseRef]);
+        return WorkflowGitIntegrationBranchResult(integrationBranch: workflowBranch!);
+      },
+      publishWorkflowBranch: ({required runId, required projectId, required branch}) async {
+        runGit(['push', 'origin', branch]);
+        runGit(['checkout', 'main']);
+        return WorkflowGitPublishResult(
+          status: WorkflowPublishStatus.success,
+          branch: branch,
+          remote: 'origin',
+          prUrl: '',
+        );
+      },
+    );
 
-      final trace = await driver.executeBuiltInWorkflow(
-        workflowFileName: 'story-and-implement.yaml',
-        variables: {'FEATURE': 'Local-path workflow publish', 'PROJECT': projectId, 'BRANCH': 'main'},
-        turnAdapter: turnAdapter,
-        responseForStep: (queued) async {
-          return switch (queued.stepKey) {
-            'spec' => () {
-              final specFile = File(p.join(repoDir.path, 'docs', 'specs', 'test', 'spec.md'));
-              specFile.parent.createSync(recursive: true);
-              specFile.writeAsStringSync('Local-path spec artifact\n');
-              return StubResponse(
-                outputs: {'spec_path': 'docs/specs/test/spec.md', 'spec_source': 'synthesized'},
-                worktreeJson: {
-                  'path': repoDir.path,
-                  'branch': workflowBranch ?? 'workflow/story-and-implement-run',
-                  'createdAt': DateTime.now().toIso8601String(),
-                },
-              );
-            }(),
-            _ => specAndImplementCommonStub(
-              queued,
-              diffSummary: 'IMPLEMENT_DIFF_MARKER',
-              remediationSummary: 'No remediation needed',
-              includeRemediation: true,
-            ),
-          };
-        },
-      );
+    final trace = await driver.executeBuiltInWorkflow(
+      workflowFileName: 'implement-story.yaml',
+      variables: {'FEATURE': 'Local-path workflow publish', 'PROJECT': projectId, 'BRANCH': 'main'},
+      turnAdapter: turnAdapter,
+      responseForStep: (queued) async {
+        return switch (queued.stepKey) {
+          'spec' => () {
+            final specFile = File(p.join(repoDir.path, 'docs', 'specs', 'test', 'spec.md'));
+            specFile.parent.createSync(recursive: true);
+            specFile.writeAsStringSync('Local-path spec artifact\n');
+            return StubResponse(
+              outputs: {'spec_path': 'docs/specs/test/spec.md', 'spec_source': 'synthesized'},
+              worktreeJson: {
+                'path': repoDir.path,
+                'branch': workflowBranch ?? 'workflow/implement-story-run',
+                'createdAt': DateTime.now().toIso8601String(),
+              },
+            );
+          }(),
+          _ => implementStoryCommonStub(
+            queued,
+            diffSummary: 'IMPLEMENT_DIFF_MARKER',
+            remediationSummary: 'No remediation needed',
+            includeRemediation: true,
+          ),
+        };
+      },
+    );
 
-      expect(trace.finalRun?.status, WorkflowRunStatus.completed, reason: trace.finalRun?.errorMessage);
-      expect(workflowBranch, isNotNull);
+    expect(trace.finalRun?.status, WorkflowRunStatus.completed, reason: trace.finalRun?.errorMessage);
+    expect(workflowBranch, isNotNull);
 
-      final branchFile = runGit(['show', '${workflowBranch!}:docs/specs/test/spec.md']);
-      expect((branchFile.stdout as String), contains('Local-path spec artifact'));
+    final branchFile = runGit(['show', '${workflowBranch!}:docs/specs/test/spec.md']);
+    expect((branchFile.stdout as String), contains('Local-path spec artifact'));
 
-      final lsRemote = Process.runSync('git', ['ls-remote', '--heads', originDir.path, workflowBranch!]);
-      expect(lsRemote.exitCode, 0);
-      expect((lsRemote.stdout as String), contains('refs/heads/$workflowBranch'));
+    final lsRemote = Process.runSync('git', ['ls-remote', '--heads', originDir.path, workflowBranch!]);
+    expect(lsRemote.exitCode, 0);
+    expect((lsRemote.stdout as String), contains('refs/heads/$workflowBranch'));
 
-      final pushedFile = Process.runSync('git', [
-        '--git-dir',
-        originDir.path,
-        'show',
-        'refs/heads/$workflowBranch:docs/specs/test/spec.md',
-      ]);
-      expect(pushedFile.exitCode, 0);
-      expect((pushedFile.stdout as String), contains('Local-path spec artifact'));
+    final pushedFile = Process.runSync('git', [
+      '--git-dir',
+      originDir.path,
+      'show',
+      'refs/heads/$workflowBranch:docs/specs/test/spec.md',
+    ]);
+    expect(pushedFile.exitCode, 0);
+    expect((pushedFile.stdout as String), contains('Local-path spec artifact'));
 
-      final mainHeadAfter = (runGit(['rev-parse', 'main']).stdout as String).trim();
-      expect(mainHeadAfter, mainHeadBefore);
-      expect((runGit(['status', '--short', '--untracked-files=all']).stdout as String).trim(), isEmpty);
-    },
-  );
+    final mainHeadAfter = (runGit(['rev-parse', 'main']).stdout as String).trim();
+    expect(mainHeadAfter, mainHeadBefore);
+    expect((runGit(['status', '--short', '--untracked-files=all']).stdout as String).trim(), isEmpty);
+  });
 }

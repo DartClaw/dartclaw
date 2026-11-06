@@ -3,7 +3,7 @@
 // Drives `promoteWorkflowBranchLocally` and `commitWorkflowWorktreeChangesIfNeeded`
 // directly against a real-git fixture, without a codex harness. These tests
 // reproduce the failure modes that previously surfaced only in the 30–75-minute
-// E2E run (Issue B from the 2026-04-24 e2e-plan-and-implement log — inline-mode
+// E2E run (Issue B from the 2026-04-24 e2e-implement-prd log — inline-mode
 // integration worktree left dirty by upstream skills) and exercise explicit
 // error paths the happy-path suite didn't cover.
 //

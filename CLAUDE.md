@@ -78,7 +78,7 @@ Create a document that does not exist yet, and its entry here, from `project-doc
 
 ## Built-in DartClaw Workflows
 
-DartClaw ships three end-to-end YAML workflows – `story-and-implement`, `plan-and-implement`, `code-review` – in `packages/dartclaw_workflow/lib/src/workflow/definitions/`. They call skills from the AndThen 1.0 `andthen` plugin and use `dartclaw-*` only for four bundled discovery, validation, and merge skills.
+DartClaw ships three end-to-end YAML workflows – `implement-story`, `implement-prd`, `code-review` – in `packages/dartclaw_workflow/lib/src/workflow/definitions/`. They call skills from the AndThen 1.0 `andthen` plugin and use `dartclaw-*` only for four bundled discovery, validation, and merge skills.
 
 Run from this checkout: `dev/tools/dartclaw-workflows/run.sh` – full documentation in `dev/tools/dartclaw-workflows/README.md`.
 

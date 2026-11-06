@@ -287,8 +287,8 @@ bash dev/testing/profiles/workflow-contract/run.sh
 
 # Targeted live workflow canaries (requires real provider binary + credentials)
 bash dev/testing/profiles/workflow-live/run.sh --canary step-isolation
-bash dev/testing/profiles/workflow-live/run.sh --canary story-and-implement
-bash dev/testing/profiles/workflow-live/run.sh --canary plan-and-implement
+bash dev/testing/profiles/workflow-live/run.sh --canary implement-story
+bash dev/testing/profiles/workflow-live/run.sh --canary implement-prd
 bash dev/testing/profiles/workflow-live/run.sh --canary merge-resolve
 
 # Full live workflow sweep when affected coverage requires the whole matrix
@@ -298,7 +298,7 @@ bash dev/testing/profiles/workflow-live/run.sh --full
 # Fast iteration gate — keeps server/CLI/merge-resolve/fixture/step-isolation live tests.
 bash dev/testing/profiles/workflow-live/run.sh --full --skip-e2e
 
-# Only the heavy real-provider agent e2e (story-and-implement + plan-and-implement).
+# Only the heavy real-provider agent e2e (implement-story + implement-prd).
 # Long-running — launch detached (e.g. nohup … & disown) and poll the log.
 bash dev/testing/profiles/workflow-live/run.sh --e2e
 

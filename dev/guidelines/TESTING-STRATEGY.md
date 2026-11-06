@@ -214,8 +214,8 @@ Commands:
 ```bash
 bash dev/testing/profiles/workflow-contract/run.sh
 bash dev/testing/profiles/workflow-live/run.sh --canary step-isolation
-bash dev/testing/profiles/workflow-live/run.sh --canary story-and-implement
-bash dev/testing/profiles/workflow-live/run.sh --canary plan-and-implement
+bash dev/testing/profiles/workflow-live/run.sh --canary implement-story
+bash dev/testing/profiles/workflow-live/run.sh --canary implement-prd
 bash dev/testing/profiles/workflow-live/run.sh --canary merge-resolve
 bash dev/testing/profiles/workflow-live/run.sh --full
 ```

@@ -1,4 +1,4 @@
-// Component-tier reproducer for Issue C (2026-04-24 e2e-plan-and-implement log):
+// Component-tier reproducer for Issue C (2026-04-24 e2e-implement-prd log):
 // two parallel stories touching shared scaffolding files (STATE.md,
 // LEARNINGS.md, plan checklists, same test file) collide when their
 // promotions hit integration in sequence.

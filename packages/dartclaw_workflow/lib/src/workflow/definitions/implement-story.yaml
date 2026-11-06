@@ -1,4 +1,4 @@
-name: story-and-implement
+name: implement-story
 description: >-
   Full feature pipeline – write a specification, implement it with
   exec-plan, and run integrated review in authored order.

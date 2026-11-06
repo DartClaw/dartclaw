@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Run story-and-implement-inline in standalone mode — runs on the current
+# Run implement-story-inline in standalone mode — runs on the current
 # branch in the live checkout (no integration branch, no worktree, no
 # merge-back). For the worktree-isolated variant, invoke
-# `run.sh workflow run story-and-implement` directly.
+# `run.sh workflow run implement-story` directly.
 # Usage: bash dev/tools/dartclaw-workflows/story.sh <fis-path-or-feature-description>
 set -euo pipefail
 
@@ -13,4 +13,4 @@ if [ $# -eq 0 ]; then
   exit 64
 fi
 
-exec bash "$SCRIPT_DIR/run.sh" workflow run --standalone --allow-dirty-localpath story-and-implement-inline -v "FEATURE=$*"
+exec bash "$SCRIPT_DIR/run.sh" workflow run --standalone --allow-dirty-localpath implement-story-inline -v "FEATURE=$*"

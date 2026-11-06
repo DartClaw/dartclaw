@@ -1,6 +1,6 @@
-name: story-and-implement-inline
+name: implement-story-inline
 description: >-
-  Inline variant of story-and-implement – same pipeline, but runs directly on
+  Inline variant of implement-story – same pipeline, but runs directly on
   the current branch in the live checkout: no integration branch, no worktree,
   no merge-back at the end. Use when you want the workflow to operate on the
   branch you are already working on.

@@ -147,8 +147,8 @@ class DartclawRuntime {
   final TaskExecutor? taskExecutor;
 
   /// Workflow registry populated by [build]. Exposed so tests can assert that
-  /// the shipped built-in workflow definitions (`plan-and-implement`,
-  /// `story-and-implement`, `code-review`) register against the runtime skill
+  /// the shipped built-in workflow definitions (`implement-prd`,
+  /// `implement-story`, `code-review`) register against the runtime skill
   /// registry.
   final WorkflowRegistry workflowRegistry;
 

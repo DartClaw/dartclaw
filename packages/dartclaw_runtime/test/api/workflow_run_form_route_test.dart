@@ -26,7 +26,7 @@ void main() {
     workflows = FakeWorkflowService(taskService: tasks, eventBus: eventBus, dataDir: '/tmp/workflow-run-form-data');
     workflows.startResult = WorkflowRun(
       id: 'run-1',
-      definitionName: 'story-and-implement',
+      definitionName: 'implement-story',
       status: WorkflowRunStatus.running,
       startedAt: DateTime.utc(2026, 1, 1, 12),
       updatedAt: DateTime.utc(2026, 1, 1, 12),
@@ -34,7 +34,7 @@ void main() {
     );
     final definitions = InMemoryDefinitionSource([
       WorkflowDefinition(
-        name: 'story-and-implement',
+        name: 'implement-story',
         description: 'Demo',
         variables: const {'FEATURE': WorkflowVariable(required: true, description: 'Feature to build')},
         steps: const [
@@ -56,7 +56,7 @@ void main() {
         'POST',
         Uri.parse('http://localhost/api/workflows/run-form'),
         headers: {'content-type': 'application/x-www-form-urlencoded', 'HX-Request': 'true'},
-        body: 'definition=story-and-implement&var_FEATURE=Ship+CLI',
+        body: 'definition=implement-story&var_FEATURE=Ship+CLI',
       ),
     );
 
@@ -70,7 +70,7 @@ void main() {
         'POST',
         Uri.parse('http://localhost/api/workflows/run-form'),
         headers: {'content-type': 'application/x-www-form-urlencoded', 'HX-Request': 'true'},
-        body: 'definition=story-and-implement',
+        body: 'definition=implement-story',
       ),
     );
 
@@ -117,8 +117,8 @@ void main() {
   });
 
   test('a missing required variable is named by the same validation on both encodings', () async {
-    final jsonResult = await postJson({'definition': 'story-and-implement'});
-    final formResult = await postForm('definition=story-and-implement');
+    final jsonResult = await postJson({'definition': 'implement-story'});
+    final formResult = await postForm('definition=implement-story');
 
     expect(jsonResult.statusCode, 400);
     final error = (jsonDecode(await jsonResult.readAsString()) as Map<String, dynamic>)['error'] as Map;
@@ -137,7 +137,7 @@ void main() {
         Uri.parse('http://localhost/api/workflows/run'),
         headers: {'content-type': 'application/json'},
         body: Stream<List<int>>.fromIterable([
-          utf8.encode('{"definition":"story-and-implement","variables":{"FEATURE":"'),
+          utf8.encode('{"definition":"implement-story","variables":{"FEATURE":"'),
           utf8.encode('x' * (256 * 1024)),
           utf8.encode('"}}'),
         ]),
@@ -156,7 +156,7 @@ void main() {
         Uri.parse('http://localhost/api/workflows/run-form'),
         headers: {'content-type': 'application/x-www-form-urlencoded', 'HX-Request': 'true'},
         body: Stream<List<int>>.fromIterable([
-          utf8.encode('definition=story-and-implement&var_FEATURE='),
+          utf8.encode('definition=implement-story&var_FEATURE='),
           utf8.encode('x' * (256 * 1024)),
         ]),
       ),
@@ -192,7 +192,7 @@ void main() {
         'POST',
         Uri.parse('http://localhost/api/workflows/run-form'),
         headers: {'content-type': 'application/x-www-form-urlencoded', 'HX-Request': 'true'},
-        body: 'definition=story-and-implement&var_FEATURE=Ship+CLI',
+        body: 'definition=implement-story&var_FEATURE=Ship+CLI',
       ),
     );
 
@@ -211,7 +211,7 @@ void main() {
         'POST',
         Uri.parse('http://localhost/api/workflows/run-form'),
         headers: {'content-type': 'application/x-www-form-urlencoded', 'HX-Request': 'true'},
-        body: 'definition=story-and-implement&var_FEATURE=Ship+CLI',
+        body: 'definition=implement-story&var_FEATURE=Ship+CLI',
       ),
     );
 
@@ -223,7 +223,7 @@ void main() {
 
   group('run origin', () {
     test('the run form records surface web with no channel fields', () async {
-      final response = await postForm('definition=story-and-implement&var_FEATURE=Ship+CLI');
+      final response = await postForm('definition=implement-story&var_FEATURE=Ship+CLI');
 
       expect(response.statusCode, 201);
       expect(workflows.lastOrigin?.toJson(), {
@@ -238,13 +238,13 @@ void main() {
 
     test('the JSON API records api, or cli on the cli marker', () async {
       await postJson({
-        'definition': 'story-and-implement',
+        'definition': 'implement-story',
         'variables': {'FEATURE': 'x'},
       });
       expect(workflows.lastOrigin?.surface, 'api');
 
       await postJson({
-        'definition': 'story-and-implement',
+        'definition': 'implement-story',
         'variables': {'FEATURE': 'x'},
         'surface': 'cli',
       });
@@ -255,7 +255,7 @@ void main() {
     test('any other surface marker is refused with INVALID_INPUT and creates no run', () async {
       for (final marker in <Object?>['slack', 'web', 'api', 'googlechat', 'CLI', '', 42, true]) {
         final response = await postJson({
-          'definition': 'story-and-implement',
+          'definition': 'implement-story',
           'variables': {'FEATURE': 'x'},
           'surface': marker,
         });
@@ -270,7 +270,7 @@ void main() {
 
     test('no request field can set recipient, thread, session, sender or channel type', () async {
       await postJson({
-        'definition': 'story-and-implement',
+        'definition': 'implement-story',
         'variables': {'FEATURE': 'x'},
         'surface': 'cli',
         'channelType': 'slack',

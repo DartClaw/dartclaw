@@ -598,10 +598,10 @@ dartclaw workflow show <name> --standalone          # load from the local regist
 ### `workflow run`
 
 ```bash
-dartclaw workflow run story-and-implement --var FEATURE="Add search"
-dartclaw workflow run story-and-implement --json
-dartclaw workflow run story-and-implement --standalone --force --var FEATURE="Local run"
-dartclaw workflow run story-and-implement --standalone --json --var FEATURE="CI run"
+dartclaw workflow run implement-story --var FEATURE="Add search"
+dartclaw workflow run implement-story --json
+dartclaw workflow run implement-story --standalone --force --var FEATURE="Local run"
+dartclaw workflow run implement-story --standalone --json --var FEATURE="CI run"
 dartclaw workflow run code-review --approvals=auto-on-stall --var TARGET=HEAD
 ```
 

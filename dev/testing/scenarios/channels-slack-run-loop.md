@@ -173,11 +173,11 @@ Preparation (Owner, once per transport): in `$DATA/dartclaw.yaml`, set `channels
 
 ## S12: A Run Started From A Thread, Approved By Button
 
-The approval-gated run is `plan-and-implement` with `PLAN_REVIEW=true`, on the fixture project and with the smallest scope `workflow-plan-and-implement-publish` S2 uses; close any pull request it publishes afterwards.
+The approval-gated run is `implement-prd` with `PLAN_REVIEW=true`, on the fixture project and with the smallest scope `workflow-implement-prd-publish` S2 uses; close any pull request it publishes afterwards.
 
 ### Steps
 
-1. Owner: in a thread, ask the bot to start `plan-and-implement` with `PLAN_REVIEW=true` for the fixture project. Conversational: allow one retry and record it
+1. Owner: in a thread, ask the bot to start `implement-prd` with `PLAN_REVIEW=true` for the fixture project. Conversational: allow one retry and record it
 2. Runner: watch the thread and the audit log until the awaiting-approval post appears, and record the posts and their times
 3. Owner: click **Approve** as an admin
 4. Owner: click **Approve** again on the same post

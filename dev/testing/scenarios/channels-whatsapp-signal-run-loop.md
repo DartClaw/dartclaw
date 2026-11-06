@@ -12,7 +12,7 @@ Mark each step as the file convention says. A step where the model chooses the t
 
 Preparation (Owner, once): pair both devices as the private channel manual describes; list your own WhatsApp ID and Signal number under `governance.admin_senders`; open a test group on each channel (`group_access: allowlist` and the group in its allowlist, as the manual describes); register the workflow fixture project. None of these values is written into the repository.
 
-The approval-gated run is `plan-and-implement` with `PLAN_REVIEW=true`, on the fixture project and the smallest scope `workflow-plan-and-implement-publish` S2 uses.
+The approval-gated run is `implement-prd` with `PLAN_REVIEW=true`, on the fixture project and the smallest scope `workflow-implement-prd-publish` S2 uses.
 
 ## S1: WhatsApp, Run Started From A DM And A Group
 

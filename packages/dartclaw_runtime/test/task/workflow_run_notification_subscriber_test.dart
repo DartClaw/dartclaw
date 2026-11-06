@@ -359,7 +359,7 @@ void main() {
 
     test('a run started outside chat gets one thread per run in the configured channel, closed with the run', () async {
       subscribe([slack], configured: configuredSlack);
-      addRun('run-a', web, workflow: 'plan-and-implement');
+      addRun('run-a', web, workflow: 'implement-prd');
       addRun('run-b', web, workflow: 'code-review');
 
       status('run-a', WorkflowRunStatus.pending, WorkflowRunStatus.running);

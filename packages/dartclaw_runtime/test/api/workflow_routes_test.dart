@@ -31,7 +31,7 @@ import 'workflow_test_support.dart';
 // ──────────────────────────────────────────────────────────────────────────────
 
 WorkflowDefinition _makeDefinition({
-  String name = 'story-and-implement',
+  String name = 'implement-story',
   Map<String, WorkflowVariable>? variables,
   List<WorkflowStep>? steps,
 }) {
@@ -56,7 +56,7 @@ WorkflowDefinition _makeDefinition({
 
 WorkflowRun _makeRun({
   String id = 'run-001',
-  String definitionName = 'story-and-implement',
+  String definitionName = 'implement-story',
   WorkflowRunStatus status = WorkflowRunStatus.running,
   int currentStepIndex = 0,
   Map<String, dynamic>? definitionJson,
@@ -144,7 +144,7 @@ void main() {
         'POST',
         '/api/workflows/run',
         json: {
-          'definition': 'story-and-implement',
+          'definition': 'implement-story',
           'variables': {'FEATURE': 'User pagination'},
         },
         status: 201,
@@ -152,7 +152,7 @@ void main() {
 
       expect(body['id'], 'run-001');
       expect(body['status'], 'running');
-      expect(workflows.calls, contains('start:story-and-implement'));
+      expect(workflows.calls, contains('start:implement-story'));
     });
 
     test('returns 400 for missing definition field', () async {
@@ -183,7 +183,7 @@ void main() {
       final body = await api.expectJsonObject(
         'POST',
         '/api/workflows/run',
-        json: {'definition': 'story-and-implement', 'variables': {}},
+        json: {'definition': 'implement-story', 'variables': {}},
         status: 400,
       );
 
@@ -208,7 +208,7 @@ void main() {
       final body = await api.expectJsonObject(
         'POST',
         '/api/workflows/run',
-        json: {'definition': 'story-and-implement', 'variables': 'not-a-map'},
+        json: {'definition': 'implement-story', 'variables': 'not-a-map'},
         status: 400,
       );
 
@@ -222,7 +222,7 @@ void main() {
         'POST',
         '/api/workflows/run',
         json: {
-          'definition': 'story-and-implement',
+          'definition': 'implement-story',
           'variables': {'FEATURE': 'Pagination'},
           'project': 'my-project',
         },
@@ -237,7 +237,7 @@ void main() {
         'POST',
         '/api/workflows/run',
         json: {
-          'definition': 'story-and-implement',
+          'definition': 'implement-story',
           'variables': {'FEATURE': 'Pagination'},
           'allowDirtyLocalPath': true,
         },
@@ -252,7 +252,7 @@ void main() {
         'POST',
         '/api/workflows/run',
         json: {
-          'definition': 'story-and-implement',
+          'definition': 'implement-story',
           'variables': {'FEATURE': 'Pagination'},
           'inline': true,
         },
@@ -267,7 +267,7 @@ void main() {
         'POST',
         '/api/workflows/run',
         json: {
-          'definition': 'story-and-implement',
+          'definition': 'implement-story',
           'variables': {'FEATURE': 'Pagination'},
         },
         status: 201,
@@ -281,7 +281,7 @@ void main() {
         'POST',
         '/api/workflows/run',
         json: {
-          'definition': 'story-and-implement',
+          'definition': 'implement-story',
           'variables': {'FEATURE': 'Pagination'},
           'approvals': 'auto',
         },
@@ -296,7 +296,7 @@ void main() {
         'POST',
         '/api/workflows/run',
         json: {
-          'definition': 'story-and-implement',
+          'definition': 'implement-story',
           'variables': {'FEATURE': 'Pagination'},
           'approvals': 'bogus',
         },
@@ -317,7 +317,7 @@ void main() {
         'POST',
         '/api/workflows/run',
         json: {
-          'definition': 'story-and-implement',
+          'definition': 'implement-story',
           'variables': {'FEATURE': 'Pagination'},
         },
         status: 409,
@@ -333,7 +333,7 @@ void main() {
         'POST',
         '/api/workflows/run',
         json: {
-          'definition': 'story-and-implement',
+          'definition': 'implement-story',
           'variables': {'FEATURE': 'Pagination'},
         },
         status: 500,
@@ -348,7 +348,7 @@ void main() {
         'POST',
         '/api/workflows/run',
         json: {
-          'definition': 'story-and-implement',
+          'definition': 'implement-story',
           'variables': {'FEATURE': 'Pagination'},
         },
         status: 201,
@@ -412,11 +412,11 @@ void main() {
       workflows.listResult = [];
 
       final response = await handler(
-        Request('GET', Uri.parse('http://localhost/api/workflows/runs?definition=story-and-implement')),
+        Request('GET', Uri.parse('http://localhost/api/workflows/runs?definition=implement-story')),
       );
 
       expect(response.statusCode, 200);
-      expect(workflows.calls, contains('list:null:story-and-implement'));
+      expect(workflows.calls, contains('list:null:implement-story'));
     });
 
     test('returns empty array when no runs', () async {
@@ -786,7 +786,7 @@ void main() {
       final body = decodeList(await response.readAsString());
       expect(body, hasLength(1));
       final def = body.first as Map<String, dynamic>;
-      expect(def['name'], 'story-and-implement');
+      expect(def['name'], 'implement-story');
       expect(def['description'], isNotEmpty);
       expect(def['stepCount'], 3);
       expect(def['hasLoops'], false);
@@ -846,20 +846,20 @@ void main() {
   group('GET /api/workflows/definitions/<name>', () {
     test('returns authored YAML for known name', () async {
       final response = await handler(
-        Request('GET', Uri.parse('http://localhost/api/workflows/definitions/story-and-implement')),
+        Request('GET', Uri.parse('http://localhost/api/workflows/definitions/implement-story')),
       );
 
       expect(response.statusCode, 200);
       expect(response.headers['content-type'], contains('application/yaml'));
       final body = await response.readAsString();
-      expect(body, startsWith('name: story-and-implement'));
+      expect(body, startsWith('name: implement-story'));
       expect(body, contains('description:'));
       expect(body, contains('steps:'));
     });
 
     test('authored YAML includes variables and step prompts', () async {
       final response = await handler(
-        Request('GET', Uri.parse('http://localhost/api/workflows/definitions/story-and-implement')),
+        Request('GET', Uri.parse('http://localhost/api/workflows/definitions/implement-story')),
       );
 
       expect(response.statusCode, 200);
@@ -881,7 +881,7 @@ void main() {
     test('summary listing stays JSON while detail returns YAML', () async {
       final summaryResponse = await handler(Request('GET', Uri.parse('http://localhost/api/workflows/definitions')));
       final detailResponse = await handler(
-        Request('GET', Uri.parse('http://localhost/api/workflows/definitions/story-and-implement')),
+        Request('GET', Uri.parse('http://localhost/api/workflows/definitions/implement-story')),
       );
 
       expect(summaryResponse.statusCode, 200);
@@ -892,7 +892,7 @@ void main() {
       expect(summaryEntry.containsKey('steps'), isFalse);
 
       final detail = await detailResponse.readAsString();
-      expect(detail, startsWith('name: story-and-implement'));
+      expect(detail, startsWith('name: implement-story'));
     });
   });
 

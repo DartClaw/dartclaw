@@ -50,7 +50,7 @@ The workflow package owns workflow metadata, the task subsystem owns review and 
 A workflow is metadata, variables, steps and (inline) loops. The typed model lives in `dartclaw_workflow`, so the parser, validator, CLI and server runtime share one structure and execution is testable without HTTP. The runtime executes by step `id`, never by display `name`, and context edges are explicit: a step sees only the context keys it names.
 
 ```yaml
-name: story-and-implement
+name: implement-story
 description: Write a specification, implement it, and run integrated review.
 variables:
   FEATURE: { required: true }
@@ -217,7 +217,7 @@ Skill names resolve in `workflow_skill_preflight.dart` at execution preflight (s
 
 `WorkflowMaterializer` copies the shipped definitions into `built-in/` at startup from a discovered source checkout when present, else from embedded assets (`generated/embedded_assets.g.dart`). Each copy gets a sibling `.dartclaw-managed.json` holding an FNV-1a 64-bit fingerprint (drift detection, not integrity). A file with no marker is preserved, a managed file edited locally is preserved with a warning, an untouched managed file is refreshed when the source changes, and a stale managed file is deleted only when unmodified.
 
-Shipped built-ins (`lib/src/workflow/definitions/`): `story-and-implement` (spec, implement, integrated review, aggregate, bounded remediation loop), `plan-and-implement` (discover plan state, plan, optional `plan-approval` gate with `revise: plan` behind `PLAN_REVIEW`, a `story-pipeline` foreach running `implement`, `review-story` and a nested `story-remediation` loop per story, plan-level review, aggregate, remediation loop) and `code-review`. Each is a thin wrapper around skills.
+Shipped built-ins (`lib/src/workflow/definitions/`): `implement-story` (spec, implement, integrated review, aggregate, bounded remediation loop), `implement-prd` (discover plan state, plan, optional `plan-approval` gate with `revise: plan` behind `PLAN_REVIEW`, a `story-pipeline` foreach running `implement`, `review-story` and a nested `story-remediation` loop per story, plan-level review, aggregate, remediation loop) and `code-review`. Each is a thin wrapper around skills.
 
 ## 5. Run Lifecycle
 
@@ -547,7 +547,7 @@ With `merge_resolve.enabled: true` (requires `promotion: merge`; defaults `max_a
 
 `publish.enabled` runs at completion through the host callback and merges its result into context; a publish failure fails the run without git cleanup, so the integration branch survives. Terminal transitions (`completed`, `failed`, `cancelled`) call the host cleanup callback with a `preserveWorktrees` flag derived from `gitStrategy.cleanup`; by default it removes the run's worktrees and branches, and config `workflow.cleanup.delete_remote_branch_on_failure` also deletes pushed branches of failed runs.
 
-`gitStrategy.artifacts` commits files produced by a step (outputs with `format: path`, and `story_specs`) right after that step, using author `DartClaw Workflow` and the message `commitMessage` (default `chore(workflow): {{step.id}} artifacts`; `{{runId}}`, `{{step.id}}`, `{{step.name}}` and variables substitute), in the worktree or the project from `artifacts.project`. For `plan-and-implement`, this lands the plan's spec files on the workflow branch before `story-pipeline` creates per-item worktrees, so they inherit the files.
+`gitStrategy.artifacts` commits files produced by a step (outputs with `format: path`, and `story_specs`) right after that step, using author `DartClaw Workflow` and the message `commitMessage` (default `chore(workflow): {{step.id}} artifacts`; `{{runId}}`, `{{step.id}}`, `{{step.name}}` and variables substitute), in the worktree or the project from `artifacts.project`. For `implement-prd`, this lands the plan's spec files on the workflow branch before `story-pipeline` creates per-item worktrees, so they inherit the files.
 
 | Workflow | Resolved `worktree` | Default `commit` | `commit: false` |
 |---|---|---|---|

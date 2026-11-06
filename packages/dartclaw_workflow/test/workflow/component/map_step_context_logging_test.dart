@@ -1,4 +1,4 @@
-// Regression guard for Issue A (2026-04-24 e2e-plan-and-implement log):
+// Regression guard for Issue A (2026-04-24 e2e-implement-prd log):
 // `MapStepContext.recordFailure` must emit a WARNING log containing the
 // iteration index, task id, and failure message. Silent failures made every
 // promotion problem require the 30–75-minute E2E to diagnose.

@@ -12,7 +12,7 @@ Mark each step as the file convention says. A conversational step allows one ret
 
 Preparation (Owner, once): pair the bot with a test space as the private channel manual describes; keep the profile's `channels.google_chat` block enabled; list your own `users/<id>` under `governance.admin_senders`; keep `features.thread_binding.enabled: true`; register the workflow fixture project. None of these values is written into the repository.
 
-The approval-gated run is `plan-and-implement` with `PLAN_REVIEW=true`, on the fixture project and the smallest scope `workflow-plan-and-implement-publish` S2 uses.
+The approval-gated run is `implement-prd` with `PLAN_REVIEW=true`, on the fixture project and the smallest scope `workflow-implement-prd-publish` S2 uses.
 
 ## S1: A Run Started From A Thread Posts Its Lifecycle There
 

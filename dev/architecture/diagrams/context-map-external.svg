@@ -179,7 +179,7 @@
     <rect class="box" x="660" y="596" width="300" height="56" rx="9"/>
     <text class="name mono-name" x="672" y="615">built-in definitions</text>
     <text class="sub" x="672" y="631">YAML names AndThen skills</text>
-    <g class="d"><text class="p1" x="36" y="808"><tspan class="b">built-in definitions</tspan> · code-review, plan-and-implement and story-and-implement name AndThen skills directly</text><text class="p2" x="36" y="828">The one sanctioned home for framework semantics, which is why the edge is Conformist and the engine edge is not.</text></g>
+    <g class="d"><text class="p1" x="36" y="808"><tspan class="b">built-in definitions</tspan> · code-review, implement-prd and implement-story name AndThen skills directly</text><text class="p2" x="36" y="828">The one sanctioned home for framework semantics, which is why the edge is Conformist and the engine edge is not.</text></g>
   </g></a>
   <g transform="translate(80,692)">
     <g class="tint k-neu"><rect class="box" x="0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="22" y="10">external peer or core context</text>

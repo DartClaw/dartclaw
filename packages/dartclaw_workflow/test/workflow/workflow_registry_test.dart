@@ -115,17 +115,17 @@ void main() {
       expect(registry.listCustom(), isEmpty);
     });
 
-    test('getByName("story-and-implement") returns the definition', () async {
+    test('getByName("implement-story") returns the definition', () async {
       final registry = _makeRegistry();
       await registry.loadFromDirectory(workflowDefinitionsDir(), source: WorkflowSource.materialized);
-      final def = registry.getByName('story-and-implement');
+      final def = registry.getByName('implement-story');
       expect(def, isNotNull);
-      expect(def!.name, equals('story-and-implement'));
+      expect(def!.name, equals('implement-story'));
     });
 
     test('bootstrap built-ins leave BRANCH empty so project resolution can infer the base ref', () async {
       final parser = WorkflowDefinitionParser();
-      for (final name in ['story-and-implement.yaml', 'plan-and-implement.yaml']) {
+      for (final name in ['implement-story.yaml', 'implement-prd.yaml']) {
         final definition = await parser.parseFile(p.join(workflowDefinitionsDir(), name));
         expect(
           definition.variables['BRANCH']?.defaultValue,
@@ -165,10 +165,10 @@ steps:
       expect(registry.authoredYaml('hot-wf'), contains('Reloaded workflow for testing.'));
     });
 
-    test('sourceOf("story-and-implement") returns WorkflowSource.materialized', () async {
+    test('sourceOf("implement-story") returns WorkflowSource.materialized', () async {
       final registry = _makeRegistry();
       await registry.loadFromDirectory(workflowDefinitionsDir(), source: WorkflowSource.materialized);
-      expect(registry.sourceOf('story-and-implement'), equals(WorkflowSource.materialized));
+      expect(registry.sourceOf('implement-story'), equals(WorkflowSource.materialized));
     });
 
     test('listAll() returns all materialized definitions', () async {
@@ -193,7 +193,7 @@ steps:
       final registry = _makeRegistry();
       await registry.loadFromDirectory(workflowDefinitionsDir(), source: WorkflowSource.materialized);
       final names = registry.listAll().map((d) => d.name).toSet();
-      expect(names, containsAll(['story-and-implement', 'plan-and-implement', 'code-review']));
+      expect(names, containsAll(['implement-story', 'implement-prd', 'code-review']));
     });
 
     test('logs one Codex allowedTools warning through the registry load path', () async {
@@ -228,8 +228,8 @@ steps:
       final parser = WorkflowDefinitionParser();
       final definitionsDir = workflowDefinitionsDir();
       final defs = await Future.wait([
-        parser.parseFile(p.join(definitionsDir, 'story-and-implement.yaml')),
-        parser.parseFile(p.join(definitionsDir, 'plan-and-implement.yaml')),
+        parser.parseFile(p.join(definitionsDir, 'implement-story.yaml')),
+        parser.parseFile(p.join(definitionsDir, 'implement-prd.yaml')),
         parser.parseFile(p.join(definitionsDir, 'code-review.yaml')),
       ]);
       for (final def in defs) {
@@ -240,8 +240,8 @@ steps:
     test('built-ins adopt the shared project/branch contract and direct specialist review routing', () async {
       final parser = WorkflowDefinitionParser();
       final definitionsDir = workflowDefinitionsDir();
-      final specAndImplement = await parser.parseFile(p.join(definitionsDir, 'story-and-implement.yaml'));
-      final planAndImplement = await parser.parseFile(p.join(definitionsDir, 'plan-and-implement.yaml'));
+      final implementStory = await parser.parseFile(p.join(definitionsDir, 'implement-story.yaml'));
+      final implementPrd = await parser.parseFile(p.join(definitionsDir, 'implement-prd.yaml'));
       final codeReview = await parser.parseFile(p.join(definitionsDir, 'code-review.yaml'));
 
       void assertSkills(WorkflowDefinition def, List<String> required, List<String> forbidden) {
@@ -254,28 +254,28 @@ steps:
         }
       }
 
-      // story-and-implement: BRANCH variable, gitStrategy, and no retired review step.
-      expect(specAndImplement.variables.containsKey('BRANCH'), isTrue);
-      expect(specAndImplement.variables.containsKey('BASE_BRANCH'), isFalse);
-      expect(specAndImplement.gitStrategy, isNotNull);
-      expect(specAndImplement.steps.any((s) => s.id == 'revise-spec'), isFalse);
-      expect(specAndImplement.steps.any((s) => s.id == 'approve-spec'), isFalse);
-      expect(specAndImplement.steps.any((s) => s.id == 'review-spec'), isFalse);
+      // implement-story: BRANCH variable, gitStrategy, and no retired review step.
+      expect(implementStory.variables.containsKey('BRANCH'), isTrue);
+      expect(implementStory.variables.containsKey('BASE_BRANCH'), isFalse);
+      expect(implementStory.gitStrategy, isNotNull);
+      expect(implementStory.steps.any((s) => s.id == 'revise-spec'), isFalse);
+      expect(implementStory.steps.any((s) => s.id == 'approve-spec'), isFalse);
+      expect(implementStory.steps.any((s) => s.id == 'review-spec'), isFalse);
       // spec_path is referenced somewhere in the definition steps.
-      expect(specAndImplement.steps.any((s) => s.prompts?.any((p) => p.contains('spec_path')) ?? false), isTrue);
-      assertSkills(specAndImplement, ['andthen:review'], ['andthen-review', 'dartclaw-review-gap']);
+      expect(implementStory.steps.any((s) => s.prompts?.any((p) => p.contains('spec_path')) ?? false), isTrue);
+      assertSkills(implementStory, ['andthen:review'], ['andthen-review', 'dartclaw-review-gap']);
 
-      // plan-and-implement: BRANCH variable, gitStrategy, required PRD discovery, no PRD synthesis/revision.
-      expect(planAndImplement.variables.containsKey('BRANCH'), isTrue);
-      expect(planAndImplement.gitStrategy, isNotNull);
-      expect(planAndImplement.steps.any((s) => s.id == 'discover-plan-state'), isTrue);
-      expect(planAndImplement.steps.any((s) => s.id == 'prd'), isFalse);
-      expect(planAndImplement.steps.any((s) => s.id == 'revise-prd'), isFalse);
-      expect(planAndImplement.steps.any((s) => s.id == 'revise-story-spec'), isFalse);
-      expect(planAndImplement.steps.any((s) => s.id == 'review-prd'), isFalse);
-      expect(planAndImplement.steps.any((s) => s.id == 'update-state'), isFalse);
+      // implement-prd: BRANCH variable, gitStrategy, required PRD discovery, no PRD synthesis/revision.
+      expect(implementPrd.variables.containsKey('BRANCH'), isTrue);
+      expect(implementPrd.gitStrategy, isNotNull);
+      expect(implementPrd.steps.any((s) => s.id == 'discover-plan-state'), isTrue);
+      expect(implementPrd.steps.any((s) => s.id == 'prd'), isFalse);
+      expect(implementPrd.steps.any((s) => s.id == 'revise-prd'), isFalse);
+      expect(implementPrd.steps.any((s) => s.id == 'revise-story-spec'), isFalse);
+      expect(implementPrd.steps.any((s) => s.id == 'review-prd'), isFalse);
+      expect(implementPrd.steps.any((s) => s.id == 'update-state'), isFalse);
       assertSkills(
-        planAndImplement,
+        implementPrd,
         ['andthen:review', 'andthen:plan', 'dartclaw-discover-andthen-plan'],
         // The per-story review and nested loop are the active review path.
         [
@@ -321,28 +321,28 @@ steps:
     test('implementation built-ins gate remediation loops on active review findings', () async {
       final parser = WorkflowDefinitionParser();
       final definitionsDir = workflowDefinitionsDir();
-      final specAndImplement = await parser.parseFile(p.join(definitionsDir, 'story-and-implement.yaml'));
-      final planAndImplement = await parser.parseFile(p.join(definitionsDir, 'plan-and-implement.yaml'));
+      final implementStory = await parser.parseFile(p.join(definitionsDir, 'implement-story.yaml'));
+      final implementPrd = await parser.parseFile(p.join(definitionsDir, 'implement-prd.yaml'));
       final codeReview = await parser.parseFile(p.join(definitionsDir, 'code-review.yaml'));
 
       // No legacy verify-refine step in any built-in.
-      for (final def in [specAndImplement, planAndImplement, codeReview]) {
+      for (final def in [implementStory, implementPrd, codeReview]) {
         expect(def.steps.any((s) => s.id == 'verify-refine'), isFalse);
       }
 
-      // story-and-implement / plan-and-implement aggregate parallel reviews into
+      // implement-story / implement-prd aggregate parallel reviews into
       // simple context keys, then re-review overwrites the same keys inside the loop.
-      final specRemLoop = specAndImplement.loops.single;
+      final specRemLoop = implementStory.loops.single;
       expect(specRemLoop.entryGate, 'gating_findings_count > 0');
       expect(specRemLoop.exitGate, 'gating_findings_count == 0');
 
-      // plan-and-implement now has two loops: the whole-plan remediation loop
+      // implement-prd now has two loops: the whole-plan remediation loop
       // and the per-story (foreach-nested) story-remediation loop. Both gate on
       // gating_findings_count.
-      final planRemLoop = planAndImplement.loops.firstWhere((l) => l.id == 'remediation-loop');
+      final planRemLoop = implementPrd.loops.firstWhere((l) => l.id == 'remediation-loop');
       expect(planRemLoop.entryGate, 'gating_findings_count > 0');
       expect(planRemLoop.exitGate, 'gating_findings_count == 0');
-      final storyRemLoop = planAndImplement.loops.firstWhere((l) => l.id == 'story-remediation');
+      final storyRemLoop = implementPrd.loops.firstWhere((l) => l.id == 'story-remediation');
       expect(storyRemLoop.entryGate, 'gating_findings_count > 0');
       expect(storyRemLoop.exitGate, 'gating_findings_count == 0');
 
@@ -366,9 +366,9 @@ steps:
       expect(registry.exclusions, isEmpty);
       expect(registry.listCustom().map((workflow) => workflow.name).toSet(), {
         'multi-agent-review-inline',
-        'plan-and-implement-inline',
+        'implement-prd-inline',
         'review-and-remediate-inline',
-        'story-and-implement-inline',
+        'implement-story-inline',
       });
     });
 
@@ -626,7 +626,7 @@ steps:
   // ------------------------------------------------------------------
   group('name collision', () {
     test('custom with materialized name: materialized kept, custom skipped', () async {
-      File(p.join(tempDir.path, 'story-and-implement.yaml')).writeAsStringSync(_validCustomYaml('story-and-implement'));
+      File(p.join(tempDir.path, 'implement-story.yaml')).writeAsStringSync(_validCustomYaml('implement-story'));
 
       final previousHierarchicalLoggingEnabled = hierarchicalLoggingEnabled;
       hierarchicalLoggingEnabled = true;
@@ -641,7 +641,7 @@ steps:
       await registry.loadFromDirectory(workflowDefinitionsDir(), source: WorkflowSource.materialized);
       await registry.loadFromDirectory(tempDir.path);
 
-      expect(registry.sourceOf('story-and-implement'), equals(WorkflowSource.materialized));
+      expect(registry.sourceOf('implement-story'), equals(WorkflowSource.materialized));
       expect(registry.length, equals(3));
       expect(
         records.any(
@@ -674,7 +674,7 @@ steps:
       await registry.loadFromDirectory(tempDir.path);
 
       expect(registry.getByName('unique-wf'), isNotNull);
-      expect(registry.getByName('story-and-implement'), isNotNull);
+      expect(registry.getByName('implement-story'), isNotNull);
       expect(registry.length, equals(4));
     });
   });

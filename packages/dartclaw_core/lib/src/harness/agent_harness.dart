@@ -288,11 +288,6 @@ abstract interface class HarnessToolApprovalResponder {
   Future<void> resolveToolApproval({required String turnId, required String requestId, required bool approved});
 }
 
-typedef ContextualMemoryToolHandler = Future<Map<String, dynamic>> Function(
-  Map<String, dynamic> arguments,
-  HarnessTurnContext context,
-);
-
 /// Abstract harness interface that decouples consumers from the specific
 /// agent runtime (Deno worker, native CLI, etc.).
 ///

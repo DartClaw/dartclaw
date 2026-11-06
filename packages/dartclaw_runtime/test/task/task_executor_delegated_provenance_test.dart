@@ -67,7 +67,7 @@ void main() {
     final created = resultPayload(
       toolResult(
         await callTool(
-          tools.forHarness(() => _slackTurn(requester)),
+          tools.forCaller(harnessRunning(() => _slackTurn(requester))),
           'task_create',
           arguments: {'title': 'Delegated work', 'description': 'Record this.', 'auto_start': true},
         ),
@@ -208,7 +208,7 @@ void main() {
 
     Future<Map<String, dynamic>> wikiWriteDuring(TurnProvenance? turn, String slug) async => toolResult(
       await callTool(
-        base.forHarness(() => turn),
+        base.forCaller(harnessRunning(() => turn)),
         'wiki_write',
         arguments: {
           'slug': slug,
@@ -289,7 +289,7 @@ void main() {
 
     test('a task created outside a chat turn records no origin and stays ungated like a web turn', () async {
       await callTool(
-        base.forHarness(() => const TurnProvenance.web(sessionKey: 'agent:main:web:abc')),
+        base.forCaller(harnessRunning(() => const TurnProvenance.web(sessionKey: 'agent:main:web:abc'))),
         'task_create',
         arguments: {'title': 'Web task', 'description': 'From the web.'},
       );
@@ -338,7 +338,7 @@ void main() {
 
     Future<Map<String, dynamic>> callRunControl(TurnProvenance? turn, String tool) async => toolResult(
       await callTool(
-        tools.forHarness(() => turn),
+        tools.forCaller(harnessRunning(() => turn)),
         tool,
         arguments: {'run_id': 'wf-held', if (tool == 'workflow_request_changes') 'feedback': 'redo it'},
       ),

@@ -321,7 +321,7 @@ A named agent's managed workspace is `data_dir/agents/<id>/workspace`; the host 
 
 A process-retained temporary conversation gets a dedicated temporary authority only when the capability inventory matches the mediated container provider and workspace policy. Its session, messages, attachments, usage context, generated provider home, browser draft, and replay state stay out of durable stores; projection observers exclude it from lexical and vector indexes; contextual memory, wiki, and KG write tools refuse it; daily-log capture and knowledge-inbox intake omit it; audit and process logs keep only opaque metadata. Ending marks the session ending, confirms turn and root-process termination, destroys the container, clears process state, then revokes the link; failed confirmation leaves an auditable retryable state. Provider-side processing and authorized external tool effects are outside this guarantee.
 
-Research source scope is authenticated independently of placement: owner calls get owner personal memory, named agents only their pinned personal-memory principal (when `context_research` is policy-allowed), named MCP clients shared-only; all see the published wiki and temporal KG, never the knowledge inbox or other principals.
+Research source scope is authenticated independently of placement: owner calls (the owner's turns and the shared gateway token) get owner personal memory, named agents only their pinned personal-memory principal (when `context_research` is policy-allowed), named MCP clients shared-only; all see the published wiki and temporal KG, never the knowledge inbox or other principals.
 
 ### Health and Reclamation
 

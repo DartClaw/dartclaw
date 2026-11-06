@@ -134,10 +134,6 @@ extension _ClaudeCodeHarnessControl on ClaudeCodeHarness {
         await _handleHookCallback(requestId, data);
         return;
 
-      case 'mcp_message':
-        await _handleMcpMessage(requestId, data);
-        return;
-
       default:
         _writeControlLine(_adapter.buildGenericResponse(requestId));
         return;

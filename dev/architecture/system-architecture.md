@@ -213,7 +213,8 @@ audits, calls the tool with a 120 s timeout, and trims a successful text result 
 
 Callers: the shared gateway token (the steward principal), a host-minted per-harness bearer, and named MCP
 clients, whose profile is exactly `context_research`, `kg_query` and `kg_timeline` (`context_engine_profile.dart`).
-`ContextualMcpTool` receives a trusted `McpCallerContext` (authority, session, task, agent, knowledge scope).
+`ContextualMcpTool` receives a trusted `McpCallerContext` (authority, session, task, agent, knowledge scope, turn), and
+is refused when the transport names no caller (a host harness between turns, a container authority with an empty id).
 
 **Turn provenance.** `McpCallerContext.turn` is a `TurnProvenance` (`dartclaw_core/lib/src/turn/turn_provenance.dart`):
 the surface (a channel type, `web` or `cron`), recipient, thread, session key and sender of the turn the calling harness
@@ -221,7 +222,7 @@ is running, plus a `delegated` flag for autonomous task or workflow-step turns t
 host builds it where a turn starts, carries it through `TurnManager` into the harness turn context, and resolves it per
 call: a container authority reads its own harness's active turn, and every host harness presents a bearer minted by
 `HarnessMcpBearers` that is valid until the harness is disposed and maps to that harness's turn. The gateway token and
-named clients carry no turn. Only a `TurnAwareMcpTool` receives it, no tool argument can set it, and a turn without a
+named clients carry no turn. Only a `ContextualMcpTool` receives it, no tool argument can set it, and a turn without a
 sender is a non-channel turn that each reading tool gates by its own rule. Consumers are the shared-write and run-approval
 gates in [Security Architecture](security-architecture.md).
 

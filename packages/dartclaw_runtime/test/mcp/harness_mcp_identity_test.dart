@@ -13,8 +13,8 @@ import 'mcp_test_support.dart';
 
 const _gatewayToken = 'test-gateway-token';
 
-/// A [ContextualMcpTool] that records the caller context it runs with; its plain [call] answers `unscoped`.
-final class _ContextProbeTool implements ContextualMcpTool {
+/// A [ContextualMcpTool] that records the caller context it runs with.
+final class _ContextProbeTool extends ContextualMcpTool {
   final contexts = <McpCallerContext>[];
 
   @override
@@ -28,9 +28,6 @@ final class _ContextProbeTool implements ContextualMcpTool {
 
   @override
   McpToolAccess get access => McpToolAccess.read;
-
-  @override
-  Future<ToolResult> call(Map<String, dynamic> args) async => ToolResult.text('unscoped');
 
   @override
   Future<ToolResult> callWithContext(Map<String, dynamic> args, McpCallerContext context) async {
@@ -53,6 +50,18 @@ final class _RecordingGuard extends Guard {
     contexts.add(context);
     return GuardVerdict.pass();
   }
+}
+
+final class _OnlyPolicy implements McpCallerPolicy {
+  const new(this.tool);
+
+  final String tool;
+
+  @override
+  bool allows(String toolName) => toolName == tool;
+
+  @override
+  void onDenied(String toolName) {}
 }
 
 void main() {
@@ -104,7 +113,7 @@ void main() {
     return jsonDecode(await response.readAsString()) as Map<String, dynamic>;
   }
 
-  String harnessBearer() => bearers.mint(() => running, identity: () => serving);
+  String harnessBearer() => bearers.mint(McpCaller(identity: () => serving, turn: () => running));
 
   test('a contextual tool runs as the caller the harness is serving, resolved at each call', () async {
     final bearer = harnessBearer();
@@ -121,28 +130,27 @@ void main() {
     expect(probe.contexts.map((c) => c.knowledgeScope), everyElement(McpKnowledgeScope.privateAndShared));
   });
 
-  test('a contextual tool is refused while the harness runs no turn, never handed the unscoped call', () async {
+  test('every contextual tool is refused while the harness runs no turn, the turn-reading ones too', () async {
     serving = null;
+    final bearer = harnessBearer();
 
-    final result = toolResult(await call('context_probe', bearer: harnessBearer()));
-
-    expect(result['isError'], isTrue);
-    expect(resultText(result), 'Tool requires authenticated caller context');
+    for (final tool in ['context_probe', 'turn_probe']) {
+      final result = toolResult(await call(tool, bearer: bearer));
+      expect(result['isError'], isTrue, reason: tool);
+      expect(resultText(result), 'Tool requires authenticated caller context');
+    }
     expect(probe.contexts, isEmpty);
+    expect(turnProbe.contexts, isEmpty);
   });
 
-  test('the gateway token carries no identity, so a contextual tool is still handed the unscoped call', () async {
-    expect(resultText(toolResult(await call('context_probe', bearer: _gatewayToken))), 'unscoped');
-    expect(probe.contexts, isEmpty);
+  test('the gateway token runs a contextual tool as the steward with no session', () async {
+    expect(resultText(toolResult(await call('context_probe', bearer: _gatewayToken))), 'scoped');
+
+    final context = probe.contexts.single;
+    expect((context.authorityId, context.sessionId, context.agentId, context.turn), ('system', null, null, null));
   });
 
-  test('a harness bearer minted without an identity resolver behaves as before', () async {
-    final bearer = bearers.mint(() => running);
-
-    expect(resultText(toolResult(await call('context_probe', bearer: bearer))), 'unscoped');
-  });
-
-  test('a turn-aware tool receives the harness turn together with its identity', () async {
+  test('a turn-reading tool receives the harness turn together with its identity', () async {
     running = TurnProvenance.channel(
       channelType: ChannelType.slack,
       sessionKey: 'agent:eng-bot:channel:slack',
@@ -155,15 +163,6 @@ void main() {
     final context = turnProbe.contexts.single;
     expect(context.turn, running);
     expect((context.authorityId, context.sessionId, context.agentId), ('agent:eng-bot', 'session-eng', 'eng-bot'));
-  });
-
-  test('a turn-aware tool still runs with no identity and no turn, as the steward', () async {
-    serving = null;
-
-    await call('turn_probe', bearer: harnessBearer());
-
-    final context = turnProbe.contexts.single;
-    expect((context.turn, context.authorityId, context.sessionId, context.agentId), (null, 'system', null, null));
   });
 
   test('the audit entry names the serving caller while the guard chain sees no agent or session', () async {
@@ -179,11 +178,9 @@ void main() {
     expect([for (final c in guard.contexts) (c.agentId, c.sessionId)], [(null, null), (null, null)]);
   });
 
-  test('tools/list is filtered by listsTool and unaffected by the identity', () async {
+  test('a host agent policy narrows tools/list and refuses tools/call alike', () async {
     final bearer = bearers.mint(
-      () => running,
-      identity: () => agentIdentity,
-      listsTool: (name) => name == 'context_probe',
+      McpCaller(identity: () => agentIdentity, turn: () => running, policy: const _OnlyPolicy('context_probe')),
     );
 
     final response = await route(
@@ -197,5 +194,7 @@ void main() {
 
     final tools = ((jsonDecode(await response.readAsString()) as Map)['result'] as Map)['tools'] as List;
     expect([for (final tool in tools) (tool as Map)['name']], ['context_probe']);
+    expect((await call('turn_probe', bearer: bearer))['error'], containsPair('code', -32601));
+    expect(turnProbe.contexts, isEmpty);
   });
 }

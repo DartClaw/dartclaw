@@ -21,7 +21,7 @@ import 'package:test/test.dart';
 
 import '../api/workflow_test_support.dart' show testRunControl;
 import '../guard_audit_test_support.dart';
-import 'mcp_test_support.dart' show resultPayload, toolResult;
+import 'mcp_test_support.dart' show harnessRunning, resultPayload, toolResult;
 
 Future<Map<String, dynamic>> _rpc(McpProtocolHandler handler, String method, [Map<String, dynamic>? params]) async {
   final raw = await handler.handleRequest(jsonEncode({'jsonrpc': '2.0', 'id': 1, 'method': method, 'params': ?params}));
@@ -143,10 +143,10 @@ void main() {
       final slackOther = turn(ChannelType.slack, sender: 'U-B', thread: 'C1:1700.1');
 
       final denied = toolResult(
-        await _call(newHandler().forHarness(() => slackOther), 'workflow_cancel', {'run_id': 'run-2'}),
+        await _call(newHandler().forCaller(harnessRunning(() => slackOther)), 'workflow_cancel', {'run_id': 'run-2'}),
       );
       final ok = toolResult(
-        await _call(newHandler().forHarness(() => slackAdmin), 'workflow_cancel', {
+        await _call(newHandler().forCaller(harnessRunning(() => slackAdmin)), 'workflow_cancel', {
           'run_id': 'run-1',
           'feedback': 'the branch is stale',
         }),
@@ -177,21 +177,27 @@ void main() {
 
       final whatsapp = toolResult(
         await _call(
-          newHandler().forHarness(() => turn(ChannelType.whatsapp, sender: '+4670000001', recipient: '+4670000001')),
+          newHandler().forCaller(
+            harnessRunning(() => turn(ChannelType.whatsapp, sender: '+4670000001', recipient: '+4670000001')),
+          ),
           'workflow_resume',
           {'run_id': 'run-wa'},
         ),
       );
       final signalAdmin = toolResult(
         await _call(
-          newHandler().forHarness(() => turn(ChannelType.signal, sender: '+4670000002', recipient: 'group-1')),
+          newHandler().forCaller(
+            harnessRunning(() => turn(ChannelType.signal, sender: '+4670000002', recipient: 'group-1')),
+          ),
           'workflow_resume',
           {'run_id': 'run-sig'},
         ),
       );
       final signalOther = toolResult(
         await _call(
-          newHandler().forHarness(() => turn(ChannelType.signal, sender: '+4670000009', recipient: 'group-1')),
+          newHandler().forCaller(
+            harnessRunning(() => turn(ChannelType.signal, sender: '+4670000009', recipient: 'group-1')),
+          ),
           'workflow_resume',
           {'run_id': 'run-sig-2'},
         ),
@@ -211,9 +217,11 @@ void main() {
 
     test('an unknown run answers an unknown-run error', () async {
       final result = toolResult(
-        await _call(newHandler().forHarness(() => turn(ChannelType.slack, sender: 'U-A')), 'workflow_resume', {
-          'run_id': 'nope',
-        }),
+        await _call(
+          newHandler().forCaller(harnessRunning(() => turn(ChannelType.slack, sender: 'U-A'))),
+          'workflow_resume',
+          {'run_id': 'nope'},
+        ),
       );
 
       expect(result['isError'], isTrue);
@@ -231,7 +239,7 @@ void main() {
       await insertRun('run-1');
 
       final result = toolResult(
-        await _call(newHandler().forHarness(() => pushBack), 'workflow_resume', {'run_id': 'run-1'}),
+        await _call(newHandler().forCaller(harnessRunning(() => pushBack)), 'workflow_resume', {'run_id': 'run-1'}),
       );
 
       expect(result['isError'], isTrue);
@@ -244,7 +252,7 @@ void main() {
       await insertRun('run-1');
 
       final result = toolResult(
-        await _call(newHandler().forHarness(() => pushBack), 'workflow_resume', {'run_id': 'run-1'}),
+        await _call(newHandler().forCaller(harnessRunning(() => pushBack)), 'workflow_resume', {'run_id': 'run-1'}),
       );
 
       expect(result['isError'], isNot(true));
@@ -256,8 +264,10 @@ void main() {
     test('the shared gateway token, a scheduled turn and a web-chat turn change nothing and are each denied', () async {
       await insertRun('run-1');
       final gateway = newHandler();
-      final scheduled = newHandler().forHarness(() => const TurnProvenance.cron());
-      final webChat = newHandler().forHarness(() => const TurnProvenance.web(sessionKey: 'agent:main:web:abc'));
+      final scheduled = newHandler().forCaller(harnessRunning(() => const TurnProvenance.cron(jobId: 'test-job')));
+      final webChat = newHandler().forCaller(
+        harnessRunning(() => const TurnProvenance.web(sessionKey: 'agent:main:web:abc')),
+      );
 
       final results = [
         toolResult(await _call(gateway, 'workflow_resume', {'run_id': 'run-1'})),
@@ -275,7 +285,7 @@ void main() {
 
     test('a sender or channel argument is refused as an unknown argument and nothing runs', () async {
       await insertRun('run-1');
-      final handler = newHandler().forHarness(() => turn(ChannelType.slack, sender: 'U-A'));
+      final handler = newHandler().forCaller(harnessRunning(() => turn(ChannelType.slack, sender: 'U-A')));
 
       for (final field in ['sender', 'channel', 'senderId', 'channelType']) {
         final response = await _call(handler, 'workflow_resume', {'run_id': 'run-1', field: 'forged'});
@@ -287,9 +297,12 @@ void main() {
     });
 
     test('a named MCP client discovers none of the control tools', () async {
-      final client = newHandler().scopedTo(
-        ContextEngineCallerPolicy(principal: mcpClientPrincipal('crm')),
-        callerIdentity: const McpCallerIdentity(authorityId: 'mcp-client:crm'),
+      final client = newHandler().forCaller(
+        McpCaller(
+          identity: () => const McpCallerIdentity(authorityId: 'mcp-client:crm'),
+          policy: ContextEngineCallerPolicy(principal: mcpClientPrincipal('crm')),
+          guardsAsCaller: true,
+        ),
       );
 
       expect((await _toolNames(client)).intersection(_controlTools), isEmpty);
@@ -343,8 +356,8 @@ void main() {
       () async {
         adminSenders = ['U-A'];
         await insertRun('run-1');
-        final other = newHandler().forHarness(() => turn(ChannelType.slack, sender: 'U-B'));
-        final admin = newHandler().forHarness(() => turn(ChannelType.slack, sender: 'U-A'));
+        final other = newHandler().forCaller(harnessRunning(() => turn(ChannelType.slack, sender: 'U-B')));
+        final admin = newHandler().forCaller(harnessRunning(() => turn(ChannelType.slack, sender: 'U-A')));
 
         final unknown = toolResult(await _call(other, 'workflow_status', {'run_id': 'nope'}));
         final asOther = resultPayload(toolResult(await _call(other, 'workflow_status', {'run_id': 'run-1'})));
@@ -465,7 +478,7 @@ void main() {
       final results = [
         for (final (runId, provenance) in calls)
           toolResult(
-            await _call(fullHandler().forHarness(() => provenance), 'workflow_request_changes', {
+            await _call(fullHandler().forCaller(harnessRunning(() => provenance)), 'workflow_request_changes', {
               'run_id': runId,
               'feedback': 'split story 3',
             }),
@@ -493,8 +506,10 @@ void main() {
     test('a gateway-token call, a scheduled turn and a web-chat turn need a chat turn and are each denied', () async {
       await insertGate('run-1');
       final gateway = fullHandler();
-      final scheduled = fullHandler().forHarness(() => const TurnProvenance.cron());
-      final webChat = fullHandler().forHarness(() => const TurnProvenance.web(sessionKey: 'agent:main:web:abc'));
+      final scheduled = fullHandler().forCaller(harnessRunning(() => const TurnProvenance.cron(jobId: 'test-job')));
+      final webChat = fullHandler().forCaller(
+        harnessRunning(() => const TurnProvenance.web(sessionKey: 'agent:main:web:abc')),
+      );
 
       for (final handler in [gateway, scheduled, webChat]) {
         final result = toolResult(
@@ -511,7 +526,7 @@ void main() {
       'a forged sender or channel argument is an unknown argument; missing or blank feedback is a schema refusal',
       () async {
         await insertGate('run-1');
-        final handler = fullHandler().forHarness(() => turn(ChannelType.slack, sender: 'U-A'));
+        final handler = fullHandler().forCaller(harnessRunning(() => turn(ChannelType.slack, sender: 'U-A')));
 
         for (final field in ['sender', 'channel']) {
           final response = await _call(handler, 'workflow_request_changes', {
@@ -540,7 +555,7 @@ void main() {
     test('a gate without revise and a gate at its bound are refused with their own reason, audited', () async {
       await insertGate('run-none', revise: null);
       await insertGate('run-bound', revision: 2, maxRevisions: 2);
-      final handler = fullHandler().forHarness(() => turn(ChannelType.slack, sender: 'U-A'));
+      final handler = fullHandler().forCaller(harnessRunning(() => turn(ChannelType.slack, sender: 'U-A')));
 
       final reasons = <String?>[];
       for (final (runId, feedback) in [('run-none', 'x'), ('run-bound', 'x')]) {
@@ -580,9 +595,12 @@ void main() {
       final control = testRunControl(workflows, auditLogger: audit);
       expect(WorkflowRequestChangesTool(control: control).access, McpToolAccess.write);
 
-      final client = newHandler().scopedTo(
-        ContextEngineCallerPolicy(principal: mcpClientPrincipal('crm')),
-        callerIdentity: const McpCallerIdentity(authorityId: 'mcp-client:crm'),
+      final client = newHandler().forCaller(
+        McpCaller(
+          identity: () => const McpCallerIdentity(authorityId: 'mcp-client:crm'),
+          policy: ContextEngineCallerPolicy(principal: mcpClientPrincipal('crm')),
+          guardsAsCaller: true,
+        ),
       );
 
       expect((await _toolNames(client)).intersection(_controlTools), isEmpty);

@@ -357,7 +357,7 @@ void main() {
       turnHandler = McpProtocolHandler()..registerTool(probe);
       bearers = HarnessMcpBearers();
       runningTurn = turn;
-      harnessBearer = bearers.mint(() => runningTurn);
+      harnessBearer = bearers.mint(harnessRunning(() => runningTurn));
     });
 
     FutureOr<Response> callProbe(Handler route, {String? bearer}) => route(

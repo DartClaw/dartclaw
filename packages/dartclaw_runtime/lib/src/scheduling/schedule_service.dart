@@ -530,7 +530,7 @@ class ScheduleService {
         effort: job.effort,
         allowedTools: job.allowedTools,
         promptScope: PromptScope.task,
-        provenance: const TurnProvenance.cron(),
+        provenance: TurnProvenance.cron(jobId: job.id),
       );
       final outcome = await _turns.waitForOutcome(session.id, turnId);
 

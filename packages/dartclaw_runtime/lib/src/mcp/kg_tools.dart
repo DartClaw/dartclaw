@@ -17,7 +17,7 @@ typedef KgPrincipalProvider = String Function();
 const systemKgPrincipal = 'system';
 
 /// MCP tool for adding source-linked temporal facts.
-class KgAddTool implements TurnAwareMcpTool {
+class KgAddTool extends ContextualMcpTool {
   final TemporalKnowledgeGraphService kg;
   final GuardAuditLogger? auditLogger;
   final KgPrincipalProvider principalProvider;
@@ -49,10 +49,7 @@ class KgAddTool implements TurnAwareMcpTool {
   McpToolAccess get access => McpToolAccess.write;
 
   @override
-  Future<ToolResult> call(Map<String, dynamic> args) => _add(args);
-
-  @override
-  Future<ToolResult> callWithTurn(Map<String, dynamic> args, McpCallerContext context) async {
+  Future<ToolResult> callWithContext(Map<String, dynamic> args, McpCallerContext context) async {
     final refusal = await contextualWriteGuard?.call(context);
     if (refusal != null) return refusal;
     return _add(args);
@@ -171,7 +168,7 @@ class KgTimelineTool implements McpTool {
 }
 
 /// MCP tool for invalidating a fact while preserving history.
-class KgInvalidateTool implements TurnAwareMcpTool {
+class KgInvalidateTool extends ContextualMcpTool {
   final TemporalKnowledgeGraphService kg;
   final GuardAuditLogger? auditLogger;
   final KgPrincipalProvider principalProvider;
@@ -206,10 +203,7 @@ class KgInvalidateTool implements TurnAwareMcpTool {
   McpToolAccess get access => McpToolAccess.write;
 
   @override
-  Future<ToolResult> call(Map<String, dynamic> args) => _invalidate(args);
-
-  @override
-  Future<ToolResult> callWithTurn(Map<String, dynamic> args, McpCallerContext context) async {
+  Future<ToolResult> callWithContext(Map<String, dynamic> args, McpCallerContext context) async {
     final refusal = await contextualWriteGuard?.call(context);
     if (refusal != null) return refusal;
     return _invalidate(args);

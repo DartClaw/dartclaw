@@ -186,6 +186,7 @@ class DartclawServer {
          resultTrimmer: core.resultTrimmer,
          guardChain: _auditedGuardChain(core),
          auditLogger: core.auditLogger,
+         toolCanonicals: core.mcpToolCanonicals,
        );
 
   /// Returns [ServerCoreDeps.guardChain], refusing it without an audit sink.
@@ -418,7 +419,6 @@ class DartclawServer {
           requireLoopbackHost: unauthenticatedLoopback,
           clients: gatewayToken == null ? const [] : (_core.config?.gateway.mcpClients ?? const []),
           auditLogger: _core.auditLogger,
-          toolCanonicals: _core.mcpToolCanonicals,
           harnessBearers: _core.mcpHarnessBearers,
           rateLimiter: _authRateLimiter,
           eventBus: _observability.eventBus,

@@ -14,6 +14,19 @@ import 'helpers/search_index_test_support.dart';
 
 import 'package:uuid/uuid.dart';
 
+const _captureContext = MemoryCaptureContext(
+  originKind: MemoryOriginKind.turn,
+  sourceLocator: 'session:alpha',
+  sourceEvent: 'message:1',
+  caller: 'memory_observe',
+  sessionRef: 'alpha',
+);
+
+const _gatewayContext = MemoryCaptureContext(
+  sourceLocator: 'tool:memory_observe',
+  caller: 'mcp-gateway:memory_observe',
+);
+
 Map<String, dynamic> _json(Map<String, dynamic> result) {
   final content = result['content'] as List<dynamic>;
   return jsonDecode((content.single as Map<String, dynamic>)['text'] as String) as Map<String, dynamic>;
@@ -27,12 +40,12 @@ Future<Map<String, dynamic>> _add(
 ) async {
   final revision = (await corpus.readCorpus()).index.metadata.revision;
   final response = _json(
-    await handlers.onApply({
+    await handlers.apply({
       'expectedRevision': revision,
       'operations': [
         {'kind': 'add', 'correlationId': 'add-$revision', 'topic': topic, 'content': content},
       ],
-    }),
+    }, _captureContext),
   );
   final operations = response['operations'] as Map<String, dynamic>;
   return operations.values.single as Map<String, dynamic>;
@@ -45,7 +58,6 @@ void main() {
   late MemoryFileService memoryFile;
   late Directory workspace;
   late SearchBackend search;
-  late MemoryCaptureContext context;
   late MemoryHandlers handlers;
 
   setUp(() async {
@@ -58,19 +70,11 @@ void main() {
       personal: LexicalSearchBackend(index: memory),
       wiki: WikiSearchSource(workspaceDir: workspace.path),
     );
-    context = const MemoryCaptureContext(
-      originKind: MemoryOriginKind.turn,
-      sourceLocator: 'session:alpha',
-      sourceEvent: 'message:1',
-      caller: 'memory_observe',
-      sessionRef: 'alpha',
-    );
     handlers = createMemoryHandlers(
       memoryIndex: memory,
       memoryFile: memoryFile,
       corpusService: corpus,
       searchBackend: search,
-      captureContext: (_) => context,
       now: () => DateTime.utc(2026, 8, 12, 10),
     );
   });
@@ -87,7 +91,9 @@ void main() {
         .recordHealthy(canonicalRevision: base.collectionRevision, canonicalFingerprint: base.fingerprint);
     final before = base.collectionRevision;
 
-    final response = _json(await handlers.onObserve({'text': 'Falcon status is green', 'role': 'observation'}));
+    final response = _json(
+      await handlers.observe({'text': 'Falcon status is green', 'role': 'observation'}, _captureContext),
+    );
     final current = await corpus.readCorpus();
 
     expect(response, {
@@ -105,7 +111,7 @@ void main() {
     expect((await searchMemory(memory, '"Falcon"')).single.locator, observation.id);
   });
 
-  test('shared MCP capture records only truthful tool provenance known to the gateway', () async {
+  test('capture records only the provenance its context carries, inventing no origin, event or session', () async {
     handlers = createMemoryHandlers(
       memoryIndex: memory,
       memoryFile: memoryFile,
@@ -115,8 +121,8 @@ void main() {
     );
     const request = {'text': 'Gateway observation', 'role': 'observation'};
 
-    await handlers.onObserve(request);
-    await handlers.onObserve(request);
+    await handlers.observe(request, _gatewayContext);
+    await handlers.observe(request, _gatewayContext);
 
     final observations = (await corpus.readCorpus()).observations.single.observations;
     expect(observations.map((entry) => entry.provenance.sourceLocator).toSet(), {'tool:memory_observe'});
@@ -135,11 +141,10 @@ void main() {
       corpusService: corpus,
       searchBackend: search,
       selfImprovement: improvement,
-      captureContext: (_) => context,
     );
 
     for (var index = 0; index < 3; index++) {
-      await handlers.onObserve({'text': 'Learning $index', 'role': 'learning'});
+      await handlers.observe({'text': 'Learning $index', 'role': 'learning'}, _captureContext);
     }
 
     final retained = (await corpus.readCorpus()).learnings!.entries;
@@ -165,7 +170,6 @@ void main() {
       corpusService: corpus,
       searchBackend: search,
       selfImprovement: improvement,
-      captureContext: (_) => context,
       now: () {
         times.moveNext();
         return times.current;
@@ -176,9 +180,9 @@ void main() {
       },
     );
 
-    await handlers.onObserve({'text': 'Old tie', 'role': 'learning'});
-    await handlers.onObserve({'text': 'Middle tie', 'role': 'learning'});
-    final response = _json(await handlers.onObserve({'text': 'New tie', 'role': 'learning'}));
+    await handlers.observe({'text': 'Old tie', 'role': 'learning'}, _captureContext);
+    await handlers.observe({'text': 'Middle tie', 'role': 'learning'}, _captureContext);
+    final response = _json(await handlers.observe({'text': 'New tie', 'role': 'learning'}, _captureContext));
 
     final retained = (await corpus.readCorpus()).learnings!.entries;
     expect(retained.map((entry) => entry.id), contains(response['locator']));
@@ -209,7 +213,7 @@ void main() {
       {'text': 'x' * (maxMemoryCaptureTextLength + 1), 'role': 'observation'},
       {'text': 'value', 'role': 'observation', 'userId': 'other'},
     ]) {
-      await expectLater(handlers.onObserve(request), throwsA(isA<ArgumentError>()));
+      await expectLater(handlers.observe(request, _captureContext), throwsA(isA<ArgumentError>()));
     }
 
     expect((await corpus.readCorpus()).index.metadata.revision, before.index.metadata.revision);
@@ -223,10 +227,11 @@ void main() {
       memoryFile: memoryFile,
       corpusService: corpus,
       searchBackend: failing,
-      captureContext: (_) => context,
     );
 
-    final response = _json(await handlers.onObserve({'text': 'Durable despite index failure', 'role': 'observation'}));
+    final response = _json(
+      await handlers.observe({'text': 'Durable despite index failure', 'role': 'observation'}, _captureContext),
+    );
 
     expect(response['indexState'], 'degraded');
     final committed = await corpus.readCorpus();
@@ -249,9 +254,8 @@ void main() {
       memoryFile: memoryFile,
       corpusService: corpus,
       searchBackend: search,
-      captureContext: (_) => context,
     );
-    await handlers.onObserve({'text': 'Complete retry validates parity', 'role': 'observation'});
+    await handlers.observe({'text': 'Complete retry validates parity', 'role': 'observation'}, _captureContext);
     final repairedSnapshot = await corpus.snapshot(paths: const [], maxDocuments: 1, maxBytes: 1);
     expect(
       (await reopened.read(
@@ -269,14 +273,16 @@ void main() {
       memoryFile: memoryFile,
       corpusService: corpus,
       searchBackend: recording,
-      captureContext: (_) => context,
     );
 
-    await handlers.onSearch({'query': '  project "Falcon" AND status?  '});
+    await handlers.search({'query': '  project "Falcon" AND status?  '}, _captureContext);
 
     expect(recording.queries, ['  project "Falcon" AND status?  ']);
     for (final limit in [0, 51, 1.5]) {
-      await expectLater(handlers.onSearch({'query': 'Falcon', 'limit': limit}), throwsA(isA<ArgumentError>()));
+      await expectLater(
+        handlers.search({'query': 'Falcon', 'limit': limit}, _captureContext),
+        throwsA(isA<ArgumentError>()),
+      );
     }
   });
 
@@ -322,7 +328,7 @@ void main() {
       searchBackend: backend,
     );
 
-    final response = _json(await handlers.onSearch({'query': 'Falcon'}));
+    final response = _json(await handlers.search({'query': 'Falcon'}, _captureContext));
 
     expect(response['collectionRevision'], 91);
     expect(response['degradedLayers'], ['wiki']);
@@ -343,7 +349,7 @@ void main() {
     await _add(handlers, corpus, 'Falcon status shared text', 'falcon');
     await _add(handlers, corpus, 'Falcon status shared text', 'falcon');
 
-    final response = _json(await handlers.onSearch({'query': 'Falcon status'}));
+    final response = _json(await handlers.search({'query': 'Falcon status'}, _captureContext));
     final results = (response['results'] as List<dynamic>).cast<Map<String, dynamic>>();
     final collectionRevision = response['collectionRevision'] as int;
 
@@ -354,12 +360,12 @@ void main() {
     expect(results.every((result) => result['entryId'] == result['locator']), isTrue);
 
     final applied = _json(
-      await handlers.onApply({
+      await handlers.apply({
         'expectedRevision': collectionRevision,
         'operations': [
           {'kind': 'add', 'correlationId': 'from-search', 'topic': 'falcon', 'content': 'Current revision accepted'},
         ],
-      }),
+      }, _captureContext),
     );
     expect(applied['canonicalOutcome'], 'committed');
     expect(applied['collectionRevision'], collectionRevision + 1);
@@ -376,7 +382,7 @@ void main() {
       ),
     ], userId: 'other');
 
-    final response = _json(await handlers.onSearch({'query': 'Falcon AND status?'}));
+    final response = _json(await handlers.search({'query': 'Falcon AND status?'}, _captureContext));
     final results = response['results'] as List<dynamic>;
 
     expect(results, hasLength(1));
@@ -392,13 +398,13 @@ provenance: human-authored
 ---
 Falcon wiki detail
 ''');
-    final searched = _json(await handlers.onSearch({'query': 'Falcon'}));
+    final searched = _json(await handlers.search({'query': 'Falcon'}, _captureContext));
     final wiki = (searched['results'] as List<dynamic>).cast<Map<String, dynamic>>().singleWhere(
       (result) => result['role'] == 'wiki',
     );
 
-    final canonicalRead = _json(await handlers.onRead({'locator': saved['entryId']}));
-    final wikiRead = _json(await handlers.onRead({'locator': wiki['locator']}));
+    final canonicalRead = _json(await handlers.read({'locator': saved['entryId']}, _captureContext));
+    final wikiRead = _json(await handlers.read({'locator': wiki['locator']}, _captureContext));
 
     expect(canonicalRead['collectionRevision'], (await corpus.readCorpus()).index.metadata.revision);
     expect(wikiRead['collectionRevision'], canonicalRead['collectionRevision']);
@@ -425,7 +431,7 @@ Falcon wiki detail
       ),
     );
 
-    final inbox = _json(await handlers.onRead({'locator': 'inbox/note.md'}));
+    final inbox = _json(await handlers.read({'locator': 'inbox/note.md'}, _captureContext));
 
     expect((inbox['results'] as List).single, {
       'role': 'knowledge-inbox',
@@ -433,19 +439,22 @@ Falcon wiki detail
       'locator': 'inbox/note.md',
       'content': 'Native inbox detail',
     });
-    expect(_json(await handlers.onRead({'locator': '99999'}))['results'], isEmpty);
-    await expectLater(handlers.onRead({'locator': '0'}), throwsA(isA<ArgumentError>()));
-    await expectLater(handlers.onRead({'locator': 'inbox/../note.md'}), throwsA(isA<ArgumentError>()));
+    expect(_json(await handlers.read({'locator': '99999'}, _captureContext))['results'], isEmpty);
+    await expectLater(handlers.read({'locator': '0'}, _captureContext), throwsA(isA<ArgumentError>()));
+    await expectLater(handlers.read({'locator': 'inbox/../note.md'}, _captureContext), throwsA(isA<ArgumentError>()));
   });
 
   test('topic reads are bounded and topic-less role selectors are rejected', () async {
     await _add(handlers, corpus, 'First Falcon detail', 'falcon');
     await _add(handlers, corpus, 'Second Falcon detail', 'falcon');
 
-    final response = _json(await handlers.onRead({'role': 'topic', 'topic': 'falcon', 'limit': 1}));
+    final response = _json(await handlers.read({'role': 'topic', 'topic': 'falcon', 'limit': 1}, _captureContext));
 
     expect(response['results'], hasLength(1));
-    await expectLater(handlers.onRead({'role': 'observation', 'topic': 'falcon'}), throwsA(isA<ArgumentError>()));
+    await expectLater(
+      handlers.read({'role': 'observation', 'topic': 'falcon'}, _captureContext),
+      throwsA(isA<ArgumentError>()),
+    );
     final staleLocator = const Uuid().v4();
     await memory.upsert([
       SearchDocument(
@@ -455,10 +464,10 @@ Falcon wiki detail
         timestamp: DateTime(2026),
       ),
     ], userId: 'owner');
-    expect(_json(await handlers.onRead({'locator': staleLocator}))['results'], isEmpty);
-    expect(_json(await handlers.onRead({'locator': 'wiki/missing.md'}))['results'], isEmpty);
-    await expectLater(handlers.onRead({'locator': 'not-a-locator'}), throwsA(isA<ArgumentError>()));
-    await expectLater(handlers.onRead({'locator': '../../secret'}), throwsA(isA<ArgumentError>()));
+    expect(_json(await handlers.read({'locator': staleLocator}, _captureContext))['results'], isEmpty);
+    expect(_json(await handlers.read({'locator': 'wiki/missing.md'}, _captureContext))['results'], isEmpty);
+    await expectLater(handlers.read({'locator': 'not-a-locator'}, _captureContext), throwsA(isA<ArgumentError>()));
+    await expectLater(handlers.read({'locator': '../../secret'}, _captureContext), throwsA(isA<ArgumentError>()));
   });
 
   test('audit records are excluded from search and read surfaces', () async {
@@ -485,15 +494,15 @@ Falcon wiki detail
       ),
     );
 
-    expect((_json(await handlers.onSearch({'query': 'Private audit'}))['results'] as List), isEmpty);
-    await expectLater(handlers.onRead({'locator': entryId}), throwsA(isA<ArgumentError>()));
-    await expectLater(handlers.onRead({'locator': 'MEMORY.audit.md'}), throwsA(isA<ArgumentError>()));
+    expect((_json(await handlers.search({'query': 'Private audit'}, _captureContext))['results'] as List), isEmpty);
+    await expectLater(handlers.read({'locator': entryId}, _captureContext), throwsA(isA<ArgumentError>()));
+    await expectLater(handlers.read({'locator': 'MEMORY.audit.md'}, _captureContext), throwsA(isA<ArgumentError>()));
   });
 
   test('read enforces the UTF-8 response ceiling and reports truncation', () async {
     final response = await _add(handlers, corpus, '🦅' * 20000, 'falcon');
 
-    final raw = await handlers.onRead({'locator': response['entryId']});
+    final raw = await handlers.read({'locator': response['entryId']}, _captureContext);
     final encoded = utf8.encode(((raw['content'] as List).single as Map<String, dynamic>)['text'] as String);
     final decoded = _json(raw);
 
@@ -511,7 +520,7 @@ Falcon wiki detail
       '\n## Supplement from latest.md (2026-08-01)\n\nNewest supplement paragraph.\n',
     );
 
-    final raw = await handlers.onRead({'locator': 'wiki/grown.md'});
+    final raw = await handlers.read({'locator': 'wiki/grown.md'}, _captureContext);
     final decoded = _json(raw);
     final content = ((decoded['results'] as List).single as Map<String, dynamic>)['content'] as String;
 
@@ -530,7 +539,7 @@ Falcon wiki detail
     Directory('${workspace.path}/wiki').createSync();
     File('${workspace.path}/wiki/multibyte.md').writeAsStringSync('# T\n${'€' * 30000}');
 
-    final raw = await handlers.onRead({'locator': 'wiki/multibyte.md'});
+    final raw = await handlers.read({'locator': 'wiki/multibyte.md'}, _captureContext);
     final decoded = _json(raw);
 
     expect(
@@ -550,10 +559,11 @@ small body
 ''');
 
     await expectLater(
-      handlers.onRead({'locator': 'wiki/oversized.md'}),
+      handlers.read({'locator': 'wiki/oversized.md'}, _captureContext),
       throwsA(isA<ArgumentError>().having((error) => '${error.message}', 'message', contains('memory_read'))),
     );
-    final protocol = McpProtocolHandler()..registerTool(MemoryReadTool(handler: handlers.onRead));
+    final protocol = McpProtocolHandler()
+      ..registerTool(MemoryReadTool(handler: (args, _) => handlers.read(args, _captureContext)));
     final response = await protocol.handleRequest(
       jsonEncode({
         'jsonrpc': '2.0',
@@ -587,13 +597,14 @@ small body
       memoryFile: memoryFile,
       corpusService: corpus,
       searchBackend: search,
-      captureContext: (_) => context,
       now: () => DateTime.utc(2026, 8, 12, 10),
     );
     await corpus.manifest();
     reads.clear();
 
-    final response = _json(await handlers.onObserve({'text': 'Fresh sparse observation', 'role': 'observation'}));
+    final response = _json(
+      await handlers.observe({'text': 'Fresh sparse observation', 'role': 'observation'}, _captureContext),
+    );
 
     expect(response['indexState'], 'degraded');
     expect(reads.where((path) => path.startsWith('memory/20') && path != 'memory/2026-08-12.md'), isEmpty);

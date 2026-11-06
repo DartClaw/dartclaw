@@ -170,8 +170,7 @@ void main() {
       final primaryTurn = chatTurn('users/alice');
       final workerTurn = chatTurn('users/bob');
       final resolvers = [
-        for (final config in configs)
-          harnessWiring!.mcpBearers.resolve(config.harnessConfig.mcpGatewayToken!)!.activeTurn,
+        for (final config in configs) harnessWiring!.mcpBearers.resolve(config.harnessConfig.mcpGatewayToken!)!.turn,
       ];
 
       expect([for (final resolve in resolvers) resolve()], [null, null]);
@@ -204,7 +203,7 @@ void main() {
       await acquireHostWorker();
       final identities = [
         for (final config in configs)
-          harnessWiring!.mcpBearers.resolve(config.harnessConfig.mcpGatewayToken!)!.identity!,
+          harnessWiring!.mcpBearers.resolve(config.harnessConfig.mcpGatewayToken!)!.identity,
       ];
       HarnessTurnContext context(String sessionId) =>
           HarnessTurnContext(sessionId: sessionId, turnId: 't', source: 'channel', agentName: 'workflow-step');

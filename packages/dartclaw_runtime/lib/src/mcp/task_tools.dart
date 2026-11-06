@@ -6,7 +6,7 @@ import '../governance/refusal_audit.dart';
 import '../task/channel_review_gate.dart';
 import '../task/task_review_service.dart';
 import '../task/task_service.dart';
-import 'mcp_server.dart' show McpCallerContext, TurnAwareMcpTool;
+import 'mcp_server.dart' show ContextualMcpTool, McpCallerContext;
 import 'tool_schema.dart';
 
 /// Principal recorded as the creator of a task a model asked for.
@@ -26,7 +26,7 @@ const _taskListingMaxLimit = 200;
 ///
 /// A task created during a chat-channel turn records that turn's origin, so the work it later runs carries the
 /// requester's identity (`delegatedTurnProvenance`) rather than none.
-class TaskCreateTool implements TurnAwareMcpTool {
+class TaskCreateTool extends ContextualMcpTool {
   new({required TaskService tasks}) : _tasks = tasks;
 
   final TaskService _tasks;
@@ -55,10 +55,8 @@ class TaskCreateTool implements TurnAwareMcpTool {
   McpToolAccess get access => McpToolAccess.write;
 
   @override
-  Future<ToolResult> call(Map<String, dynamic> args) => _create(args, null);
-
-  @override
-  Future<ToolResult> callWithTurn(Map<String, dynamic> args, McpCallerContext context) => _create(args, context.turn);
+  Future<ToolResult> callWithContext(Map<String, dynamic> args, McpCallerContext context) =>
+      _create(args, context.turn);
 
   Future<ToolResult> _create(Map<String, dynamic> args, TurnProvenance? turn) async {
     final invalid = validateToolArguments(inputSchema, args);
@@ -99,7 +97,7 @@ class TaskCreateTool implements TurnAwareMcpTool {
 ///
 /// A chat turn reviews only as an admin sender would on a review card, through the card's `TaskReviewGate` rule
 /// and audit entry ([admitTaskReview]); a delegated turn never reviews. Web and turn-less callers are not gated.
-class TaskReviewTool implements TurnAwareMcpTool {
+class TaskReviewTool extends ContextualMcpTool {
   new({
     required TaskReviewService reviews,
     required bool Function(String senderId) isAdmin,
@@ -140,10 +138,8 @@ class TaskReviewTool implements TurnAwareMcpTool {
   McpToolAccess get access => McpToolAccess.write;
 
   @override
-  Future<ToolResult> call(Map<String, dynamic> args) => _review(args, null);
-
-  @override
-  Future<ToolResult> callWithTurn(Map<String, dynamic> args, McpCallerContext context) => _review(args, context.turn);
+  Future<ToolResult> callWithContext(Map<String, dynamic> args, McpCallerContext context) =>
+      _review(args, context.turn);
 
   Future<ToolResult> _review(Map<String, dynamic> args, TurnProvenance? turn) async {
     final invalid = validateToolArguments(inputSchema, args);
@@ -296,7 +292,7 @@ class ReviewListTool implements McpTool {
 ///
 /// The twin of the admin-only `/bind` command: a chat turn binds only as an admin sender, and a refusal is audited
 /// as the command's is. A delegated turn never binds; web and turn-less callers are not gated.
-class TaskBindTool implements TurnAwareMcpTool {
+class TaskBindTool extends ContextualMcpTool {
   new({
     required TaskService tasks,
     required ThreadBindingStore? bindings,
@@ -349,10 +345,7 @@ class TaskBindTool implements TurnAwareMcpTool {
   McpToolAccess get access => McpToolAccess.write;
 
   @override
-  Future<ToolResult> call(Map<String, dynamic> args) => _bind(args, null);
-
-  @override
-  Future<ToolResult> callWithTurn(Map<String, dynamic> args, McpCallerContext context) => _bind(args, context.turn);
+  Future<ToolResult> callWithContext(Map<String, dynamic> args, McpCallerContext context) => _bind(args, context.turn);
 
   Future<ToolResult> _bind(Map<String, dynamic> args, TurnProvenance? turn) async {
     final invalid = validateToolArguments(inputSchema, args);
@@ -437,7 +430,7 @@ class TaskBindTool implements TurnAwareMcpTool {
 /// MCP tool that removes every thread binding for a task.
 ///
 /// The twin of the admin-only `/unbind` command, gated as [TaskBindTool] is.
-class TaskUnbindTool implements TurnAwareMcpTool {
+class TaskUnbindTool extends ContextualMcpTool {
   new({
     required ThreadBindingStore? bindings,
     required bool Function(String senderId) isAdmin,
@@ -468,10 +461,8 @@ class TaskUnbindTool implements TurnAwareMcpTool {
   McpToolAccess get access => McpToolAccess.write;
 
   @override
-  Future<ToolResult> call(Map<String, dynamic> args) => _unbind(args, null);
-
-  @override
-  Future<ToolResult> callWithTurn(Map<String, dynamic> args, McpCallerContext context) => _unbind(args, context.turn);
+  Future<ToolResult> callWithContext(Map<String, dynamic> args, McpCallerContext context) =>
+      _unbind(args, context.turn);
 
   Future<ToolResult> _unbind(Map<String, dynamic> args, TurnProvenance? turn) async {
     final invalid = validateToolArguments(inputSchema, args);

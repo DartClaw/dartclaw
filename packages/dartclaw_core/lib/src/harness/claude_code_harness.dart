@@ -10,7 +10,6 @@ import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 
 import '../container/container_executor.dart';
-import '../memory/memory_apply_schema.dart';
 import '../storage/atomic_write.dart';
 import '../worker/worker_state.dart';
 import 'agent_harness.dart';
@@ -19,7 +18,6 @@ import 'base_protocol_adapter.dart';
 import 'claude_settings_builder.dart';
 import 'claude_protocol_adapter.dart';
 import 'claude_protocol.dart';
-import 'canonical_tool.dart';
 import 'conversation_history.dart';
 import 'harness_launch_options.dart';
 import 'protocol_message.dart' as proto;
@@ -28,7 +26,6 @@ import 'process_types.dart';
 import '../agents/tool_policy_cascade.dart';
 import 'tool_policy.dart';
 
-part 'claude_code_harness_mcp.dart';
 part 'claude_code_harness_control.dart';
 
 List<String> _buildClaudeArgs({
@@ -123,16 +120,6 @@ class ClaudeCodeHarness extends BaseHarness
   /// Platform policy used for executable lookup and process semantics.
   final PlatformCapabilities platformCapabilities;
 
-  /// Memory handlers exposed through the SDK fallback when no HTTP MCP server is configured.
-  final Future<Map<String, dynamic>> Function(Map<String, dynamic>)? onMemoryApply;
-  final Future<Map<String, dynamic>> Function(Map<String, dynamic>)? onMemoryObserve;
-  final ContextualMemoryToolHandler? onContextualMemoryApply;
-  final ContextualMemoryToolHandler? onContextualMemoryObserve;
-  final ContextualMemoryToolHandler? onContextualMemorySearch;
-  final ContextualMemoryToolHandler? onContextualMemoryRead;
-  final Future<Map<String, dynamic>> Function(Map<String, dynamic>)? onMemorySearch;
-  final Future<Map<String, dynamic>> Function(Map<String, dynamic>)? onMemoryRead;
-
   /// Called with the native tool name and reason when Claude denies tool use.
   final void Function(String toolName, String? reason)? onPermissionDenied;
 
@@ -203,14 +190,6 @@ class ClaudeCodeHarness extends BaseHarness
     this.toolPolicy = ToolApprovalPolicy.allowAll,
     this.guardChain,
     this.auditLogger,
-    this.onMemoryApply,
-    this.onMemoryObserve,
-    this.onContextualMemoryApply,
-    this.onContextualMemoryObserve,
-    this.onContextualMemorySearch,
-    this.onContextualMemoryRead,
-    this.onMemorySearch,
-    this.onMemoryRead,
     this.onPermissionDenied,
     super.harnessConfig = const HarnessLaunchOptions(),
     this.historyConfig = const HistoryConfig.defaults(),
@@ -983,7 +962,6 @@ class ClaudeCodeHarness extends BaseHarness
     final requestId = 'req_init_${DateTime.now().millisecondsSinceEpoch}';
     _log.info('Sending initialize (id: $requestId)...');
 
-    final sdkMcpServers = _buildMemorySdkMcpServers();
     writeJsonLine(
       _adapter.buildInitializeRequest(
         requestId: requestId,
@@ -1018,12 +996,6 @@ class ClaudeCodeHarness extends BaseHarness
             },
           ],
         },
-        // Gated on the boundary, not the URL: a container whose authority was
-        // granted no tools has a null bridge URL, and must end up with *less*
-        // exposure, not the SDK memory tools deny-by-default excluded.
-        sdkMcpServers: containerManager == null && harnessConfig.mcpServerUrl == null && sdkMcpServers.isNotEmpty
-            ? sdkMcpServers
-            : null,
       ),
     );
 
@@ -1034,118 +1006,6 @@ class ClaudeCodeHarness extends BaseHarness
       _log.severe('Initialize handshake timed out');
       throw StateError('Initialize handshake timed out after ${_initializeTimeout.inSeconds}s');
     }
-  }
-
-  Map<String, dynamic> _buildMemorySdkMcpServers() {
-    final apply = onMemoryApply;
-    final observe = onMemoryObserve;
-    final search = onMemorySearch;
-    final read = onMemoryRead;
-    if (apply == null || observe == null || search == null || read == null) return {};
-
-    return {
-      'sdkMcpServers': {
-        dartclawMcpServerName: {
-          'type': 'sdk_mcp_server',
-          'tools': [
-            {
-              'name': 'memory_observe',
-              'description': 'Record a non-authoritative observation or runtime learning.',
-              'input_schema': {
-                'type': 'object',
-                'properties': {
-                  'text': {'type': 'string', 'maxLength': 65536, 'description': 'The text to record'},
-                  'role': {
-                    'type': 'string',
-                    'enum': ['observation', 'learning'],
-                    'description': 'Canonical capture role',
-                  },
-                },
-                'required': ['text', 'role'],
-                'additionalProperties': false,
-              },
-            },
-            {
-              'name': 'memory_apply',
-              'description': 'Atomically add, revise, merge, or remove curated personal memory.',
-              'input_schema': {
-                'type': 'object',
-                'properties': {
-                  'expectedRevision': {'type': 'integer', 'minimum': 1},
-                  'operations': {'type': 'array', 'minItems': 1, 'items': memoryApplyOperationSchema},
-                },
-                'required': ['expectedRevision', 'operations'],
-                'additionalProperties': false,
-              },
-            },
-            {
-              'name': 'memory_search',
-              'description': 'Search saved memories using natural language.',
-              'input_schema': {
-                'type': 'object',
-                'properties': {
-                  'query': {'type': 'string', 'description': 'Search query'},
-                  'limit': {
-                    'type': 'integer',
-                    'description': 'Number of results (1-50, default 5)',
-                    'default': 5,
-                    'minimum': 1,
-                    'maximum': 50,
-                  },
-                },
-                'required': ['query'],
-                'additionalProperties': false,
-              },
-            },
-            {
-              'name': 'memory_read',
-              'description': 'Read canonical memory or a native knowledge source by stable selector.',
-              'input_schema': {
-                'type': 'object',
-                'properties': {
-                  'locator': {'type': 'string', 'description': 'Stable locator returned by memory_search'},
-                  'role': {
-                    'type': 'string',
-                    'enum': ['topic', 'archive'],
-                    'description': 'Topic-bearing canonical role',
-                  },
-                  'topic': {'type': 'string', 'description': 'Canonical topic slug'},
-                  'limit': {
-                    'type': 'integer',
-                    'description': 'Number of records (1-50, default 5)',
-                    'default': 5,
-                    'minimum': 1,
-                    'maximum': 50,
-                  },
-                },
-                'oneOf': [
-                  {
-                    'required': ['locator'],
-                    'not': {
-                      'anyOf': [
-                        {
-                          'required': ['role'],
-                        },
-                        {
-                          'required': ['topic'],
-                        },
-                      ],
-                    },
-                  },
-                  {
-                    'required': ['role', 'topic'],
-                    'not': {
-                      'required': ['locator'],
-                    },
-                  },
-                ],
-                'additionalProperties': false,
-              },
-            },
-          ],
-        },
-      },
-    };
   }
 
   @override
@@ -1353,8 +1213,6 @@ class ClaudeCodeHarness extends BaseHarness
     }
     emitEvent(ToolApprovalResolvedEvent(requestId: requestId, approved: false, expired: expired));
   }
-
-  void _writeSdkMcpLine(Map<String, dynamic> message) => writeJsonLine(message);
 
   Future<void> _handleHookCallback(String requestId, Map<String, dynamic> data) async {
     final hookInput = data['input'];

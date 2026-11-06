@@ -174,7 +174,7 @@ void main() {
   group('task_create records the chat origin of the turn that asked for the task', () {
     Future<Task> createDuring(TurnProvenance? turn) async {
       await callTool(
-        passingHandler().forHarness(() => turn),
+        passingHandler().forCaller(harnessRunning(() => turn)),
         'task_create',
         arguments: {'title': 'Origin task', 'description': 'Carry the requester.'},
       );
@@ -220,8 +220,10 @@ void main() {
 
     test('a channel turn that cannot name its recipient is refused and creates nothing', () async {
       final response = await callTool(
-        passingHandler().forHarness(
-          () => TurnProvenance.channel(channelType: ChannelType.slack, sessionKey: 'agent:main:group:slack:C1'),
+        passingHandler().forCaller(
+          harnessRunning(
+            () => TurnProvenance.channel(channelType: ChannelType.slack, sessionKey: 'agent:main:group:slack:C1'),
+          ),
         ),
         'task_create',
         arguments: {'title': 'Orphan', 'description': 'No recipient.'},
@@ -751,7 +753,7 @@ void main() {
 
     McpProtocolHandler handlerFor(TurnProvenance? turn) {
       final handler = passingHandler(bindingStore: bindings);
-      return turn == null ? handler : handler.forHarness(() => turn);
+      return turn == null ? handler : handler.forCaller(harnessRunning(() => turn));
     }
 
     List<AuditEntry> gateEntries(String guard) => gateAudit.entries.where((e) => e.guard == guard).toList();

@@ -64,11 +64,6 @@ void main() {
         auditLogger: auditLogger,
         skillWorkspaceDir: '/tmp/agent-a',
         declaredWritableRoots: const ['/tmp/agent-a'],
-        onMemoryApply: (payload) async => {'applied': payload},
-        onContextualMemorySearch: (payload, context) async => {'searched': payload},
-        onContextualMemoryRead: (payload, context) async => {'read': payload},
-        onMemorySearch: (payload) async => {'searched': payload},
-        onMemoryRead: (payload) async => {'read': payload},
       );
 
       final harness = factory.create('claude', config);
@@ -86,11 +81,6 @@ void main() {
       expect(claude.skillWorkspaceDir, '/tmp/agent-a');
       expect(claude.declaredWritableRoots, ['/tmp/agent-a']);
       expect(claude.providerOptions, isEmpty);
-      expect(claude.onMemoryApply, isNotNull);
-      expect(claude.onContextualMemorySearch, isNotNull);
-      expect(claude.onContextualMemoryRead, isNotNull);
-      expect(claude.onMemorySearch, isNotNull);
-      expect(claude.onMemoryRead, isNotNull);
     });
 
     test('gives the codex harness the same container as claude', () {

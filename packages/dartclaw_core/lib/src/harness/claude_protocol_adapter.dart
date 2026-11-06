@@ -138,15 +138,11 @@ class ClaudeProtocolAdapter extends BaseProtocolAdapter {
 
   /// Builds a Claude initialize `control_request`.
   ///
-  /// Only hooks and SDK MCP servers travel here. Tool policy, turn caps, model
-  /// and effort are spawn flags: the SDK protocol has no initialize field for
-  /// them and the CLI ignores unknown ones.
-  Map<String, dynamic> buildInitializeRequest({
-    required String requestId,
-    required Map<String, dynamic> hooks,
-    Map<String, dynamic>? sdkMcpServers,
-  }) {
-    final request = <String, dynamic>{'subtype': 'initialize', 'hooks': hooks, ...?sdkMcpServers};
+  /// Only hooks travel here. Tool policy, turn caps, model and effort are spawn
+  /// flags: the SDK protocol has no initialize field for them and the CLI
+  /// ignores unknown ones.
+  Map<String, dynamic> buildInitializeRequest({required String requestId, required Map<String, dynamic> hooks}) {
+    final request = <String, dynamic>{'subtype': 'initialize', 'hooks': hooks};
     return {'type': 'control_request', 'request_id': requestId, 'request': request};
   }
 

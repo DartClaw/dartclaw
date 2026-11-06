@@ -118,7 +118,7 @@ final class ContextResearchMetrics {
 }
 
 /// MCP tool that synthesizes a compact cited packet across internal knowledge.
-final class ContextResearchTool implements ContextualMcpTool {
+final class ContextResearchTool extends ContextualMcpTool {
   final ContextResearchScopeResolver _scopeResolver;
   final WikiSearchSource _wiki;
   final TemporalKnowledgeGraphService _kg;
@@ -203,10 +203,6 @@ final class ContextResearchTool implements ContextualMcpTool {
 
   @override
   McpToolAccess get access => McpToolAccess.read;
-
-  @override
-  Future<ToolResult> call(Map<String, dynamic> args) async =>
-      const ToolResult.error('Tool requires authenticated caller context');
 
   @override
   Future<ToolResult> callWithContext(Map<String, dynamic> args, McpCallerContext context) async {

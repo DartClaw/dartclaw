@@ -4,7 +4,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show WorkflowDefinition, WorkflowRun, WorkflowService, workflowContextValue, workflowRevisionState;
 
 import '../task/workflow_run_control.dart';
-import 'mcp_server.dart' show McpCallerContext, TurnAwareMcpTool;
+import 'mcp_server.dart' show ContextualMcpTool, McpCallerContext;
 import 'tool_schema.dart';
 
 const _maxPendingMessageLength = 1000;
@@ -13,7 +13,7 @@ const _maxPendingMessageLength = 1000;
 ///
 /// A thin adapter over [WorkflowRunControl], which owns the admin gate and the audit entry. The
 /// acting sender is the host's record of the calling turn; no argument can name one.
-class WorkflowResumeTool implements TurnAwareMcpTool {
+class WorkflowResumeTool extends ContextualMcpTool {
   new({required WorkflowRunControl control}) : _control = control;
 
   final WorkflowRunControl _control;
@@ -33,10 +33,8 @@ class WorkflowResumeTool implements TurnAwareMcpTool {
   McpToolAccess get access => McpToolAccess.write;
 
   @override
-  Future<ToolResult> call(Map<String, dynamic> args) => _resume(args, null);
-
-  @override
-  Future<ToolResult> callWithTurn(Map<String, dynamic> args, McpCallerContext context) => _resume(args, context.turn);
+  Future<ToolResult> callWithContext(Map<String, dynamic> args, McpCallerContext context) =>
+      _resume(args, context.turn);
 
   Future<ToolResult> _resume(Map<String, dynamic> args, TurnProvenance? turn) async {
     final invalid = validateToolArguments(inputSchema, args);
@@ -47,7 +45,7 @@ class WorkflowResumeTool implements TurnAwareMcpTool {
 }
 
 /// MCP tool that cancels a workflow run, rejecting a pending approval with optional feedback.
-class WorkflowCancelTool implements TurnAwareMcpTool {
+class WorkflowCancelTool extends ContextualMcpTool {
   new({required WorkflowRunControl control}) : _control = control;
 
   final WorkflowRunControl _control;
@@ -73,10 +71,8 @@ class WorkflowCancelTool implements TurnAwareMcpTool {
   McpToolAccess get access => McpToolAccess.write;
 
   @override
-  Future<ToolResult> call(Map<String, dynamic> args) => _cancel(args, null);
-
-  @override
-  Future<ToolResult> callWithTurn(Map<String, dynamic> args, McpCallerContext context) => _cancel(args, context.turn);
+  Future<ToolResult> callWithContext(Map<String, dynamic> args, McpCallerContext context) =>
+      _cancel(args, context.turn);
 
   Future<ToolResult> _cancel(Map<String, dynamic> args, TurnProvenance? turn) async {
     final invalid = validateToolArguments(inputSchema, args);
@@ -88,7 +84,7 @@ class WorkflowCancelTool implements TurnAwareMcpTool {
 }
 
 /// MCP tool that sends a run waiting at an approval gate back to the gate's revise step.
-class WorkflowRequestChangesTool implements TurnAwareMcpTool {
+class WorkflowRequestChangesTool extends ContextualMcpTool {
   new({required WorkflowRunControl control}) : _control = control;
 
   final WorkflowRunControl _control;
@@ -115,10 +111,7 @@ class WorkflowRequestChangesTool implements TurnAwareMcpTool {
   McpToolAccess get access => McpToolAccess.write;
 
   @override
-  Future<ToolResult> call(Map<String, dynamic> args) => _requestChanges(args, null);
-
-  @override
-  Future<ToolResult> callWithTurn(Map<String, dynamic> args, McpCallerContext context) =>
+  Future<ToolResult> callWithContext(Map<String, dynamic> args, McpCallerContext context) =>
       _requestChanges(args, context.turn);
 
   Future<ToolResult> _requestChanges(Map<String, dynamic> args, TurnProvenance? turn) async {

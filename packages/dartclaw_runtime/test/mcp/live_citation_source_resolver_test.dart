@@ -9,6 +9,8 @@ import 'package:test/test.dart';
 
 import '../helpers/search_index_test_support.dart';
 
+const _captureContext = MemoryCaptureContext(sourceLocator: 'test:citation-resolver');
+
 void main() {
   test('reopens role-discriminated canonical and native locators independently of search results', () async {
     final workspace = Directory.systemTemp.createTempSync('citation_resolver_');
@@ -32,7 +34,9 @@ void main() {
 
     final first = await _add(handlers, corpus, topic: 'projects', content: 'same source text');
     final second = await _add(handlers, corpus, topic: 'preferences', content: 'same source text');
-    final learning = _decode(await handlers.onObserve({'text': 'canonical learning', 'role': 'learning'}));
+    final learning = _decode(
+      await handlers.observe({'text': 'canonical learning', 'role': 'learning'}, _captureContext),
+    );
     final learningId = learning['locator'] as String;
     final wikiFile = File(p.join(workspace.path, 'wiki', 'falcon.md'));
     wikiFile.parent.createSync(recursive: true);
@@ -74,12 +78,12 @@ Future<String> _add(
 }) async {
   final revision = (await corpus.readCorpus()).index.metadata.revision;
   final response = _decode(
-    await handlers.onApply({
+    await handlers.apply({
       'expectedRevision': revision,
       'operations': [
         {'kind': 'add', 'correlationId': topic, 'topic': topic, 'content': content},
       ],
-    }),
+    }, _captureContext),
   );
   return ((response['operations'] as Map<String, dynamic>)[topic] as Map<String, dynamic>)['entryId'] as String;
 }

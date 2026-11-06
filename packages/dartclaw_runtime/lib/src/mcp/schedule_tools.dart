@@ -16,7 +16,7 @@ import 'tool_schema.dart';
 /// than promising a restart — or, under operator approval, that the write is
 /// parked. The requester a parked change records is host-owned: the dispatch's
 /// caller identity where it has one, else this tool's name, never an argument.
-class ScheduleUpsertTool implements ContextualMcpTool {
+class ScheduleUpsertTool extends ContextualMcpTool {
   new({required ScheduleMutationService mutations, ScheduleService? schedules})
     : _mutations = mutations,
       _schedules = schedules;
@@ -66,9 +66,6 @@ class ScheduleUpsertTool implements ContextualMcpTool {
 
   @override
   McpToolAccess get access => McpToolAccess.write;
-
-  @override
-  Future<ToolResult> call(Map<String, dynamic> args) => _upsert(args, requester: name);
 
   @override
   Future<ToolResult> callWithContext(Map<String, dynamic> args, McpCallerContext context) =>

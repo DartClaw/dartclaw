@@ -2,7 +2,7 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart';
 
 import '../task/workflow_start_precondition_exception.dart';
-import 'mcp_server.dart' show McpCallerContext, TurnAwareMcpTool;
+import 'mcp_server.dart' show ContextualMcpTool, McpCallerContext;
 import 'tool_schema.dart';
 
 /// MCP tool that starts a named workflow through the existing workflow service.
@@ -13,7 +13,7 @@ import 'tool_schema.dart';
 ///
 /// The run's origin comes from the host's record of the calling turn alone; a
 /// caller that is not running a turn records `api`.
-class WorkflowRunTool implements TurnAwareMcpTool {
+class WorkflowRunTool extends ContextualMcpTool {
   new({required WorkflowDefinitionSource definitions, required WorkflowService workflows})
     : _definitions = definitions,
       _workflows = workflows;
@@ -50,10 +50,7 @@ class WorkflowRunTool implements TurnAwareMcpTool {
   McpToolAccess get access => McpToolAccess.write;
 
   @override
-  Future<ToolResult> call(Map<String, dynamic> args) => _start(args, null);
-
-  @override
-  Future<ToolResult> callWithTurn(Map<String, dynamic> args, McpCallerContext context) => _start(args, context.turn);
+  Future<ToolResult> callWithContext(Map<String, dynamic> args, McpCallerContext context) => _start(args, context.turn);
 
   Future<ToolResult> _start(Map<String, dynamic> args, TurnProvenance? turn) async {
     final invalid = validateToolArguments(inputSchema, args);

@@ -126,7 +126,8 @@ void main() {
       'variables': {'SCOPE': 'inbox'},
     };
 
-    McpProtocolHandler hostHarness(TurnProvenance? Function() activeTurn) => passingHandler().forHarness(activeTurn);
+    McpProtocolHandler hostHarness(TurnProvenance? Function() activeTurn) =>
+        passingHandler().forCaller(harnessRunning(activeTurn));
 
     test('a host harness turn from a chat thread records that thread, sender and session', () async {
       toolResult(await callTool(hostHarness(() => chatTurn), 'workflow_run', arguments: runArguments));
@@ -154,7 +155,11 @@ void main() {
 
     test('a scheduled prompt turn records cron and nothing else', () async {
       toolResult(
-        await callTool(hostHarness(() => const TurnProvenance.cron()), 'workflow_run', arguments: runArguments),
+        await callTool(
+          hostHarness(() => const TurnProvenance.cron(jobId: 'test-job')),
+          'workflow_run',
+          arguments: runArguments,
+        ),
       );
 
       expect(workflows.lastOrigin, const WorkflowRunOrigin(surface: 'cron'));
@@ -172,7 +177,10 @@ void main() {
       await WorkflowRunTool(
         definitions: InMemoryDefinitionSource([_nightlyReview]),
         workflows: workflows,
-      ).call(runArguments);
+      ).callWithContext(
+        runArguments,
+        const McpCallerContext(authorityId: mcpStewardPrincipal, sourceEvent: 'test:no-turn'),
+      );
       expect(workflows.lastOrigin, const WorkflowRunOrigin(surface: 'api'));
     });
 
@@ -190,7 +198,9 @@ void main() {
     });
 
     test('a scoped caller the transport gave no identity is refused rather than given the steward defaults', () async {
-      final handler = passingHandler().scopedTo(AllowAllCallerPolicy(), activeTurn: () => chatTurn);
+      final handler = passingHandler().forCaller(
+        McpCaller(identity: () => null, turn: () => chatTurn, policy: AllowAllCallerPolicy(), guardsAsCaller: true),
+      );
 
       final result = toolResult(await callTool(handler, 'workflow_run', arguments: runArguments));
 
@@ -201,10 +211,13 @@ void main() {
 
     test('a container authority resolves each turn at call time and carries none after the turn ends', () async {
       TurnProvenance? active;
-      final handler = passingHandler().scopedTo(
-        AllowAllCallerPolicy(),
-        callerIdentity: const McpCallerIdentity(authorityId: 'authority-1', agentId: 'ana'),
-        activeTurn: () => active,
+      final handler = passingHandler().forCaller(
+        McpCaller(
+          identity: () => const McpCallerIdentity(authorityId: 'authority-1', agentId: 'ana'),
+          turn: () => active,
+          policy: AllowAllCallerPolicy(),
+          guardsAsCaller: true,
+        ),
       );
       final bob = TurnProvenance.channel(
         channelType: ChannelType.googlechat,

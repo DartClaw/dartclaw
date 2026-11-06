@@ -163,7 +163,7 @@ claude → Dart (stdout), parsed by `parseJsonlLine` (`claude_protocol.dart`) in
 | `stream_event` | Only `content_block_delta` with a `text_delta` becomes `StreamTextDelta`. Other lifecycle events are ignored |
 | `assistant` | `tool_use` blocks → `ToolUseBlock`. Text blocks are skipped; text comes from deltas to avoid double counting |
 | `user` | `tool_result` blocks → `ToolResultBlock`. The CLI reports results on a synthetic `user` message, not on the `assistant` message that requested the tool |
-| `control_request` | `can_use_tool`, `hook_callback`, `mcp_message`; any other subtype gets an empty success response |
+| `control_request` | `can_use_tool`, `hook_callback`; any other subtype gets an empty success response |
 | `result` | `TerminalResult`: `stop_reason`, `subtype`, `structured_output`, `result` text, `total_cost_usd`, `usage`, `modelUsage` |
 
 Representative exchanges:
@@ -231,10 +231,6 @@ Claude may first call the provider-native `ToolSearch` to load a deferred tool's
 **Observer hooks.** `PostToolUse` is audit-only and always allows (`GuardAuditLogger.logPostToolUse`); it fires after the result is already in the model's context, which is why `web_fetch` is an MCP tool whose content scan runs before the model sees the text ([ADR-009](../adrs/009-internal-mcp-server.md)). `PermissionDenied` reports Claude's own refusals as `ToolPermissionDeniedEvent`; DartClaw cannot override them. `PreCompact` is a bounded capture boundary: `HarnessWiring._capturePreCompactObservation` stores a redacted, byte-capped tail of the persisted messages as an `observation` memory entry with host-bound provenance, then the harness answers `allow` exactly once and a `CompactionStartingEvent` fires. A capture failure is logged and compaction proceeds. Because the signal is deterministic, the host's heuristic pre-compaction flush is suppressed (`supportsPreCompactHook`).
 
 Guard verdict semantics, audit records and the guard timeout (5 seconds per guard by default) are in [Security Architecture](security-architecture.md).
-
-### 3.6 SDK MCP fallback
-
-Without a configured MCP server URL (SDK composition with no `serve`) and outside containers, the four memory tools (`memory_apply`, `memory_observe`, `memory_search`, `memory_read`) are registered in `initialize` as `sdkMcpServers`. The CLI proxies calls as `control_request` `subtype: mcp_message` carrying a `tools/call` JSON-RPC message, and the harness answers with a `control_response` whose `response.mcp_response` is the JSON-RPC result or error. This is a Claude-SDK-private extension, not the MCP spec. The HTTP server in section 8 supersedes it ([ADR-009](../adrs/009-internal-mcp-server.md)).
 
 ---
 
@@ -453,14 +449,16 @@ DartClaw exposes tools to harnesses through the internal MCP server, `McpProtoco
 
 | Bearer | Reaches | Principal |
 |---|---|---|
-| Gateway token | The full tool set | The deployment (`system`) |
-| Host-minted harness bearer (`HarnessMcpBearers`, one per host harness, valid while the harness lives) | The full tool set, with the harness's active turn attached as `TurnProvenance` for tools that read it; a logical agent's worker lists only the tools `ToolPolicyCascade.isAllowed` admits for that agent (`tools/list` only, `tools/call` is not narrowed). A call runs as whom the harness is serving, read from its active turn context at call time: that turn's session plus the agent the worker was leased for (`McpCallerIdentity`, so a `ContextualMcpTool` such as `context_research` resolves that agent's memory scope, never the owner's). Outside a turn there is no identity and a contextual tool is refused. The identity reaches the tool context and the audit entry, not the dispatch guard chain, because the harness's own `ToolPolicyGuard` already decided the call | `system` for the owner's harness and for a worker with no logical agent, `agent:<id>` for a logical agent's worker |
+| Gateway token | The full tool set. A `ContextualMcpTool` runs as the steward with no session, which resolves owner memory and owner `context_research` scope | The deployment (`system`) |
+| Host-minted harness bearer (`HarnessMcpBearers`, one per host harness, valid while the harness lives) | The full tool set, with the harness's active turn attached as `TurnProvenance` for tools that read it; a logical agent's worker reaches only the tools `ToolPolicyCascade.isAllowed` admits for that agent, in `tools/list` and `tools/call` alike. A call runs as whom the harness is serving, read from its active turn context at call time: that turn's session plus the agent the worker was leased for (`McpCallerIdentity`, so a `ContextualMcpTool` such as `context_research` resolves that agent's memory scope, never the owner's). Outside a turn there is no identity and every contextual tool is refused. The identity reaches the tool context and the audit entry, not the dispatch guard chain, because the harness's own `ToolPolicyGuard` already decided the call | `system` for the owner's harness and for a worker with no logical agent, `agent:<id>` for a logical agent's worker |
 | Configured named client (`gateway.mcp_clients`, requires `auth_mode: token`) | Only `context_research`, `kg_query`, `kg_timeline` (`contextEngineProfileTools`), shared knowledge scope only; refusals are audited | `mcp-client:<name>` |
 | None | Only on an authentication-disabled loopback deployment, which also requires an exact loopback `Host` and, when sent, a loopback `Origin` | Deployment |
 
-Container harnesses reach the server only through their own authority's host bridge (`ContainerManager.mcpBridgeUrl`), identified by the pipe rather than a bearer, and a null bridge URL means no MCP server is configured at all. The request body is capped at 1 MiB (413).
+Container harnesses reach the server only through their own authority's host bridge (`ContainerManager.mcpBridgeUrl`), identified by the pipe rather than a bearer, and a null bridge URL means no MCP server is configured at all. The authority's principal is the caller identity (an empty authority id has none, so contextual tools are refused), its allowlist narrows both listing and calls, and only this caller's session and agent reach the dispatch guard chain. The request body is capped at 1 MiB (413).
 
-**Dispatch.** Every registered tool is guarded and audited once at the dispatch seam (`McpDispatchGuard` through the `GuardChain`, mapped to canonical tools via `toolCanonicals`), so a tool carries no guard plumbing. `McpTool` requires `name`, `description`, `inputSchema`, `access` (`read` or `write`, undefaulted so a new tool must answer) and `call`; `ContextualMcpTool` and `TurnAwareMcpTool` additionally receive the caller context. Guard semantics: [Security Architecture](security-architecture.md#guard-pipeline).
+Each transport resolves one `McpCaller` (identity, active turn, policy) and serves it a `McpProtocolHandler.forCaller` view, so every lane shares one dispatch rule. Memory tools and `context_research` resolve the memory a caller reaches through one rule (`HarnessWiring.memoryContextFor`): an ordinary caller must match its session's pinned workspace; a turn the scheduler fired (`TurnProvenance.cron`, host-set) uses the session the host pinned for the job, and its `jobId` marks journal and curation entries; the steward with no session is the owner.
+
+**Dispatch.** Every registered tool is guarded and audited once at the dispatch seam (`McpDispatchGuard` through the `GuardChain`, mapped to canonical tools via `toolCanonicals`), so a tool carries no guard plumbing. `McpTool` requires `name`, `description`, `inputSchema`, `access` (`read` or `write`, undefaulted so a new tool must answer) and `call`; a `ContextualMcpTool` instead receives the caller context (identity plus turn) in `callWithContext` and is refused when the caller has no identity. Guard semantics: [Security Architecture](security-architecture.md#guard-pipeline).
 
 **Registered tools** (`runtime/service_wiring_mcp_tools.dart`; semantic tools from `HarnessWiring.semanticMcpTools`):
 
@@ -485,7 +483,7 @@ Container harnesses reach the server only through their own authority's host bri
 | ADR | Relevance |
 |---|---|
 | [ADR-001](../adrs/001-sdk-integration-and-security-architecture.md) | Direct JSONL approach instead of an SDK layer |
-| [ADR-009](../adrs/009-internal-mcp-server.md) | Internal MCP server; `sdkMcpServers` fallback |
+| [ADR-009](../adrs/009-internal-mcp-server.md) | Internal MCP server |
 | [ADR-016](../adrs/016-multi-provider-harness-architecture.md) | Multi-provider harness design |
 | [ADR-027](../adrs/027-claude-harness-setting-sources-default.md) | Settings-source default |
 | [ADR-031](../adrs/031-native-first-structured-outputs.md) | Structured-output capabilities |

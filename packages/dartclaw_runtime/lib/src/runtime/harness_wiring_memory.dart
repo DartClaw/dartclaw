@@ -1,69 +1,38 @@
 part of 'harness_wiring.dart';
 
 extension _HarnessWiringMemory on HarnessWiring {
-  Future<Map<String, dynamic>> _callScopedHarnessMemory(
-    String toolName,
-    Map<String, dynamic> arguments,
-    HarnessTurnContext context,
-  ) async {
-    await _refuseTemporaryMemoryWrite(toolName, context.sessionId);
-    final memory = await _storage.memoryContextForCaller(
-      sessionId: context.sessionId,
-      agentId: context.agentName,
-      callerKind: context.source == 'cron' ? MemoryCallerKind.scheduled : MemoryCallerKind.ordinary,
-      access: _memoryAccessFor(toolName),
-    );
-    final handlers =
-        _workspaceMemoryHandlers[memory.principal] ??
-        (throw StateError('Memory workspace is unavailable: ${memory.principal}'));
-    final cronAgent = context.source == 'cron' ? context.agentName : null;
-    var originKind = MemoryOriginKind.turn;
-    var sourceLocator = 'session:${context.sessionId}';
-    if (cronAgent?.startsWith('cron:memory-journal') ?? false) {
-      originKind = MemoryOriginKind.journal;
-      sourceLocator = cronAgent!.substring('cron:'.length);
-    } else if (cronAgent?.startsWith('cron:$memoryCurationJobId') ?? false) {
-      originKind = MemoryOriginKind.curation;
-      sourceLocator = cronAgent!.substring('cron:'.length);
-    }
-    final capture = MemoryCaptureContext(
-      userId: memory.principal,
-      originKind: originKind,
-      sourceLocator: sourceLocator,
-      sourceEvent: 'turn:${context.turnId}',
-      caller: context.agentName == 'main' ? toolName : context.agentName,
-      sessionRef: context.sessionId,
-    );
-    return _dispatchMemoryTool(toolName, arguments, handlers, capture, 'Unsupported contextual memory tool: $toolName');
-  }
-
   Future<Map<String, dynamic>> _callScopedMemory(
     String toolName,
     Map<String, dynamic> arguments,
     McpCallerContext caller,
   ) async {
     await _refuseTemporaryMemoryWrite(toolName, caller.sessionId);
-    final memory = await _storage.memoryContextForCaller(
-      sessionId: caller.sessionId,
-      agentId: caller.agentId,
-      access: _memoryAccessFor(toolName),
-    );
+    final memory = await memoryContextFor(caller, access: _memoryAccessFor(toolName));
     final handlers =
         _workspaceMemoryHandlers[memory.principal] ??
         (throw StateError('Memory workspace is unavailable: ${memory.principal}'));
+    final jobId = caller.turn?.jobId;
+    // Only the job built for this very workspace marks its entries, never another id that shares the prefix.
+    final originKind = switch (jobId) {
+      final id? when id == workspaceMemoryJobId(MemoryJournal.jobId, memory.workspace) => MemoryOriginKind.journal,
+      final id? when id == workspaceMemoryJobId(memoryCurationJobId, memory.workspace) => MemoryOriginKind.curation,
+      _ => MemoryOriginKind.turn,
+    };
     final context = MemoryCaptureContext(
       userId: memory.principal,
-      originKind: MemoryOriginKind.turn,
-      sourceLocator: caller.taskId != null
+      originKind: originKind,
+      sourceLocator: originKind != MemoryOriginKind.turn
+          ? jobId!
+          : caller.taskId != null
           ? 'task:${caller.taskId}'
           : caller.sessionId == null
           ? 'authority:${caller.authorityId}'
           : 'session:${caller.sessionId}',
-      caller: caller.agentId ?? 'mcp-bridge:$toolName',
+      caller: caller.agentId ?? (originKind == MemoryOriginKind.turn ? 'mcp-bridge:$toolName' : 'cron:$jobId'),
       sessionRef: caller.sessionId,
       sourceEvent: caller.sourceEvent,
     );
-    return _dispatchMemoryTool(toolName, arguments, handlers, context, 'Unsupported memory tool: $toolName');
+    return _dispatchMemoryTool(toolName, arguments, handlers, context);
   }
 
   Future<Map<String, dynamic>> _dispatchMemoryTool(
@@ -71,13 +40,12 @@ extension _HarnessWiringMemory on HarnessWiring {
     Map<String, dynamic> arguments,
     MemoryHandlers handlers,
     MemoryCaptureContext context,
-    String unsupportedToolError,
   ) => switch (toolName) {
     'memory_apply' => handlers.apply(arguments, context),
     'memory_observe' => handlers.observe(arguments, context),
     'memory_search' => handlers.search(arguments, context),
     'memory_read' => handlers.read(arguments, context),
-    _ => throw StateError(unsupportedToolError),
+    _ => throw StateError('Unsupported memory tool: $toolName'),
   };
 
   MemoryAccess _memoryAccessFor(String toolName) =>

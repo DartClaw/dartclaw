@@ -2,8 +2,9 @@ import 'package:dartclaw_kernel/dartclaw_kernel.dart' show ChannelType;
 
 /// Where an agent turn came from, built by the host and never supplied by a model.
 ///
-/// [surface] is a [ChannelType] name for a chat or web-chat turn, or `cron` for a scheduled prompt. A turn with no
-/// [senderId] is not a channel turn (web chat, scheduled), so a sender gate refuses or bypasses it by its own rule.
+/// [surface] is a [ChannelType] name for a chat or web-chat turn, or `cron` for a scheduled prompt, which names the
+/// job it fires in [jobId]. A turn with no [senderId] is not a channel turn (web chat, scheduled), so a sender gate
+/// refuses or bypasses it by its own rule.
 /// A [delegated] turn is autonomous work carrying its requester's identity, never a live message from that sender.
 final class TurnProvenance {
   /// A chat-channel turn: [surface] and [channelType] both name [channelType].
@@ -15,7 +16,8 @@ final class TurnProvenance {
     this.senderId,
     this.delegated = false,
   }) : surface = channelType.name,
-       channelType = channelType.name;
+       channelType = channelType.name,
+       jobId = null;
 
   /// A web-chat turn: the session's own key and nothing channel-shaped.
   const new web({this.sessionKey})
@@ -24,10 +26,11 @@ final class TurnProvenance {
       recipientId = null,
       threadId = null,
       senderId = null,
-      delegated = false;
+      delegated = false,
+      jobId = null;
 
-  /// A scheduled prompt turn.
-  const new cron()
+  /// A scheduled prompt turn fired for job [jobId].
+  const new cron({required String this.jobId})
     : surface = 'cron',
       channelType = null,
       recipientId = null,
@@ -58,6 +61,9 @@ final class TurnProvenance {
   /// the requester writing it live. Set only where the host builds a delegated turn's provenance.
   final bool delegated;
 
+  /// Id of the scheduled job a `cron` turn fires for; null on every other surface.
+  final String? jobId;
+
   @override
   bool operator ==(Object other) =>
       other is TurnProvenance &&
@@ -67,13 +73,14 @@ final class TurnProvenance {
       other.threadId == threadId &&
       other.sessionKey == sessionKey &&
       other.senderId == senderId &&
-      other.delegated == delegated;
+      other.delegated == delegated &&
+      other.jobId == jobId;
 
   @override
-  int get hashCode => Object.hash(surface, channelType, recipientId, threadId, sessionKey, senderId, delegated);
+  int get hashCode => Object.hash(surface, channelType, recipientId, threadId, sessionKey, senderId, delegated, jobId);
 
   @override
   String toString() =>
       'TurnProvenance($surface, recipient: $recipientId, thread: $threadId, session: $sessionKey, sender: $senderId'
-      '${delegated ? ', delegated' : ''})';
+      '${delegated ? ', delegated' : ''}${jobId == null ? '' : ', job: $jobId'})';
 }

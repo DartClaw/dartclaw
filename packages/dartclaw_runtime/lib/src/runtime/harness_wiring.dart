@@ -9,7 +9,8 @@ import 'package:path/path.dart' as p;
 
 import '../concurrency/session_lock_manager.dart' show SessionLockNow, SessionLockTimerFactory;
 import '../mcp/harness_mcp_bearers.dart';
-import '../mcp/mcp_server.dart' show McpCallerContext, McpCallerIdentity, mcpStewardPrincipal;
+import '../mcp/mcp_server.dart'
+    show McpCaller, McpCallerContext, McpCallerIdentity, McpCallerPolicy, mcpStewardPrincipal;
 import 'model_catalogue_discovery.dart';
 import 'storage_wiring.dart';
 import 'security_wiring.dart';
@@ -245,7 +246,7 @@ class HarnessWiring {
       Map<TurnRunner, ContainerAuthorityLease>.identity();
   ContainerAuthorityLease? _primaryContainer;
 
-  /// Bearers minted for the host harnesses; the `/mcp` route resolves them to a harness's active turn.
+  /// Bearers minted for the host harnesses; the `/mcp` route resolves each to its harness's [McpCaller].
   final mcpBearers = HarnessMcpBearers();
   final Map<AgentHarness, String> _mcpBearerByHarness = Map<AgentHarness, String>.identity();
 
@@ -254,16 +255,16 @@ class HarnessWiring {
   /// The harness does not exist when its launch options are built, so the bearer
   /// resolves the turn through [bind], called once the harness has been created.
   /// [logicalAgentId] is the agent the harness is leased for; null for the owner's primary harness and for a worker
-  /// that serves no logical agent.
-  ({String bearer, void Function(AgentHarness harness) bind}) _mintMcpBearer({
-    String? logicalAgentId,
-    bool Function(String toolName)? listsTool,
-  }) {
+  /// that serves no logical agent. A logical agent's caller carries [_HostAgentToolPolicy], so `/mcp` neither lists
+  /// nor runs a DartClaw tool its policy refuses.
+  ({String bearer, void Function(AgentHarness harness) bind}) _mintMcpBearer({String? logicalAgentId}) {
     AgentHarness? owner;
     final bearer = mcpBearers.mint(
-      () => _activeTurnOf(owner),
-      identity: () => _mcpCallerOf(_activeTurnContextOf(owner), logicalAgentId),
-      listsTool: listsTool,
+      McpCaller(
+        identity: () => _mcpCallerOf(_activeTurnContextOf(owner), logicalAgentId),
+        turn: () => _activeTurnOf(owner),
+        policy: logicalAgentId == null ? null : _HostAgentToolPolicy(logicalAgentId, this),
+      ),
     );
     return (
       bearer: bearer,
@@ -273,18 +274,6 @@ class HarnessWiring {
       },
     );
   }
-
-  /// Which own MCP tools `tools/list` shows a logical agent's host worker.
-  ///
-  /// The decision is `ToolPolicyGuard`'s own, asked with the canonical and raw names the Claude hook presents for
-  /// the same call, so a tool listed here is one the guard admits. Codex presents the raw name `mcp_tool_call`, so
-  /// it differs only for an entry spelled `mcp__dartclaw__<tool>`, which the listing then shows and the guard refuses.
-  bool Function(String toolName) _listsMcpToolFor(String agentId) =>
-      (toolName) => _security.toolPolicyCascade.isAllowed(
-        agentId,
-        (_ownMcpToolCanonicals[toolName] ?? CanonicalTool.mcpCall).stableName,
-        rawProviderToolName: 'mcp__${dartclawMcpServerName}__$toolName',
-      );
 
   static HarnessTurnContext? _activeTurnContextOf(AgentHarness? harness) =>
       harness is HarnessTurnContextSink ? (harness as HarnessTurnContextSink).activeTurnContext : null;
@@ -304,6 +293,22 @@ class HarnessWiring {
           sessionId: turn.sessionId,
           agentId: logicalAgentId,
         );
+
+  /// Which memory an MCP caller reaches: the one rule the memory tools and `context_research` resolve through.
+  ///
+  /// [MemoryCallerKind] comes from host-set facts only: a scheduled turn's provenance, or the deployment caller's own
+  /// marker. Never from tool arguments.
+  Future<WorkspaceMemoryContext> memoryContextFor(McpCallerContext caller, {MemoryAccess access = MemoryAccess.read}) =>
+      _storage.memoryContextForCaller(
+        sessionId: caller.sessionId,
+        agentId: caller.agentId,
+        callerKind: caller.turn?.surface == 'cron'
+            ? MemoryCallerKind.scheduled
+            : caller.deployment
+            ? MemoryCallerKind.deployment
+            : MemoryCallerKind.ordinary,
+        access: access,
+      );
 
   void _revokeMcpBearer(AgentHarness harness) {
     final bearer = _mcpBearerByHarness.remove(harness);
@@ -510,22 +515,10 @@ class HarnessWiring {
     final memoryHandlers = _memoryHandlers;
     if (memoryHandlers != null) {
       semanticMcpTools.addAll([
-        MemoryApplyTool(
-          handler: memoryHandlers.onApply,
-          callerHandler: (args, caller) => _callScopedMemory('memory_apply', args, caller),
-        ),
-        MemoryObserveTool(
-          handler: memoryHandlers.onObserve,
-          callerHandler: (args, caller) => _callScopedMemory('memory_observe', args, caller),
-        ),
-        MemorySearchTool(
-          handler: memoryHandlers.onSearch,
-          callerHandler: (args, caller) => _callScopedMemory('memory_search', args, caller),
-        ),
-        MemoryReadTool(
-          handler: memoryHandlers.onRead,
-          callerHandler: (args, caller) => _callScopedMemory('memory_read', args, caller),
-        ),
+        MemoryApplyTool(handler: (args, caller) => _callScopedMemory('memory_apply', args, caller)),
+        MemoryObserveTool(handler: (args, caller) => _callScopedMemory('memory_observe', args, caller)),
+        MemorySearchTool(handler: (args, caller) => _callScopedMemory('memory_search', args, caller)),
+        MemoryReadTool(handler: (args, caller) => _callScopedMemory('memory_read', args, caller)),
       ]);
     }
     for (final entry in config.search.providers.entries) {
@@ -642,9 +635,6 @@ class HarnessWiring {
       for (final entry in _agentWorkerPrompts.entries)
         entry.key: (task: _snapshotBehavior(entry.value.task), restricted: _snapshotBehavior(entry.value.restricted)),
     };
-    // Bridged MCP authorization resolves registered tool names through the
-    // same canonical taxonomy the guard cascade uses.
-    _security.mcpToolCanonicals = _ownMcpToolCanonicals;
     _registrations = [for (final registrar in _harnessRegistrars) registrar.declare(config)];
     _policyResolver = ExecutionPolicyResolver(
       config: config,
@@ -661,8 +651,9 @@ class HarnessWiring {
       model: config.agent.model,
       effort: config.agent.effort,
       appendSystemPrompt: staticPrompt,
+      // No bearer here: each host spawn site mints its own, so one that forgets fails closed rather than presenting
+      // the shared gateway token.
       mcpServerUrl: mcpEnabled ? 'http://localhost:$_port/mcp' : null,
-      mcpGatewayToken: _resolvedGatewayToken,
     );
 
     _warnToolPolicyEnforcementBoundaries(defaultProviderId);
@@ -1166,10 +1157,7 @@ class HarnessWiring {
         );
         final workerBearer = request.policy.isContainer || _harnessConfig.mcpServerUrl == null
             ? null
-            : _mintMcpBearer(
-                logicalAgentId: request.logicalAgentId,
-                listsTool: request.logicalAgentId == null ? null : _listsMcpToolFor(request.logicalAgentId!),
-              );
+            : _mintMcpBearer(logicalAgentId: request.logicalAgentId);
         final workerHarnessConfig = _harnessConfig.copyWith(
           appendSystemPrompt: workerPrompt,
           disallowedTools: disallowedTools,
@@ -1480,7 +1468,6 @@ class HarnessWiring {
     Map<String, String> containerEnvironment = const {},
     Future<String?> Function()? prepareSubscriptionHome,
   }) {
-    final memoryHandlers = _memoryHandlers;
     return HarnessFactoryConfig(
       declaredCanonicalTools: declaredCanonicalTools,
       declaredWritableRoots: declaredWritableRoots,
@@ -1490,22 +1477,6 @@ class HarnessWiring {
       turnTimeout: config.governance.turnLimits.turnTimeout > Duration.zero
           ? config.governance.turnLimits.turnTimeout + const Duration(seconds: 60)
           : Duration.zero,
-      onMemoryApply: memoryHandlers?.onApply,
-      onMemoryObserve: memoryHandlers?.onObserve,
-      onContextualMemoryApply: memoryHandlers == null
-          ? null
-          : (arguments, context) => _callScopedHarnessMemory('memory_apply', arguments, context),
-      onContextualMemoryObserve: memoryHandlers == null
-          ? null
-          : (arguments, context) => _callScopedHarnessMemory('memory_observe', arguments, context),
-      onContextualMemorySearch: memoryHandlers == null
-          ? null
-          : (arguments, context) => _callScopedHarnessMemory('memory_search', arguments, context),
-      onContextualMemoryRead: memoryHandlers == null
-          ? null
-          : (arguments, context) => _callScopedHarnessMemory('memory_read', arguments, context),
-      onMemorySearch: memoryHandlers?.onSearch,
-      onMemoryRead: memoryHandlers?.onRead,
       onPermissionDenied: (toolName, reason) {
         _eventBus.fire(ToolPermissionDeniedEvent(toolName: toolName, reason: reason, timestamp: DateTime.now()));
       },
@@ -1584,4 +1555,28 @@ class HarnessWiring {
       '(see docs/guide/security.md § Hardening the primary agent for untrusted channels).',
     );
   }
+}
+
+/// What a logical agent's host harness may reach on `/mcp`: the DartClaw tools its tool policy allows.
+///
+/// The decision is `ToolPolicyGuard`'s own, asked with the canonical and raw names the Claude hook presents for the
+/// same call, so `tools/list` offers only what the hook admits and `tools/call` runs only that. Codex presents the raw
+/// name `mcp_tool_call`, so an entry spelled `mcp__dartclaw__<tool>` admits the call at Codex's hook and is refused
+/// here; every other spelling decides the same at both.
+final class _HostAgentToolPolicy implements McpCallerPolicy {
+  new(this._agentId, this._wiring);
+
+  final String _agentId;
+  final HarnessWiring _wiring;
+
+  @override
+  bool allows(String toolName) => _wiring._security.toolPolicyCascade.isAllowed(
+    _agentId,
+    (_wiring._ownMcpToolCanonicals[toolName] ?? CanonicalTool.mcpCall).stableName,
+    rawProviderToolName: 'mcp__${dartclawMcpServerName}__$toolName',
+  );
+
+  @override
+  void onDenied(String toolName) =>
+      HarnessWiring._log.warning('Agent "$_agentId" called DartClaw MCP tool "$toolName" outside its tool policy');
 }

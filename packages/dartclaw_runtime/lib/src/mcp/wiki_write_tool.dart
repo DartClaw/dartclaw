@@ -15,7 +15,7 @@ const wikiWritePrincipal = 'agent-tool';
 /// exactly one rule of its own: it refuses a slug that is not already canonical
 /// rather than letting the store's sanitizer silently rewrite a model-supplied
 /// value into a different page.
-class WikiWriteTool implements TurnAwareMcpTool {
+class WikiWriteTool extends ContextualMcpTool {
   new({
     required WikiPageStore wiki,
     DateTime Function()? now,
@@ -56,10 +56,7 @@ class WikiWriteTool implements TurnAwareMcpTool {
   McpToolAccess get access => McpToolAccess.write;
 
   @override
-  Future<ToolResult> call(Map<String, dynamic> args) => _write(args);
-
-  @override
-  Future<ToolResult> callWithTurn(Map<String, dynamic> args, McpCallerContext context) async {
+  Future<ToolResult> callWithContext(Map<String, dynamic> args, McpCallerContext context) async {
     final refusal = await _contextualWriteGuard?.call(context);
     if (refusal != null) return refusal;
     return _write(args);

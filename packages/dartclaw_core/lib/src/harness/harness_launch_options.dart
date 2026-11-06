@@ -41,16 +41,13 @@ class HarnessLaunchOptions {
   /// (memory, sessions, web_fetch, search, custom) via the standard
   /// MCP `tools/list` protocol — no manual configuration needed.
   ///
-  /// When null, the harness falls back to `sdkMcpServers` in the
-  /// initialize handshake for memory tools (chat mode without MCP server).
-  ///
   /// **Security**: Never write MCP credentials to persistent files in the
   /// workspace directory — bearer tokens would be exposed in potentially
   /// version-controlled directories.
   final String? mcpServerUrl;
 
-  /// Optional bearer used for MCP auth: the shared gateway token, or a bearer
-  /// the host minted for this harness alone.
+  /// Optional bearer used for MCP auth: the bearer the host minted for this
+  /// harness alone, or a token an embedder supplies.
   ///
   /// Written into the ephemeral `--mcp-config` temp file as
   /// `Authorization: Bearer <token>`. Only used when [mcpServerUrl] is

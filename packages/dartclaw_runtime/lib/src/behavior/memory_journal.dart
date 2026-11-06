@@ -1,5 +1,8 @@
 /// Canonical instructions for the built-in daily memory journal.
 final class MemoryJournal {
+  /// Id of the owner's journal job; a configured workspace's is `<jobId>:<agent-id>`.
+  static const jobId = 'memory-journal';
+
   static const prompt = '''
 Review today's activity log at memory/YYYY-MM-DD.md, using today's date.
 Record only notable durable items with memory_observe.

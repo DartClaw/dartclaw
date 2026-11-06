@@ -403,7 +403,7 @@ void main() {
 
       final results = [
         await control.resumeFromTool('run-1', null),
-        await control.resumeFromTool('run-1', const TurnProvenance.cron()),
+        await control.resumeFromTool('run-1', const TurnProvenance.cron(jobId: 'test-job')),
         await control.cancelFromTool('run-1', const TurnProvenance.web(sessionKey: 'agent:main:web:abc')),
       ];
 

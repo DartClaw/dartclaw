@@ -130,14 +130,6 @@ class SecurityWiring implements Reconfigurable {
   /// Container profiles this deployment can actually run.
   Set<String> get availableContainerProfiles => _containerTemplates.keys.toSet();
 
-  Map<String, CanonicalTool> _mcpToolCanonicals = const {};
-
-  /// Binds the canonical-name mapping bridged MCP authorization uses.
-  ///
-  /// Harness wiring owns the mapping and sets it during its own wire, which
-  /// still precedes any container authority.
-  set mcpToolCanonicals(Map<String, CanonicalTool> value) => _mcpToolCanonicals = Map.unmodifiable(value);
-
   CredentialHealthMonitor? _credentialHealth;
 
   /// Binds the single credential-health writer, which is built several wiring
@@ -479,7 +471,6 @@ class SecurityWiring implements Reconfigurable {
     _gateway = HostGateway(
       providerAdapters: buildProviderAdapters(),
       mcpHandler: _mcpHandlerRef,
-      mcpToolCanonicals: () => _mcpToolCanonicals,
       onDenied: _auditGatewayDenial,
       onCredentialRefused: _reportCredentialRefusal,
       onCredentialUnusable: _tearDownAuthority,

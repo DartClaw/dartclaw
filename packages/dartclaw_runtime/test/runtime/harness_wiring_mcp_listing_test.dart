@@ -171,13 +171,15 @@ void main() {
     expect(await listed(taskWorker), ['context_research', 'kg_add', 'task_list']);
   });
 
-  test('tools/call is not narrowed by the listing: the harness guard still refuses an unlisted tool', () async {
+  test('tools/call is refused for an unlisted tool, by the same decision the harness guard makes', () async {
     final bearer = await bearerOfWorkerFor(agentId: 'closed');
     final workerConfig = configs.last;
 
     final call = await rpc(bearer, 'tools/call', {'name': 'kg_add', 'arguments': <String, Object?>{}});
-    expect(call['error'], isNull);
-    expect(jsonEncode(call['result']), contains('ran kg_add'));
+    expect(call['error'], containsPair('code', -32601));
+    expect(jsonEncode(call), isNot(contains('ran kg_add')));
+    final allowed = await rpc(bearer, 'tools/call', {'name': 'context_research', 'arguments': <String, Object?>{}});
+    expect(jsonEncode(allowed['result']), contains('ran context_research'));
 
     final verdict = await workerConfig.guardChain!.evaluateBeforeToolCall(
       CanonicalTool.mcpCall.stableName,

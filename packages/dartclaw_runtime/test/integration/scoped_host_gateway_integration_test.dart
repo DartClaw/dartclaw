@@ -44,7 +44,9 @@ void main() {
   });
 
   HostGateway buildGateway({List<String> mcpToolNames = const [], List<String>? mcpCalls, List<String>? denials}) {
-    final registry = McpProtocolHandler();
+    final registry = McpProtocolHandler(
+      toolCanonicals: const {'brave_search': CanonicalTool.webSearch, 'web_fetch': CanonicalTool.webFetch},
+    );
     for (final name in mcpToolNames) {
       registry.registerTool(RecordingMcpTool(name, mcpCalls ?? <String>[]));
     }
@@ -56,7 +58,6 @@ void main() {
         ),
       },
       mcpHandler: () => registry,
-      mcpToolCanonicals: () => const {'brave_search': CanonicalTool.webSearch, 'web_fetch': CanonicalTool.webFetch},
       onDenied: (_, reason) => denials?.add(reason),
     );
   }

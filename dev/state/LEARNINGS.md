@@ -26,7 +26,6 @@
 - **`CLAUDECODE` env var causes nesting refusal.** Clear in subprocess environment.
 - **The SDK `initialize` handshake carries no policy, model, cap or effort field, and the CLI ignores unknown handshake keys silently.** `disallowedTools` / `maxTurns` sent there were no-ops from 0.6 to 0.25.1; they are spawn flags (`--max-turns`, `--disallowedTools <names…>` variadic, keep it last). Verify a handshake field against the SDK payload in the binary (`subtype:"initialize"`) before relying on it.
 - **The terminal `result` line's `result` string is the final assistant message only** (verified on 2.1.261); it is the `TurnResult.finalText` source, and on an error line it holds the failure detail, so it is dropped there.
-- **`sdkMcpServers` map must be spread, not double-wrapped.** Helpers already return the top-level shape; passing into another `sdkMcpServers:` field silently produces `sdkMcpServers.sdkMcpServers`.
 - **`--dangerously-skip-permissions` is only safe with hooks active.** Restricted-container simple mode disables hooks → fail-closed on `can_use_tool`.
 - **`file_edit` is granted separately from `file_write`.** Workflow tasks carry canonical `allowedTools` onto their leased harness worker, where `TaskToolFilterGuard` evaluates the exact grant. Permission mode and Claude's sandbox (`sandbox.enabled`) are orthogonal axes – never map sandbox→skip-permissions.
 - **Per-turn `system_prompt` *replaces* spawn-time `--append-system-prompt`.** Don't inject conversation history via system prompt for `PromptStrategy.append`; inject as `<conversation_history>` XML in the user message on cold-process turns only.
@@ -109,7 +108,7 @@
 - **Suppress binary's built-in tools when providing MCP equivalents.** Add tool names to `disallowedTools` in `HarnessConfig`.
 - **`includeParentEnvironment: false` is load-bearing with an explicit `environment:` map.** `Process.start` otherwise re-inherits the parent env past the sanitized overlay; spawn via `SafeProcess`.
 - **Sanitize git subprocess env, not just the binary.** `.git/config` can route through `core.sshCommand`, hooks, filters, and credential helpers that spawn shell children.
-- **Gating a chat action means gating its MCP tool twin in the same change.** The card gate left `task_review` open via the agent, `/bind` left `task_bind`; make the tool `TurnAwareMcpTool`.
+- **Gating a chat action means gating its MCP tool twin in the same change.** The card gate left `task_review` open via the agent, `/bind` left `task_bind`; make the tool a `ContextualMcpTool` reading `context.turn`.
 - **Collapse whitespace where a one-line report is assembled, not per text source.** A provider error, filename, or OS string the pipeline never authored can otherwise forge a report line.
 
 ## Package Architecture

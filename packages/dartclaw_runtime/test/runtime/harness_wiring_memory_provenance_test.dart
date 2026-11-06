@@ -1,6 +1,10 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:dartclaw_runtime/dartclaw_runtime.dart' show MemoryJournal, memoryCurationJobId;
+import 'package:dartclaw_runtime/src/mcp/mcp_server.dart' show McpCallerContext, mcpStewardPrincipal;
+import 'package:dartclaw_runtime/src/mcp/memory_tools.dart' show MemoryApplyTool, MemoryObserveTool;
+import 'package:dartclaw_runtime/src/memory_handlers.dart' show MemoryCaptureContext;
 import 'package:dartclaw_runtime/src/runtime/harness_wiring.dart';
 import 'package:dartclaw_runtime/src/runtime/security_wiring.dart';
 import 'package:dartclaw_runtime/src/runtime/storage_wiring.dart';
@@ -11,6 +15,8 @@ import 'package:test/test.dart';
 
 import 'harness_wiring_fixture.dart';
 
+const _captureContext = MemoryCaptureContext(sourceLocator: 'test:native-locators');
+
 Never _unexpectedExit(int code) => throw StateError('Unexpected exit($code)');
 
 void main() {
@@ -20,7 +26,6 @@ void main() {
   late StorageWiring storage;
   late SecurityWiring security;
   late HarnessWiring harnessWiring;
-  late HarnessFactoryConfig factoryConfig;
 
   setUp(() async {
     tempDir = Directory.systemTemp.createTempSync('dartclaw_memory_provenance_');
@@ -43,10 +48,7 @@ void main() {
       exitFn: _unexpectedExit,
     );
     final factory = HarnessFactory()
-      ..register('claude', (config) {
-        factoryConfig = config;
-        return FakeAgentHarness(promptStrategy: PromptStrategy.append);
-      });
+      ..register('claude', (_) => FakeAgentHarness(promptStrategy: PromptStrategy.append));
     harnessWiring = await wireTestHarness(
       config: config,
       dataDir: tempDir.path,
@@ -66,12 +68,21 @@ void main() {
     if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
   });
 
-  test('direct capture callbacks persist host turn, journal, and curation provenance', () async {
+  test('memory tools persist host turn, journal, and curation provenance', () async {
     final primarySession = await storage.sessions.createSession();
     final journalSession = await storage.sessions.createSession();
     final curationSession = await storage.sessions.createSession();
     final revision = (await storage.memoryCorpus.readCorpus()).index.metadata.revision;
-    await factoryConfig.onContextualMemoryApply!({
+    final apply = harnessWiring.semanticMcpTools.whereType<MemoryApplyTool>().single;
+    final observe = harnessWiring.semanticMcpTools.whereType<MemoryObserveTool>().single;
+    McpCallerContext callerIn(String sessionId, String turnId, {TurnProvenance? turn}) => McpCallerContext(
+      authorityId: mcpStewardPrincipal,
+      sourceEvent: 'turn:$turnId',
+      sessionId: sessionId,
+      turn: turn,
+    );
+
+    await apply.callWithContext({
       'expectedRevision': revision,
       'operations': [
         {
@@ -81,38 +92,20 @@ void main() {
           'content': 'Primary remembered preference',
         },
       ],
-    }, HarnessTurnContext(sessionId: primarySession.id, turnId: 'turn-1', source: 'web', agentName: 'main'));
-    await factoryConfig.onContextualMemoryObserve!(
-      {'text': 'Journal learning', 'role': 'learning'},
-      HarnessTurnContext(
-        sessionId: journalSession.id,
-        turnId: 'journal-turn',
-        source: 'cron',
-        agentName: 'cron:memory-journal',
-      ),
-    );
+    }, callerIn(primarySession.id, 'turn-1', turn: TurnProvenance.web(sessionKey: 'agent:main:web:abc')));
+    await observe.callWithContext({
+      'text': 'Journal learning',
+      'role': 'learning',
+    }, callerIn(journalSession.id, 'journal-turn', turn: const TurnProvenance.cron(jobId: MemoryJournal.jobId)));
 
     // Without its own branch a curation write inherits the generic turn origin, and
     // the corpus silently loses the distinction it records today.
-    await factoryConfig.onContextualMemoryApply!(
-      {
-        'expectedRevision': (await storage.memoryCorpus.readCorpus()).index.metadata.revision,
-        'operations': [
-          {
-            'kind': 'add',
-            'correlationId': 'curated',
-            'topic': 'preferences',
-            'content': 'Curated remembered preference',
-          },
-        ],
-      },
-      HarnessTurnContext(
-        sessionId: curationSession.id,
-        turnId: 'curation-turn',
-        source: 'cron',
-        agentName: 'cron:memory-curation',
-      ),
-    );
+    await apply.callWithContext({
+      'expectedRevision': (await storage.memoryCorpus.readCorpus()).index.metadata.revision,
+      'operations': [
+        {'kind': 'add', 'correlationId': 'curated', 'topic': 'preferences', 'content': 'Curated remembered preference'},
+      ],
+    }, callerIn(curationSession.id, 'curation-turn', turn: const TurnProvenance.cron(jobId: memoryCurationJobId)));
 
     final corpus = await storage.memoryCorpus.readCorpus();
     final topicEntries = corpus.topics.expand((topic) => topic.entries).toList();
@@ -146,8 +139,8 @@ void main() {
     Directory('${config.workspaceDir}/inbox').createSync();
     File('${config.workspaceDir}/inbox/note.md').writeAsStringSync('Native inbox detail');
 
-    final fact = _decode(await harnessWiring.memoryHandlers.onRead({'locator': '$factId'}));
-    final inbox = _decode(await harnessWiring.memoryHandlers.onRead({'locator': 'inbox/note.md'}));
+    final fact = _decode(await harnessWiring.memoryHandlers.read({'locator': '$factId'}, _captureContext));
+    final inbox = _decode(await harnessWiring.memoryHandlers.read({'locator': 'inbox/note.md'}, _captureContext));
 
     expect(((fact['results'] as List).single as Map)['role'], 'kg');
     expect(((inbox['results'] as List).single as Map)['content'], 'Native inbox detail');

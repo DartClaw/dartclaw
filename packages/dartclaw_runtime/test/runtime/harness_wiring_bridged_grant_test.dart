@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:dartclaw_runtime/src/mcp/mcp_server.dart' show McpCallerContext, mcpStewardPrincipal;
+import 'package:dartclaw_runtime/src/mcp/memory_tools.dart' show MemoryObserveTool;
 import 'package:dartclaw_runtime/src/runtime/harness_wiring.dart';
 import 'package:dartclaw_runtime/src/runtime/security_wiring.dart';
 import 'package:dartclaw_runtime/src/runtime/storage_wiring.dart';
@@ -225,17 +227,22 @@ void main() {
     expect(prompt, contains('Temporary conversations cannot write personal memory or shared durable knowledge'));
   });
 
-  test('temporary conversations cannot reach contextual personal-memory writes', () async {
+  test('temporary conversations cannot reach personal-memory writes', () async {
     await wireAll();
     final temporary = await storage!.sessions.createSession(retention: ConversationRetention.process);
-    final callback = recordedConfigs.first.onContextualMemoryObserve!;
+    final observe = harnessWiring!.semanticMcpTools.whereType<MemoryObserveTool>().single;
     final before = File('${config.workspaceDir}/MEMORY.md').readAsBytesSync();
 
     await expectLater(
-      callback({
-        'text': 'temporary durable marker',
-        'role': 'observation',
-      }, HarnessTurnContext(sessionId: temporary.id, turnId: 'temporary-turn', source: 'api', agentName: 'main')),
+      observe.callWithContext(
+        {'text': 'temporary durable marker', 'role': 'observation'},
+        McpCallerContext(
+          authorityId: mcpStewardPrincipal,
+          sourceEvent: 'turn:temporary-turn',
+          sessionId: temporary.id,
+          agentId: 'main',
+        ),
+      ),
       throwsA(isA<StateError>().having((error) => error.message, 'message', contains('cannot write memory'))),
     );
     expect(File('${config.workspaceDir}/MEMORY.md').readAsBytesSync(), before);
@@ -667,7 +674,7 @@ void main() {
     /// Drives the real bridge policy over [grant] and returns the tools it served.
     Future<Set<String>> servedOverBridge(Set<String> grant, {required Map<String, CanonicalTool> canonicals}) async {
       final called = <String>[];
-      final registry = McpProtocolHandler();
+      final registry = McpProtocolHandler(toolCanonicals: canonicals);
       for (final name in {
         ..._taskMcpTools,
         ..._orchestrationMcpTools,
@@ -687,7 +694,6 @@ void main() {
           sourceSessionId: 'primary',
         ),
         allowedCanonicalTools: grant,
-        toolCanonicals: canonicals,
       );
       for (final name in {
         ..._taskMcpTools,

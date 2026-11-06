@@ -42,10 +42,8 @@ final class AllowAllCallerPolicy implements McpCallerPolicy {
   void onDenied(String toolName) {}
 }
 
-/// A read-only [TurnAwareMcpTool] that records the context each opted-in call carries.
-///
-/// A plain [call] answers `no context` and records nothing.
-final class TurnProbeTool implements TurnAwareMcpTool {
+/// A read-only [ContextualMcpTool] that records the caller context each call carries.
+final class TurnProbeTool extends ContextualMcpTool {
   final contexts = <McpCallerContext>[];
 
   List<TurnProvenance?> get turns => [for (final context in contexts) context.turn];
@@ -63,11 +61,14 @@ final class TurnProbeTool implements TurnAwareMcpTool {
   McpToolAccess get access => McpToolAccess.read;
 
   @override
-  Future<ToolResult> call(Map<String, dynamic> args) async => ToolResult.text('no context');
-
-  @override
-  Future<ToolResult> callWithTurn(Map<String, dynamic> args, McpCallerContext context) async {
+  Future<ToolResult> callWithContext(Map<String, dynamic> args, McpCallerContext context) async {
     contexts.add(context);
     return ToolResult.text('ok');
   }
 }
+
+/// A primary-agent host harness running [turn], as its minted bearer resolves mid-turn: the steward, in [sessionId].
+McpCaller harnessRunning(TurnProvenance? Function() turn, {String? sessionId}) => McpCaller(
+  identity: () => McpCallerIdentity(authorityId: mcpStewardPrincipal, sessionId: sessionId),
+  turn: turn,
+);

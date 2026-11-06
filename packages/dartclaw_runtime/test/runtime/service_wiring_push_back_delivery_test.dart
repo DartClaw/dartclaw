@@ -9,6 +9,7 @@ import 'package:dartclaw_testing/dartclaw_testing.dart' show InMemoryTaskReposit
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
+import '../mcp/mcp_test_support.dart' show harnessRunning;
 import 'harness_wiring_fixture.dart' show TurnContextHarness;
 
 Future<String> _resolvePackageDir(String packageRelativeAnchor) async {
@@ -132,7 +133,7 @@ void main() {
         delegated: true,
       ),
     );
-    final inTurn = runtime.server!.mcpHandler.forHarness(() => harness.activeTurnContext?.provenance);
+    final inTurn = runtime.server!.mcpHandler.forCaller(harnessRunning(() => harness.activeTurnContext?.provenance));
     final refused = jsonDecode(
       (await inTurn.handleRequest(
         jsonEncode({

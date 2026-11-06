@@ -122,11 +122,12 @@ void main() {
     late DatabaseBackend backend;
     late TemporalKnowledgeGraphService kg;
 
-    McpProtocolHandler scoped() => handler.scopedTo(
-      ContextEngineCallerPolicy(principal: mcpClientPrincipal('ide'), auditLogger: auditLogger),
-      callerIdentity: McpCallerIdentity(
-        authorityId: mcpClientPrincipal('ide'),
-        knowledgeScope: McpKnowledgeScope.sharedOnly,
+    McpProtocolHandler scoped() => handler.forCaller(
+      McpCaller(
+        identity: () =>
+            McpCallerIdentity(authorityId: mcpClientPrincipal('ide'), knowledgeScope: McpKnowledgeScope.sharedOnly),
+        policy: ContextEngineCallerPolicy(principal: mcpClientPrincipal('ide'), auditLogger: auditLogger),
+        guardsAsCaller: true,
       ),
     );
 
@@ -146,8 +147,8 @@ void main() {
       handler.registerTool(KgAddTool(kg: kg));
       handler.registerTool(KgContradictionsTool(kg: kg));
       handler.registerTool(_ContextResearchProbe());
-      handler.registerTool(MemoryReadTool(handler: (args) async => {'echo': args}));
-      handler.registerTool(MemorySearchTool(handler: (args) async => {'echo': args}));
+      handler.registerTool(MemoryReadTool(handler: (args, _) async => {'echo': args}));
+      handler.registerTool(MemorySearchTool(handler: (args, _) async => {'echo': args}));
       handler.registerTool(_NamedTool('web_fetch', McpToolAccess.write));
       handler.registerTool(_NamedTool('brave_search', McpToolAccess.read));
     });

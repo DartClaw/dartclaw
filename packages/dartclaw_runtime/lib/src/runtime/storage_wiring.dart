@@ -14,7 +14,12 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
-enum MemoryCallerKind { ordinary, scheduled }
+/// How [StorageWiring.memoryContextForCaller] matches a caller to the session it names.
+///
+/// `ordinary` must match the session's pinned workspace. `scheduled` is a host-fired job turn on a session the host
+/// pinned for that job, so no agent match applies. `deployment` is the deployment credential with no session, which
+/// is the owner.
+enum MemoryCallerKind { ordinary, scheduled, deployment }
 
 enum MemoryAccess { read, write }
 
@@ -23,6 +28,11 @@ typedef SearchIndexFactory = FullTextIndex Function(
   PostgresFtsTable table, {
   required bool withinTransaction,
 });
+
+/// The id of a per-workspace memory job ([MemoryJournal.jobId], `memoryCurationJobId`): [baseId] for the owner,
+/// `<baseId>:<agent>` for an agent's pinned [workspace].
+String workspaceMemoryJobId(String baseId, AgentWorkspace? workspace) =>
+    workspace == null ? baseId : '$baseId:${workspace.agentId}';
 
 /// Canonical and derived memory services bound to one storage principal.
 final class WorkspaceMemoryContext {
@@ -202,6 +212,7 @@ class StorageWiring {
     MemoryCallerKind callerKind = MemoryCallerKind.ordinary,
     MemoryAccess access = MemoryAccess.read,
   }) async {
+    if (callerKind == MemoryCallerKind.deployment) return ownerMemoryContext;
     if (sessionId == null || sessionId.isEmpty) {
       throw StateError('Memory access requires a pinned session workspace');
     }

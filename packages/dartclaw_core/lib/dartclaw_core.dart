@@ -183,7 +183,6 @@ export 'src/harness/agent_harness.dart'
         ModelCatalogueEntry,
         ModelCatalogueProvider,
         NativeSkillCapabilityProvider,
-        ContextualMemoryToolHandler,
         HarnessTurnContext,
         HarnessTurnContextSink,
         HarnessToolApprovalResponder,

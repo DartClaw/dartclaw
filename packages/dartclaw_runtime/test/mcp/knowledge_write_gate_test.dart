@@ -13,7 +13,7 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 import '../guard_audit_test_support.dart';
-import 'mcp_test_support.dart' show AllowAllCallerPolicy;
+import 'mcp_test_support.dart' show AllowAllCallerPolicy, harnessRunning;
 
 const _admin = 'admin-a';
 const _member = 'member-b';
@@ -64,7 +64,7 @@ void main() {
   TurnProvenance channelTurn(ChannelType type, String? sender) =>
       TurnProvenance.channel(channelType: type, sessionKey: 'agent:main:group:${type.name}:g1', senderId: sender);
 
-  McpProtocolHandler during(TurnProvenance? turn) => base.forHarness(() => turn);
+  McpProtocolHandler during(TurnProvenance? turn) => base.forCaller(harnessRunning(() => turn));
 
   Map<String, dynamic> kgAdd(String entity) => {
     'entity': entity,
@@ -195,7 +195,7 @@ void main() {
       () async {
         final callers = <String, McpProtocolHandler>{
           'web chat': during(const TurnProvenance.web(sessionKey: 'agent:main:web:')),
-          'scheduled turn': during(const TurnProvenance.cron()),
+          'scheduled turn': during(const TurnProvenance.cron(jobId: 'test-job')),
           'no turn': during(null),
           'gateway token': base,
         };
@@ -211,14 +211,17 @@ void main() {
     );
 
     test('a temporary conversation is refused with its own message first, even for an admin channel turn', () async {
-      final temporary = base.scopedTo(
-        AllowAllCallerPolicy(),
-        callerIdentity: const McpCallerIdentity(
-          authorityId: 'temporary:temporary-session',
-          sessionId: 'temporary-session',
-          agentId: 'main',
+      final temporary = base.forCaller(
+        McpCaller(
+          identity: () => const McpCallerIdentity(
+            authorityId: 'temporary:temporary-session',
+            sessionId: 'temporary-session',
+            agentId: 'main',
+          ),
+          turn: () => channelTurn(ChannelType.whatsapp, _admin),
+          policy: AllowAllCallerPolicy(),
+          guardsAsCaller: true,
         ),
-        activeTurn: () => channelTurn(ChannelType.whatsapp, _admin),
       );
 
       final add = await _call(temporary, 'kg_add', kgAdd('temporary'));

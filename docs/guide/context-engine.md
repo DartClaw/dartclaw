@@ -66,6 +66,7 @@ itself a reason to expose a tool. `web_fetch` is classified write and is exclude
 | Caller | Private source | Shared sources | Excluded sources |
 |---|---|---|---|
 | Owner/default conversation | Owner personal memory | Wiki and temporal knowledge graph | Named-agent memory, knowledge inbox |
+| Shared gateway token (`/mcp` with the deployment token) | Owner personal memory | Wiki and temporal knowledge graph | Named-agent memory, knowledge inbox |
 | Named agent A | Agent A personal memory, when its tool policy grants `context_research` | Wiki and temporal knowledge graph | Owner memory, agent B memory, knowledge inbox |
 | Named agent B | Agent B personal memory, when granted | Wiki and temporal knowledge graph | Owner memory, agent A memory, knowledge inbox |
 | Named MCP client | None | Wiki and temporal knowledge graph | Every personal-memory corpus, knowledge inbox |

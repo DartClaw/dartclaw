@@ -1621,9 +1621,8 @@ void main() {
         expect(preCompactEntry['hookCallbackIds'], contains('hook_pre_compact'));
       });
 
-      test('memory search SDK schema advertises the bounded integer limit', () async {
+      test('initialize carries hooks only: memory tools are served over /mcp, never the control protocol', () async {
         late CapturingFakeProcess fake;
-        Future<Map<String, dynamic>> memoryHandler(Map<String, dynamic> _) async => {};
         final h = ClaudeCodeHarness(
           cwd: '/tmp',
           processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
@@ -1636,10 +1635,6 @@ void main() {
           commandProbe: defaultClaudeCommandProbe,
           delayFactory: noOpClaudeDelay,
           environment: const {'ANTHROPIC_API_KEY': 'sk-test-key'},
-          onMemoryApply: memoryHandler,
-          onMemoryObserve: memoryHandler,
-          onMemorySearch: memoryHandler,
-          onMemoryRead: memoryHandler,
         );
         addTeardownAsync(() => h.dispose());
 
@@ -1648,32 +1643,7 @@ void main() {
         final initRequest = fake.capturedStdinJson.firstWhere(
           (message) => message['type'] == 'control_request' && (message['request'] as Map?)?['subtype'] == 'initialize',
         );
-        final request = initRequest['request'] as Map<String, dynamic>;
-        final servers = request['sdkMcpServers'] as Map<String, dynamic>;
-        final server = servers['dartclaw'] as Map<String, dynamic>;
-        final tools = server['tools'] as List<dynamic>;
-        final search = tools.cast<Map<String, dynamic>>().singleWhere((tool) => tool['name'] == 'memory_search');
-        final schema = search['input_schema'] as Map<String, dynamic>;
-        final limit = (schema['properties'] as Map<String, dynamic>)['limit'] as Map<String, dynamic>;
-        expect(limit, containsPair('type', 'integer'));
-        expect(limit, containsPair('minimum', 1));
-        expect(limit, containsPair('maximum', 50));
-        expect(schema['additionalProperties'], isFalse);
-
-        final observe = tools.cast<Map<String, dynamic>>().singleWhere((tool) => tool['name'] == 'memory_observe');
-        final observeSchema = observe['input_schema'] as Map<String, dynamic>;
-        expect(observeSchema['required'], ['text', 'role']);
-        expect(observeSchema['additionalProperties'], isFalse);
-
-        final read = tools.cast<Map<String, dynamic>>().singleWhere((tool) => tool['name'] == 'memory_read');
-        final readSchema = read['input_schema'] as Map<String, dynamic>;
-        expect(readSchema['oneOf'], hasLength(2));
-        expect(readSchema['additionalProperties'], isFalse);
-
-        final apply = tools.cast<Map<String, dynamic>>().singleWhere((tool) => tool['name'] == 'memory_apply');
-        final applySchema = apply['input_schema'] as Map<String, dynamic>;
-        expect(applySchema['additionalProperties'], isFalse);
-        expect((applySchema['properties'] as Map<String, dynamic>)['operations'], containsPair('minItems', 1));
+        expect((initRequest['request'] as Map<String, dynamic>).keys, unorderedEquals(['subtype', 'hooks']));
       });
     });
 

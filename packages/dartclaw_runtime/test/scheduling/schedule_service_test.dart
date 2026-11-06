@@ -250,7 +250,7 @@ void main() {
 
       await service.executeJobForTesting(job);
 
-      expect(turns.lastProvenance, const TurnProvenance.cron());
+      expect(turns.lastProvenance, const TurnProvenance.cron(jobId: 'nightly'));
       expect(turns.lastProvenance?.senderId, isNull);
     });
 

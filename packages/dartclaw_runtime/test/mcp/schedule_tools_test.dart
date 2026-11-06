@@ -812,22 +812,25 @@ scheduling:
       expect(store.values, isEmpty);
     });
 
-    test('a callWithContext dispatch parks the caller authority as requester, a plain call the tool name', () async {
+    test('a dispatch parks the caller authority as requester, the steward as system', () async {
       final tool = ScheduleUpsertTool(mutations: parkingSeam(operatorConfig), schedules: service);
       final scoped = McpProtocolHandler(
         guardChain: GuardChain(guards: [FakeGuard.pass()]),
         auditLogger: audit,
       )..registerTool(tool);
-      final asClient = scoped.scopedTo(
-        _AllowAllPolicy(),
-        callerIdentity: const McpCallerIdentity(authorityId: 'mcp-client:ops'),
+      final asClient = scoped.forCaller(
+        McpCaller(
+          identity: () => const McpCallerIdentity(authorityId: 'mcp-client:ops'),
+          policy: _AllowAllPolicy(),
+          guardsAsCaller: true,
+        ),
       );
 
       _result(await _call(asClient, 'schedule_upsert', upsertArguments));
       _result(await _call(scoped, 'schedule_upsert', {...upsertArguments, 'id': 'daily'}));
 
       final byJob = {for (final change in store.values) change.jobId: change.requester};
-      expect(byJob, {'weekly': 'mcp-client:ops', 'daily': 'schedule_upsert'});
+      expect(byJob, {'weekly': 'mcp-client:ops', 'daily': 'system'});
     });
 
     test('an approval-, pending- or requester-named argument is refused by the closed schema', () async {

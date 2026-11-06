@@ -148,7 +148,7 @@ enforcement 2 of 13 tools had.
 `McpProtocolHandler` now guard-evaluates and audits every `tools/call` at the single dispatch site: after caller-policy
 authorization and schema validation, before invocation, evaluating the composition root's base `GuardChain` and writing
 one `AuditEntry` on both allow and deny. It fails closed — a guard block, an evaluator that throws, and an audit write
-that fails all refuse the call without running the tool — and a `scopedTo` view inherits the same chain and sink. A tool
+that fails all refuse the call without running the tool — and every per-caller view (`forCaller`) inherits the same chain and sink. A tool
 therefore no longer carries guard plumbing of its own; `kg_tools`' per-tool evaluator is retired onto the seam, while its
 fact-ownership scope check stays as a domain decision.
 
@@ -159,6 +159,13 @@ server does — the host cannot verify the claim.
 
 Closes TD-110. See `dev/architecture/security-architecture.md` for the coverage boundary (base chain only; per-runner
 tool policy is out of reach at this seam) and `CHANGELOG.md` § 0.25.0.
+
+## Amendment (0.28) – one caller per transport, `sdkMcpServers` retired
+
+The `sdkMcpServers` memory fallback that outlived Phase G is deleted: memory tools are served over `/mcp` only, so an
+SDK composition without `serve` has none. Each transport (gateway token, named client, container bridge, host harness
+bearer) resolves one `McpCaller` (identity, turn, policy) into a `forCaller` view, and a `ContextualMcpTool` is refused
+when the caller has no identity. See `CHANGELOG.md` § 0.28.0.
 
 ## References
 

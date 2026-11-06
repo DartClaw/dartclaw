@@ -6,11 +6,13 @@ import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:dartclaw_runtime/src/auth/source_link_token.dart';
 import 'package:dartclaw_runtime/src/mcp/mcp_server.dart'
-    show McpCallerIdentity, McpCallerPolicy, McpKnowledgeScope, McpProtocolHandler;
+    show McpCaller, McpCallerIdentity, McpCallerPolicy, McpKnowledgeScope, McpProtocolHandler, mcpStewardPrincipal;
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager, TurnRunner;
 import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart' show Request;
 import 'package:test/test.dart';
+
+import '../mcp/mcp_test_support.dart' show harnessRunning;
 
 Never _unexpectedExit(int code) => throw StateError('Unexpected exit($code)');
 
@@ -89,11 +91,8 @@ void main() {
       harnessFactory: HarnessFactory()
         ..register(
           'claude',
-          (factoryConfig) => _ImmediateHarness(
-            factoryConfig,
-            onCurationResult: curationResults.add,
-            duringTurn: (harness) async => await duringTurn?.call(harness),
-          ),
+          (factoryConfig) =>
+              _ImmediateHarness(factoryConfig, duringTurn: (harness) async => await duringTurn?.call(harness)),
         ),
       taskBackendFactory: (_) async => openPreparedTaskBackend(),
       taskBackendIsPrepared: true,
@@ -119,9 +118,10 @@ void main() {
       final agent = await runtime.sessionService.createSession(
         workspace: AgentWorkspace.pinned(agentId: 'a', directory: agentDir),
       );
-      final handler = runtime.server!.mcpHandler.scopedTo(
+      final handler = _asCaller(
+        runtime.server!.mcpHandler,
         const _AllowMemoryAndContext(),
-        callerIdentity: McpCallerIdentity(authorityId: 'agent:a', sessionId: agent.id, agentId: 'a'),
+        McpCallerIdentity(authorityId: 'agent:a', sessionId: agent.id, agentId: 'a'),
       );
 
       final turnId = await runtime.server!.turns.reserveTurn(
@@ -166,6 +166,29 @@ void main() {
               .having((session) => session.workspace?.directory, 'directory', agentDir),
         ),
       );
+      duringTurn = (harness) async {
+        if (harness.activeTurnContext?.agentName != 'cron:memory-curation:a') return;
+        final prompt = harness.lastMessages!.single['content'] as String;
+        final revision = int.parse(RegExp(r'expectedRevision (\d+)').firstMatch(prompt)!.group(1)!);
+        final raw = await _mcpCall(runtime, harness.bearer, 'memory_apply', {
+          'expectedRevision': revision,
+          'operations': [
+            {
+              'kind': 'remove',
+              'correlationId': 'outside-snapshot',
+              'targetId': '00000000-0000-4000-8000-0000000000ff',
+              'expectedEntryRevision': 1,
+              'reason': 'fixture out-of-scope attempt',
+            },
+          ],
+        });
+        final result = (jsonDecode(raw) as Map<String, dynamic>)['result'] as Map<String, dynamic>;
+        expect(result['isError'], isNull, reason: raw);
+        curationResults.add(
+          jsonDecode(((result['content'] as List).single as Map<String, dynamic>)['text'] as String)
+              as Map<String, dynamic>,
+        );
+      };
       expect(runtime.scheduleService!.runJobNow('memory-curation:a'), RunScheduledJobResult.started);
       for (var attempt = 0; attempt < 100 && curationResults.isEmpty; attempt++) {
         await Future<void>.delayed(const Duration(milliseconds: 10));
@@ -199,12 +222,10 @@ void main() {
       expect(researched, isNot(anyOf(contains('owner-service-marker'), contains('agent-wiki-boundary-marker'))));
       expect(File(p.join(agentDir, 'MEMORY.md')).readAsBytesSync(), beforeContext);
 
-      final client = runtime.server!.mcpHandler.scopedTo(
+      final client = _asCaller(
+        runtime.server!.mcpHandler,
         const _AllowContextOnly(),
-        callerIdentity: const McpCallerIdentity(
-          authorityId: 'mcp-client:ide',
-          knowledgeScope: McpKnowledgeScope.sharedOnly,
-        ),
+        const McpCallerIdentity(authorityId: 'mcp-client:ide', knowledgeScope: McpKnowledgeScope.sharedOnly),
       );
       final clientResearch = await _call(client, 'context_research', {'query': 'service-marker'});
       expect(clientResearch, contains('shared-service-marker'));
@@ -232,9 +253,10 @@ void main() {
       );
       expect((await ownerCorpus.readCorpus()).observations, isEmpty);
 
-      final denied = runtime.server!.mcpHandler.scopedTo(
+      final denied = _asCaller(
+        runtime.server!.mcpHandler,
         const _AllowMemoryOnly(),
-        callerIdentity: McpCallerIdentity(authorityId: 'agent:a', sessionId: agent.id, agentId: 'a'),
+        McpCallerIdentity(authorityId: 'agent:a', sessionId: agent.id, agentId: 'a'),
       );
       expect(await _callRaw(denied, 'context_research', {'query': 'owner'}), contains('Tool not available'));
     },
@@ -244,9 +266,10 @@ void main() {
     final agent = await runtime.sessionService.createSession(
       workspace: AgentWorkspace.pinned(agentId: 'a', directory: agentDir),
     );
-    final handler = runtime.server!.mcpHandler.scopedTo(
+    final handler = _asCaller(
+      runtime.server!.mcpHandler,
       const _AllowMemoryOnly(),
-      callerIdentity: McpCallerIdentity(authorityId: 'agent:a', sessionId: agent.id, agentId: 'a'),
+      McpCallerIdentity(authorityId: 'agent:a', sessionId: agent.id, agentId: 'a'),
     );
     expect(await _call(handler, 'memory_search', {'query': 'agent-service-marker'}), contains('agent-service-marker'));
     final corpus = MemoryCorpusService(workspaceDir: agentDir);
@@ -269,17 +292,30 @@ void main() {
     final agent = await runtime.sessionService.createSession(
       workspace: AgentWorkspace.pinned(agentId: 'a', directory: agentDir),
     );
-    final missingIdentity = runtime.server!.mcpHandler.scopedTo(const _AllowMemoryOnly());
-    final forged = runtime.server!.mcpHandler.scopedTo(
+    final missingIdentity = _asCaller(runtime.server!.mcpHandler, const _AllowMemoryOnly());
+    final forged = _asCaller(
+      runtime.server!.mcpHandler,
       const _AllowMemoryOnly(),
-      callerIdentity: McpCallerIdentity(authorityId: 'agent:b', sessionId: agent.id, agentId: 'b'),
+      McpCallerIdentity(authorityId: 'agent:b', sessionId: agent.id, agentId: 'b'),
     );
-    final forgedCron = runtime.server!.mcpHandler.scopedTo(
+    final forgedCron = _asCaller(
+      runtime.server!.mcpHandler,
       const _AllowMemoryOnly(),
-      callerIdentity: McpCallerIdentity(authorityId: 'cron:forged', sessionId: agent.id, agentId: 'cron:forged'),
+      McpCallerIdentity(authorityId: 'cron:forged', sessionId: agent.id, agentId: 'cron:forged'),
+    );
+
+    // The steward's authority id alone is not the deployment: only `McpCaller.deployment` reaches owner scope.
+    final stewardNamed = _asCaller(
+      runtime.server!.mcpHandler,
+      const _AllowMemoryOnly(),
+      const McpCallerIdentity(authorityId: mcpStewardPrincipal),
     );
 
     expect(await _callRaw(missingIdentity, 'memory_search', {'query': 'owner'}), contains('authenticated caller'));
+    expect(
+      await _callRaw(stewardNamed, 'memory_search', {'query': 'owner'}),
+      allOf(contains('requires a pinned session workspace'), isNot(contains('owner-service-marker'))),
+    );
     final forgedResult = await _callRaw(forged, 'memory_search', {'query': 'owner'});
     expect(forgedResult, allOf(contains('Tool execution failed'), contains('does not match')));
     expect(forgedResult, isNot(contains('owner-service-marker')));
@@ -288,14 +324,16 @@ void main() {
       allOf(contains('Tool execution failed'), contains('does not match'), isNot(contains('owner-service-marker'))),
     );
 
-    final missingResearch = runtime.server!.mcpHandler.scopedTo(const _AllowContextOnly());
-    final forgedResearch = runtime.server!.mcpHandler.scopedTo(
+    final missingResearch = _asCaller(runtime.server!.mcpHandler, const _AllowContextOnly());
+    final forgedResearch = _asCaller(
+      runtime.server!.mcpHandler,
       const _AllowContextOnly(),
-      callerIdentity: McpCallerIdentity(authorityId: 'agent:b', sessionId: agent.id, agentId: 'b'),
+      McpCallerIdentity(authorityId: 'agent:b', sessionId: agent.id, agentId: 'b'),
     );
-    final reclassifiedClient = runtime.server!.mcpHandler.scopedTo(
+    final reclassifiedClient = _asCaller(
+      runtime.server!.mcpHandler,
       const _AllowContextOnly(),
-      callerIdentity: const McpCallerIdentity(authorityId: 'mcp-client:ide'),
+      const McpCallerIdentity(authorityId: 'mcp-client:ide'),
     );
     expect(await _callRaw(missingResearch, 'context_research', {'query': 'owner'}), contains('authenticated caller'));
     expect(
@@ -310,13 +348,10 @@ void main() {
 
   test('temporary caller context refuses personal and shared durable writes through registered tools', () async {
     final temporary = await runtime.sessionService.createSession(retention: ConversationRetention.process);
-    final handler = runtime.server!.mcpHandler.scopedTo(
+    final handler = _asCaller(
+      runtime.server!.mcpHandler,
       const _AllowDurableWrites(),
-      callerIdentity: McpCallerIdentity(
-        authorityId: 'temporary:${temporary.id}',
-        sessionId: temporary.id,
-        agentId: 'main',
-      ),
+      McpCallerIdentity(authorityId: 'temporary:${temporary.id}', sessionId: temporary.id, agentId: 'main'),
     );
 
     final observe = await _callRaw(handler, 'memory_observe', {
@@ -351,9 +386,10 @@ void main() {
     final agent = await runtime.sessionService.createSession(
       workspace: AgentWorkspace.pinned(agentId: 'a', directory: agentDir),
     );
-    final handler = runtime.server!.mcpHandler.scopedTo(
+    final handler = _asCaller(
+      runtime.server!.mcpHandler,
       const _AllowMemoryAndContext(),
-      callerIdentity: McpCallerIdentity(authorityId: 'agent:a', sessionId: agent.id, agentId: 'a'),
+      McpCallerIdentity(authorityId: 'agent:a', sessionId: agent.id, agentId: 'a'),
     );
 
     final researched = jsonDecode(await _call(handler, 'context_research', {'query': 'service-marker'})) as Map;
@@ -374,23 +410,8 @@ void main() {
   group('host harness bearer', () {
     // A host harness (the `claude` or `codex` CLI DartClaw spawns) calls `/mcp` with the bearer minted for it. The
     // call runs through the real server route, so the bearer, the identity it resolves and the tool are all live.
-    Future<String> mcpCall(String bearer, String tool, Map<String, dynamic> arguments) async {
-      final response = await runtime.server!.handler(
-        Request(
-          'POST',
-          Uri.parse('http://localhost/mcp'),
-          headers: {'host': 'localhost', 'authorization': 'Bearer $bearer', 'content-type': 'application/json'},
-          body: jsonEncode({
-            'jsonrpc': '2.0',
-            'id': 1,
-            'method': 'tools/call',
-            'params': {'name': tool, 'arguments': arguments},
-          }),
-        ),
-      );
-      expect(response.statusCode, 200);
-      return response.readAsString();
-    }
+    Future<String> mcpCall(String bearer, String tool, Map<String, dynamic> arguments) =>
+        _mcpCall(runtime, bearer, tool, arguments);
 
     // Runs one turn, as a logical agent's spawned session or as the owner's chat, and has the harness running it
     // research from inside it. Other turns the research itself starts (the synthesizer's) are left alone.
@@ -467,12 +488,180 @@ void main() {
       expect(answer, isNot(anyOf(contains('owner-service-marker'), contains('agent-service-marker'))));
     });
 
-    test('a direct call with the shared deployment credential stays refused', () async {
-      final answer = await _callRaw(runtime.server!.mcpHandler, 'context_research', {'query': 'service-marker'});
+    test('an agent memory journal and curation run through /mcp and land in the agent corpus', () async {
+      final answers = <String, String>{};
+      duringTurn = (harness) async {
+        switch (harness.activeTurnContext?.agentName) {
+          case 'cron:memory-journal:a':
+            answers['journal'] = await mcpCall(harness.bearer, 'memory_observe', {
+              'text': 'agent-journal-marker',
+              'role': 'observation',
+            });
+          case 'cron:memory-curation:a':
+            final prompt = harness.lastMessages!.single['content'] as String;
+            final revision = int.parse(RegExp(r'expectedRevision (\d+)').firstMatch(prompt)!.group(1)!);
+            answers['curation'] = await mcpCall(harness.bearer, 'memory_apply', {
+              'expectedRevision': revision,
+              'operations': [
+                {'kind': 'add', 'correlationId': 'curated', 'topic': 'general', 'content': 'agent-curated-marker'},
+              ],
+            });
+        }
+      };
 
-      expect(answer, allOf(contains('"isError":true'), contains('authenticated caller')));
+      Future<void> runJob(String jobId, String answer) async {
+        expect(runtime.scheduleService!.runJobNow(jobId), RunScheduledJobResult.started);
+        for (var attempt = 0; attempt < 200 && !answers.containsKey(answer); attempt++) {
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
+      }
+
+      await runJob('memory-journal:a', 'journal');
+      await runJob('memory-curation:a', 'curation');
+
+      expect(answers['journal'], isNot(contains('"isError":true')));
+      expect(answers['curation'], isNot(contains('"isError":true')));
+      final agentCorpus = MemoryCorpusService(workspaceDir: agentDir);
+      final ownerCorpus = MemoryCorpusService(workspaceDir: p.join(root.path, 'workspace'));
+      addTearDown(agentCorpus.close);
+      addTearDown(ownerCorpus.close);
+      final agent = await agentCorpus.readCorpus();
+      final journal = agent.observations
+          .expand((day) => day.observations)
+          .singleWhere((entry) => entry.content == 'agent-journal-marker');
+      expect(
+        (journal.provenance.originKind, journal.provenance.sourceLocator),
+        (MemoryOriginKind.journal, 'memory-journal:a'),
+      );
+      final curated = agent.topics
+          .expand((topic) => topic.entries)
+          .singleWhere((entry) => entry.content == 'agent-curated-marker');
+      expect(
+        (curated.provenance.originKind, curated.provenance.sourceLocator),
+        (MemoryOriginKind.curation, 'memory-curation:a'),
+      );
+      final owner = await ownerCorpus.readCorpus();
+      expect(
+        owner.observations.expand((day) => day.observations).map((entry) => entry.content),
+        isNot(contains('agent-journal-marker')),
+      );
+      expect(
+        owner.topics.expand((topic) => topic.entries).map((entry) => entry.content),
+        isNot(contains('agent-curated-marker')),
+      );
     });
+
+    test('a turn that only claims a scheduled job, with no cron provenance, is refused agent memory', () async {
+      final agentSession = await runtime.sessionService.createSession(
+        type: SessionType.cron,
+        workspace: AgentWorkspace.pinned(agentId: 'a', directory: agentDir),
+      );
+      late String answer;
+      duringTurn = (harness) async {
+        if (harness.activeTurnContext?.agentName != 'main') return;
+        // The primary harness names the agent's journal job and session, but the host fired no cron turn.
+        harness.setTurnContext(
+          HarnessTurnContext(
+            sessionId: agentSession.id,
+            turnId: 'forged',
+            source: 'cron',
+            agentName: 'cron:memory-journal:a',
+            provenance: const TurnProvenance.web(sessionKey: 'agent:main:web:forged'),
+          ),
+        );
+        answer = await mcpCall(harness.bearer, 'memory_observe', {
+          'text': 'forged-journal-marker',
+          'role': 'observation',
+        });
+      };
+      final owner = await runtime.sessionService.createSession();
+      final turnId = await runtime.server!.turns.reserveTurn(
+        owner.id,
+        agentName: 'main',
+        workerPolicy: const ExecutionPolicy.host(),
+      );
+      runtime.server!.turns.executeTurn(
+        owner.id,
+        turnId,
+        const [
+          {'role': 'user', 'content': 'forge'},
+        ],
+        source: 'api',
+        agentName: 'main',
+      );
+      await runtime.server!.turns.waitForOutcome(owner.id, turnId);
+
+      expect(answer, allOf(contains('"isError":true'), contains('does not match the pinned session workspace')));
+      final agentCorpus = MemoryCorpusService(workspaceDir: agentDir);
+      addTearDown(agentCorpus.close);
+      expect(
+        (await agentCorpus.readCorpus()).observations.expand((day) => day.observations).map((entry) => entry.content),
+        isNot(contains('forged-journal-marker')),
+      );
+    });
+
+    test(
+      'the shared deployment credential researches and searches owner scope, never an agent private scope',
+      () async {
+        final research = await _call(runtime.server!.mcpHandler, 'context_research', {'query': 'service-marker'});
+        final search = await _call(runtime.server!.mcpHandler, 'memory_search', {'query': 'service-marker'});
+
+        for (final answer in [research, search]) {
+          expect(answer, contains('owner-service-marker'));
+          expect(answer, isNot(contains('agent-service-marker')));
+        }
+        expect(research, contains('shared-service-marker'));
+      },
+    );
   });
+
+  test(
+    'a container caller on an agent cron session journals into the agent corpus only under cron provenance',
+    () async {
+      final cronSession = await runtime.sessionService.createSession(
+        type: SessionType.cron,
+        workspace: AgentWorkspace.pinned(agentId: 'a', directory: agentDir),
+      );
+      // What the bridge resolves for a scheduled container turn: the authority's session, no logical agent.
+      final identity = McpCallerIdentity(authorityId: 'container-authority', sessionId: cronSession.id);
+      final scheduled = _asCaller(
+        runtime.server!.mcpHandler,
+        const _AllowMemoryOnly(),
+        identity,
+        () => const TurnProvenance.cron(jobId: 'memory-journal:a'),
+      );
+      final unscheduled = _asCaller(runtime.server!.mcpHandler, const _AllowMemoryOnly(), identity);
+      final sessionless = _asCaller(
+        runtime.server!.mcpHandler,
+        const _AllowMemoryOnly(),
+        const McpCallerIdentity(authorityId: 'primary'),
+        () => const TurnProvenance.cron(jobId: 'memory-journal:a'),
+      );
+
+      expect(
+        await _call(scheduled, 'memory_observe', {'text': 'container-journal-marker', 'role': 'observation'}),
+        contains('collectionRevision'),
+      );
+      expect(
+        await _callRaw(unscheduled, 'memory_observe', {'text': 'container-forged-marker', 'role': 'observation'}),
+        allOf(contains('"isError":true'), contains('does not match the pinned session workspace')),
+      );
+      expect(
+        await _callRaw(sessionless, 'memory_observe', {'text': 'container-forged-marker', 'role': 'observation'}),
+        allOf(contains('"isError":true'), contains('requires a pinned session workspace')),
+      );
+
+      final agentCorpus = MemoryCorpusService(workspaceDir: agentDir);
+      addTearDown(agentCorpus.close);
+      final observations = (await agentCorpus.readCorpus()).observations.expand((day) => day.observations).toList();
+      final journal = observations.singleWhere((entry) => entry.content == 'container-journal-marker');
+      expect(
+        (journal.provenance.originKind, journal.provenance.sourceLocator),
+        (MemoryOriginKind.journal, 'memory-journal:a'),
+      );
+      expect(observations.map((entry) => entry.content), isNot(contains('container-forged-marker')));
+    },
+  );
 
   group('shared knowledge write gate', () {
     // The runtime fixture's prepared backend stores no KG rows, so a granted kg_add cannot complete here: the
@@ -507,7 +696,7 @@ void main() {
       recipientId: 'g1',
       senderId: sender,
     );
-    McpProtocolHandler asTurn(TurnProvenance? turn) => runtime.server!.mcpHandler.forHarness(() => turn);
+    McpProtocolHandler asTurn(TurnProvenance? turn) => runtime.server!.mcpHandler.forCaller(harnessRunning(() => turn));
     Future<String> run(McpProtocolHandler handler, ({String tool, Map<String, dynamic> args}) call) =>
         _callRaw(handler, call.tool, call.args);
     Future<List<AuditEntry>> gateEntries(String dataDir) async =>
@@ -557,7 +746,9 @@ void main() {
     test('with no admin_senders configured every channel sender is an admin and is audited', () async {
       final open = await _buildOpenGovernanceRuntime(root);
       addTearDown(open.shutdown);
-      final handler = open.server!.mcpHandler.forHarness(() => channelTurn(ChannelType.signal, 'anyone'));
+      final handler = open.server!.mcpHandler.forCaller(
+        harnessRunning(() => channelTurn(ChannelType.signal, 'anyone')),
+      );
 
       expect(await run(handler, wikiWrite('open-governance')), contains('created'));
 
@@ -567,35 +758,28 @@ void main() {
       expect(entries.single.channel, 'signal');
     });
 
-    test(
-      'web chat, scheduled turns, the gateway token and a turn-less caller write as before, unaudited by the gate',
-      () async {
-        final callers = <String, McpProtocolHandler>{
-          'web chat': asTurn(const TurnProvenance.web(sessionKey: 'agent:main:web:')),
-          'scheduled turn': asTurn(const TurnProvenance.cron()),
-          'no turn': asTurn(null),
-          'gateway token': runtime.server!.mcpHandler,
-        };
+    test('web chat, scheduled turns and the gateway token write as before, unaudited by the gate', () async {
+      final callers = <String, McpProtocolHandler>{
+        'web chat': asTurn(const TurnProvenance.web(sessionKey: 'agent:main:web:')),
+        'scheduled turn': asTurn(const TurnProvenance.cron(jobId: 'test-job')),
+        'gateway token': runtime.server!.mcpHandler,
+      };
 
-        for (final entry in callers.entries) {
-          final slug = 'caller-${entry.key.replaceAll(' ', '-')}';
-          expect(await run(entry.value, wikiWrite(slug)), contains('created'), reason: entry.key);
-          expect(wikiFile(slug).existsSync(), isTrue, reason: entry.key);
-        }
-        expect(await gateEntries(root.path), isEmpty);
-      },
-    );
+      for (final entry in callers.entries) {
+        final slug = 'caller-${entry.key.replaceAll(' ', '-')}';
+        expect(await run(entry.value, wikiWrite(slug)), contains('created'), reason: entry.key);
+        expect(wikiFile(slug).existsSync(), isTrue, reason: entry.key);
+      }
+      expect(await gateEntries(root.path), isEmpty);
+    });
 
     test('a temporary conversation is refused with its own message before the gate looks at the sender', () async {
       final temporary = await runtime.sessionService.createSession(retention: ConversationRetention.process);
-      final handler = runtime.server!.mcpHandler.scopedTo(
+      final handler = _asCaller(
+        runtime.server!.mcpHandler,
         const _AllowDurableWrites(),
-        callerIdentity: McpCallerIdentity(
-          authorityId: 'temporary:${temporary.id}',
-          sessionId: temporary.id,
-          agentId: 'main',
-        ),
-        activeTurn: () => channelTurn(ChannelType.whatsapp, 'admin-a'),
+        McpCallerIdentity(authorityId: 'temporary:${temporary.id}', sessionId: temporary.id, agentId: 'main'),
+        () => channelTurn(ChannelType.whatsapp, 'admin-a'),
       );
 
       expect(
@@ -610,10 +794,11 @@ void main() {
       final agent = await runtime.sessionService.createSession(
         workspace: AgentWorkspace.pinned(agentId: 'a', directory: agentDir),
       );
-      final handler = runtime.server!.mcpHandler.scopedTo(
+      final handler = _asCaller(
+        runtime.server!.mcpHandler,
         const _AllowMemoryAndContext(),
-        callerIdentity: McpCallerIdentity(authorityId: 'agent:a', sessionId: agent.id, agentId: 'a'),
-        activeTurn: () => channelTurn(ChannelType.whatsapp, 'sender-b'),
+        McpCallerIdentity(authorityId: 'agent:a', sessionId: agent.id, agentId: 'a'),
+        () => channelTurn(ChannelType.whatsapp, 'sender-b'),
       );
 
       expect(
@@ -628,6 +813,34 @@ void main() {
     });
   });
 }
+
+Future<String> _mcpCall(DartclawRuntime runtime, String bearer, String tool, Map<String, dynamic> arguments) async {
+  final response = await runtime.server!.handler(
+    Request(
+      'POST',
+      Uri.parse('http://localhost/mcp'),
+      headers: {'host': 'localhost', 'authorization': 'Bearer $bearer', 'content-type': 'application/json'},
+      body: jsonEncode({
+        'jsonrpc': '2.0',
+        'id': 1,
+        'method': 'tools/call',
+        'params': {'name': tool, 'arguments': arguments},
+      }),
+    ),
+  );
+  expect(response.statusCode, 200);
+  return response.readAsString();
+}
+
+/// A transport-authenticated caller the way the container bridge resolves one: [identity], [policy], the guard chain
+/// judging the call under its names.
+McpProtocolHandler _asCaller(
+  McpProtocolHandler root,
+  McpCallerPolicy policy, [
+  McpCallerIdentity? identity,
+  TurnProvenance? Function()? turn,
+]) =>
+    root.forCaller(McpCaller(identity: () => identity, turn: turn ?? () => null, policy: policy, guardsAsCaller: true));
 
 Future<String> _call(McpProtocolHandler handler, String name, Map<String, dynamic> arguments) async {
   final raw = await _callRaw(handler, name, arguments);
@@ -688,10 +901,9 @@ class _AllowDurableWrites implements McpCallerPolicy {
 }
 
 class _ImmediateHarness extends FakeAgentHarness implements HarnessTurnContextSink {
-  new(this.config, {required this.onCurationResult, required this.duringTurn}) : super(supportsNoWorkTools: true);
+  new(this.config, {required this.duringTurn}) : super(supportsNoWorkTools: true);
 
   final HarnessFactoryConfig config;
-  final void Function(Map<String, dynamic> result) onCurationResult;
   final Future<void> Function(_ImmediateHarness harness) duringTurn;
 
   @override
@@ -717,24 +929,7 @@ class _ImmediateHarness extends FakeAgentHarness implements HarnessTurnContextSi
     int? maxTurns,
     Map<String, dynamic>? outputSchema,
   }) async {
-    if (agentId == 'cron:memory-curation:a') {
-      final prompt = messages.single['content'] as String;
-      final revision = int.parse(RegExp(r'expectedRevision (\d+)').firstMatch(prompt)!.group(1)!);
-      final result = await config.onContextualMemoryApply!({
-        'expectedRevision': revision,
-        'operations': [
-          {
-            'kind': 'remove',
-            'correlationId': 'outside-snapshot',
-            'targetId': '00000000-0000-4000-8000-0000000000ff',
-            'expectedEntryRevision': 1,
-            'reason': 'fixture out-of-scope attempt',
-          },
-        ],
-      }, HarnessTurnContext(sessionId: sessionId, turnId: 'curation-turn', source: 'cron', agentName: agentId!));
-      final content = (result['content'] as List).single as Map<String, dynamic>;
-      onCurationResult(jsonDecode(content['text'] as String) as Map<String, dynamic>);
-    }
+    lastMessages = messages;
     await duringTurn(this);
     emit(ToolUseEvent(toolName: 'file_read', toolId: 'fixture-read', input: const {'path': 'fixture.md'}));
     await Future<void>.delayed(Duration.zero);

@@ -131,7 +131,7 @@ Future<OutboundMcpPool?> _registerMcpTools(
           return const ContextResearchScope.sharedOnly();
         }
         if (clientPrincipal) throw StateError('Named clients cannot acquire private research scope');
-        final memory = await storage.memoryContextForCaller(sessionId: caller.sessionId, agentId: caller.agentId);
+        final memory = await harness.memoryContextFor(caller);
         return ContextResearchScope.private(
           principal: memory.principal,
           memorySearch: storage.searchBackendFor(memory.principal),

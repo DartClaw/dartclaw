@@ -191,9 +191,9 @@ void main() {
 
     test('all registered object-type tools have additionalProperties: false (regression guard)', () {
       final tools = <McpTool>[
-        MemoryApplyTool(handler: (args) async => {}),
-        MemorySearchTool(handler: (args) async => {}),
-        MemoryReadTool(handler: (args) async => {}),
+        MemoryApplyTool(handler: (args, _) async => {}),
+        MemorySearchTool(handler: (args, _) async => {}),
+        MemoryReadTool(handler: (args, _) async => {}),
         OnboardingCompleteTool(workspaceDir: '/tmp'),
         WebFetchTool(),
         BraveSearchTool(provider: _StubSearchProvider()),

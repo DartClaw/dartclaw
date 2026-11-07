@@ -1277,7 +1277,8 @@ final class ConversationService {
       id: 'session-title-$sessionId',
       description: 'Generate a concise conversation title',
       prompt: 'Return a concise title for the supplied first exchange.',
-      allowedTools: const {},
+      // Reads untrusted conversation text; an empty set would be unrestricted on a host worker.
+      allowedTools: const {TaskToolFilterGuard.noToolsPolicy},
       outputSchema: const {
         'type': 'object',
         'properties': {

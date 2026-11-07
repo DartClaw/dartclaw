@@ -289,12 +289,12 @@ class WikiPageStore {
     }
     final String content;
     if (merge.mode == WikiMergeMode.integrated) {
-      final stored = _splitTitle(existing.content);
+      final stored = splitTitle(existing.content);
       // The title heading stays this store's to emit, exactly as on a created
       // page, so an integration can neither drop the page's title nor open a
       // second one below it – a merged body that opens with its own `# ` line
       // loses it here rather than becoming the page's second title.
-      final merged = _splitTitle(body.trim()).body.trim();
+      final merged = splitTitle(body.trim()).body.trim();
       // Measured on exactly the text that lands on the page, against exactly the
       // text the merge turn was shown: comparing the raw reply instead would let
       // a short body clear the floor on trailing whitespace alone.
@@ -326,7 +326,7 @@ class WikiPageStore {
   /// spent on it.
   String? storedBody(String slug) {
     final stored = _readPage(pageFile(slug));
-    return stored == null ? null : _splitTitle(stored.content).body;
+    return stored == null ? null : splitTitle(stored.content).body;
   }
 
   /// Splits stored page [text] per [core.splitFrontmatter].
@@ -449,9 +449,10 @@ class WikiPageStore {
     ...incoming.where((source) => !stored.contains(source)),
   ];
 
-  /// Splits stored page [content] into its leading `# ` title line and the body
-  /// below it, with a `null` title for a page that opens with none.
-  static ({String? title, String body}) _splitTitle(String content) {
+  /// Splits stored page [content] into its leading `# ` title line (marker
+  /// included) and the body below it, with a `null` title for a page that opens
+  /// with none.
+  static ({String? title, String body}) splitTitle(String content) {
     if (!content.startsWith('# ')) return (title: null, body: content);
     final lineEnd = content.indexOf('\n');
     if (lineEnd < 0) return (title: content.trimRight(), body: '');

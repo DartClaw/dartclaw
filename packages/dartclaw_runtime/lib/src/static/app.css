@@ -4002,3 +4002,45 @@ body:has(.sidebar-resize-handle[data-dragging]) { cursor: col-resize; user-selec
 .sidebar-project > .rail-rows { padding-left: var(--sp-2); }
 .sidebar-project-create { margin: var(--sp-2) 0 var(--sp-2) var(--sp-2); }
 .conversation-context-marker { display: flex; align-items: center; gap: var(--sp-2); margin: var(--sp-5) auto; padding: var(--sp-2) var(--sp-3); width: fit-content; max-width: 100%; border: 1px solid var(--border); border-radius: var(--radius-md); color: var(--fg-muted); font-size: var(--text-sm); }
+
+/* === STANDALONE SOURCE PAGE ===
+   `GET /knowledge/source`: a cited wiki page or graph fact for a reader with no
+   session. Chrome is the canon .topbar carrying a wordmark; the document reads
+   on the page ground like a transcript does, in one column at reading width. */
+.source-view {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+.source-bar { padding-inline: var(--sp-4); flex-wrap: wrap; row-gap: 0; }
+.source-brand {
+  font-family: var(--font-mono);
+  font-weight: var(--weight-bold);
+  color: var(--fg);
+}
+.source-bar-note { margin-left: auto; color: var(--fg-sub0); }
+.source-main { flex: 1; padding: var(--sp-10) var(--sp-4) var(--sp-12); }
+.source-doc { max-width: 46rem; margin: 0 auto; }
+.source-head {
+  margin-bottom: var(--sp-6);
+  padding-bottom: var(--sp-4);
+  border-bottom: var(--border);
+}
+.source-kind { margin: 0 0 var(--sp-1); color: var(--fg-sub0); }
+.source-head h1 { margin: 0; overflow-wrap: anywhere; }
+.source-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1) var(--sp-4);
+  margin: var(--sp-2) 0 0;
+  color: var(--fg-sub0);
+}
+.source-meta-item { display: flex; gap: var(--sp-1); }
+.source-meta dd { margin: 0; color: var(--fg-sub1); overflow-wrap: anywhere; }
+.source-fact {
+  margin: 0;
+  font-size: var(--text-lg);
+  line-height: var(--leading);
+  overflow-wrap: anywhere;
+}
+.source-fact strong { font-weight: var(--weight-bold); }

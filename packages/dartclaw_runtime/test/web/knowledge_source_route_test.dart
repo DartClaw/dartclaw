@@ -108,13 +108,61 @@ void main() {
       expect(res.headers['content-type'], contains('text/html'));
       expect(res.headers.keys.map((name) => name.toLowerCase()), isNot(contains('set-cookie')));
       expect(body, contains('data-markdown'));
-      expect(body, contains('# Onboarding'));
+      expect(body, isNot(contains('# Onboarding')), reason: 'the title heading is shown once, as the page title');
+      expect(body, contains('<h1 class="t-display">Onboarding</h1>'));
       expect(body, contains('Shared `team` knowledge.'));
-      expect(body, contains('onboarding.md'));
       expect(body, isNot(contains('class="sidebar"')));
       expect(body, isNot(contains('id="topbar"')));
       expect(body, isNot(contains('<div class="shell"')));
       expect(body, isNot(contains('restart-banner')));
+    });
+
+    test('frontmatter shows as a metadata line, never as body text, and sources stay private', () async {
+      File('${tempDir.path}/workspace/wiki/deploy-window.md').writeAsStringSync(
+        '---\nprovenance: llm-authored\nsources:\n  - "owner:PRIVATE-SOURCE-MARKER"\nconfidence: medium\n'
+        'last_updated: "2026-11-04T09:05:37.519274Z"\ncontradicts: []\n---\n'
+        '# Qualification Deploy Window\n\nDeploys happen on Thursdays.',
+      );
+
+      final res = await sourceHandler(gatewayToken: key)(get(wikiToken('wiki/deploy-window.md')));
+      final body = await res.readAsString();
+      final markdown = body.substring(
+        body.indexOf('data-markdown'),
+        body.indexOf('</div>', body.indexOf('data-markdown')),
+      );
+      final meta = body.substring(body.indexOf('class="source-meta'), body.indexOf('</dl>'));
+
+      expect(res.statusCode, 200);
+      for (final key in ['provenance:', 'confidence:', 'last_updated', 'sources:', 'contradicts', '---']) {
+        expect(markdown, isNot(contains(key)), reason: key);
+      }
+      expect(markdown, contains('Deploys happen on Thursdays.'));
+      expect(markdown, isNot(contains('# Qualification Deploy Window')), reason: 'the title is not rendered twice');
+      expect(body, contains('<h1 class="t-display">Qualification Deploy Window</h1>'));
+      expect(meta, allOf(contains('Confidence'), contains('medium'), contains('llm-authored'), contains('2026-11-04')));
+      expect(meta, isNot(contains('09:05')));
+      expect(body, isNot(contains('PRIVATE-SOURCE-MARKER')));
+      expect(body, allOf(contains('Read-only source'), contains('Wiki page')));
+    });
+
+    test('a page with no title heading is titled by its humanized slug', () async {
+      File('${tempDir.path}/workspace/wiki/rollback-policy.md').writeAsStringSync('Roll back with care.');
+
+      final res = await sourceHandler(gatewayToken: key)(get(wikiToken('wiki/rollback-policy.md')));
+      final body = await res.readAsString();
+
+      expect(body, contains('<h1 class="t-display">Rollback policy</h1>'));
+      expect(body, isNot(contains('rollback-policy.md')));
+      expect(body, isNot(contains('class="source-meta')));
+    });
+
+    test('unparseable frontmatter is dropped, not shown', () async {
+      File('${tempDir.path}/workspace/wiki/broken.md').writeAsStringSync('---\nkey: [unclosed\n---\n# Broken\n\nBody.');
+
+      final body = await (await sourceHandler(gatewayToken: key)(get(wikiToken('wiki/broken.md')))).readAsString();
+
+      expect(body, isNot(contains('unclosed')));
+      expect(body, contains('Body.'));
     });
 
     test('hostile markdown stays escaped text inside the data-markdown container', () async {
@@ -147,6 +195,7 @@ void main() {
       expect(res.statusCode, 200);
       expect(body, allOf(contains(stored.entity), contains(stored.predicate), contains(stored.value)));
       expect(body, allOf(contains(stored.validFrom), contains(stored.validTo!)));
+      expect(body, allOf(contains('Knowledge graph fact'), contains('Valid from'), contains('Valid to')));
       expect(body, isNot(contains('PRIVATE-SOURCE-MARKER')));
       expect(body, isNot(contains('/home/operator')));
       expect(body, isNot(contains('<div class="shell"')));
@@ -305,6 +354,7 @@ void main() {
 
       for (final page in [wiki, fact]) {
         expect(page, isNot(contains('global-command-dialog')));
+        expect(page, isNot(contains('id="nav-progress"')));
         expect(page, isNot(contains('data-controller')));
         expect(page, isNot(contains('/controllers/index.js')));
         expect(page, isNot(contains('stimulus.min.js')));

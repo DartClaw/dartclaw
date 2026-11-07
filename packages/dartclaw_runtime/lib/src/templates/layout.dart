@@ -40,7 +40,8 @@ String documentTitleFragment({required String title, String appName = 'DartClaw'
 /// link becomes a focusable control that jumps nowhere.
 ///
 /// [standalone] renders the page for a reader with no session: no Stimulus controllers, command-palette dialog,
-/// HTMX or SSE scripts, which all call authenticated endpoints. Only the markdown renderer runs.
+/// HTMX or SSE scripts, which all call authenticated endpoints, and no HTMX progress bar. Only the markdown
+/// renderer runs.
 String layoutTemplate({
   required String title,
   required String body,

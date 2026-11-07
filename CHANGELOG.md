@@ -83,6 +83,7 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 - On macOS, `dartclaw doctor` now sees a running server on the default `host: localhost`. Its port check bound `127.0.0.1` while `serve` listens on `::1`, so it reported the port free, never read the server's `/health`, and skipped `slack.transport`. `init`'s port prompt had the same blind spot. Both now probe the host `serve` binds.
 - A `--standalone` workflow run started without `PROJECT` now runs its git strategy (integration branch, promotion, publish) against the repository it was started in. Before, it skipped creating the integration branch, then failed the first coding step with "promotion failed: step has no project binding", leaving that step's commit on a detached worktree. Passing `-v PROJECT=_local` worked around it.
 - The automatic session-title agent may now call no tool. It reads the conversation's first exchange, which is untrusted text, and its empty tool list was unrestricted on a host worker, so text in that exchange could steer it into any tool the deployment allows. It still returns its schema-bound title.
+- The page a Slack citation links to (`/knowledge/source`) now reads as a document. It shows the page's own title instead of the file name, a quiet line for confidence, provenance and last update instead of the raw YAML frontmatter, and a header saying it is a read-only source from the knowledge base. The authenticated `/knowledge/wiki/` view no longer shows the frontmatter as text either.
 
 ## [0.27.2] - 2026-10-02
 

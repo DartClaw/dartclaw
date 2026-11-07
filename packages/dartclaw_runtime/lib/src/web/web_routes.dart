@@ -4,7 +4,6 @@ import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
 import 'package:dartclaw_signal/dartclaw_signal.dart';
 import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowDefinitionSource, WorkflowService;
-import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
 
@@ -617,8 +616,7 @@ Router webRoutes(
     if (markdown == null) return _wikiNotFound();
 
     final page = wikiDocumentTemplate(
-      title: p.basename(decoded),
-      markdown: markdown,
+      page: presentWikiPage(markdown, decoded),
       sidebarData: await pageContext.sidebar.build(),
       navItems: registry.navItems(activePage: 'Knowledge'),
       restartBannerHtml: restartBannerHtml(dataDir),
@@ -655,7 +653,7 @@ Router webRoutes(
         final markdown = readContainedWikiPage(workspaceDir, target.locator);
         if (markdown == null) return _wikiNotFound();
         return Response.ok(
-          wikiSourceViewTemplate(title: p.basename(target.locator), markdown: markdown, appName: appName),
+          wikiSourceViewTemplate(page: presentWikiPage(markdown, target.locator), appName: appName),
           headers: htmlHeaders,
         );
       case 'kg':

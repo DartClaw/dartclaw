@@ -1,18 +1,24 @@
 <div tl:fragment="sourceView" class="source-view">
-  <main id="main-content" tabindex="-1" class="page-content print-in">
-    <div class="page-inner">
-      <h1 class="t-label" tl:text="${title}">Source</h1>
-      <article tl:if="${markdown}" class="card">
-        <div class="msg-content" data-markdown="" tl:text="${markdown}">document content</div>
-      </article>
-      <article tl:unless="${markdown}" class="card">
-        <p class="kg-fact-statement"><strong tl:text="${fact.entity}">entity</strong> <span tl:text="${fact.predicate}">predicate</span> <strong tl:text="${fact.value}">value</strong></p>
-        <div class="kg-validity-window">
-          <span class="kg-window-pill">valid_from <strong tl:text="${fact.validFrom}">2026-01-01</strong></span>
-          <span class="kg-window-pill">valid_to <strong tl:text="${fact.validTo}">ongoing</strong></span>
-        </div>
-        <p tl:if="${fact.invalidatedAt}" class="t-caption">Invalidated <span tl:text="${fact.invalidatedAt}">2026-02-01</span></p>
-      </article>
-    </div>
+  <header class="topbar source-bar">
+    <span class="source-brand" tl:text="${appName}">DartClaw</span>
+    <span class="source-bar-note">Read-only source from the knowledge base</span>
+  </header>
+  <main id="main-content" tabindex="-1" class="source-main print-in">
+    <article class="source-doc">
+      <header class="source-head">
+        <p class="t-caption tracking-caps source-kind" tl:text="${kind}">Wiki page</p>
+        <h1 class="t-display" tl:text="${title}">Title</h1>
+        <tl:block tl:if="${metaHtml}" tl:utext="${metaHtml}"></tl:block>
+      </header>
+      <div tl:if="${markdown}" class="msg-content source-body" data-markdown="" tl:text="${markdown}">document content</div>
+      <p tl:unless="${markdown}" class="source-fact"><span tl:text="${fact.predicate}">predicate</span> <strong tl:text="${fact.value}">value</strong></p>
+    </article>
   </main>
 </div>
+
+<dl tl:fragment="sourceMeta" class="source-meta t-caption">
+  <div tl:each="item : ${metadata}" class="source-meta-item">
+    <dt tl:text="${item.label}">Confidence</dt>
+    <dd tl:text="${item.value}">medium</dd>
+  </div>
+</dl>

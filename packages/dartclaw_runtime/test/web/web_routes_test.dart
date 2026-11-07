@@ -158,14 +158,37 @@ void main() {
       expect(body, contains('<div class="shell"'));
       expect(body, contains('class="sidebar"'));
       expect(body, contains('id="topbar"'));
-      // A way back to the hub, and the document title in the topbar.
+      // A way back to the hub, and the page's own title (its H1) in the topbar.
       expect(body, contains('href="/knowledge"'));
-      expect(body, contains('onboarding.md'));
+      expect(body, contains('>Wiki<'));
+      expect(body, isNot(contains('onboarding.md')));
       // Source reaches the page as escaped text for the shared markdown
       // pipeline, never as pre-rendered markup.
       expect(body, contains('data-markdown'));
-      expect(body, contains('# Wiki'));
+      expect(body, isNot(contains('# Wiki')), reason: 'the title heading is not repeated in the body');
       expect(body, contains('Merge `source` material.'));
+    });
+
+    test('shows frontmatter as the metadata line, not as body text', () async {
+      File('${tempDir.path}/workspace/wiki/onboarding.md')
+        ..parent.createSync(recursive: true)
+        ..writeAsStringSync(
+          '---\nprovenance: llm-authored\nsources:\n  - "owner:seed"\nconfidence: medium\n'
+          'last_updated: "2026-11-04T09:05:37Z"\n---\n# Wiki\n\nMerge material.',
+        );
+
+      final body = await (await (await wikiHandler(dataDirPath: tempDir.path))(wikiGet('wiki/onboarding.md')))
+          .readAsString();
+      final start = body.indexOf('data-markdown');
+      final markdown = body.substring(start, body.indexOf('</div>', start));
+      final meta = body.substring(body.indexOf('class="source-meta'), body.indexOf('</dl>'));
+
+      expect(markdown, contains('Merge material.'));
+      for (final key in ['provenance', 'confidence', 'sources', 'last_updated', '---']) {
+        expect(markdown, isNot(contains(key)), reason: key);
+      }
+      expect(meta, allOf(contains('medium'), contains('llm-authored'), contains('2026-11-04')));
+      expect(body, isNot(contains('owner:seed')));
     });
 
     // Wiki content is workspace-writable (agents author it), so the document

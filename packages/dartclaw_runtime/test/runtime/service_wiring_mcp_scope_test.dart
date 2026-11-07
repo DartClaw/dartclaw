@@ -930,6 +930,29 @@ class _ImmediateHarness extends FakeAgentHarness implements HarnessTurnContextSi
     Map<String, dynamic>? outputSchema,
   }) async {
     lastMessages = messages;
+    // The context_research synthesis turn: cite every supplied candidate with its own text, so a test reads
+    // which sources the caller's scope reached from the packet.
+    final request = messages.last['content'] as String;
+    if (request.startsWith('Synthesize a compact JSON citation packet')) {
+      final candidates = ((jsonDecode(request.substring(request.indexOf('{'))) as Map)['candidates'] as List)
+          .cast<Map<String, dynamic>>();
+      return TurnResult(
+        finalText: jsonEncode({
+          'statements': [
+            for (final candidate in candidates)
+              {
+                'text': candidate['text'],
+                'sourceRefs': [
+                  {
+                    for (final key in const ['layer', 'locator', 'role'])
+                      key: (candidate['sourceRef'] as Map<String, dynamic>)[key],
+                  },
+                ],
+              },
+          ],
+        }),
+      );
+    }
     await duringTurn(this);
     emit(ToolUseEvent(toolName: 'file_read', toolId: 'fixture-read', input: const {'path': 'fixture.md'}));
     await Future<void>.delayed(Duration.zero);

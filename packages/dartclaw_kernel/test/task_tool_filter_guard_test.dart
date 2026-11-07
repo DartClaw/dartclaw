@@ -71,7 +71,7 @@ void main() {
       expect(otherVerdict.isPass, isTrue);
     });
 
-    test('strict empty policy admits only exact Claude StructuredOutput while a schema is active', () async {
+    test('an empty or no-tools policy admits only exact Claude StructuredOutput while a schema is active', () async {
       final strictGuard = TaskToolFilterGuard(denyEmptyAllowlist: true)..allowedTools = const [];
       strictGuard.setSessionToolFilter('schema-session', const [], allowClaudeStructuredOutput: true);
 
@@ -118,12 +118,31 @@ void main() {
           sessionId: 'inbox-session',
         ),
       );
+      strictGuard.setSessionToolFilter('toolless-no-schema', const ['__knowledge_inbox_no_tools__']);
+      final toollessWithoutSchema = await strictGuard.evaluate(
+        _ctx(
+          hookPoint: 'beforeToolCall',
+          toolName: 'claude:StructuredOutput',
+          rawProviderToolName: 'StructuredOutput',
+          sessionId: 'toolless-no-schema',
+        ),
+      );
+      final toollessWorkTool = await strictGuard.evaluate(
+        _ctx(
+          hookPoint: 'beforeToolCall',
+          toolName: 'file_read',
+          rawProviderToolName: 'Read',
+          sessionId: 'inbox-session',
+        ),
+      );
 
       expect(structuredOutput.isPass, isTrue);
       expect(noSchema.isBlock, isTrue);
       expect(wrongCanonicalIdentity.isBlock, isTrue);
       expect(wrongRawIdentity.isBlock, isTrue);
-      expect(toollessTurn.isBlock, isTrue);
+      expect(toollessTurn.isPass, isTrue);
+      expect(toollessWithoutSchema.isBlock, isTrue);
+      expect(toollessWorkTool.isBlock, isTrue);
     });
 
     test('tool in allowedTools — pass', () async {

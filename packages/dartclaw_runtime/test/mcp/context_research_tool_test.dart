@@ -247,6 +247,56 @@ void main() {
     expect(sourceList, contains(predicate<Map<String, dynamic>>((source) => source['locator'] == 'entry-1')));
   });
 
+  // The host once replaced an unparseable reply with the raw candidates, hiding both
+  // a fenced reply and citations that resolved nowhere.
+  group('a synthesis reply outside its contract fails the call', () {
+    const forged = 'https://attacker.example/phish';
+    final replies = {
+      'fenced JSON': '```json\n{"statements": []}\n```',
+      'a forged url': jsonEncode({
+        'statements': [
+          {
+            'text': 'claim',
+            'sourceRefs': [
+              {'layer': 'wiki', 'locator': 'wiki/kg.md', 'role': 'wiki', 'url': forged},
+            ],
+          },
+        ],
+      }),
+      'a reference without its role': jsonEncode({
+        'statements': [
+          {
+            'text': 'claim',
+            'sourceRefs': [
+              {'layer': 'wiki', 'locator': 'wiki/kg.md'},
+            ],
+          },
+        ],
+      }),
+    };
+    for (final MapEntry(key: name, value: reply) in replies.entries) {
+      test(name, () async {
+        File('${workspace.path}/wiki/kg.md').writeAsStringSync('Temporal KG wiki source.');
+
+        final result = await tool(synthesizer: (_) async => reply).callAsAgent({'query': 'Temporal KG'});
+
+        expect(result, isA<ToolResultError>());
+        expect((result as ToolResultError).message, startsWith('Error: context_research synthesis failed:'));
+        expect(result.message, isNot(contains('Temporal KG wiki source')));
+        expect(result.message, isNot(contains(forged)));
+      });
+    }
+
+    test('a synthesizer that throws', () async {
+      File('${workspace.path}/wiki/kg.md').writeAsStringSync('Temporal KG wiki source.');
+
+      final result = await tool(synthesizer: (_) async => throw StateError('Agent output is not JSON'))
+          .callAsAgent({'query': 'Temporal KG'});
+
+      expect((result as ToolResultError).message, contains('Agent output is not JSON'));
+    });
+  });
+
   test('TI04 fabricated citation is flagged unattributed and resolver is reusable', () async {
     File('${workspace.path}/wiki/kg.md').writeAsStringSync('Temporal KG wiki source.');
     memory.results = const [MemorySearchResult(text: 'Memory source exists.', source: 'MEMORY.md', score: 1)];
@@ -257,15 +307,10 @@ void main() {
           {
             'text': 'Fabricated source claim.',
             'sourceRefs': [
-              {'layer': 'wiki', 'locator': 'wiki/missing.md', 'label': 'Missing'},
+              {'layer': 'wiki', 'locator': 'wiki/missing.md', 'role': 'wiki'},
             ],
           },
         ],
-        'sourceList': [
-          {'layer': 'wiki', 'locator': 'wiki/missing.md', 'label': 'Missing'},
-        ],
-        'degradedLayers': [],
-        'noSourcesFound': false,
       }),
     ).callAsAgent({'query': 'Temporal KG'});
     final statement =
@@ -294,19 +339,12 @@ void main() {
           {
             'text': 'Only live citations should remain authoritative.',
             'sourceRefs': [
-              {'layer': 'wiki', 'locator': 'wiki/kg.md', 'label': 'Wiki', 'role': 'wiki'},
-              {'layer': 'wiki', 'locator': 'wiki/missing.md', 'label': 'Missing'},
-              {'layer': 'memory', 'locator': 'MEMORY.md', 'label': 'Memory', 'role': 'memory'},
+              {'layer': 'wiki', 'locator': 'wiki/kg.md', 'role': 'wiki'},
+              {'layer': 'wiki', 'locator': 'wiki/missing.md', 'role': 'wiki'},
+              {'layer': 'memory', 'locator': 'MEMORY.md', 'role': 'memory'},
             ],
           },
         ],
-        'sourceList': [
-          {'layer': 'wiki', 'locator': 'wiki/kg.md', 'label': 'Wiki', 'role': 'wiki'},
-          {'layer': 'wiki', 'locator': 'wiki/missing.md', 'label': 'Missing'},
-          {'layer': 'memory', 'locator': 'MEMORY.md', 'label': 'Memory', 'role': 'memory'},
-        ],
-        'degradedLayers': [],
-        'noSourcesFound': false,
       }),
     ).callAsAgent({'query': 'Temporal KG'});
     final packet = (_decodeResult(result)['packet'] as Map<String, dynamic>);
@@ -419,9 +457,8 @@ void main() {
       expect(tool().description, contains('url'));
     });
 
-    test('a url in synthesis output is discarded and an unresolved reference gets none', () async {
+    test('a resolved reference gets the host link and an unresolved one gets none', () async {
       File('${workspace.path}/wiki/kg.md').writeAsStringSync('Temporal KG wiki source.');
-      const forged = 'https://attacker.example/phish';
 
       for (final linker in <ContextResearchSourceLinker?>[link, null]) {
         final result = await tool(
@@ -431,14 +468,10 @@ void main() {
               {
                 'text': 'A resolved and an unresolved claim.',
                 'sourceRefs': [
-                  {'layer': 'wiki', 'locator': 'wiki/kg.md', 'label': 'Wiki', 'role': 'wiki', 'url': forged},
-                  {'layer': 'wiki', 'locator': 'wiki/missing.md', 'label': 'Missing', 'role': 'wiki', 'url': forged},
+                  {'layer': 'wiki', 'locator': 'wiki/kg.md', 'role': 'wiki'},
+                  {'layer': 'wiki', 'locator': 'wiki/missing.md', 'role': 'wiki'},
                 ],
               },
-            ],
-            'sourceList': [
-              {'layer': 'wiki', 'locator': 'wiki/kg.md', 'label': 'Wiki', 'role': 'wiki', 'url': forged},
-              {'layer': 'wiki', 'locator': 'wiki/missing.md', 'label': 'Missing', 'role': 'wiki', 'url': forged},
             ],
           }),
         ).callAsAgent({'query': 'Temporal KG'});
@@ -447,7 +480,6 @@ void main() {
             (((_decodeResult(result)['packet'] as Map<String, dynamic>)['statements']) as List).single
                 as Map<String, dynamic>;
         final refs = (statement['sourceRefs'] as List).cast<Map<String, dynamic>>();
-        expect(jsonEncode(_decodeResult(result)), isNot(contains(forged)));
         expect(refs.map((ref) => ref['locator']), ['wiki/kg.md']);
         expect(refs.single['url'], linker == null ? isNull : link(CitationLayer.wiki, 'wiki/kg.md'));
       }
@@ -475,7 +507,7 @@ void main() {
           {
             'text': 'Claim attributed to an unrelated source.',
             'sourceRefs': [
-              {'layer': 'wiki', 'locator': 'wiki/unrelated.md', 'label': 'Unrelated', 'role': 'wiki'},
+              {'layer': 'wiki', 'locator': 'wiki/unrelated.md', 'role': 'wiki'},
             ],
           },
         ],
@@ -619,15 +651,10 @@ void main() {
           {
             'text': 'Oversized cited statement ${'x' * 1200}',
             'sourceRefs': [
-              {'layer': 'memory', 'locator': 'memory-1', 'label': 'Memory'},
+              {'layer': 'memory', 'locator': 'memory-1', 'role': 'memory'},
             ],
           },
         ],
-        'sourceList': [
-          {'layer': 'memory', 'locator': 'memory-1', 'label': 'Memory'},
-        ],
-        'degradedLayers': [],
-        'noSourcesFound': false,
       }),
     ).callAsAgent({'query': 'budget', 'token_budget': 64});
 
@@ -685,14 +712,16 @@ void main() {
   group('one-shot synthesizer', () {
     late List<({String message, AgentDefinition? agent})> dispatched;
     late LogicalAgentSessionService sessions;
+    late String reply;
 
     setUp(() {
       dispatched = [];
+      reply = jsonEncode({'statements': []});
       // No `search` (or any) agent is registered: synthesis must not depend on a configured agent.
       sessions = LogicalAgentSessionService(
         dispatch: ({required sessionId, required message, required agentId, required createSession}) async {
           dispatched.add((message: message, agent: sessions.agentDefinition(agentId)));
-          return jsonEncode({'statements': [], 'sourceList': [], 'degradedLayers': [], 'noSourcesFound': false});
+          return reply;
         },
       );
     });
@@ -713,11 +742,19 @@ void main() {
     test('runs without any configured agent, on an agent that may call no tool', () async {
       final text = await synthesize();
 
-      expect(jsonDecode(text), containsPair('noSourcesFound', false));
+      expect(jsonDecode(text), {'statements': []});
       final agent = dispatched.single.agent!;
       expect(agent.id, isNot('search'));
       expect(agent.allowedTools, {TaskToolFilterGuard.noToolsPolicy});
+      expect(agent.outputSchema, ContextResearchTool.synthesisSchema);
       expect(sessions.agentDefinition(agent.id), isNull, reason: 'the one-shot agent is registered only for its turn');
+    });
+
+    // The live reply wrapped its JSON in a Markdown fence; the agent boundary refuses it.
+    test('a reply outside the synthesis schema fails the synthesizer', () async {
+      reply = '```json\n${jsonEncode({'statements': []})}\n```';
+
+      await expectLater(synthesize(), throwsA(isA<StateError>()));
     });
 
     test('concurrent calls each get their own agent', () async {
@@ -776,13 +813,16 @@ Future<String> _candidateSynthesizer(ContextResearchSynthesisRequest request) as
         .map(
           (candidate) => {
             'text': candidate.text,
-            'sourceRefs': [candidate.sourceRef.toJson()],
+            'sourceRefs': [
+              {
+                'layer': candidate.sourceRef.layer.wireName,
+                'locator': candidate.sourceRef.locator,
+                'role': candidate.sourceRef.role,
+              },
+            ],
           },
         )
         .toList(),
-    'sourceList': request.candidates.map((candidate) => candidate.sourceRef.toJson()).toList(),
-    'degradedLayers': [],
-    'noSourcesFound': request.candidates.isEmpty,
   });
 }
 

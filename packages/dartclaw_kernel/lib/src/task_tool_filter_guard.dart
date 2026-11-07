@@ -17,7 +17,7 @@ class TaskToolFilterGuard extends Guard {
 
   /// An allowed-tools entry that denies every tool call, for a turn whose input is
   /// untrusted data and whose answer needs no tool.
-  static const noToolsPolicy = '__knowledge_inbox_no_tools__';
+  static const noToolsPolicy = '__no_tools__';
 
   /// Whether an empty [allowedTools] list represents a closed policy.
   final bool denyEmptyAllowlist;

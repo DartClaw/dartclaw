@@ -848,7 +848,7 @@ void main() {
       [
         {'role': 'user', 'content': 'untrusted inbox source'},
       ],
-      allowedTools: const ['__knowledge_inbox_no_tools__'],
+      allowedTools: const [TaskToolFilterGuard.noToolsPolicy],
       readOnly: true,
     );
     await guardedRunner.waitForOutcome(session.id, turnId);

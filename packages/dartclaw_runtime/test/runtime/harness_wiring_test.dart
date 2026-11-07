@@ -958,7 +958,7 @@ void main() {
     final workerChain = recordedConfigs.skip(existingConfigCount).single.guardChain!;
     final workerRunner = workerLease!.runner;
     final turnId = await workerRunner
-        .reserveAdmittedTurn(session.id, allowedTools: const ['__knowledge_inbox_no_tools__'], readOnly: true)
+        .reserveAdmittedTurn(session.id, allowedTools: const [TaskToolFilterGuard.noToolsPolicy], readOnly: true)
         .timeout(const Duration(seconds: 2));
     workerRunner.executeTurn(session.id, turnId, [
       {'role': 'user', 'content': 'extract facts'},
@@ -970,7 +970,7 @@ void main() {
     // turn's session-keyed no-tools policy must block.
     final midTurn = await workerChain.evaluateBeforeToolCall('shell', {'command': 'ls'}, sessionId: session.id);
     expect(midTurn.isBlock, isTrue);
-    expect(midTurn.message, contains('__knowledge_inbox_no_tools__'));
+    expect(midTurn.message, contains(TaskToolFilterGuard.noToolsPolicy));
 
     // Other sessions on the same chain are unaffected.
     final otherSession = await workerChain.evaluateBeforeToolCall('shell', {'command': 'ls'}, sessionId: 'other');
@@ -1008,7 +1008,7 @@ void main() {
     expect(primaryChain.guards.whereType<CommandGuard>().single, isNot(same(commandGuardBefore)));
     expect(primaryChain.guards.whereType<TaskToolFilterGuard>().single, same(filterBefore));
 
-    filterBefore.setSessionToolFilter('session-1', const ['__knowledge_inbox_no_tools__']);
+    filterBefore.setSessionToolFilter('session-1', const [TaskToolFilterGuard.noToolsPolicy]);
     final verdict = await primaryChain.evaluateBeforeToolCall('shell', {'command': 'ls'}, sessionId: 'session-1');
     expect(verdict.isBlock, isTrue);
   });

@@ -93,14 +93,14 @@ void main() {
         [
           {'role': 'user', 'content': 'extract facts'},
         ],
-        allowedTools: const ['__knowledge_inbox_no_tools__'],
+        allowedTools: const [TaskToolFilterGuard.noToolsPolicy],
         readOnly: true,
       );
       await worker.turnInvoked;
 
       final midTurn = await harnessChain.evaluateBeforeToolCall('shell', {'command': 'ls'}, sessionId: session.id);
       expect(midTurn.isBlock, isTrue);
-      expect(midTurn.message, contains('__knowledge_inbox_no_tools__'));
+      expect(midTurn.message, contains(TaskToolFilterGuard.noToolsPolicy));
 
       // The policy is session-scoped, not chain-wide.
       final otherSession = await harnessChain.evaluateBeforeToolCall('shell', {'command': 'ls'}, sessionId: 'other');
@@ -129,7 +129,7 @@ void main() {
         [
           {'role': 'user', 'content': 'extract facts'},
         ],
-        allowedTools: const ['__knowledge_inbox_no_tools__'],
+        allowedTools: const [TaskToolFilterGuard.noToolsPolicy],
         readOnly: true,
       );
       await worker.turnInvoked;

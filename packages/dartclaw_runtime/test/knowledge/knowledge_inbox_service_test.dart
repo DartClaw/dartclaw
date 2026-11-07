@@ -109,7 +109,7 @@ void main() {
     expect(turns.startedTurns.single.agentName, 'cron:knowledge-inbox');
     expect(turns.startedTurns.single.effort, 'medium');
     expect(turns.startedTurns.single.maxTurns, 1);
-    expect(turns.startedTurns.single.allowedTools, ['__knowledge_inbox_no_tools__']);
+    expect(turns.startedTurns.single.allowedTools, [TaskToolFilterGuard.noToolsPolicy]);
     expect(turns.startedTurns.single.readOnly, isTrue);
     expect(turns.taskToolFilterChanges, isEmpty);
     expect(turns.taskReadOnlyChanges, isEmpty);
@@ -329,7 +329,7 @@ void main() {
     expect(scripted.startedTurns, hasLength(2));
     expect(scripted.startedTurns.map((turn) => turn.sessionId).toSet(), hasLength(2));
     for (final turn in scripted.startedTurns) {
-      expect(turn.allowedTools, ['__knowledge_inbox_no_tools__']);
+      expect(turn.allowedTools, [TaskToolFilterGuard.noToolsPolicy]);
       expect(turn.readOnly, isTrue);
     }
     final cronKeys = (await sessions.listSessions(type: SessionType.cron))
@@ -912,7 +912,7 @@ Celebrity gossip should be excluded.
     final sessions = colliding.startedTurns.map((turn) => turn.sessionId).toSet();
     expect(sessions, hasLength(2), reason: 'the merge turn may not read the extraction turn context');
     for (final turn in colliding.startedTurns) {
-      expect(turn.allowedTools, ['__knowledge_inbox_no_tools__']);
+      expect(turn.allowedTools, [TaskToolFilterGuard.noToolsPolicy]);
       expect(turn.readOnly, isTrue);
       expect(turn.maxTurns, 1);
     }

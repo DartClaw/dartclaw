@@ -15,7 +15,15 @@ import 'package:dartclaw_runtime/dartclaw_runtime.dart'
         restoreCheckoutBeforeWorkflowBranchDeletion;
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show OutputConfig, OutputFormat, WorkflowDefinition, WorkflowStep, WorkflowVariable, WorkflowRunOrigin;
+    show
+        OutputConfig,
+        OutputFormat,
+        WorkflowDefinition,
+        WorkflowGitStrategy,
+        WorkflowStep,
+        WorkflowVariable,
+        WorkflowRun,
+        WorkflowRunOrigin;
 import 'package:dartclaw_workflow/testing.dart';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
@@ -792,6 +800,42 @@ steps:
         expect(run.variablesJson['BRANCH'], 'runtime-feature');
         expect(Directory.current.path, isNot(runtimeCwd.path));
         expect(runtime.projectService.localProject.localPath, runtimeCwd.path);
+      },
+    );
+  });
+
+  test('an omitted optional PROJECT binds the local repository so workflow git runs', () async {
+    final runtimeCwd = fixture.seedGitRepo('omitted-project-repo');
+
+    await fixture.withWiredRuntime(
+      fixture.config(),
+      runtimeCwd: runtimeCwd.path,
+      body: (runtime) async {
+        const definition = WorkflowDefinition(
+          name: 'omitted-project',
+          description: 'Integration-branch workflow started without PROJECT',
+          variables: {'PROJECT': WorkflowVariable(required: false, description: 'Target project')},
+          project: '{{PROJECT}}',
+          gitStrategy: WorkflowGitStrategy(integrationBranch: true, promotion: 'none', publish: false),
+          steps: [
+            WorkflowStep(id: 'noop', name: 'Noop', taskType: WorkflowTaskType.bash, prompts: ['true']),
+          ],
+        );
+
+        final run = await runtime.workflowService.start(definition, const {}, origin: WorkflowRunOrigin.unknown);
+        expect(run.variablesJson['PROJECT'], '_local');
+
+        WorkflowRun? settled;
+        await waitFor(() {
+          unawaited(runtime.workflowService.get(run.id).then((current) => settled = current));
+          return settled?.status == WorkflowRunStatus.completed;
+        });
+        final data = settled!.contextJson['data'] as Map<String, dynamic>;
+        expect(
+          data['_workflow.git.integration_branch'],
+          startsWith('dartclaw/workflow/'),
+          reason: 'workflow git setup ran against the local repository',
+        );
       },
     );
   });

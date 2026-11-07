@@ -35,14 +35,24 @@ String factSourceViewTemplate({
   kind: 'Knowledge graph fact',
   title: entity,
   metadata: [
-    (label: 'Valid from', value: validFrom),
-    (label: 'Valid to', value: validTo ?? 'ongoing'),
-    if (invalidatedAt != null) (label: 'Invalidated', value: invalidatedAt),
+    (label: 'Valid from', value: _factInstant(validFrom)),
+    (label: 'Valid to', value: validTo == null ? 'ongoing' : _factInstant(validTo)),
+    if (invalidatedAt != null) (label: 'Invalidated', value: _factInstant(invalidatedAt)),
   ],
   markdown: null,
   fact: {'predicate': predicate, 'value': value},
   appName: appName,
 );
+
+/// A stored fact instant as a reader sees it: the date alone at UTC midnight (how a date-only `valid_from` is
+/// stored), otherwise date and minute in UTC. Text that is not an instant is shown as written.
+String _factInstant(String stored) {
+  final instant = DateTime.tryParse(stored)?.toUtc();
+  if (instant == null) return stored;
+  final date = instant.toIso8601String().substring(0, 10);
+  if (instant.hour == 0 && instant.minute == 0 && instant.second == 0 && instant.millisecond == 0) return date;
+  return '$date ${instant.toIso8601String().substring(11, 16)} UTC';
+}
 
 /// The metadata line shared by the standalone page and the shell's wiki view, or
 /// null when [metadata] is empty so the caller can omit the element.

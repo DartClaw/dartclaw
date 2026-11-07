@@ -194,8 +194,8 @@ void main() {
       final stored = (await kg.factById(id))!;
       expect(res.statusCode, 200);
       expect(body, allOf(contains(stored.entity), contains(stored.predicate), contains(stored.value)));
-      expect(body, allOf(contains(stored.validFrom), contains(stored.validTo!)));
       expect(body, allOf(contains('Knowledge graph fact'), contains('Valid from'), contains('Valid to')));
+      expect(body, allOf(contains('2026-01-01'), contains('2026-12-31'), isNot(contains('T00:00'))));
       expect(body, isNot(contains('PRIVATE-SOURCE-MARKER')));
       expect(body, isNot(contains('/home/operator')));
       expect(body, isNot(contains('<div class="shell"')));
@@ -227,7 +227,7 @@ void main() {
       expect(openBody, contains('ongoing'));
       expect(openBody, isNot(contains('Invalidated')));
       expect(closedBody, contains('Invalidated'));
-      expect(closedBody, contains((await kg.factById(closed))!.invalidatedAt!));
+      expect(closedBody, allOf(contains('Invalidated'), contains('2026-03-01')));
       expect(closedBody, isNot(contains('PRIVATE-REASON')));
     });
 

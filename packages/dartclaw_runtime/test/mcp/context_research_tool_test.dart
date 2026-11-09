@@ -605,6 +605,19 @@ void main() {
     expect(packet['statements'], isEmpty);
   });
 
+  test('candidates that answer nothing return no_relevant_sources, not ok', () async {
+    File('${workspace.path}/wiki/unrelated.md').writeAsStringSync('Billing needle sits beside nothing useful.');
+    final result = await tool(synthesizer: (_) async => jsonEncode({'statements': []}))
+        .callAsAgent({'query': 'Billing needle'});
+    final json = _decodeResult(result);
+    final packet = json['packet'] as Map<String, dynamic>;
+
+    expect(json['status'], 'no_relevant_sources');
+    expect(packet['noSourcesFound'], isFalse);
+    expect(packet['statements'], isEmpty);
+    expect((json['metrics'] as Map<String, dynamic>)['sourcesCount'], greaterThan(0));
+  });
+
   test('TI07 empty and oversized queries return isError before retrieval or synthesis', () async {
     final empty = await tool().callAsAgent({'query': '   '});
     final oversized = await ContextResearchTool(

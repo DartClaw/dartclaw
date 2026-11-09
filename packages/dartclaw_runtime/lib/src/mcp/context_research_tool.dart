@@ -230,7 +230,9 @@ final class ContextResearchTool extends ContextualMcpTool {
   @override
   String get description =>
       'Retrieve across wiki, temporal KG, and memory, then return a compact citation-backed packet. '
-      'A wiki or knowledge graph source may carry a url; link that source by its url when present.';
+      'A wiki or knowledge graph source may carry a url; link that source by its url when present. '
+      'Status no_sources_found means nothing matched the query; no_relevant_sources means candidates were read and '
+      'none answers it. Both are complete answers, not failures.';
 
   @override
   Map<String, dynamic> get inputSchema => {
@@ -310,7 +312,7 @@ final class ContextResearchTool extends ContextualMcpTool {
       await _metricsSink?.call(metrics);
       return ToolResult.error('Error: synthesized packet exceeds token budget $tokenBudget');
     }
-    return _result(status: 'ok', packet: packet, metrics: metrics);
+    return _result(status: packet.statements.isEmpty ? 'no_relevant_sources' : 'ok', packet: packet, metrics: metrics);
   }
 
   ContextResearchMetrics _metricsFor({

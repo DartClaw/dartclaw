@@ -85,6 +85,7 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 - The automatic session-title agent may now call no tool. It reads the conversation's first exchange, which is untrusted text, and its empty tool list was unrestricted on a host worker, so text in that exchange could steer it into any tool the deployment allows. It still returns its schema-bound title.
 - The page a Slack citation links to (`/knowledge/source`) now reads as a document. It shows the page's own title instead of the file name, a quiet line for confidence, provenance and last update instead of the raw YAML frontmatter, and a header saying it is a read-only source from the knowledge base. The authenticated `/knowledge/wiki/` view no longer shows the frontmatter as text either.
 - A channel turn's system prompt now tells the agent to write standard Markdown, links as `[label](url)`. An agent that knew it was in Slack sometimes wrote Slack's own `<url|label>` links, which DartClaw escapes so a reply cannot ping `@channel`, so those citation links showed as plain text.
+- `context_research` now returns status `no_relevant_sources` when it read candidates and none answers the query. It returned `ok` with no statements beside a non-zero source count, which an agent read as a failed search and reported to the user as one.
 
 ## [0.27.2] - 2026-10-02
 

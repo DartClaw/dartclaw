@@ -262,8 +262,9 @@ it), temporal-KG facts and timelines for entities derived from the query, and wi
 surface. The source authority is `McpCallerContext`: owner and default calls use principal `owner`, a named agent uses
 only its pinned `agent:<id>` principal, and a named MCP client is shared-only. Results are de-duplicated with source
 metadata and synthesized through the injected background-turn seam into a `CitationPacket` (statements, source
-references, degraded layers, `noSourcesFound`). Malformed synthesis falls back to citation-preserving snippets, and
-nothing is cached: every call reruns retrieval and synthesis.
+references, degraded layers, `noSourcesFound`). The call's status is `ok`, `no_sources_found` (retrieval matched
+nothing) or `no_relevant_sources` (synthesis cited no candidate). Synthesis is schema-bound and a reply that breaks the
+schema fails the call. Nothing is cached: every call reruns retrieval and synthesis.
 
 ---
 

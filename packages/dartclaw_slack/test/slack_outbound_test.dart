@@ -32,6 +32,21 @@ void main() {
       expect(text, isNot(contains('<')));
     });
 
+    test('a native http(s) link stays a link; every other angle-bracket form stays text', () {
+      final text = _only(
+        channel.formatResponse(
+          'see <https://x.dev/a?b=1&c=2|the docs> or <https://x.dev/b>, not <!channel>, <@U1>, '
+          '<mailto:a@b.c|mail> or </workflows/r1|run>',
+        ),
+      );
+
+      expect(
+        text,
+        'see <https://x.dev/a?b=1&amp;c=2|the docs> or <https://x.dev/b|https://x.dev/b>, not &lt;!channel&gt;, '
+        '&lt;@U1&gt;, &lt;mailto:a@b.c|mail&gt; or &lt;/workflows/r1|run&gt;',
+      );
+    });
+
     test('an ampersand inside a link URL is escaped for Slack and the link survives', () {
       final text = _only(channel.formatResponse('[q](https://x.dev/s?a=1&b=2)'));
 

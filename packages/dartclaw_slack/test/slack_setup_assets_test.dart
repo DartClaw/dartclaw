@@ -91,7 +91,7 @@ void main() {
         const SlackConfig().webhookPath,
         'event ID',
         'reverse proxy',
-        'Checked against docs.slack.dev on',
+        'Slack imported the Socket Mode manifest on',
       ]) {
         expect(guide, contains(needle));
       }

@@ -267,7 +267,7 @@ This table is generated from `schemas/dartclaw.schema.json`. Named map entries u
 | `agent.agents.<name>.max_response_bytes` | integer | minimum 1 | Ceiling on what this agent returns to its caller, in bytes. Defaults to 5 MiB. (restart required) |
 | `agent.agents.<name>.model` | null or string |  | Model override for this agent. Null inherits the primary lane setting. (restart required) |
 | `agent.agents.<name>.output_schema` | object |  | Inline JSON Schema the agent answer must conform to: a closed subset of type, properties, required, items, enum and additionalProperties, with every object level forced closed. A non-conforming answer fails the turn instead of being repaired or truncated; an unsupported keyword is refused at load. (restart required) |
-| `agent.agents.<name>.prompt` | string |  | Extra instruction appended after the agent's workspace behavior files; does not replace SOUL.md. Under the `restricted` profile it is the whole persona. (restart required) |
+| `agent.agents.<name>.prompt` | string |  | Extra instruction appended after the workspace behavior files of this agent; does not replace SOUL.md. Under the restricted profile it is the whole persona. (restart required) |
 | `agent.agents.<name>.provider` | null or string |  | Harness driving this agent. Null inherits the primary lane setting; blank is refused. (restart required) |
 | `agent.agents.<name>.security_profile` | null or string | one of "restricted", "workspace", null | Container posture: workspace can write the checkout, restricted cannot. It never selects host or container placement. (restart required) |
 | `agent.agents.<name>.tools` | array |  | Tools this agent may call. Empty enforces no allowlist at all, which is warned about at load. (restart required) |

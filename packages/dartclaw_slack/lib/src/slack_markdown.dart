@@ -9,10 +9,17 @@ const _chunkSize = 4000;
 /// chat conversion. `&`, `<` and `>` are escaped first, so the only `<` left in
 /// the result belongs to a link the conversion built: a literal `<!channel>` or
 /// `<@U123>` in the answer cannot ping or link anyone.
+///
+/// An agent that knows it is in Slack sometimes writes Slack's own
+/// `<https://…|label>` despite being asked for Markdown; an http(s) one is read
+/// as the Markdown link it means. No other `<…>` form is, so nothing that can
+/// ping or open an entity gets through.
 String slackReplyText(String reply) => convertStandardMarkdownToNativeChatMarkup(
-  escapeSlackMarkdown(reply.trimLeft()),
+  escapeSlackMarkdown(reply.trimLeft().replaceAllMapped(_nativeHttpLink, (m) => '[${m[2] ?? m[1]}](${m[1]})')),
   renderLink: (label, url) => '<$url|$label>',
 );
+
+final _nativeHttpLink = RegExp(r'<(https?://[^\s<>|\[\]()]+)(?:\|([^<>\[\]\n]+))?>');
 
 /// A reply split into posts of at most [_chunkSize] characters, each of a
 /// multi-part reply carrying its `(n/total)` label.

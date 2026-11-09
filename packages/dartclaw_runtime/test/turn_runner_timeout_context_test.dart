@@ -17,6 +17,9 @@ class _ContextAwareHarness extends FakeAgentHarness implements HarnessTurnContex
   final contexts = <HarnessTurnContext?>[];
 
   @override
+  HarnessTurnContext? get activeTurnContext => contexts.lastOrNull;
+
+  @override
   void setTurnContext(HarnessTurnContext? context) => contexts.add(context);
 }
 
@@ -165,6 +168,32 @@ void main() {
     expect(worker.contexts.last, isNull);
     expect(outcome.status, TurnStatus.completed);
     expect((await runner.waitForOutcome(session.id, turnId)).status, TurnStatus.completed);
+  });
+
+  test('trusted turn context: the provenance reserved with a turn is set on the harness and cleared with it', () async {
+    final worker = _ContextAwareHarness();
+    final runner = buildRunner(worker);
+    final session = await sessions.getOrCreateMainSession();
+    final first = TurnProvenance.channel(
+      channelType: ChannelType.googlechat,
+      recipientId: 'spaces/AAA',
+      threadId: 'spaces/AAA/threads/T1',
+      sessionKey: 'key-1',
+      senderId: 'users/1',
+    );
+
+    scheduleTurnCompletion(worker, responseText: 'one');
+    var turnId = await runner.startTurn(session.id, const [
+      {'role': 'user', 'content': 'one'},
+    ], provenance: first);
+    await runner.waitForOutcome(session.id, turnId);
+    scheduleTurnCompletion(worker, responseText: 'two');
+    turnId = await runner.startTurn(session.id, const [
+      {'role': 'user', 'content': 'two'},
+    ]);
+    await runner.waitForOutcome(session.id, turnId);
+
+    expect(worker.contexts.map((context) => context?.provenance), [first, null, null, null]);
   });
 
   test('turn timeout cancels once with wall-clock attribution', () async {

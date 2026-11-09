@@ -94,6 +94,8 @@ extension _ExecutionCoordinatorLifecycle on ExecutionCoordinator {
       await harness.dispose();
     } catch (error, stackTrace) {
       ExecutionCoordinator._log.warning('Failed to dispose $role harness', error, stackTrace);
+    } finally {
+      _onHarnessDisposed?.call(harness);
     }
   }
 

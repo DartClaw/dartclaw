@@ -69,7 +69,7 @@ implementations. Keeping their shared aggregate hydration and row mapping togeth
 
 ### Channel Seam
 
-Channels normalize external messaging platforms into shared `ChannelMessage` and `ChannelResponse` shapes. Use a channel package when your host needs WhatsApp, Signal, or Google Chat; skip them for ordinary CLIs, web services, and embedded flows.
+Channels normalize external messaging platforms into shared `ChannelMessage` and `ChannelResponse` shapes. Use a channel package when your host needs WhatsApp, Signal, Google Chat, or Slack; skip them for ordinary CLIs, web services, and embedded flows.
 
 ### Extension Seams
 

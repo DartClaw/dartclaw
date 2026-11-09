@@ -84,6 +84,24 @@ void main() {
       expect(page.entries[2].guard, 'GuardA');
     });
 
+    test('returns the run and step of an approval entry', () async {
+      final logger = security.GuardAuditLogger(dataDir: tempDir.path);
+      await logger.writeEntry(
+        AuditEntry(
+          timestamp: DateTime.utc(2026, 3, 1, 10),
+          guard: 'RunApprovalGate',
+          hook: 'button',
+          verdict: 'pass',
+          runId: 'run-1',
+          stepId: 'review',
+        ),
+      );
+
+      final page = await reader.read();
+      expect(page.entries.single.runId, 'run-1');
+      expect(page.entries.single.stepId, 'review');
+    });
+
     test('reads the logger date partitions newest first', () async {
       final logger = security.GuardAuditLogger(dataDir: tempDir.path);
       await logger.writeEntry(

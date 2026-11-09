@@ -28,7 +28,7 @@ SetupChecks _postWrite({
     probeBinary: (_) async => (outcome: binary, version: null),
     configParseable: (_) async => configParseable,
     writeProbeFile: (_) {},
-    portFree: (_) async => portFree,
+    portFree: (_, _) async => portFree,
     providerVerified: (_, _, _) async => providerVerified,
   );
 }
@@ -68,6 +68,7 @@ void main() {
       String? runtimeCase,
       bool windows = false,
       List<List<String>>? commands,
+      List<String>? probedHosts,
       bool realCredentials = false,
     }) async {
       final checks = SetupChecks(
@@ -76,7 +77,10 @@ void main() {
           outcome: binary == 'missing-codex' ? BinaryProbeOutcome.notFound : BinaryProbeOutcome.responded,
           version: '2.1.80',
         ),
-        portFree: (_) async => free,
+        portFree: (host, _) async {
+          probedHosts?.add(host);
+          return free;
+        },
         writeProbeFile: (_) {},
         providerVerified: realCredentials ? null : (_, _, _) async => true,
         serverHealth: (_, _) async => health,
@@ -130,6 +134,13 @@ void main() {
       expect(remote.rows.map((r) => r.id), isNot(contains('server.port')));
       final mismatch = await diagnose(free: false, health: {'status': 'ok', 'version': 'old', 'uptime_s': 42});
       expect(row(mismatch, 'server.health').status, DiagnosticStatus.warn);
+    });
+
+    test('the port probe binds the host serve binds, not a fixed loopback address', () async {
+      writeConfig('host: 0.0.0.0\n');
+      final hosts = <String>[];
+      await diagnose(probedHosts: hosts);
+      expect(hosts, ['0.0.0.0']);
     });
 
     test('S04 fatal configs skip dependents and loadable invalid values retain loader messages', () async {
@@ -263,7 +274,7 @@ mcp_servers:
       final checks = SetupChecks(
         databaseReadiness: _databaseReady,
         probeBinary: (_) async => (outcome: BinaryProbeOutcome.responded, version: null),
-        portFree: (_) async => false,
+        portFree: (_, _) async => false,
         writeProbeFile: (_) {},
         providerVerified: (_, _, _) async => true,
         runCommand: (_, _) async => ProcessResult(1, 1, '', ''),
@@ -292,7 +303,7 @@ mcp_servers:
       final checks = SetupChecks(
         databaseReadiness: _databaseReady,
         probeBinary: (_) async => (outcome: BinaryProbeOutcome.responded, version: null),
-        portFree: (_) async => false,
+        portFree: (_, _) async => false,
         writeProbeFile: (_) {},
         providerVerified: (_, _, _) async => true,
         runCommand: (_, args) async => ProcessResult(0, 0, args.first == 'ps' ? 'dartclaw-orphan' : 'amd64', ''),
@@ -335,7 +346,7 @@ mcp_servers:
       writeConfig();
       final report = await SetupChecks(
         probeBinary: (_) async => (outcome: BinaryProbeOutcome.responded, version: null),
-        portFree: (_) async => true,
+        portFree: (_, _) async => true,
         writeProbeFile: (_) {},
         providerVerified: (_, _, _) async => true,
         runCommand: (_, _) async => ProcessResult(1, 1, '', ''),
@@ -399,7 +410,7 @@ mcp_servers:
     });
 
     test('fails when port is already in use', () async {
-      final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+      final server = await ServerSocket.bind('localhost', 0);
       addTearDown(server.close);
 
       final result = await SetupChecks(
@@ -416,7 +427,7 @@ mcp_servers:
     });
 
     test('workflow track skips the server port check', () async {
-      final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+      final server = await ServerSocket.bind('localhost', 0);
       addTearDown(server.close);
 
       final result = await SetupChecks(
@@ -475,7 +486,7 @@ mcp_servers:
         probeBinary: (_) async => (outcome: BinaryProbeOutcome.responded, version: null),
         configParseable: (_) async => true,
         writeProbeFile: (_) {},
-        portFree: (_) async => true,
+        portFree: (_, _) async => true,
         providerVerified: (_, _, _) async => true,
         databaseReadiness: (_, {required bootstrap, required environment}) async {
           bootstrapRequested = bootstrap;
@@ -507,7 +518,7 @@ mcp_servers:
         probeBinary: (_) async => (outcome: BinaryProbeOutcome.responded, version: null),
         configParseable: (_) async => true,
         writeProbeFile: (_) {},
-        portFree: (_) async => false,
+        portFree: (_, _) async => false,
         databaseReadiness: (_, {required bootstrap, required environment}) async {
           fail('Standalone workflow setup must not inspect PostgreSQL.');
         },
@@ -535,7 +546,7 @@ mcp_servers:
         probeBinary: (_) async => (outcome: BinaryProbeOutcome.responded, version: null),
         configParseable: (_) async => true,
         writeProbeFile: (_) {},
-        portFree: (_) async => true,
+        portFree: (_, _) async => true,
         providerVerified: (_, _, _) async {
           providerChecks++;
           return true;
@@ -627,7 +638,7 @@ mcp_servers:
             ),
             configParseable: (_) async => true,
             writeProbeFile: (_) {},
-            portFree: (_) async => true,
+            portFree: (_, _) async => true,
             providerVerified: (_, _, _) async => true,
           ).verify(
             configPath: configPath,
@@ -663,7 +674,7 @@ mcp_servers:
             },
             configParseable: (_) async => true,
             writeProbeFile: (_) {},
-            portFree: (_) async => true,
+            portFree: (_, _) async => true,
             providerVerified: (_, _, _) async => true,
           ).verify(
             configPath: configPath,
@@ -732,7 +743,7 @@ mcp_servers:
         probeBinary: (_) async => (outcome: BinaryProbeOutcome.responded, version: null),
         configParseable: (_) async => true,
         writeProbeFile: (_) {},
-        portFree: (_) async => true,
+        portFree: (_, _) async => true,
         providerVerified: (providerId, _, _) async => providerId == 'claude',
       );
 
@@ -764,7 +775,7 @@ mcp_servers:
             loadConfig: (_) => const DartclawConfig.defaults(),
             probeBinary: (_) async => (outcome: BinaryProbeOutcome.responded, version: null),
             configParseable: (_) async => true,
-            portFree: (_) async => true,
+            portFree: (_, _) async => true,
             providerVerified: (_, _, _) async => true,
           ).verify(
             configPath: _params.configPath,
@@ -788,7 +799,7 @@ mcp_servers:
         probeBinary: (_) async => (outcome: BinaryProbeOutcome.responded, version: null),
         configParseable: (_) async => true,
         writeProbeFile: (_) {},
-        portFree: (_) async => true,
+        portFree: (_, _) async => true,
         providerVerified: (_, _, _) async => true,
       );
 
@@ -838,7 +849,7 @@ mcp_servers:
       probeBinary: (_) async => (outcome: BinaryProbeOutcome.responded, version: null),
       configParseable: (_) async => true,
       writeProbeFile: (_) {},
-      portFree: (_) async => true,
+      portFree: (_, _) async => true,
     ).verify(configPath: configPath, providerIds: const ['claude'], instanceDir: p.join(root.path, 'data'), port: 3333);
 
     test('a stored subscription token verifies without any vendor probe', () async {

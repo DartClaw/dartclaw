@@ -105,6 +105,22 @@ Set by `_transitionStepAwaitingApproval` in `parallel_group_runner.dart`.
 | `_approval.pending.stepId` | `String` | Step ID awaiting approval |
 | `_approval.pending.stepIndex` | `int` | Step index awaiting approval |
 
+### `_approval.interaction`
+
+Written by `WorkflowService.issueApprovalInteraction` (the record is `WorkflowApprovalInteraction`, `workflow_approval_interaction.dart`) for a run pending at an approval step, completed by `bindApprovalPost` and consumed by the resolution. One record per run, replaced by each issue, kept after resolution so the chat post can be edited, and ended with the run. It is absent from the keys an approval resolution clears. The nonce is readable by an authenticated run-detail API caller; no tool result, audit entry or log line carries it.
+
+| Key | Type | Semantics |
+|-----|------|-----------|
+| `_approval.interaction` | `Map` | `stepId` (approval step it was issued for), `nonce` (128-bit `Random.secure()`, 32 hex characters), `issuedAt` (ISO 8601), optional `post` (`channelType`, `recipientId`, `messageId`; absent until a sent post is bound), optional `resolution` (`approved`, `changesRequested` when the gate was sent back to its revise step, `source` of `button`, `tool` or `web` when recorded, `senderId`, `displayName`, `at`; absent while pending) |
+
+### `_revision.gateId`
+
+Written by `WorkflowService.requestChanges` in the update that records a request-changes round, and dropped by `executeApprovalStep` when the gate pauses again. While present, the run is in a revision round at that gate: the executor runs the gate's `revise` step despite its `entryGate` and ends that step's prompt with the gate's feedback (`<gateId>.approval.feedback`, a public key, as is `<gateId>.approval.revision`, the rounds so far). Restart recovery restarts a marked run at its persisted step index instead of deriving it from completed tasks.
+
+| Key | Type | Semantics |
+|-----|------|-----------|
+| `_revision.gateId` | `String` | ID of the approval gate whose request-changes round is in flight |
+
 ### `_approval.auto_resolved.<stepId>`
 
 Set when `_workflow.approvals` auto-resolves a `needsInput` outcome or explicit approval step.

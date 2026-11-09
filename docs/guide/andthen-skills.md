@@ -1,8 +1,8 @@
 # AndThen Skills
 
-DartClaw's built-in workflows reference AndThen-owned skills by canonical logical names such as `andthen:plan`, `andthen:exec-plan`, and `andthen:review`. The `plan-and-implement` workflow uses `andthen:plan` to author the plan and per-story specs.
+DartClaw's built-in workflows reference AndThen-owned skills by canonical logical names such as `andthen:plan`, `andthen:exec-plan`, and `andthen:review`. The `implement-prd` workflow uses `andthen:plan` to author the plan and per-story specs.
 
-Install the single `andthen` plugin at version 1.0 or later for the provider that runs workflows. Built-ins use its core skills. The one-story route is `story-and-implement` (or `story-and-implement-inline` for the maintained inline variant). Its `spec` step and `spec_path` output retain their names because AndThen calls a Feature Implementation Specification a FIS or spec.
+Install the single `andthen` plugin at version 1.0 or later for the provider that runs workflows. Built-ins use its core skills. The one-story route is `implement-story` (or `implement-story-inline` for the maintained inline variant). Its `spec` step and `spec_path` output retain their names because AndThen calls a Feature Implementation Specification a FIS or spec.
 
 When `andthen:exec-plan` completes a plan's last unfinished story and every story is `done`, it invokes `andthen:simplify-code` once inside the implement step. A newly authored one-story plan qualifies. Reusing a FIS from an unfinished multi-story plan does not. There is no separate built-in simplify step.
 

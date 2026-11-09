@@ -73,30 +73,6 @@ class HarnessFactoryConfig {
   /// Exact DartClaw MCP tool names mapped to their guard semantic.
   final Map<String, CanonicalTool> ownMcpToolCanonicals;
 
-  /// Memory apply callback used when the internal MCP server is not configured.
-  final Future<Map<String, dynamic>> Function(Map<String, dynamic>)? onMemoryApply;
-
-  /// Memory observation callback used when the internal MCP server is not configured.
-  final Future<Map<String, dynamic>> Function(Map<String, dynamic>)? onMemoryObserve;
-
-  /// Context-aware memory apply callback for direct SDK MCP calls.
-  final ContextualMemoryToolHandler? onContextualMemoryApply;
-
-  /// Context-aware memory observation callback for direct SDK MCP calls.
-  final ContextualMemoryToolHandler? onContextualMemoryObserve;
-
-  /// Context-aware memory search callback for direct SDK MCP calls.
-  final ContextualMemoryToolHandler? onContextualMemorySearch;
-
-  /// Context-aware memory read callback for direct SDK MCP calls.
-  final ContextualMemoryToolHandler? onContextualMemoryRead;
-
-  /// Memory search callback used when the internal MCP server is not configured.
-  final Future<Map<String, dynamic>> Function(Map<String, dynamic>)? onMemorySearch;
-
-  /// Memory read callback used when the internal MCP server is not configured.
-  final Future<Map<String, dynamic>> Function(Map<String, dynamic>)? onMemoryRead;
-
   /// Callback fired when Claude Code's own permission layer denies a tool call.
   ///
   /// Wired in `HarnessWiring` to emit `ToolPermissionDeniedEvent` on the EventBus.
@@ -130,14 +106,6 @@ class HarnessFactoryConfig {
     this.guardChain,
     this.auditLogger,
     this.ownMcpToolCanonicals = const {},
-    this.onMemoryApply,
-    this.onMemoryObserve,
-    this.onContextualMemoryApply,
-    this.onContextualMemoryObserve,
-    this.onContextualMemorySearch,
-    this.onContextualMemoryRead,
-    this.onMemorySearch,
-    this.onMemoryRead,
     this.onPermissionDenied,
     this.prepareSubscriptionHome,
   });
@@ -282,14 +250,6 @@ AgentHarness _createClaudeHarness(HarnessFactoryConfig config) {
     cwd: config.cwd,
     turnTimeout: config.turnTimeout,
     providerOptions: config.providerOptions,
-    onMemoryApply: config.onMemoryApply,
-    onMemoryObserve: config.onMemoryObserve,
-    onContextualMemoryApply: config.onContextualMemoryApply,
-    onContextualMemoryObserve: config.onContextualMemoryObserve,
-    onContextualMemorySearch: config.onContextualMemorySearch,
-    onContextualMemoryRead: config.onContextualMemoryRead,
-    onMemorySearch: config.onMemorySearch,
-    onMemoryRead: config.onMemoryRead,
     onPermissionDenied: config.onPermissionDenied,
     harnessConfig: config.harnessConfig,
     historyConfig: config.historyConfig,

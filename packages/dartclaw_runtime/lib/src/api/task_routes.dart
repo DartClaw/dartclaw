@@ -29,6 +29,7 @@ Router taskRoutes(
   ProjectService? projectService,
   String? dataDir,
   ThreadBindingStore? threadBindingStore,
+  ChannelManager? channelManager,
   String mergeStrategy = 'squash',
   String baseRef = 'main',
   TaskCreationService? creationService,
@@ -209,7 +210,7 @@ Router taskRoutes(
       if (threadId == null || threadId.isEmpty) {
         return errorResponse(400, 'INVALID_INPUT', 'threadId is required', {'field': 'threadId'});
       }
-      if (!supportsThreadBinding(channelType)) {
+      if (channelManager?.threadedNotificationsFor(channelType) == null) {
         return errorResponse(400, 'INVALID_INPUT', 'Channel $channelType carries no thread identity to bind', {
           'field': 'channelType',
         });
@@ -217,17 +218,15 @@ Router taskRoutes(
 
       final existing = store.lookupByThread(channelType, threadId);
       if (existing != null) {
-        return errorResponse(
-          409,
-          'CONFLICT',
-          existing.taskId == id
-              ? 'Binding already exists for this thread'
-              : 'Thread already bound to task ${existing.taskId}',
-        );
+        return errorResponse(409, 'CONFLICT', switch (existing.kind) {
+          ThreadBindingKind.run => 'Thread is held by workflow run ${existing.targetId}',
+          ThreadBindingKind.task when existing.targetId == id => 'Binding already exists for this thread',
+          ThreadBindingKind.task => 'Thread already bound to task ${existing.targetId}',
+        });
       }
 
       final now = DateTime.now();
-      final binding = ThreadBinding(
+      final binding = ThreadBinding.task(
         channelType: channelType,
         threadId: threadId,
         taskId: id,
@@ -255,7 +254,7 @@ Router taskRoutes(
         return errorResponse(409, 'THREAD_BINDING_DISABLED', 'Thread binding is not enabled');
       }
       final existing = store.lookupByThread(channelType, threadId);
-      if (existing == null || existing.taskId != id) {
+      if (existing == null || existing.kind != ThreadBindingKind.task || existing.targetId != id) {
         return errorResponse(404, 'NOT_FOUND', 'Binding not found');
       }
       await store.delete(channelType, threadId);

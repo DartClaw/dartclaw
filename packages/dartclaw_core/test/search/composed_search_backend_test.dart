@@ -346,7 +346,7 @@ final class _RecordingWiki extends WikiSearchSource {
   bool shouldThrow = false;
 
   @override
-  Future<WikiSearchScan> searchScan(String query) async {
+  Future<WikiSearchScan> searchScan(String query, {int excerptRunes = WikiSearchSource.searchSnippetRunes}) async {
     queries.add(query);
     if (shouldThrow) throw StateError('wiki unavailable');
     return WikiSearchScan(results: results, degraded: degradations.isNotEmpty, degradations: degradations);

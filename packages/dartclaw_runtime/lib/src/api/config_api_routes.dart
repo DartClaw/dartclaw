@@ -5,6 +5,7 @@ import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
 import 'package:dartclaw_signal/dartclaw_signal.dart';
+import 'package:dartclaw_slack/dartclaw_slack.dart';
 import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
 import 'package:shelf/shelf.dart';
 import 'package:shelf_router/shelf_router.dart';
@@ -41,6 +42,7 @@ Router configApiRoutes({
   WhatsAppChannel? whatsAppChannel,
   SignalChannel? signalChannel,
   GoogleChatChannel? googleChatChannel,
+  SlackChannel? slackChannel,
   EventBus? eventBus,
   ConfigNotifier? configNotifier,
   GuardChain? guardChain,
@@ -66,6 +68,7 @@ Router configApiRoutes({
         whatsAppChannel: whatsAppChannel,
         signalChannel: signalChannel,
         googleChatChannel: googleChatChannel,
+        slackChannel: slackChannel,
         eventBus: eventBus,
       );
 
@@ -492,6 +495,7 @@ Router configApiRoutes({
       'whatsapp': whatsAppChannel?.dmAccess.pendingPairings.length ?? 0,
       'signal': signalChannel?.dmAccess.pendingPairings.length ?? 0,
       'google_chat': googleChatChannel?.dmAccess?.pendingPairings.length ?? 0,
+      'slack': slackChannel?.dmAccess.pendingPairings.length ?? 0,
     });
   });
 

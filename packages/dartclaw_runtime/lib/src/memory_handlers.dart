@@ -54,13 +54,9 @@ typedef MemoryObserveWithContext = Future<Map<String, dynamic>> Function(
 /// Complete callback set for the built-in memory tools.
 typedef MemoryHandlers = ({
   MemoryApplyService applyService,
-  Future<Map<String, dynamic>> Function(Map<String, dynamic>) onApply,
   MemoryObserveWithContext apply,
-  Future<Map<String, dynamic>> Function(Map<String, dynamic>) onObserve,
   MemoryObserveWithContext observe,
-  Future<Map<String, dynamic>> Function(Map<String, dynamic>) onSearch,
   MemoryObserveWithContext search,
-  Future<Map<String, dynamic>> Function(Map<String, dynamic>) onRead,
   MemoryObserveWithContext read,
 });
 
@@ -72,7 +68,6 @@ MemoryHandlers createMemoryHandlers({
   required SearchBackend searchBackend,
   LiveMemorySourceResolver? nativeSourceResolver,
   SelfImprovementService? selfImprovement,
-  MemoryCaptureContext Function(String toolName)? captureContext,
   MemoryIndexReconciler? reconcileIndex,
   DateTime Function()? now,
   String Function()? createCaptureId,
@@ -82,9 +77,6 @@ MemoryHandlers createMemoryHandlers({
   final corpus = corpusService ?? memoryFile.corpusService;
   final indexHealth = IndexHealthStore(workspaceDir: corpus.workspaceDir);
   final clock = now ?? DateTime.now;
-  MemoryCaptureContext defaultContext(String toolName) =>
-      captureContext?.call(toolName) ??
-      MemoryCaptureContext(sourceLocator: 'tool:$toolName', caller: 'mcp-gateway:$toolName');
 
   Future<void> reconcileCanonical(
     CanonicalMemoryCorpus replacement,
@@ -294,17 +286,7 @@ MemoryHandlers createMemoryHandlers({
     return _boundedReadResult(records.take(limit).toList(growable: false), collectionRevision: collectionRevision);
   }
 
-  return (
-    applyService: applyService,
-    onApply: (params) => apply(params, defaultContext('memory_apply')),
-    apply: apply,
-    onObserve: (params) => capture(params, defaultContext('memory_observe')),
-    observe: capture,
-    onSearch: (params) => search(params, defaultContext('memory_search')),
-    search: search,
-    onRead: (params) => read(params, defaultContext('memory_read')),
-    read: read,
-  );
+  return (applyService: applyService, apply: apply, observe: capture, search: search, read: read);
 }
 
 Future<void> _verifyIndexedDocuments(

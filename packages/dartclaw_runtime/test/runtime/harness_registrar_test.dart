@@ -311,8 +311,8 @@ void main() {
   });
 
   test('no file under lib names the stub type or the provider family it stands in for', () async {
-    // Resolved through the package URI rather than the cwd: sibling suites move
-    // `Directory.current` process-wide, and a cwd-probed root would silently
+    // Resolved through the package URI rather than the cwd: the suite runs from
+    // either the package or the repo root, and a cwd-probed root would silently
     // scan a different tree.
     final libUri = await Isolate.resolvePackageUri(Uri.parse('package:dartclaw_runtime/dartclaw_runtime.dart'));
     final libDir = Directory(p.dirname(libUri!.toFilePath()));

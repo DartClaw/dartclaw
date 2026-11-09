@@ -43,10 +43,15 @@ final class SourceRef {
   /// Role that owns [locator] when the layer contains multiple source roles.
   final String? role;
 
+  /// Link a reader opens to see the source, minted by the host after the reference resolved.
+  final String? url;
+
   /// Creates a source reference.
-  const new({required this.layer, required this.locator, required this.label, this.role});
+  const new({required this.layer, required this.locator, required this.label, this.role, this.url});
 
   /// Hydrates a source reference from JSON.
+  ///
+  /// Never reads `url`: a link is host-minted, so one in model output is dropped here.
   factory fromJson(Map<String, dynamic> json) => SourceRef(
     layer: CitationLayer.fromWire(json['layer'] as String),
     locator: json['locator'] as String,
@@ -54,12 +59,16 @@ final class SourceRef {
     role: json['role'] as String?,
   );
 
+  /// This reference carrying [url].
+  SourceRef withUrl(String url) => SourceRef(layer: layer, locator: locator, label: label, role: role, url: url);
+
   /// Converts this reference to the shared JSON wire shape.
   Map<String, dynamic> toJson() => {
     'layer': layer.wireName,
     'locator': locator,
     'label': label,
     if (role != null) 'role': role,
+    if (url != null) 'url': url,
   };
 }
 

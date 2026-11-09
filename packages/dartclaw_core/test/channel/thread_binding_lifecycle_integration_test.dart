@@ -43,7 +43,7 @@ void main() {
     String sessionKey = 'session-xyz',
   }) {
     final now = DateTime.now();
-    return ThreadBinding(
+    return ThreadBinding.task(
       channelType: channelType,
       threadId: threadId,
       taskId: taskId,

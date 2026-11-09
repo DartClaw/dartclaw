@@ -1,1040 +1,507 @@
-# DartClaw Data Model & Persistence Overview
+# DartClaw Data Model & Persistence
 
-Canonical reference for DartClaw's persistence landscape. Covers all storage mechanisms, their relationships, and lifecycle behavior.
+Every persistent store DartClaw writes: which are authoritative and which are derived, the PostgreSQL schema, the file
+layout under the data directory, how records reference each other across stores, write safety, retention, and backup.
+The behavior of the domains that use these stores belongs to their own documents: [Task Execution](task-execution-architecture.md),
+[Session & State](session-state-architecture.md), [Workflow](workflow-architecture.md) and
+[Channel Messaging](channel-messaging-architecture.md). Connection security is in
+[Security Architecture](security-architecture.md); package topology and composition are in
+[System Architecture](system-architecture.md).
 
-**Current through**: 0.27.1 PostgreSQL server storage, standalone workflow file checkpoints, managed-workspace identity and principal-scoped memory/conversation
-projections, embedding-fingerprint lifecycle, serving interlock, language-aware search, bounded turn-source provenance,
-and filesystem-backed instance-local state.
-
----
-
-## Architecture Principle
-
-**Files hold canonical documents and standalone execution state; PostgreSQL holds server relational data and indexes.**
-
-- Sessions, messages, memory, config → file-based (human-inspectable, portable)
-- Search indexes → PostgreSQL `content_tsv` plus optional pgvector tables (separate memory and conversation
-  projections, rebuildable from canonical memory and session NDJSON via `dartclaw rebuild-index`)
-- Tasks, goals, artifacts, executions, workflow runs, turn traces, task events and knowledge facts → PostgreSQL
-  (server-owned authoritative relational records)
-- Standalone tasks, goals, artifacts, executions, workflow runs, traces and events → one versioned JSON checkpoint
-  at `<data_dir>/standalone/execution.json`; standalone composes no knowledge graph or search service.
-- Projects → file-based JSON (atomic writes, human-inspectable)
-
-Design rationale: [ADR-002 (File-Based Storage)](../adrs/002-file-based-storage.md)
-
-Relational repositories target the dependency-free `DatabaseBackend` port in `dartclaw_kernel`. Goal, task,
-execution, workflow-run, trace, event and KG persistence use the `PostgresBackend` implementation in
-`dartclaw_core`. The execution transactor delegates transaction ownership to the backend shared by its participating
-repositories.
-
-Server operation requires PostgreSQL 14 or newer. One pool serves authoritative repositories; `database.pool_size` defaults to
-five. Transactions lease one connection for explicit `BEGIN` and `COMMIT`/`ROLLBACK`. Calls through the owner inside
-the transaction body join that connection; nested transactions refuse. Acquisition may retry before dispatch, but
-transport loss after dispatch surfaces `StorageUnknownOutcomeException` without replay.
-
-`PostgresSchemaGate` bootstraps the current authoritative and search tables plus identity marker in one transaction
-when the namespace is empty. Reopening a compatible schema reads its catalog without mutation; partial or
-incompatible shapes refuse. PostgreSQL memory search stores a `content_tsv tsvector NOT NULL` projection with a GIN
-index; the configured deployment language is bound at query and projection time.
-
-Vector embeddings are derived data with an independent compatibility boundary. PostgreSQL stores the two
-principal-scoped corpora in `memory_vectors` and `conversation_vectors` through the application pool.
-Hybrid startup first verifies an administrator-installed pgvector extension in `public`; lexical-only preparation
-never queries the extension. An absent optional PostgreSQL vector projection is created only after the authoritative
-schema validates, while partial or incompatible vector objects refuse with derived-only recovery guidance.
-
-A serving PostgreSQL runtime acquires one database-wide session advisory lock on a dedicated connection before
-schema preparation. Headless workflows and one-shot maintenance commands do not acquire it. Losing ownership
-quarantines every backend and prepared-statement operation before dispatch; access resumes only after lock
-reacquisition, PostgreSQL version validation, and a current-schema check. A competing owner or terminal recovery
-failure stops the process. Shutdown disables recovery, closes the pool, then releases the dedicated connection.
-
-The separate 0.27 transition utility imports the authoritative SQLite shape shared by v0.26.1 and v0.26.2 into an
-empty current schema while DartClaw is stopped. Its pinned manifest comes from v0.26.1; the v0.26.2 release did not
-change SQLite storage. It never imports derived indexes or canonical files and does not provide ongoing compatibility,
-merge, overwrite, synchronization, or reverse migration.
-
-### Standalone execution checkpoint
-
-`FileExecutionStore` owns schema version 1 and the `tasks`, `agentExecutions`, `workflowSteps`, `workflowRuns`,
-`artifacts`, `goals`, `events` and `traces` maps. File adapters implement the existing repository contracts. The store
-implements `ExecutionRepositoryTransactor`, joining task/execution/step writes into one draft and publishing once
-through `atomicWriteJson` after success. Every operation reloads inside a `RepoLock` plus a stable sidecar OS lock;
-parallel steps and separate CLI processes cannot publish stale whole-store snapshots. Failed actions leave the
-previous file unchanged. Malformed or unsupported checkpoints refuse without resetting data. This provides atomic
-replacement and process-crash recovery, not a promised power-loss durability guarantee.
-
-Sessions/messages, `turn_state.json` and `kv.json` are isolated under `<data_dir>/standalone/`. Provider credentials,
-workflow definitions and run artifact/context files retain their existing locations. The full per-run context file
-retains its artifact role. Resume prefers the run record when `WorkflowRun.contextJson` contains a full `data`
-snapshot, so an older sidecar cannot undo a committed approval. Legacy lightweight snapshots still read the sidecar.
-Standalone status and lifecycle commands use the file store; connected commands use server PostgreSQL. Database
-histories are never implicitly copied or opened. Back up standalone state and artifacts with its processes stopped.
-
-One standalone execution process owns a data directory at a time, enforced by a separate process lock. This protects
-the session and KV services' per-process caches while allowing parallel steps inside that owner. Status and lifecycle
-control commands can access the locked checkpoint independently. Standalone execution starts only the requested run;
-server startup retains automatic workflow recovery.
-
-**Diagram**: Data Model (Excalidraw) — entity relationships, storage zones, cross-store references (source in private repo: `docs/diagrams/data-model.excalidraw`) | [View online](https://excalidraw.com/#json=TO3wyb40ar2YhjD0SITKx,onxECrwQG4vIdgKnPLeELQ)
+**Current through**: 0.28.0
 
 ---
 
-## Storage Mechanisms
+## 1. Storage Authorities
 
-### Overview
+**Files hold canonical documents and standalone execution state. PostgreSQL holds server relational records and
+rebuildable search projections.** Design rationale: [ADR-002](../adrs/002-file-based-storage.md) (files for human-inspectable
+documents), [ADR-060](../adrs/060-postgresql-only-storage.md) (PostgreSQL for server relational data, files for standalone runs).
+
+| Store | Holds | Authority | If lost |
+|-------|-------|-----------|---------|
+| Session files (`sessions/`) | Session metadata, conversation state, message transcripts, attachments | Canonical | Unrecoverable without a file backup |
+| Memory workspaces (`workspace/`, `agents/<id>/workspace/`) | Canonical memory corpus, wiki, behavior files | Canonical | Restore from workspace Git or a file backup |
+| PostgreSQL authoritative tables | Tasks, goals, executions, workflow runs, traces, task events, knowledge facts | Authoritative | Restore from `pg_dump` |
+| PostgreSQL `memory_chunks`, `conversation_chunks` | Lexical search projections | Derived | `dartclaw rebuild-index` |
+| PostgreSQL `memory_vectors`, `conversation_vectors` | Optional pgvector projections | Derived | `dartclaw rebuild-index` (hybrid mode) |
+| `standalone/execution.json` | Task, goal, execution, workflow-run, trace and event records of standalone runs | Authoritative for standalone | Unrecoverable without a file backup |
+| Other files (`projects.json`, `kv.json`, `usage.jsonl`, `audit-*.ndjson`, `thread-bindings.json`, credentials) | See [§2](#2-data-directory-layout) | Per file | Per file; see [Backup & Recovery](#9-backup--recovery) |
+| `turn_state.json`, `webhook_deliveries/` | Active-turn recovery, webhook dedup | Instance-local, transient | Starts empty |
+
+Two execution modes pick the relational store. A server (`dartclaw serve`) requires PostgreSQL 14 or newer. A standalone
+workflow run (`dartclaw workflow run --standalone`) uses no database: it composes file repositories behind the same
+repository contracts, composes no knowledge graph or search service, and keeps its sessions, KV and turn state under
+`standalone/`. Connected CLI commands use the server's PostgreSQL through its HTTP API. Database histories are never
+copied into or out of a standalone checkpoint. Leftover SQLite files from releases before 0.27 (`dartclaw.db`,
+`search.db`, `vectors.db`, `state.db`, `webhook_deliveries.db`) are never opened.
+
+[![Storage authorities and data directory](diagrams/data-storage-layout.svg)](diagrams/data-storage-layout.svg)
+
+Each badge in the figure names the recovery path from the table above: restore from a file backup, workspace Git or
+`pg_dump`, rebuild, re-create, or start empty.
+
+---
+
+## 2. Data Directory Layout
+
+`<data_dir>` is `server.data_dir` (default `~/.dartclaw`). Marks: **[C]** canonical, **[D]** derived and rebuildable,
+**[L]** instance-local, **[R]** reproducible from the binary or configuration.
 
 ```
-~/.dartclaw/                          # dataDir (configurable)
-├── dartclaw.yaml                     # [YAML]   Config (live + reloadable + restart-required fields)
-├── kv.json                           # [JSON]   Global key-value store
-├── turn_state.json                   # [JSON]   Active turn recovery state (TRANSIENT)
-├── webhook_deliveries/               # [JSON]   Per-delivery reservation and dedup markers
-├── projects.json                     # [JSON]   Project registry (atomic writes)
-├── audit-YYYY-MM-DD.ndjson           # [NDJSON] Guard audit log partitions with retention cleanup
-├── usage.jsonl                       # [JSONL]  Token/cost tracking (append + rotate)
-├── channels/signal/
-│   └── signal-sender-map.json        # [JSON]   Signal UUID↔phone mapping
-├── google-chat-user-oauth.json       # [JSON]   Shared Google Chat user OAuth refresh token + client metadata (space events + reactions)
-├── thread-bindings.json              # [JSON]   Channel thread/task bindings
-├── pending-schedule-changes.json     # [JSON]   Parked schedule_upsert writes awaiting operator approval
+<data_dir>/
+├── dartclaw.yaml                   [C] Config (default location; --config may point elsewhere). Every write first copies to dartclaw.yaml.bak
+├── gateway_token                   [C] Gateway auth token
+├── credentials/                    [C] Owner-only: named/<name>.json, claude/, codex/ provider stores
+├── kv.json                         [C] Key-value store: usage_daily:<date>, session_cost:<sessionId>, prune_history, counters
+├── usage.jsonl (+ usage.jsonl.1)   [C] Token/cost events, append + size rotation
+├── audit-YYYY-MM-DD.ndjson         [C] Guard audit, one partition per day
+├── turn_state.json                 [L] Active turn per session (crash recovery)
+├── webhook_deliveries/             [L] One marker file per webhook delivery id
+├── thread-bindings.json            [L] Channel thread bindings
+├── pending-schedule-changes.json   [L] Parked schedule_upsert writes awaiting operator approval
+├── projects.json                   [C] Runtime-created projects only (config-defined ones are not persisted)
+├── projects/<projectId>/           [R] Git clones (re-cloneable)
+├── google-chat-user-oauth.json     [C] Google Chat user OAuth refresh token (owner-only)
+├── google-chat-subscriptions.json  [L] Google Chat space-event subscriptions
+├── channels/signal/signal-sender-map.json   [L] Signal UUID to phone mapping
 ├── sessions/
-│   ├── .session_keys.json            # [JSON]   Deterministic key→UUID index
+│   ├── .session_keys.json          [C] Deterministic session key to session UUID index
 │   └── <uuid>/
-│       ├── meta.json                 # [JSON]   Session metadata
-│       └── messages.ndjson           # [NDJSON] Conversation transcript (append-only)
-├── workspace/
-│   ├── MEMORY.md                     # [MD]     Bounded canonical index
-│   ├── memory/topics/                # [MD]     Canonical topic documents
-│   ├── MEMORY.archive.md             # [MD]     Canonical archive
-│   ├── MEMORY.audit.md               # [MD]     Content-free deletion audit (never indexed)
-│   ├── .dartclaw-memory-corpus.json   # [JSON]   Derived authenticated member manifest
-│   ├── errors.md                     # [MD]     Canonical error role (newest 50)
-│   ├── learnings.md                  # [MD]     Canonical learning role (newest 50)
-│   ├── memory/
-│   │   └── YYYY-MM-DD.md            # [MD]     Daily turn logs
-│   ├── SOUL.md                       # [MD]     Identity/values (read-only by runtime)
-│   ├── USER.md                       # [MD]     User profile (read-only by runtime)
-│   ├── TOOLS.md                      # [MD]     Env-specific notes (read-only by runtime)
-│   ├── AGENTS.md                     # [MD]     Safety rules (read-only by runtime)
-│   ├── HEARTBEAT.md                  # [MD]     Periodic task checklist (read-only by runtime)
-│   └── .git/                         # [Git]    Workspace version control
-├── agents/
-│   └── <id>/
-│       ├── identity.json              # [JSON]   Exact host marker containing only agentId
-│       └── workspace/                 # [MD]     Managed behavior, skills and eligible personal memory
-├── worktrees/
-│   └── <taskId>/                     #          Git worktree for tasks that declare one
-├── projects/
-│   └── <projectId>/                  # [Git]    Full git repository clone per project
-└── logs/                             #          Application logs
+│       ├── meta.json               [C] Session record plus nested conversationState
+│       ├── messages.ndjson         [C] Transcript, one JSON message per line
+│       ├── conversation/           [C] attempts/, queues/, manifests/ records, one <id>.json each
+│       └── attachments/            [C] <attachmentId>.json + <attachmentId>.data
+├── workspace/                      Owner memory workspace (principal `owner`)
+│   ├── MEMORY.md                   [C] Bounded index; its revision prefix is the commit marker of a corpus write
+│   ├── memory/topics/<topic>.md    [C] Topic documents
+│   ├── memory/YYYY-MM-DD.md        [C] Daily observations
+│   ├── MEMORY.archive.md           [C] Archived entries
+│   ├── MEMORY.audit.md             [C] Content-free deletion audit (never indexed)
+│   ├── learnings.md, errors.md     [C] Learning and error roles (newest 50 each)
+│   ├── memory/legacy/              [C] Opaque pre-canonical remainder preserved by preflight
+│   ├── wiki/                       [C] Shared wiki pages, read in place (not indexed in PostgreSQL)
+│   ├── SOUL.md USER.md TOOLS.md AGENTS.md HEARTBEAT.md   [C] Behavior files
+│   ├── .dartclaw-memory-corpus.json  [D] Authenticated member manifest (rebuilt from the Markdown)
+│   ├── .dartclaw-memory-index.json   [D] Derived-index health evidence
+│   ├── .dartclaw-memory-transaction(.json|/)  [L] Journal and staging of an in-flight corpus write
+│   └── .git/                       Workspace version control
+├── agents/<id>/
+│   ├── identity.json               [C] Host admission marker, exactly {"agentId":"<id>"}\n
+│   └── workspace/                  [C] Named-agent behavior, skills, personal memory (same layout as above; principal agent:<id>)
+├── tasks/<taskId>/artifacts/       [C] Artifact files of a task (diff.json, conflict.json, PR instructions, ...)
+├── worktrees/<taskId>/             [R] Git worktree of a task that declares one
+├── workflows/
+│   ├── built-in/                   [R] Shipped definitions, materialized with .dartclaw-managed.json fingerprints
+│   ├── custom/                     [C] Operator-authored definitions
+│   └── runs/<runId>/               [C] context.json (full WorkflowContext) and runtime-artifacts/
+├── workflow-workspace/             [R] Default workflow agent workspace (AGENTS.md managed unless edited)
+├── standalone/                     Standalone workflow state
+│   ├── execution.json              [C] Versioned checkpoint; execution.json.lock is its sidecar OS lock
+│   ├── execution.owner.lock        [L] One standalone execution process per data directory
+│   ├── sessions/  kv.json  turn_state.json   Isolated copies of the server-side stores
+├── containers/  bridge/  models/   [R] Per-container state, delivered bridge binary, downloaded embedding model
+├── feeds/  logs/                   [L] Shell-job output files, application logs
+└── .claude/  .codex/  .agents/     [R] Provisioned skills and agent definitions
 ```
 
-### By Access Pattern
-
-| Pattern | Storage | Write Method | Concurrency |
-|---------|-------|-------------|-------------|
-| **Relational queries** | Configured PostgreSQL database | Prepared statements; search uses `content_tsv` and optional pgvector projections | Pooled connections and transactions |
-| **Append-only logs** | `messages.ndjson`, `audit-YYYY-MM-DD.ndjson`, `usage.jsonl` | File append | Write queue (messages), fire-and-forget (audit, usage) |
-| **Atomic documents** | `turn_state.json`, `meta.json`, `.session_keys.json`, `kv.json`, `dartclaw.yaml`, `google-chat-user-oauth.json`, `thread-bindings.json`, `pending-schedule-changes.json`, `projects.json` | Temp file → rename | Write queue (kv, config), direct (turn state, meta, keys, bindings, pending changes, OAuth store, projects) |
-| **Delivery markers** | `webhook_deliveries/<sha256-id>` | Exclusive claim, synchronous atomic commit, TTL purge | Instance-local pending/processed reservation |
-| **Structured text** | Canonical memory documents (index, topics, archive, audit, `learnings.md`, `errors.md`, daily logs) | Temp file → rename or append | Shared corpus lock/write queue |
-| **Append-mostly relational** | PostgreSQL `turns` | Async upsert, fire-and-forget | `TurnTraceService` through the shared backend |
-| **Append-only relational** | PostgreSQL `task_events` | Awaited insert | `TaskEventService` through the shared backend |
-
-Daily turn-log records are byte-bounded at 512 KiB. A date partition is accepted through 8 MiB; an append that would
-exceed it is rejected before mutation and never trims prior observations. Host-side reads of canonical workspace text
-files fail closed above 64 MiB. Recursive memory/wiki requests admit at most 1,000 regular files and 64 MiB of body bytes.
-
-`errors.md` and `learnings.md` are canonical corpus members with the `error` and `learning` roles, not independently
-capped logs: both are written through the shared corpus authority under one collection revision and the same CAS and
-lock the curated roles use, and a role-scoped write leaves every unselected member byte-identical. The `error` role is
-not searchable — it is excluded from the derived search index, unlike `learning`. A pre-canonical `errors.md` is
-converted to the error role by memory preflight at startup; unrecognised remainder text is preserved verbatim under
-`memory/legacy/`.
-
-The owner corpus lives in `workspace/` under principal `owner`. A named agent's directory is derived as
-`agents/<agent-id>/workspace` and its principal as `agent:<agent-id>`. Its parent `identity.json` is the exact canonical
-JSON `{"agentId":"<id>"}` followed by one newline; it is host admission state, not workspace content or a provider
-mount. Only a named agent whose tool policy grants personal-memory read or write operations receives the corresponding
-corpus services. Canonical files, health state, lexical rows, and vectors use that directory-principal pair together; a
-project working directory does not change it.
-
-`.dartclaw-memory-corpus.json` is non-authoritative coordination state. It records the authenticated identity, role,
-length, digest, and record IDs of each canonical member so ordinary reads and sparse writes can select only relevant
-documents while preserving unopened members. Startup authenticates each complete corpus in bounded batches before
-publishing its manifest or healthy derived-index state. A failed configured corpus stays unavailable without replacing
-the owner or another workspace. A missing manifest is rebuilt from canonical Markdown; a semantic mismatch triggers
-stopped-edit reconciliation or fails closed before index publication.
-
-### Database Backend
-
-`DatabaseBackend`, `DatabaseStatement`, and `DatabaseBackendFactory` are port types in `dartclaw_kernel`.
-`dartclaw_core` provides `PostgresBackend` for authoritative relational repositories plus PostgreSQL
-implementations of `FullTextIndex` and `VectorIndex`. The vector index keeps every mutation transactional, scopes
-enumeration and ranking by owner, and materializes fingerprint- and dimension-filtered candidates before applying
-the public-qualified cosine operator.
-
-A PostgreSQL deployment uses one database and one pool for its authoritative repositories and search projections.
-Tasks, goals, executions, workflow runs, traces, events, and knowledge-graph facts are authoritative. Memory and
-conversation search rows are derived: the memory layer rebuilds from validated canonical memory, while the
-conversation layer rebuilds from session NDJSON. Knowledge-graph facts remain authoritative rows and apply
-`database.fts_language` at query time.
+The PostgreSQL database is configured separately (`database.url` or `database.credential`); it is not under `<data_dir>`.
+The file stores and the database are separate backup authorities.
 
 ---
 
-## Domain Models
-
-### Session
-
-Sessions are the primary conversation container. File-based storage, one directory per session.
-
-```
-Session
-├── id: String (UUID v4)
-├── title: String?
-├── titleRevision: int
-├── titleProvenance: SessionTitleProvenance?
-├── automaticTitleAttempted: bool
-├── type: SessionType {main, user, channel, cron, task, logicalAgent, archive}
-├── retention: ConversationRetention {durable, process}
-├── channelKey: String? (e.g., "agent:main:dm:contact:%40alice")
-├── provider: String? (provider pinned for logical-agent sessions)
-├── securityProfile: String? (worker isolation profile pinned for logical-agent sessions)
-├── executionMode: ExecutionMode?
-├── workspace: AgentWorkspace? (pinned agent id and canonical directory)
-├── settledAt: DateTime?
-├── readMessageCursor: int
-├── attentionReadEventId: String?
-├── dismissedAttentionEventIds: List<String>
-├── createdAt: DateTime
-└── updatedAt: DateTime
-```
-
-**Storage**: durable sessions use `sessions/<id>/meta.json` (atomic full rewrite); process-retained sessions use an
-in-memory store only.
-**Messages**: durable sessions use `sessions/<id>/messages.ndjson` (append-only, cursor = line number); process-retained
-messages remain in memory.
-**Workspace authority**: durable session metadata preserves the absolute `AgentWorkspace` directory and agent id that
-were admitted at creation. Current configuration derives new bindings independently. A removed or relocated binding
-does not rewrite or reclassify retained history; branch/fork admission refuses it and requires a new conversation.
-**Package**: `dartclaw_kernel` (model), `dartclaw_core` (service)
-
-#### Conversation State
-
-`ConversationState` is the single snapshot authority for the conversation revision, accepted submissions, attempt
-records, branches, visible message identities, current and staged next-turn context, and nullable telemetry. Durable
-state is nested in `meta.json`; process-retained state uses the same contract in memory. Each admitted attempt captures
-one `EffectiveConversationContext` containing project, directory, reference root, provider, model, and effort. Displayed
-tool and approval records carry their exact attempt and turn identity.
-
-#### Session Key (Deterministic Routing)
-
-```
-SessionKey (factories)
-├── webSession()                                    → agent:main:web:
-├── dmShared()                                      → agent:main:dm:shared
-├── dmPerContact(peerId)                            → agent:main:dm:contact:<encoded>
-├── dmPerChannelContact(channelType, peerId)         → agent:main:dm:<channel>:<encoded>
-├── groupShared(channelType, groupId)                → agent:main:group:<channel>:<encoded>
-├── groupPerMember(channelType, groupId, peerId)     → agent:main:group:<channel>:<encoded>:<encoded>
-├── cronSession(jobId)                              → agent:main:cron:<encoded>
-├── taskSession(taskId)                             → agent:main:task:<encoded>
-└── logicalAgentSession(agentId, conversationId)    → agent:<encoded>:logical:<encoded>
-```
-
-**Index**: `sessions/.session_keys.json` maps keys to session UUIDs. `getOrCreateByKey()` is idempotent.
-For logical-agent sessions, the returned UUID is the external conversation handle and the deterministic
-`logicalAgentSession()` value is stored as `channelKey` for reconstruction.
-
-#### Session Types & Protection
-
-| Type | Created by | Protected from pruning | Protected from deletion |
-|------|-----------|----------------------|------------------------|
-| `main` | Startup | Yes | Yes |
-| `user` | Web UI "new session" | No | No |
-| `channel` | Channel message | Yes (when channel active) | Yes |
-| `cron` | Scheduler | Yes (when job active) | Yes |
-| `task` | TaskExecutor | Yes | Yes (lifecycle via task API) |
-| `logicalAgent` | `sessions_spawn` | No (ordinary retention/count rules) | No |
-| `archive` | Maintenance prune | No (eligible for disk budget cleanup) | No |
-
-### Message
-
-```
-Message
-├── cursor: int (1-based line number — crash recovery cursor)
-├── id: String (UUID)
-├── sessionId: String
-├── role: String {user, assistant, system}
-├── content: String
-├── metadata: String? (JSON)
-└── createdAt: DateTime
-```
-
-**Storage**: One JSON object per line in `messages.ndjson`. Cursor is assigned on read (line number), not stored. Eligible message content also has a rebuildable row in the separate conversation index described below.
-**Package**: `dartclaw_kernel` (model), `dartclaw_core` (service)
-
-### Task
-
-Tasks are the structured work unit for the task orchestrator. They are persisted in PostgreSQL.
-
-```
-Task
-├── id: String (UUID)
-├── title: String
-├── description: String
-├── status: TaskStatus (state machine — see below)
-├── goalId: String? → Goal.id
-├── projectId: String? → Project.id (file-based, not FK-enforced; null = implicit _local project)
-├── agentExecutionId: String? → AgentExecution.id
-├── acceptanceCriteria: String?
-├── configJson: String (model override, token budget)
-├── worktreeJson: String? (branch, path, baseRef)
-├── createdAt: DateTime
-├── startedAt: DateTime?
-└── completedAt: DateTime?
-```
-
-**Storage**: PostgreSQL `tasks` table (indexed on status; the legacy `type` column remains for refusal compatibility)
-**Package**: `dartclaw_core` (model and repository), `dartclaw_runtime` (service)
-
-Task JSON and API surfaces now expose nested `agentExecution` and `workflowStepExecution` objects when hydrated. The task row itself keeps only task-owned lifecycle and artifact fields; runtime provider/session/model state lives on `AgentExecution`, and workflow-only metadata lives on `WorkflowStepExecution`.
-
-### AgentExecution
-
-`AgentExecution` is the shared runtime primitive below both workflow steps and standalone tasks.
-
-```text
-AgentExecution
-├── id: String (UUID)
-├── sessionId: String? → Session.id (file-based, not FK-enforced)
-├── provider: String?
-├── model: String?
-├── workspaceDir: String?
-├── containerJson: String?
-├── budgetTokens: int?
-├── harnessMetaJson: String?
-├── startedAt: DateTime?
-└── completedAt: DateTime?
-```
-
-**Storage**: PostgreSQL `agent_executions` table (indexed on `session_id`)
-**Relationships**: `tasks.agent_execution_id` references `agent_executions.id`; `workflow_step_executions.agent_execution_id` also references `agent_executions.id`
-
-### WorkflowStepExecution
-
-Workflow-owned execution metadata moved out of `Task.configJson` into a dedicated table keyed by task.
-
-```text
-WorkflowStepExecution
-├── taskId: String → Task.id
-├── agentExecutionId: String → AgentExecution.id
-├── workflowRunId: String
-├── stepIndex: int
-├── stepId: String
-├── stepType: String
-├── gitJson: String?
-├── providerSessionId: String?
-├── structuredSchemaJson: String?
-├── structuredOutputJson: String?
-├── followUpPromptsJson: String?
-├── mapIterationIndex: int?
-├── mapIterationTotal: int?
-└── stepTokenBreakdownJson: String?
-```
-
-**Storage**: PostgreSQL `workflow_step_executions` table (indexed on `(workflow_run_id, step_index)`)
-**Relationships**: `task_id` is `ON DELETE CASCADE` to `tasks.id`; `agent_execution_id` references `agent_executions.id`
-
-#### TaskOrigin (channel-originated tasks)
-
-When a task is created via a channel message trigger, the originating channel context is stored in `task.configJson['origin']` as a JSON object:
-
-```
-TaskOrigin
-├── channelType: String          # 'whatsapp' | 'signal' | 'googlechat'  (ChannelType.name enum value)
-├── sessionKey: String           # Deterministic session key for the originating contact
-├── contactId: String            # Channel-specific contact identifier
-├── recipientId: String          # Concrete sendMessage() target (JID for WA, UUID for Signal, spaceName for GChat)
-├── sourceMessageId: String?     # Original message ID (for reply correlation, e.g. GChat typing placeholder)
-├── senderDisplayName: String?   # Human-readable sender name from channel metadata
-├── senderId: String?            # Stable sender identifier retained explicitly for attribution
-└── senderAvatarUrl: String?     # Channel avatar URL when available (currently Google Chat)
-```
-Note: short IDs (6-char hex prefix of the task UUID) are computed at display time from the task `id` field; they are **not** persisted in `TaskOrigin`.
-
-Tasks with `TaskOrigin` receive channel status notifications via `TaskNotificationSubscriber`. Tasks without `TaskOrigin` (web/API-created) receive no channel notifications. The `recipientId` is the concrete target for `Channel.sendMessage()` calls — it differs per channel type and must be extracted from the inbound message context at task creation time.
-
-**Per-group project binding**: `GroupConfigResolver` resolves a `GroupEntry.project` from channel type and group ID for
-the channel turn. Agent tool calls can pass that resolved project ID when creating work. Groups without a `project`
-field fall back to the default project.
-
-#### Sender Attribution
-
-Tasks carry sender identity for audit provenance:
-
-- `Task.createdBy`: Stores the sender display name when available, otherwise the sender JID/ID of the user who triggered the task. Set at creation time and never modified.
-- `TaskOrigin`: Persists both routing context (`channelType`, `sessionKey`, `recipientId`, `contactId`, `sourceMessageId`) and attribution fields (`senderDisplayName`, `senderId`, `senderAvatarUrl`) for channel-originated tasks.
-- This keeps provenance renderable even after the originating message is gone: task cards can show "Requested by", task detail views can display sender context, and audits can distinguish contact routing identifiers from human-friendly names.
-
-#### Task State Machine
-
-```
-                    ┌──────────────────────────────────┐
-                    │                                  │
-  draft ──→ queued ──→ running ──→ review ──→ accepted │
-    │         │         │    │       │                  │
-    │         │         │    │       ├──→ rejected      │
-    │         │         │    │       │                  │
-    │         │         │    │       └──→ queued        │
-    │         │         │    │           (push-back)    │
-    │         │         │    │                          │
-    │         │         │    └──→ interrupted ──→ queued│
-    │         │         │                              │
-    └─────────┴─────────┴──→ cancelled                 │
-                        │                              │
-                        └──→ failed                    │
-                                                       │
-  Terminal states: accepted, rejected, cancelled, failed│
-                    └──────────────────────────────────┘
-```
-
-Valid transitions (`TaskStatus.validTransitions`):
-- `draft` → `queued`, `cancelled`
-- `queued` → `running`, `cancelled`, `failed`
-- `running` → `review`, `accepted`, `interrupted`, `failed`, `cancelled`
-- `interrupted` → `queued`, `cancelled`
-- `review` → `accepted`, `rejected`, `queued` (push-back), `running`, `failed`
-- `failed` → `queued` (retry: re-queue after failure)
-
-### Task Artifact
-
-```
-TaskArtifact
-├── id: String (UUID)
-├── taskId: String → Task.id (FK, CASCADE DELETE)
-├── name: String
-├── kind: ArtifactKind {diff, document, data, log}
-├── path: String (relative to dataDir/tasks/<taskId>/artifacts/)
-└── createdAt: DateTime
-```
-
-**Storage**: PostgreSQL `task_artifacts` table (FK cascade on task delete)
-
-Merge conflicts are persisted as a data artifact named `conflict.json` with the shape:
-
-```json
-{
-  "conflictingFiles": ["lib/main.dart", "lib/utils.dart"],
-  "details": "Automatic merge failed"
-}
-```
-
-Use `ArtifactKind.data` for this artifact. The file lives under `tasks/<taskId>/artifacts/conflict.json`.
-
-### Goal
-
-```
-Goal
-├── id: String (UUID)
-├── title: String
-├── parentGoalId: String? → Goal.id (max 2 levels)
-├── mission: String
-└── createdAt: DateTime
-```
-
-**Storage**: PostgreSQL `goals` table
-
-### Derived Memory Index Document
-
-```
-SearchDocument
-├── id: String (canonical entry UUID)
-├── chunks: List<String> (persisted with a zero-based `chunk_index`)
-├── metadata: Map<String, String>
-│   ├── source, role, provenance
-│   └── category?, entry_id?, entry_revision?
-└── timestamp: DateTime
-```
-
-**Storage**: PostgreSQL `memory_chunks.content_tsv` plus optional `memory_vectors` using `public.vector`
-**Source of truth**: the validated canonical corpus: bounded index, topic documents, archive, observations, learnings,
-and deletion audit. Only searchable topic, archive, observation, and learning entries project into the selected memory
-index; `errors.md` and `MEMORY.audit.md` are never indexed. `MemoryIndexProjection` creates the documents and
-`PostgresFtsIndex` stores the projection rows and binds the configured language as data. One deployment language
-drives memory, conversation, and KG search. KG facts remain in
-`kg_facts` and use a query-time vector; they have no stored vector or search index beyond `kg_facts_lookup`.
-Owner documents use `user_id = 'owner'`; each memory-eligible managed workspace uses
-`user_id = 'agent:<agent-id>'` in the same lexical and vector stores. Ordinary memory access resolves the pinned session
-workspace and its read/write grant before touching canonical or derived data. `context_research` reads only that private
-principal plus the shared wiki/KG; a named MCP client receives shared sources only.
-**Rebuild**: with DartClaw stopped, `dartclaw rebuild-index` validates managed identity markers, enumerates the owner and
-current read-eligible named agents, and atomically recreates their memory projection data while preserving
-stable entry locators, revisions, provenance, and source timestamps; undated entries sort oldest. Rebuild authenticates
-bounded corpus batches and validates the complete projection before publication. PostgreSQL publishes through one
-transaction. A principal failure preserves its prior index. KG search uses the new language
-after restart; stored memory vectors keep their previous language until rebuild. Mixed-language corpora can mis-stem,
-ablaut forms are not conflated, and PostgreSQL does not fold all diacritics.
-
-### Derived Conversation Index Row
-
-`ConversationIndexProjection` maps each persisted `user` or `assistant` message in a chat-facing session
-(`SessionType.isChatFacing`: `user`, `main`, `channel`, `archive`) to one `SearchDocument` with one content chunk. Its ID is the
-persisted message UUID; metadata contains `session_id` and `role`, and its timestamp is the message's UTC `createdAt`.
-System messages, message metadata, attachments, and non-chat session types are excluded.
-`ConversationState.includesMessage` is the visibility authority for both incremental re-projection and complete
-rebuild, so queued, held, or removed input does not enter search. Each eligible row uses the session's pinned workspace
-principal, or `owner` when the session has no managed workspace binding.
-
-**Storage**: PostgreSQL holds `conversation_chunks` with `content_tsv` and a GIN index plus optional
-`conversation_vectors` using `public.vector`. Named lexical projection columns are `message_id`,
-`user_id`, `text`, `chunk_index`, `session_id`, `role`, and `created_at`; `chunk_index` is the stable zero-based
-position in the document, while integer `id` is only the database row identity.
-**Source of truth**: `sessions/<id>/messages.ndjson`. Post-append observers enqueue indexing without delaying or failing
-message persistence. The same serialized queue removes rows after clear or successful deletion. Archival preserves the
-rows for owner-authorized archived-lifecycle search. Index failures are logged and later rebuilds reconcile missed work.
-**Query**: `ConversationSearchService` returns message/session IDs, role, UTC timestamp, text and backend score.
-Its administrative surface aggregates the owner and configured principal scopes; agent memory tools do not receive
-that cross-workspace view.
-**Rebuild**: `dartclaw rebuild-index` reconstructs both corpora from their own files for the owner and admitted managed
-workspaces. Conversation rebuilding clears stale rows even when there are no chat-facing sessions. A
-memory rebuild also re-projects conversations in the same PostgreSQL transaction. Neither rebuild changes message
-NDJSON, wiki pages or KG facts. PostgreSQL uses `database.fts_language`; stored conversation text vectors change
-language only after rebuild.
-
-### Thread Binding
-
-Thread bindings map channel conversations to DartClaw task sessions so replies continue in the task session instead of the default shared or scoped session. Routing precedence lives in [System Architecture](system-architecture.md); security implications live in [Security Architecture](security-architecture.md).
-
-```
-ThreadBinding
-├── channelType: String       (e.g. "googlechat", "whatsapp", "signal")
-├── threadId: String          (Google Chat thread resource name or group identifier)
-├── taskId: String             → Task.id
-├── sessionKey: String         (encoded session key for message routing)
-├── createdAt: DateTime
-└── lastActivity: DateTime     (updated on each routed message)
-```
-
-**Storage**: `thread-bindings.json` — JSON array of binding objects, atomic writes (temp file + rename)
-**Lookup key**: `"<channelType>::<threadId>"` — compound in-memory key
-**Package**: `dartclaw_core` (model + store)
-
-**Lifecycle**:
-- Created automatically when a task with a Google Chat `TaskOrigin` transitions to `running` and `TaskNotificationSubscriber` receives the server-assigned `thread.name` from the initial threaded notification
-- Additional bindings can be created explicitly through `/bind <taskId>` or the task binding API, so multiple channels can point at the same task session simultaneously
-- `lastActivity` is updated with a fire-and-forget persist on each routed message so the binding reflects recent use without blocking inbound routing
-- `ThreadBindingLifecycleManager` auto-unbinds terminal tasks (`accepted`, `rejected`, `cancelled`, `failed`) from the event bus and also runs idle-timeout cleanup (default: 1 hour idle, swept every 5 minutes)
-- Startup reconciliation via `ThreadBindingStore.reconcile(activeTaskIds)` prunes stale entries left behind by restarts or write failures before new traffic is accepted
-
-`ThreadBindingStore` maintains an in-memory `Map` backed by the JSON file. All lookups are synchronous (in-memory); only writes touch the filesystem. If the file is missing or contains invalid JSON on load, the store starts empty without error.
-
-### Channel Runtime DTOs (Ephemeral)
-
-These objects are not persisted as standalone records, but they carry channel-specific routing and reply state through the in-memory channel pipeline.
-
-```
-ChannelMessage
-├── id: String
-├── senderJid: String
-├── groupJid: String?
-├── text: String
-├── timestamp: DateTime
-└── metadata: Map<String, dynamic>
-```
-
-Important Google Chat metadata keys:
-- `messageName` — canonical Chat message resource name (`spaces/.../messages/...`)
-- `messageCreateTime` — RFC 3339 timestamp copied from the inbound Chat message resource
-- `threadName` — Chat thread resource name for thread binding and routing
-- `spaceType` — inbound Chat space type (`DM`, `GROUP_CHAT`, `SPACE`); used to gate quoting before `quotedMessageMetadata` is built
-- `senderDisplayName` — human-readable sender name used for text-level attribution and sender attribution decisions when quoting is unavailable
-
-```
-ChannelResponse
-├── text: String
-├── mediaAttachments: List<String>
-├── metadata: Map<String, dynamic>
-├── replyToMessageId: String?
-└── structuredPayload: Map<String, dynamic>?
-```
-
-- `replyToMessageId` is the explicit outbound reply target carried through `MessageQueue`
-- Google Chat uses `replyToMessageId` together with `metadata['messageCreateTime']` to populate `quotedMessageMetadata` when the space type supports quoting
-- `metadata['sourceMessageId']` remains the queue-level link back to the originating inbound message for placeholder cleanup and other adapter bookkeeping
-
-`FeedbackContext` is another ephemeral runtime object used only while a channel turn is in flight. It holds the target `Channel`, recipient ID, inbound message ID, and any active placeholder message ID so a feedback strategy can patch or clear in-progress UI affordances without persisting extra state.
-
-### Governance State
-
-Runtime governance uses a mix of in-memory and persisted state:
-
-| State | Storage | Durability | Reset |
-|-------|---------|------------|-------|
-| Per-sender rate limit counters | In-memory (`SlidingWindowRateLimiter`) | Transient | Server restart |
-| Global turn rate limit counters | In-memory (`SlidingWindowRateLimiter`) | Transient | Server restart |
-| Daily token budget totals | Persisted via `UsageTracker` in KvService (`kv.json`) | Durable | Midnight in configured timezone (new date key) |
-| Budget warning flag | Persisted in daily summary (`budget_warning_posted_at`) | Durable | New day |
-| Loop detection turn chain depth | In-memory (`LoopDetector._turnChainDepth`) | Transient | Server restart or human message |
-| Loop detection token velocity | In-memory (`LoopDetector._tokenVelocityWindow`) | Transient | Server restart |
-| Loop detection tool fingerprints | In-memory (`LoopDetector._consecutiveToolCalls`) | Transient | Turn completion |
-| Active turn liveness and wall-clock timers | In-memory (`TurnLivenessTracker` plus runner timer per active turn) | Transient | Turn completion or server restart |
-| Pause state + message queue | In-memory (`PauseController`) | Transient | Server restart |
-
-**Design rationale**: Rate limit and loop detection state is intentionally in-memory. A server restart naturally resets these counters, which is acceptable because restarts already interrupt all active processing. Budget state uses the existing `UsageTracker` daily aggregation pipeline via KvService, avoiding any new persistence mechanism.
-
-**Governance configuration** is stored in the `governance:` section of `dartclaw.yaml`. Governance-adjacent runtime services can subscribe through `ConfigNotifier` and `Reconfigurable`, so changed values are written to YAML and picked up by the next turn or evaluation cycle without a full process restart. The counters themselves remain intentionally in-memory and transient.
-
-### Runtime Events and Config
-
-EventBus-only runtime event models plus two persisted config sections:
-
-```text
-CompactionStartingEvent
-├── sessionId: String
-├── trigger: String                  # auto | manual
-└── timestamp: DateTime
-
-CompactionCompletedEvent
-├── sessionId: String
-├── trigger: String
-├── preTokens: int?
-├── summary: String?                 # reserved; currently always null
-└── timestamp: DateTime
-
-ScheduledJobFailedEvent
-├── jobId: String
-├── jobName: String
-├── error: String
-└── timestamp: DateTime
-
-ToolPermissionDeniedEvent
-├── toolName: String
-├── sessionId: String?
-├── reason: String?
-└── timestamp: DateTime
-
-ReloadConfig                                 # nested under gateway.reload
-├── mode: String                             # off | signal | auto
-└── debounceMs: int
-
-AlertsConfig                                 # top-level alerts:
-├── enabled: bool
-├── cooldownSeconds: int
-├── burstThreshold: int
-├── targets: List<AlertTarget>
-└── routes: Map<String, List<String>>
-```
-
-- `CompactionStartingEvent`, `CompactionCompletedEvent`, `ScheduledJobFailedEvent`, and `ToolPermissionDeniedEvent` are runtime notifications only; they are not persisted directly
-- `CompactionCompletedEvent` can cause a persisted `TaskEventKind.compaction` row when the compacted session belongs to an active running task
-- `ReloadConfig` and `AlertsConfig` live in `dartclaw.yaml` and participate in hot-reload via `ConfigNotifier`
-
-### Project
-
-Projects represent external git repositories managed by DartClaw.
-
-```
-Project
-├── id: String (UUID)
-├── name: String
-├── remoteUrl: String?              (null for implicit _local project)
-├── localPath: String               (absolute path to clone under <dataDir>/projects/<id>/)
-├── defaultBranch: String           (default: "main")
-├── credentialsRef: String?         (reference name in credential store; never the key itself)
-├── cloneStrategy: CloneStrategy    {shallow, full}
-├── prStrategy: PrStrategy          {branch, pr}
-├── status: ProjectStatus           {cloning, ready, error, stale}
-├── lastFetchAt: DateTime?
-├── source: ProjectSource           {config, runtime}
-└── createdAt: DateTime
-```
-
-**Status lifecycle**:
-- `cloning` → `ready` (on successful clone), `cloning` → `error` (on failure)
-- `ready` → `stale` (fetch age exceeds threshold); `stale` resolved on next successful fetch
-
-**Storage**: `<dataDir>/projects.json` — JSON array of project objects, atomic writes (temp file + rename).
-**Clones**: `<dataDir>/projects/<projectId>/` — full or shallow git repositories.
-**Implicit `_local` project**: Synthesized from `Directory.current.path` at startup; not persisted in `projects.json`.
-**Package**: `dartclaw_kernel` (model), `dartclaw_core` (service interface), `dartclaw_runtime` (implementation)
-
-### Turn Trace
-
-Turn traces are an enriched record of each agent turn for analytics and observability.
-
-```
-TurnTrace (turns table)
-├── id: String (UUID)
-├── session_id: String
-├── task_id: String?                (null for interactive turns)
-├── runner_id: String               (harness runner index)
-├── model: String
-├── provider: String
-├── started_at: DateTime
-├── ended_at: DateTime?
-├── input_tokens: int
-├── output_tokens: int
-├── cache_read_tokens: int
-├── cache_write_tokens: int
-├── is_error: bool
-├── error_type: String?
-└── tool_calls: String              (JSON records/count envelope; legacy arrays readable)
-```
-
-**Storage**: PostgreSQL `turns` table (indexed on `session_id`, `task_id`, `started_at`)
-**Write pattern**: Async fire-and-forget — same as `usage.jsonl`. Records retain the first 63 calls plus the latest while exact total/failed counts remain in the envelope. Traces survive entity deletion (no foreign keys).
-**Package**: `dartclaw_core` (`ToolCallRecord`, `TurnTraceService`)
-
-Each tool record may retain immutable `sourceLocators` from a correlated successful memory-search result, with exact
-first-return deduplication and a 50-locator cap. Legacy records default to `[]`; this uses the existing JSON envelope
-and adds no column or source replay store.
-
-**Multi-service co-location note**: One PostgreSQL namespace co-locates task, execution, workflow, trace, event, goal
-and KG tables. Server runtime wiring and database maintenance validate `PostgresSchemaGate` before constructing
-repositories. Task, agent-execution, workflow-step and workflow-run repositories, plus trace, event and KG services,
-share one `PostgresBackend`; their constructors do not create or repair schema. Wiring owns backend closure;
-repositories do not close the shared pool.
-
-### Instance-local Recovery and Dedup
-
-`turn_state.json` maps session IDs to `{turnId, startedAt}` records. Mutations read and replace the complete document synchronously through `secureWriteFileSync`; an unawaited mutation is durable at return. `getAll()` re-reads disk and orders session IDs. Open removes temporary siblings and quarantines malformed content as `turn_state.json.corrupt-<timestamp>` with a warning; later I/O failures propagate.
-
-`webhook_deliveries/` holds one SHA-256-named marker per delivery ID, with `state`, `inserted_at`, and `updated_at`. Exclusive creation reserves a pending delivery, atomic commit marks it processed and refreshes the retention anchor, and release removes a pending claim. Bodyless or malformed markers are reclaimable stale claims. Purge runs on first reservation and at most hourly thereafter, deleting processed markers older than seven days while keeping pending claims; failed unlinks wait for a later cycle.
-
-### Task Event
-
-Task events are a structured timeline of observable happenings during a task's lifecycle.
-
-```
-TaskEvent (task_events table)
-├── id: String (UUID)
-├── task_id: String
-├── timestamp: DateTime
-├── kind: TaskEventKind             (see sealed enum below)
-└── details: String                 (JSON object — schema varies by kind)
-```
-
-**Event kinds** (`TaskEventKind` sealed enum):
-| Kind | details fields | Description |
-|------|---------------|-------------|
-| `statusChanged` | `oldStatus`, `newStatus` | Task state machine transition |
-| `toolCalled` | `name`, `success`, `durationMs?`, `errorType?` | Agent tool invocation |
-| `artifactCreated` | `name`, `kind` | New artifact collected |
-| `pushBack` | `comment` | Reviewer sent push-back with comment |
-| `tokenUpdate` | `inputTokens`, `outputTokens`, `cacheReadTokens?` | Token usage snapshot |
-| `compaction` | `trigger`, `sessionId`, `preTokens?` | Provider compacted the task session context |
-| `error` | `message` | Task-level error |
-
-**Storage**: PostgreSQL `task_events` table (indexed on `task_id`, `(task_id, kind)`, `timestamp`)
-**Write pattern**: Awaited persistence. `TaskEventRecorder` waits for the insert before emitting `TaskEventCreatedEvent`; a failed insert propagates to the caller and emits no event.
-**Retention**: No retention policy — unbounded growth; cleanup deferred to a later milestone.
-**Package**: `dartclaw_core` (`TaskEvent`, `TaskEventKind`, `TaskEventService`), `dartclaw_runtime` (`TaskEventRecorder`)
-
-### Workflow Models
-
-Workflow engine domain models.
-
-```
-WorkflowDefinition
-├── name: String
-├── description: String
-├── variables: Map<String, WorkflowVariable>
-│   └── WorkflowVariable
-│       ├── required: bool (default true)
-│       ├── description: String
-│       └── defaultValue: String?
-├── steps: List<WorkflowStep>
-├── loops: List<WorkflowLoop>
-├── maxTokens: int?
-└── stepDefaults: List<StepConfigDefault>?   # glob-matched config defaults
-
-WorkflowStep
-├── id: String
-├── name: String
-├── prompts: List<String>                    # multi-prompt (list of turns)
-├── type: String                             {research, analysis, coding, writing, bash, approval}
-├── project: String?
-├── provider: String?
-├── model: String?
-├── turnTimeoutSeconds: int?                 # agent-turn override
-├── timeoutSeconds: int?                     # bash/approval operation deadline
-├── review: StepReviewMode                   {always, codingOnly, never}
-├── parallel: bool
-├── entryGate: String?                       # skip-when-false gate; the only gate a step declares
-├── inputs: List<String>
-├── outputs: Map<String, OutputConfig>?      # canonical context-write declarations; keys exposed as outputKeys
-├── evaluator: bool                          # minimal prompt scope for reviewer steps
-├── maxTokens: int?                          # host-set only (merge-resolve token ceiling); not an authoring key
-├── maxCostUsd: double?
-├── maxRetries: int?
-├── allowedTools: List<String>?
-├── skill: String?                           # Agent Skills skill name
-├── mapOver: String?                         # context key naming a JSON array
-├── maxParallel: Object?                     # int, "unlimited", or template string
-├── continueSession: bool                    # reuse the preceding agent step's resolved root session
-├── onError: String?                         # engine-level error policy (`pause` default, `continue`)
-└── workdir: String?                         # explicit working directory for bash steps
-
-OutputConfig
-├── format: OutputFormat                     {text, json, lines}
-├── schema: Object?                          # String (preset name) or Map (inline JSON Schema)
-└── source: String?                          # explicit output source (`worktree.branch`, `worktree.path`)
-
-StepConfigDefault                            # entry in stepDefaults list
-├── match: String                            # glob pattern matched against step IDs
-├── provider: String?
-├── model: String?
-├── maxCostUsd: double?
-├── maxRetries: int?
-└── allowedTools: List<String>?
-
-WorkflowLoop
-├── id: String
-├── steps: List<String>                      # step IDs that repeat
-├── maxIterations: int                       # hard cap
-└── exitGate: String                         # early-exit condition expression
-
-MapContext                                   # per-iteration state for map steps
-├── item: Object                             # current element (Map, String, int, etc.)
-├── index: int                               # 0-based iteration index
-└── length: int                              # total collection size
-
-WorkflowSummary                              # discovery projection, not persisted
-├── name: String
-├── description: String
-├── stepCount: int
-├── hasLoops: bool
-├── maxTokens: int?
-└── variables: Map<String, WorkflowVariable>
-```
-
-**Workflow lifecycle events** (`dartclaw_core` → `WorkflowLifecycleEvent`):
-
-| Event class | Key fields | Fired when |
-|-------------|-----------|-----------|
-| `MapIterationCompletedEvent` | `runId`, `stepId`, `iterationIndex`, `totalIterations`, `itemId?`, `taskId`, `success`, `tokenCount` | A single map/fan-out iteration settles (success or failure) |
-| `MapStepCompletedEvent` | `runId`, `stepId`, `stepName`, `totalIterations`, `successCount`, `failureCount`, `cancelledCount`, `totalTokens` | All iterations of a map step have settled |
-
-**Storage**: Workflow definitions are YAML files parsed at runtime (not persisted to DB). Shipped definitions compile into the `dartclaw_workflow` embedded map and are materialized into `<dataDir>/workflows/built-in/` as `WorkflowSource.materialized`, because registries and spawned harnesses require real files. In source checkouts, canonical YAML under `packages/dartclaw_workflow/lib/src/workflow/definitions/` wins for editing and dev runs. Built-in `dartclaw-*` skills follow the same source precedence and materialize into provider-visible skill directories. Workflow execution state is persisted in two layers: lightweight context/status snapshots live on `WorkflowRun.contextJson` in PostgreSQL, while the fuller `WorkflowContext` JSON is written under the workflow data directory and reloaded for resume/recovery paths.
-
-**Discovery contract**: listing surfaces do not materialize full prompt-bearing definitions. `WorkflowDefinitionSource.listSummaries()` projects `WorkflowSummary` records for browsers and pickers, while detail/execution paths fetch the full `WorkflowDefinition` by name. This keeps discovery payloads small while preserving a single definition source of truth.
-
-**Worktree bridge**: `OutputConfig.source` lets downstream workflow steps read persisted task worktree metadata directly
-(`worktree.branch`, `worktree.path`) instead of requiring the agent to restate those values in context text. This is the
-durable seam that connects workflow execution to task/worktree persistence.
-
-**Package**: `dartclaw_workflow` (`WorkflowDefinition`, `WorkflowStep`, `WorkflowLoop`, `WorkflowVariable`, `OutputConfig`, `OutputFormat`, `StepConfigDefault`, `MapContext`, `WorkflowContext`, parser, validator, template engine, schema presets), `dartclaw_core` (`WorkflowLifecycleEvent` family)
+## 3. PostgreSQL
+
+### 3.1 Backend
+
+`DatabaseBackend`, `DatabaseStatement` and `DatabaseBackendFactory` are dependency-free ports in `dartclaw_kernel`.
+`PostgresBackend` (`dartclaw_core`) is the only implementation; goal, task, execution, workflow-run, trace, event and
+knowledge-graph persistence and the full-text and vector indexes all share its single pool.
+
+- **Pool.** One bounded pool; `database.pool_size` defaults to 5. Open verifies server version 14+ and warns when the
+  runtime role is a superuser. The opener (runtime or CLI) owns closure; repositories never close the pool.
+- **Statements.** Positional `?` placeholders; values are `int`, `double`, `String`, `Uint8List` or `null`; booleans are
+  `0`/`1`; timestamps are ISO 8601 `TEXT`.
+- **Transactions.** `transaction()` leases one connection for explicit `BEGIN` and `COMMIT`/`ROLLBACK`. Calls through the
+  owning backend from inside the body join that connection; a nested transaction throws `NestedTransactionError`.
+  `DatabaseExecutionRepositoryTransactor` delegates to this, so task, execution and step writes commit together.
+- **Failure contract.** `PostgresDispatchPolicy` retries a failure observed before dispatch (3 attempts, 50 ms apart; pool
+  wait ceiling 30 s). A failure after dispatch surfaces `StorageUnknownOutcomeException` and is never replayed; callers
+  must verify state before retrying.
+- Connection posture (TLS rules, credential references) is owned by [Security Architecture](security-architecture.md).
+
+### 3.2 Schema gate
+
+`PostgresSchemaGate` (`dartclaw_core/lib/src/storage/postgres_schema_gate.dart`) classifies the database before any
+repository is built:
+
+- **Empty schema** (no tables in `current_schema()`): bootstrap every authoritative and search table, the GIN indexes and the
+  marker table `dartclaw_schema (id = 1, epoch = 1)` in one transaction.
+- **Current schema**: validated by reading the catalog, with no mutation. The identity in
+  `schema_identity.dart` is required-only: every table, column (type, nullability, default, primary key) and index the
+  runtime reads must match; extra objects and columns are tolerated, which is why the `tasks.type` column survives unused.
+- **Anything else** (wrong epoch, missing or partial objects) refuses with `SchemaIncompatibleException` and
+  back-up-then-recreate guidance. There is no migration runner.
+- **One admitted transition**: an epoch-1 store whose only difference from the manifest is a missing
+  `workflow_runs.origin_json` gets the column added inside a transaction that re-validates the whole schema before commit
+  (a failure rolls back to the exact legacy shape). Only `prepare` (reached by `dartclaw serve`) applies it;
+  `validateCurrent`, used by read-only callers, refuses that shape and names `serve` as the remedy. See
+  [ADR-045](../adrs/045-pluggable-database-backend.md) (0.28 amendment).
+- **Vector projection**: `memory_vectors` and `conversation_vectors` are validated and created separately, only in hybrid
+  mode and only after the authoritative schema validates. `preflightVectorExtension` first proves an
+  administrator-installed pgvector in `public` (cast, `vector_dims`, `vector_norm` and the `<=>` operator work for the
+  runtime role). Lexical-only startup never touches the extension. A partial or mismatched vector projection refuses with
+  derived-only recovery guidance ("reset and rebuild only the vector tables").
+- `validatePostgresFtsLanguage` rejects a `database.fts_language` (default `english`) that is not a `pg_ts_config` name.
+
+### 3.3 Serving interlock
+
+A serving runtime (`serving: true`, set for every non-headless composition) opens a dedicated connection and takes the
+session advisory lock `pg_try_advisory_lock(0x64617274636c6177)` before the schema gate runs, so two servers cannot share
+a database. Headless runs and one-shot maintenance commands (`rebuild-index`, `cleanup`) do not take it.
+
+`PostgresInterlock` re-checks ownership every 60 s and on connection closure. On loss it quarantines the backend: every
+statement and prepared-statement operation fails before dispatch with a "recovery pending" error. Recovery retries every
+1 s for up to 10 minutes, reacquires the lock, revalidates the server version and the current schema, then lifts the
+quarantine. A competing owner, an unsupported server version, a failed schema check or an exhausted budget is fatal
+(`exit(1)`). Shutdown disables recovery, closes the pool,
+then releases the dedicated connection.
+
+### 3.4 Tables
+
+All timestamps are ISO 8601 `TEXT`; JSON columns are `TEXT`. Source: `schema_identity.dart` (the bootstrap statements).
+
+| Table | Row | Notes |
+|-------|-----|-------|
+| `tasks` | Task | `status`; `version` (see below); `config_json` (model override, budget, `origin` TaskOrigin, push-back state); `worktree_json`; `created_by`; `max_retries`/`retry_count`. `agent_execution_id` FK to `agent_executions` (`ON DELETE RESTRICT`). Soft refs: `goal_id`, `project_id`, `workflow_run_id`, `step_index`. `type` is an inert placeholder (`'task'`); a retained `research`/`coding` value makes the task read as a refusal marker. Indexes: `status`, `type`, `(status, type)`, `workflow_run_id` |
+| `agent_executions` | AgentExecution, the runtime primitive under both tasks and workflow steps | `provider`, `model`, `workspace_dir`, `container_json`, `budget_tokens`, `harness_meta_json`, `started_at`, `completed_at`. `session_id` is a soft ref to a session directory. Indexes: `session_id`, `provider` |
+| `workflow_step_executions` | Workflow-only metadata of a step task | PK `task_id` (FK `ON DELETE CASCADE`), `agent_execution_id` (FK), `workflow_run_id` (soft), `step_index`, `step_id`, `step_type`, `git_json`, `provider_session_id`, `structured_schema_json`, `structured_output_json`, `follow_up_prompts_json`, `map_iteration_index/total`, `step_token_breakdown_json`. Indexes: `(workflow_run_id, step_index)`, `agent_execution_id` |
+| `task_artifacts` | Artifact record | FK `task_id` `ON DELETE CASCADE`; `kind` is `diff`, `document`, `data`, `branch` or `pr`; `path` is the absolute file path under `tasks/<taskId>/artifacts/`, or the URL/branch name for `pr`/`branch` kinds. Index: `task_id` |
+| `goals` | Goal | `parent_goal_id` (soft; `GoalService` allows two levels), `mission`, `max_tokens`. Index: `parent_goal_id` |
+| `task_events` | Append-only task timeline | `task_id` (soft), `kind` (enum name; the legacy `error` still reads as `taskError`), `details` (JSON, shape per kind). Awaited insert: `TaskEventRecorder` emits `TaskEventCreatedEvent` only after the insert succeeds, and a failed insert propagates. Indexes: `task_id`, `(task_id, kind)`, `timestamp` |
+| `turns` | TurnTrace, one row per task turn | `session_id`, `task_id`, `runner_id`, `model`, `provider`, token counters (input, output, cache read, cache write), `is_error`, `error_type`, `tool_calls` (JSON envelope `{records, count, failedCount, truncated}`). No FKs. Indexes: `session_id`, `task_id`, `started_at`, `model`, `provider` |
+| `workflow_runs` | WorkflowRun | `definition_name`, `status`, `definition_json` (snapshot taken at start), `variables_json`, `context_json`, `execution_cursor_json`, `workflow_worktree_json` (`{"items": [...]}`), `origin_json`, `total_tokens`, `current_step_index`, `error_message`. Indexes: `status`, `definition_name` |
+| `workflow_run_migrations` | Required by the identity; no runtime reader | `name`, `applied_at` |
+| `kg_facts` | Temporal knowledge-graph fact | `entity`, `predicate`, `value`, `valid_from`/`valid_to`, `source`, `owner`, `invalidated_at`, `invalidation_reason`. A fact is invalidated, not deleted. Index: `(entity, predicate, valid_from, valid_to)` |
+| `memory_chunks` | Derived memory search row | `user_id` (principal), `locator`/`entry_id`/`entry_revision`, `role`, `provenance`, `source`, `category`, `chunk_index`, `text`, `content_tsv tsvector NOT NULL` with a GIN index |
+| `conversation_chunks` | Derived conversation search row | `message_id`, `user_id`, `session_id`, `role`, `chunk_index`, `text`, `created_at`, `content_tsv` with a GIN index |
+| `memory_vectors`, `conversation_vectors` | Optional derived vectors | PK `(user_id, document_id, chunk_index)`; `content_hash`, `model_fingerprint`, `dimension`, `embedding public.vector`. Index: `(user_id, model_fingerprint, dimension)` |
+| `dartclaw_schema` | Epoch marker | Single row `id = 1`, `epoch = 1` |
+
+**Tool-record `sourceLocators`.** A successful `memory_search` record in `tool_calls` carries the returned locators in
+first-return order, deduplicated and capped at 50. A failed call, any other tool, or a malformed result leaves `[]`, as
+do legacy records. They ride the existing JSON envelope: no column, no source replay store.
+
+**Optimistic concurrency.** `tasks.version` increments on every update, and `update` matches on `(id, version)`;
+`updateIfStatus` additionally matches the expected `status` and returns `false` on a lost race. `workflow_runs` updates
+take optional `expectedStatus` and `expectedUpdatedAt` compare-and-set guards, and `transitionStatus` is a status CAS.
+Neither table uses row locks.
+
+**Run state in two layers.** `workflow_runs.context_json` holds the status and context snapshot; the full
+`WorkflowContext` is also written atomically to `workflows/runs/<runId>/context.json`. Resume reads the run record when it
+has an execution cursor or a full `data` snapshot, so an older sidecar cannot undo a committed approval, and falls back to
+the sidecar for lightweight legacy snapshots. `origin_json` is written once by `insert`; `update` never touches it, and SQL
+`NULL` reads as surface `unknown`. A non-null value that does not decode throws rather than inventing provenance.
+
+**SQLite import.** A one-shot, stopped-source Python utility (`dev/tools/migrate_sqlite_to_postgres.py`, source checkouts
+only) imports the authoritative SQLite shape of 0.26.1 and 0.26.2 into an empty current schema. It never imports derived
+indexes or canonical files and offers no sync or reverse migration. Procedure: [PostgreSQL guide](../../docs/guide/postgresql.md).
 
 ---
 
-## Relationships
+## 4. Standalone Execution Checkpoint
 
-### Entity Relationship Diagram
+`FileExecutionStore` (`dartclaw_core/lib/src/storage/file_execution_store.dart`) owns `standalone/execution.json`, a
+versioned JSON document (`schemaVersion: 1`) with the maps `tasks`, `agentExecutions`, `workflowSteps`, `workflowRuns`,
+`artifacts`, `goals`, `events` and `traces`. `File*Repository` adapters (tasks, goals, agent executions, step executions)
+and `FileWorkflowRunRepository` implement the same contracts as the database repositories.
 
-```
-┌──────────────┐
-│   Project    │
-│ (projects.json)│
-└──────┬───────┘
-       │ project_id (optional, not FK)
-       │
-                           ┌─────────────┐
-                           │    Goal      │
-                           │ (PostgreSQL) │
-                           └──────┬───────┘
-                                  │ goal_id (optional)
-                                  │
-┌─────────────┐  session_id  ┌────┴────────┐  task_id   ┌──────────────┐
-│   Session   │◄─ ─ ─ ─ ─ ─ ┤    Task     ├───────────►│ TaskArtifact │
-│  (files)    │  (by ID,     │(PostgreSQL) │  (FK,      │ (PostgreSQL) │
-└──────┬──────┘   not FK)    └──────┬──────┘  CASCADE)  └──────────────┘
-       │                            │
-       │ contains                   ├── task_id ──►┌──────────────┐
-       │                            │              │  TurnTrace   │
-┌──────┴──────┐                     │              │ (PostgreSQL) │
-│   Message   │                     │              └──────────────┘
-│  (NDJSON)   │                     │
-└─────────────┘                     └── task_id ──►┌──────────────┐
-                                                   │  TaskEvent   │
-                                                   │ (PostgreSQL) │
-                                                   └──────────────┘
+- **Transactions.** `transaction()` stages every joined repository write in one draft and publishes it once through
+  `atomicWriteJson` (owner-only permissions) after the action succeeds; a failed action leaves the previous file untouched.
+  Nested transactions throw.
+- **Concurrency.** Every operation reloads the checkpoint inside a `RepoLock` (in-process) plus an OS lock on
+  `execution.json.lock` (across CLI processes), so parallel steps and separate processes cannot publish stale whole-store
+  snapshots.
+- **Corruption.** A malformed or unsupported checkpoint refuses to load; it is never reset.
+- **Origin.** `workflowRuns` records carry `origin` as a key; a checkpoint from before origin existed reads as `unknown`,
+  and `update` keeps the stored origin.
+- **Single owner.** `StandaloneExecutionLease` takes `standalone/execution.owner.lock` so one execution process owns the
+  directory. This protects the per-process caches of the standalone session and KV services while allowing parallel steps
+  inside the owner. Lifecycle-only control (`workflow status`, pause, cancel) reads and updates the checkpoint through its
+  file lock without taking the lease.
+- **Recovery.** A standalone run starts only the requested run; automatic recovery of incomplete runs
+  (`recoverIncompleteRuns`) happens only in server startup.
+- **Durability.** Atomic replacement and process-crash recovery, not a power-loss guarantee. Back up with every standalone
+  process stopped.
 
-┌──────────────────────────────┐  derived from  ┌───────────────────┐
-│ Canonical searchable roles   │──────────────►│ SearchDocument       │
-└──────────────────────────────┘  (rebuildable) └───────────────────┘
-```
-
-### Cross-Store References
-
-| From | To | Mechanism | Enforced? |
-|------|----|-----------|-----------|
-| `Task.sessionId` | `Session.id` | String ID reference | **No** — convention-based protection (SessionType.task excluded from pruning) |
-| `Task.goalId` | `Goal.id` | String ID in same DB | **No** — no FK constraint (goal deletion doesn't cascade to tasks) |
-| `Task.projectId` | `projects.json` | String ID reference | **No** — cross-store (PostgreSQL → file) |
-| `TaskArtifact.taskId` | `Task.id` | Foreign key | **Yes** — `ON DELETE CASCADE` |
-| `TurnTrace.task_id` | `Task.id` | String ID reference | **No** — traces survive task deletion |
-| `TaskEvent.task_id` | `Task.id` | String ID reference | **No** — events survive task deletion |
-| `SearchDocument` | Canonical topic, archive, observation, and learning entries | Source → derived index | **Rebuild** — `dartclaw rebuild-index` |
-| `ThreadBinding.taskId` | `Task.id` | String ID reference | **No** — reconciled on startup (stale bindings pruned) |
-
-### Lifecycle Dependencies
-
-| Event | Cascade Behavior |
-|-------|-----------------|
-| **Session deleted** | Successful deletion removes the directory and queues removal of its conversation rows; a protected-session refusal changes neither. Task `sessionId` references can become dangling. |
-| **Task deleted** | Artifacts cascade-deleted via FK. Session is NOT deleted (must be cleaned separately). |
-| **Task accepted/rejected** | Worktree cleaned up (branch + directory). Session preserved for audit trail. |
-| **Goal deleted** | Tasks referencing the goal retain `goalId` but goal lookup returns null. |
-| **Session archived** | Type changes to read-only `archive`; NDJSON and conversation rows are preserved for owner-authorized archived-lifecycle search. Task sessions are protected from automated archival. |
-| **Task cancelled/accepted/rejected** | Thread binding deleted (if any). Worktree cleaned up. Session preserved for audit trail. |
-| **Memory pruned** | Entries >90d archived; canonical memory rows are atomically reconciled in the configured derived index. |
-| **Memory or chat-facing message changes** | The workspace principal's lexical projection updates first. Hybrid mode then reuses exact content-hash/provider-fingerprint vectors, embeds missing chunks, retires stale identities and refuses late results if the source changed. Embedding failure leaves lexical search current and increments that corpus's unembedded count. |
-| **Embedding provider or model changes** | The new provider fingerprint makes prior vectors ineligible. Startup and `rebuild-index` reconcile owner and admitted managed-workspace memory and conversations independently without changing canonical sources. |
-| **Server restart** | In-memory governance state reset (rate limit counters, loop detection, pause queue). Persisted budget totals preserved in KvService. Thread bindings reloaded from file and reconciled against active tasks. |
+Provider credentials, workflow definitions and per-run context/artifact files stay in their normal locations.
 
 ---
 
-## Package Ownership
+## 5. File-based Stores
 
-```
-dartclaw_kernel     (no workspace deps) Session, Message, SessionKey, DatabaseBackend,
-                                        DatabaseBackendFactory,
-                                        shared enums,
-                                        DartclawConfig, ConfigMeta, ConfigWriter,
-                                        GuardChain, GuardAuditLogger, Project,
-                                        AgentExecution, WorkflowStepExecution,
-                                        execution repository ports, deterministic utilities
-     ▲
-     │
-dartclaw_core       (kernel + postgres)
-                                        SessionService, MessageService, KvService,
-     ▲                                  MemoryFileService, Task*, Goal*, EventBus,
-     │                                  ThreadBindingStore, ProjectService (interface),
-     │                                  HarnessFactory, harness interfaces,
-     │                                  PostgresBackend,
-     │                                  relational repositories via DatabaseBackend,
-     │                                  PostgresFtsIndex, PostgresVectorIndex,
-     │                                  PostgresSchemaGate,
-     │                                  TurnStateStore, WebhookDeliveryStore (files),
-     │                                  TurnTraceService,
-     │                                  TaskEventService
-     │
-dartclaw_search     (kernel + llamadart) HybridSearch, VectorSynchronizer,
-                                        NativeEmbeddingProvider, HttpEmbeddingProvider
-     │
-dartclaw_workflow   (kernel + core)     WorkflowRegistry, WorkflowDefinition/Step/Loop,
-     ▲                                  workflow parser/validator/engine, MapContext,
-     │                                  WorkflowContext, schema presets, built-in skills,
-     │                                  WorkflowRunRepository implementation,
-     │                                  WorkflowMaterializer
-     │
-dartclaw_runtime    (kernel + core + search + workflow, shelf)
-                                        StorageWiring, TaskService (wraps repository),
-     ▲                                  TaskExecutor, WorktreeManager, DiffGenerator,
-     │                                  ProjectService (implementation), TaskEventRecorder,
-     │                                  BudgetEnforcer, PauseController, ScopeReconciler,
-     │                                  EmergencyStopHandler
-     │
-dartclaw_cli        (runtime + args)    CLI runner, loopback API client, connected
-                                        operations (`workflow`, `tasks`, `config`,
-                                        `projects`, `sessions`, `runners`, `traces`,
-                                        `jobs`), plus local lifecycle/maintenance
-                                        commands
-```
+### Sessions and messages
 
-*`Task` and `Goal` models currently live in `dartclaw_core` (`lib/src/task/`).
+`SessionService` and `MessageService` (`dartclaw_core/lib/src/storage/`) own `sessions/`. Entity semantics (types, keys,
+scoping, locking) are in [Session & State](session-state-architecture.md).
 
-Design rationale: [ADR-008 (SDK Publishing)](../adrs/008-sdk-publishing-strategy.md), [ADR-010 (Models Split)](../adrs/010-package-split-models.md), [ADR-014 (SDK Decomposition)](../adrs/014-sdk-package-decomposition.md)
+- **`meta.json`**: the `Session` record (`dartclaw_kernel/lib/src/models.dart`) plus a nested `conversationState`
+  (`ConversationState`: revision, submissions, attempts, branches, visible message identities, effective context). Rewritten
+  atomically under a per-file `RepoLock`. `workspaceAgentId` and `workspaceDir` are written together; a durable session
+  keeps the workspace binding admitted at creation, and a removed or relocated binding refuses branch and fork rather than
+  rewriting history.
+- **`messages.ndjson`**: one `Message` JSON object per line. The cursor is the 1-based line number, assigned on read, never
+  stored. An append requires the session directory to exist (a code-enforced reference). The only in-place rewrite is a
+  queued user message, which keeps its identity and cursor.
+- **`.session_keys.json`**: maps deterministic session keys to UUIDs. `getOrCreateByKey` is idempotent under a lock.
+- **`attachments/`**: `<id>.json` metadata and `<id>.data` bytes, 10 MiB per attachment; the conversation state records a
+  manifest (`id`, `filename`, `mediaType`, `size`, `digest`) per attachment.
+- **`conversation/`**: durable per-submission records (`attempts/<attemptId>.json`, `queues/<queueId>.json`,
+  `manifests/<submissionId>.json` with the accepted attachment list). Each must match the submission in
+  `meta.json`'s `conversationState` (id, revision, message, payload digest, work state); a mismatch or a missing record throws
+  rather than being repaired (`conversation_service_persistence.dart`).
+- **Process-retained (temporary) conversations** never touch disk: they live in bounded memory (32 sessions, 500 messages
+  per session, 20 attachments per session) and are excluded from every durable observer and index. Creation pins
+  `provider`, `securityProfile` and `executionMode` from the host's temporary-conversation capability
+  (`POST /api/sessions`, `session_routes.dart`), like a logical-agent session.
+
+### Memory corpus
+
+The canonical memory of one workspace is a closed set of Markdown documents managed by `MemoryCorpusService`
+(`dartclaw_core/lib/src/memory/`). A *principal* ties a directory to its derived rows: the owner workspace is principal
+`owner`; a named agent's `agents/<id>/workspace` is `agent:<id>`. Only an agent whose tool policy grants personal-memory
+access gets corpus services, and a project working directory never changes the pairing. The role of a path is fixed
+(`MemoryRole`): `index`, `topic`, `archive`, `observation`, `learning`, `error`, `audit`, `wiki`, `kg`. Only `topic`,
+`archive`, `observation` and `learning` entries are projected into the search index (see
+[Derived search indexes](#derived-search-indexes)). Every canonical record carries a `MemorySourceRef` (origin kind, source locator, source
+event, caller, session ref); the origin kind is one of `turn`, `journal`, `inbox`, `curation`, `migration`. Deduplication and
+deletion authorization compare refs with `isExactReplayOf`, which requires source event, caller and session ref to be present
+on both sides and equal.
+
+- **Commit protocol.** A multi-file write stages target bytes and backups in `.dartclaw-memory-transaction/`, writes the
+  journal `.dartclaw-memory-transaction.json` atomically, replaces each target with `MEMORY.md` last, records the manifest,
+  then cleans up. `MEMORY.md` carries the collection revision, so it is the commit marker. Recovery after a crash rolls the
+  journal forward if `MEMORY.md` shows the target revision and rolls back from the backups otherwise; an inconsistent state
+  raises `MemoryCorpusRecoveryRequired` and the corpus stays unavailable. A crash before the journal exists leaves only
+  the staging directory, which the next write deletes. An exception inside a commit runs the same recovery in-process
+  and then rethrows. The marker is the `Collection-Revision:` line in the first 256 bytes of `MEMORY.md`. Source:
+  `packages/dartclaw_core/lib/src/memory/memory_corpus_authority.dart`.
+
+[![Memory corpus commit and crash recovery](diagrams/data-memory-commit.svg)](diagrams/data-memory-commit.svg)
+
+
+- **Manifest.** `.dartclaw-memory-corpus.json` records each member's role, length, digest and record ids so ordinary reads and
+  sparse writes open only the relevant documents. It is coordination state: a missing manifest is rebuilt from the Markdown, a
+  semantic mismatch triggers stopped-edit reconciliation or fails closed. Startup authenticates each corpus in bounded
+  batches before publishing its manifest or healthy index state. A failed corpus stays unavailable without affecting the
+  owner or other workspaces.
+- **Limits** (`MemoryResourceLimits`, fixed): 64 MiB per source file (host reads of workspace text fail closed above it);
+  a daily observation record is cut at 512 KiB and a date partition accepts up to 8 MiB (an append that would exceed it is
+  rejected before mutation, never trimming prior records); a recursive request admits at most 1,000 files and 64 MiB.
+- **`errors.md` and `learnings.md`** are corpus members written through the same authority, CAS and lock as the curated
+  roles, so a role-scoped write leaves unselected members byte-identical. `SelfImprovementService` keeps the newest 50.
+  A pre-canonical `errors.md` is converted by startup preflight; unrecognized remainder is kept under `memory/legacy/`.
+- **Wiki.** `workspace/wiki/` is read in place by `WikiSearchSource`; it has no PostgreSQL projection.
+  Frontmatter `provenance` drives search trust: `human-authored` and `hybrid` rank trusted, and `llm-authored` ranks
+  trusted only while `sources` is non-empty. Any other stored value is preserved untouched by the writer, ranks untrusted,
+  and is reported by wiki lint. A `human-authored` or `hybrid` page that gains synthesized content becomes `hybrid`; a page
+  with no frontmatter becomes `hybrid`, and a page with frontmatter but no `provenance` stays unlabeled.
+
+### Derived search indexes
+
+| Corpus | Source of truth | Projection | Document id |
+|--------|-----------------|------------|-------------|
+| Memory | Validated canonical corpus; only `topic`, `archive`, `observation` and `learning` entries (`errors.md`, `MEMORY.md`, `MEMORY.audit.md` are never indexed) | `MemoryIndexProjection` to `memory_chunks`, per principal | Entry locator |
+| Conversation | `messages.ndjson` of durable, chat-facing sessions (`user`, `main`, `channel`, `archive`), `user`/`assistant` messages the `ConversationState` shows | `ConversationIndexProjection` to `conversation_chunks`, one chunk per message, under the session's pinned workspace principal or `owner` | Message UUID |
+| Knowledge graph | `kg_facts` (authoritative, not derived) | None; `PostgresFactSearch` builds a query-time vector with `database.fts_language` | n/a |
+
+[![Derived search projections](diagrams/data-search-projections.svg)](diagrams/data-search-projections.svg)
+
+Principals are separate corpora in every table: the owner (`user_id` `owner`) and each named agent with personal memory
+(`agent:<id>`).
+
+`database.fts_language` drives memory, conversation and fact search. After changing it, restart and run
+`dartclaw rebuild-index`; stored projections keep the previous language until then.
+
+- **Live maintenance.** Memory writes re-project through a post-commit hook registered on the corpus; the hook records
+  health and, if projection fails, marks the index degraded while canonical memory stays available. Conversation rows are
+  maintained by `ConversationIndexer`, an observer of `MessageService` and `SessionService` that queues work on one
+  serialized chain: it indexes appended messages, deletes rows on clear or session deletion, and adds or removes a session's
+  rows when its type crosses the chat-facing boundary. Archival keeps the rows. Failures are logged and later rebuilds
+  reconcile missed work; they never fail message persistence.
+- **Health evidence.** `IndexHealthStore` writes `.dartclaw-memory-index.json` beside each corpus (`healthy`, `degraded`,
+  `rebuilding`, `unknown`, with the canonical and index revision and fingerprint). An interrupted `rebuilding` reads as
+  `degraded`. `CanonicalIndexReconciler` revalidates a current index at startup and rebuilds a stale one.
+- **Rebuild** (`dartclaw rebuild-index`, DartClaw stopped): validates managed identity markers, enumerates the owner and the
+  read-eligible named agents, and replaces each principal's memory projection through `TransactionalRebuildTarget`: populate,
+  validate and swap inside one transaction, so a failure keeps that principal's prior rows, with stable locators, revisions,
+  provenance and source timestamps. The conversation corpus is then cleared per principal and repopulated from session NDJSON
+  as separate steps (stale rows are cleared even with no chat-facing sessions), so a crash mid-rebuild can leave a partial
+  conversation index until the command is rerun. Message NDJSON, wiki pages and KG facts are never changed.
+- **Vectors.** `PostgresVectorIndex` keeps every mutation transactional, scopes enumeration and ranking by `user_id`, and
+  ranks only rows matching the query's model fingerprint and dimension with the public-qualified cosine operator.
+  `VectorSynchronizer` (`dartclaw_search`) reuses a vector only when its content hash and provider fingerprint still match,
+  retires stale identities, and refuses a late result whose source changed. An embedding failure leaves the lexical index
+  current and counts as unembedded. A changed provider or model makes earlier vectors ineligible until reconciled at startup
+  or by `rebuild-index`.
+
+### Instance-local and small stores
+
+| Store | Contents | Write behavior |
+|-------|----------|----------------|
+| `turn_state.json` (`TurnStateStore`) | `{sessionId: {turnId, startedAt}}` | Each mutation reads and replaces the whole document synchronously (`secureWriteFileSync`), so an unawaited `set` is durable on return. Open deletes temp siblings and quarantines malformed content as `turn_state.json.corrupt-<timestamp>` |
+| `webhook_deliveries/<sha256(id)>` (`WebhookDeliveryStore`) | `{state, inserted_at, updated_at}` | Exclusive create reserves `pending`; commit rewrites to `processed`; release deletes a pending claim. A pending claim older than 15 minutes, and any bodyless or malformed marker, is reclaimable. Processed markers are purged after 7 days (first reservation, then at most hourly) |
+| `thread-bindings.json` (`ThreadBindingStore`) | JSON array of bindings keyed in memory by `<channelType>::<threadId>`; task or run `kind`, a row without `kind` reads as a task | In-memory map, atomic file writes, lookups synchronous. A missing or invalid file starts empty. Lifecycle and routing: [Channel Messaging](channel-messaging-architecture.md) §5.3 |
+| `kv.json` (`KvService`) | Entries `{value, updatedAt}`; keys `usage_daily:YYYY-MM-DD` (token totals and `budget_warning_posted_at`), `session_cost:<sessionId>`, `prune_history`, `workflow.outcome.fallback` | Cached map, serialized by a bounded write queue, atomic file replace |
+| `usage.jsonl` | `UsageEvent` lines | Append, then rotate to `usage.jsonl.1` above 10 MiB (one backup, overwritten) |
+| `audit-YYYY-MM-DD.ndjson` | Guard audit entries | Appends serialized on one future chain; a failed append is logged and never delays the guard verdict |
+| `projects.json` | Object keyed by project id, runtime-created projects only; `Project` JSON (`dartclaw_kernel/lib/src/project_runtime.dart`) | `atomicWriteJson` of the full registry. Config-defined projects come from `projects:` in the config, and the implicit `_local` project is the runtime working directory; neither is persisted. Project semantics: [Task Execution](task-execution-architecture.md) §9 |
+| `pending-schedule-changes.json` | Parked `schedule_upsert` bodies awaiting approval | `PendingScheduleChangeStore`; refuses above 100 records or 1 MiB |
+| Channel state | `signal-sender-map.json`, `google-chat-user-oauth.json` (owner-only), `google-chat-subscriptions.json` | Owned by the channel packages. WhatsApp sidecar state is not a DartClaw store |
+
+Governance counters (rate limits, loop detection, pause queue) are in memory and reset on restart; only daily token totals
+persist, in `kv.json`. See [Security Architecture](security-architecture.md) § Runtime Governance.
 
 ---
 
-## Write Safety
+## 6. Relationships
 
-### Atomic Write Pattern
+### Entity map
 
-All mutable JSON/YAML files use temp-file + rename:
+[![Entities and reference enforcement](diagrams/data-entities.svg)](diagrams/data-entities.svg)
 
-```
-write(target, data):
-  1. Write to target.tmp
-  2. Rename target.tmp → target  (atomic on POSIX)
-```
+Arrows run from the referencing row to the row it names; `N:1` reads many rows to one and `0..1` marks a nullable
+column. Thread bindings, search rows and knowledge-graph facts are left out of the figure; the table below lists every
+reference.
 
-If the process crashes mid-write, the temp file is orphaned but the original remains intact.
+### Cross-store references
 
-### Write Queue Pattern
+| From | To | Enforced? |
+|------|----|-----------|
+| `tasks.agent_execution_id` | `agent_executions.id` | **Yes**, FK `RESTRICT` |
+| `workflow_step_executions.task_id` | `tasks.id` | **Yes**, FK `CASCADE` |
+| `workflow_step_executions.agent_execution_id` | `agent_executions.id` | **Yes**, FK |
+| `task_artifacts.task_id` | `tasks.id` | **Yes**, FK `CASCADE` |
+| `agent_executions.session_id` | `sessions/<id>/` | No. A task reaches its session only through its execution; session protection from pruning is by convention (`SessionType.task`) |
+| `tasks.goal_id`, `goals.parent_goal_id` | `goals.id` | No. Deleting a goal leaves the tasks pointing at it |
+| `tasks.project_id` | `projects.json` or config | No (database to file); null means the implicit `_local` project |
+| `tasks.workflow_run_id`, `workflow_step_executions.workflow_run_id` | `workflow_runs.id` | No |
+| `task_events.task_id`, `turns.task_id`, `turns.session_id` | tasks, sessions | No. Events and traces survive deletion |
+| Message append | session directory | Checked in code at append time |
+| `memory_chunks` / `conversation_chunks` (and vectors) | canonical memory / `messages.ndjson` | Derived; reconciled by `rebuild-index` |
+| `ThreadBinding.targetId` | `Task.id` or `WorkflowRun.id` by `kind` | No. Startup `reconcile` prunes bindings of terminal or unknown tasks and runs |
 
-Services with concurrent callers serialize writes via `StreamController`:
+### Lifecycle dependencies
 
-| Service | Queue Type | Purpose |
-|---------|-----------|---------|
-| `MessageService` | `StreamController` | Prevent concurrent NDJSON appends |
-| `KvService` | `StreamController<_WriteOp>` | Prevent concurrent kv.json rewrites |
-| `MemoryCorpusService` / `MemoryPruner` | Bounded write queue + shared workspace lock | Serialize canonical memory mutations, pruning, and derived-index updates |
-| `ConfigWriter` | `StreamController<_WriteOp>` | Prevent concurrent YAML rewrites |
-| `SelfImprovementService` | `StreamController<_WriteOp>` + shared workspace lock for learnings | Serialize errors/learnings writes; keep capped learnings and their derived-index rows coherent with pruning |
-
-### Fire-and-Forget Pattern
-
-Append-only logs that must not block the caller:
-
-| Service | File | Failure Mode |
-|---------|------|-------------|
-| `GuardAuditLogger` | `audit-YYYY-MM-DD.ndjson` | Log error, don't throw — guard verdict must not be delayed by I/O |
-| `UsageTracker` | `usage.jsonl` | Log error, don't throw — turn must not fail because of metering |
-
----
-
-## Rotation & Maintenance
-
-| File | Rotation Strategy | Trigger |
-|------|-------------------|---------|
-| `audit-YYYY-MM-DD.ndjson` | Delete partitions older than `guard_audit.max_retention_days` (default: 30) | Session-maintenance job |
-| `usage.jsonl` | Rename to `.1` when >10MB | On write |
-| `errors.md` | Keep newest N records (default: 50) | On write (canonical error role, shared corpus lock) |
-| `learnings.md` | Keep newest N records (default: 50) | On write (canonical learning role, shared corpus lock) |
-| Canonical topic entries | Archive old entries and remove exact replays; regenerate the bounded index | Nightly cron (`MemoryPruner`) |
-| Sessions | Archive after N days idle, count/disk budget | Scheduled (`SessionMaintenanceService`) |
-| PostgreSQL memory/conversation search tables | Rebuild memory from searchable canonical roles and conversations from session NDJSON | Manual (`dartclaw rebuild-index`) and startup reconciliation |
-
-The memory journal and optional curation schedule each register one owner run plus one uniquely named run per configured
-workspace. No other scheduled job fans out by workspace.
+| Event | Effect |
+|-------|--------|
+| Session deleted | Directory removed and its conversation rows queued for removal; a protected-session refusal changes neither. `agent_executions.session_id` can dangle |
+| Session archived | Type becomes read-only `archive`; NDJSON and conversation rows are kept (owner-authorized archived-lifecycle search) |
+| Task deleted (terminal tasks only) | Task, artifact and step-execution rows go. The `AgentExecution` row, artifact files under `tasks/<taskId>/artifacts/`, session and trace/event rows stay; artifact retention reads tasks, so it no longer reaches a deleted task's files |
+| Goal deleted | Tasks keep `goal_id`; lookups return null |
+| Task reaches a terminal state, or a workflow run ends | Its thread bindings are removed (a run binding after the terminal post) |
+| Memory or chat-facing message changes | The principal's lexical rows update first; hybrid then reuses matching vectors and embeds the rest |
+| Embedding provider or model changes | The new fingerprint makes earlier vectors ineligible; startup and `rebuild-index` reconcile owner and managed-workspace corpora independently |
+| Server restart | Counters and queues reset. Bindings reload and reconcile against active tasks and runs; orphan `turn_state.json` records are reported and acknowledged after storage wiring |
 
 ---
 
-## Backup & Recovery
+## 7. Write Safety
 
-### Backup
+**Atomic replace.** Mutable JSON goes through `atomicWriteJson` / `secureWriteFile`
+(`dartclaw_core/lib/src/storage/atomic_write.dart`): write `<target>.<random>.tmp`, flush, rename over the target. A crash
+leaves an orphan temp file and the original intact; opening a store sweeps stale temps where it owns the directory. An
+existing target keeps its POSIX mode; `restrictPermissions` forces `0600`. `ConfigWriter` copies the current file to
+`.bak` first (aborting if that fails), then replaces the symlink-resolved target.
 
-PostgreSQL and canonical files are separate backup authorities. Capture the database with provider tooling or
-`pg_dump`, and capture the file stores under `dataDir` (default `~/.dartclaw/`) separately:
+**Serialization.** Concurrent writers are serialized per resource:
 
-```bash
-pg_dump --format=custom --file=dartclaw.dump "$DARTCLAW_DATABASE_URL"
-tar czf dartclaw-files.tar.gz ~/.dartclaw/
-```
+| Service | Mechanism | Guards |
+|---------|-----------|--------|
+| `SessionService` | `RepoLock` per `meta.json` and `.session_keys.json` | Metadata and key-index rewrites |
+| `MessageService` | `BoundedWriteQueue` | NDJSON appends and line counts |
+| `KvService` | `BoundedWriteQueue` | `kv.json` rewrites |
+| `MemoryCorpusService` | `BoundedWriteQueue` + a static `RepoLock` per workspace + journaled commit | All corpus mutations, pruning, derived-index updates |
+| `SelfImprovementService` | Own queue, then the corpus authority | `errors.md`, `learnings.md` |
+| `ConfigWriter` | Own queue | YAML rewrites |
+| `FileExecutionStore` | `RepoLock` + OS file lock | Standalone checkpoint |
 
-Memory and conversation search projections are rebuildable from canonical memory and session NDJSON; back up those
-source files even when the derived tables are excluded from a database backup.
+`BoundedWriteQueue` holds at most 1,000 pending operations, warns at 800, and fails an operation that would overflow it.
 
-### Recovery
+**Fire-and-forget.** These must not block or fail their caller: guard audit appends, usage metering (each step of
+`UsageTracker.record` is isolated), and `turns` inserts (`unawaited` from `TaskExecutor`). `task_events` inserts are
+awaited, and so is the thread-binding `lastActivity` write: `ThreadBindingRouter` persists it before enqueueing.
+
+---
+
+## 8. Retention & Maintenance
+
+| Data | Policy | Trigger |
+|------|--------|---------|
+| `audit-*.ndjson` | Partitions older than `guard_audit.max_retention_days` (default 30; 0 keeps all) deleted | Session-maintenance job |
+| `usage.jsonl` | Rotated at 10 MiB | On write |
+| `errors.md`, `learnings.md` | Newest 50 records | On write |
+| Topic entries | `MemoryPruner` archives entries older than `memory.pruning.archive_after_days` (90) to `MEMORY.archive.md` and removes exact replays, then regenerates the bounded index. Owner workspace only | Cron `memory.pruning.schedule` (`0 3 * * *`), `memory.pruning.enabled` |
+| Daily observations | 512 KiB per record, 8 MiB per day partition; no age limit | On write |
+| Sessions | Pipeline: archive stale (`sessions.maintenance.prune_after_days`, 30), count cap (`max_sessions`, 500), delete orphaned cron sessions (`cron_retention_hours`, 24), disk budget (`max_disk_mb`, 0 = off). `mode` defaults to `warn`; main, active-turn, active-channel, active-cron and task sessions are protected | `sessions.maintenance.schedule` (`0 3 * * *`) and `dartclaw cleanup` |
+| Task artifacts | Rows and files of terminal tasks older than `tasks.artifact_retention_days` (0 = off) | Same job |
+| Workflow runtime artifacts | `workflows/runs/<id>/runtime-artifacts` of old finished runs, opt-in via `workflow.runtime_artifacts_retention` | `dartclaw cleanup` |
+| Webhook markers | Processed markers purged after 7 days | On reservation, at most hourly |
+| Thread bindings | Task bindings idle for 1 hour removed (swept every 5 minutes); run bindings exempt | `ThreadBindingLifecycleManager` |
+| `task_events`, `turns`, `workflow_runs`, `goals` | None (unbounded) | |
+| Derived search tables | Rebuilt from canonical sources | `dartclaw rebuild-index` and startup reconciliation |
+
+The memory journal and optional curation schedule each register one owner job plus one uniquely named job per
+write-enabled workspace.
+
+---
+
+## 9. Backup & Recovery
+
+PostgreSQL and the file stores are separate authorities; capture both with DartClaw stopped so they describe one state.
+Commands: [PostgreSQL guide](../../docs/guide/postgresql.md#back-up-and-restore).
+
+| Capture | With | Notes |
+|---------|------|-------|
+| Database | `pg_dump --format=custom` or provider tooling | Derived tables may be excluded |
+| `dartclaw.yaml`, `workspace/`, `sessions/` | File archive | Canonical; derived index rows do not replace them |
+| `agents/`, `projects.json`, `credentials/` | File archive, when present | Credentials are sensitive. `projects/` clones are re-cloneable |
+| `standalone/` | File archive, standalone processes stopped | Only when standalone runs matter |
+| `kv.json`, `usage.jsonl`, `audit-*.ndjson`, `tasks/` | Optional | Usage totals, audit trail, artifact files |
+| `turn_state.json`, `webhook_deliveries/`, `thread-bindings.json` | Not needed | Instance-local |
 
 | Scenario | Recovery |
-|----------|---------|
-| Derived memory or conversation index stale or missing | `dartclaw rebuild-index` reconstructs both projections from validated canonical memory and session NDJSON. An incompatible PostgreSQL schema is refused before rebuild; back up, then recreate the store or restore a compatible one. |
-| PostgreSQL database lost or damaged | Restore it with the provider backup workflow or `pg_restore` from a verified `pg_dump` archive. |
-| PostgreSQL compatibility refusal | Back up the named database, then recreate it for this release or restore a compatible backup. |
-| PostgreSQL interlock lost | Storage calls refuse during recovery. Reacquire the lock and revalidate the server version and current schema before access resumes; terminal failure requires correcting the reported condition and restarting. |
-| `turn_state.json` corrupted/deleted | Invalid content is quarantined at open and recovery starts empty; a missing file starts empty. In-flight sessions may miss a recovery notice. Leftover `state.db` is ignored. |
-| Session directory deleted | Session metadata and messages lost. If referenced by a task, task has dangling `sessionId`. |
-| `dartclaw.yaml` corrupted | Restore from `dartclaw.yaml.bak` (created on every config write) |
-| `kv.json` corrupted | Loss of daily usage aggregates. Recoverable from `usage.jsonl` re-aggregation. |
-| Canonical memory member deleted | Corpus validation/reconciliation reports the missing member; restore the validated canonical topic, archive, observation, learning, or audit member from workspace Git or another trusted backup before rebuilding the derived index. `MEMORY.md` alone is only the bounded index, not the complete knowledge body. |
+|----------|----------|
+| Derived memory or conversation index stale or missing | `dartclaw rebuild-index`. An incompatible schema is refused before the rebuild |
+| Database lost or damaged | `pg_restore` from a verified dump or the provider workflow |
+| Schema compatibility refusal | Back up the named database, then recreate it for this release or restore a compatible backup. The one admitted transition is applied by `dartclaw serve` |
+| Interlock lost | Storage calls refuse during recovery; they resume after the lock is reacquired and the version and schema are revalidated. Terminal failure needs the reported condition fixed and a restart |
+| `turn_state.json` corrupted or deleted | Invalid content is quarantined at open and recovery starts empty; in-flight sessions may miss a recovery notice |
+| Session directory deleted | Metadata and messages are lost; tasks whose execution points at it dangle |
+| `dartclaw.yaml` corrupted | Restore from `dartclaw.yaml.bak` |
+| `kv.json` lost | Daily usage aggregates and per-session cost totals are lost; `usage.jsonl` keeps the raw events, with no re-aggregation tool |
+| Canonical memory member deleted | Corpus validation reports it; restore the member from workspace Git or a backup before rebuilding. `MEMORY.md` alone is only the bounded index |
+| `execution.json` malformed | The standalone store refuses to load and is not reset; restore from backup |
 
-The v0.26.1/v0.26.2 SQLite transition is a stopped-source, one-shot import into an empty current PostgreSQL schema.
-Preserve a consistent source snapshot including committed WAL data and a separate canonical-file backup. Rollback to
-the old binary/configuration/snapshot is supported only before accepting new PostgreSQL writes; there is no reverse
-migration.
+Rollback to a 0.26 SQLite installation is possible only before the PostgreSQL target accepts new writes; there is no
+reverse migration ([PostgreSQL guide](../../docs/guide/postgresql.md#move-a-0262-sqlite-installation)).
+
+---
+
+## 10. Where in Code
+
+| Concern | Location |
+|---------|----------|
+| Ports, storage errors, `DatabaseConfig` | `packages/dartclaw_kernel/lib/src/{database_backend,storage_exceptions,database_config}.dart` |
+| Backend, dispatch policy, interlock, schema gate and identity | `packages/dartclaw_core/lib/src/storage/{postgres_*,schema_identity}.dart` |
+| Task, goal, execution repositories (database and file), `FileExecutionStore` | `packages/dartclaw_core/lib/src/storage/{database_*,file_*}.dart` |
+| Workflow-run repositories, run paths, context persistence | `packages/dartclaw_workflow/lib/src/storage/`, `.../workflow/{workflow_run_paths,workflow_context_persistence}.dart` |
+| Sessions, messages, conversation state | `packages/dartclaw_core/lib/src/storage/{session_service,message_service,conversation_state}.dart` |
+| Trace and event services | `packages/dartclaw_core/lib/src/storage/{turn_trace_service,task_event_service}.dart` |
+| Memory corpus, projection, pruner, preflight | `packages/dartclaw_core/lib/src/memory/` |
+| Lexical and vector indexes, conversation projection, rebuild and health | `packages/dartclaw_core/lib/src/search/`, `.../storage/{index_reconciler,index_rebuild_target}.dart`; `HybridSearch` and `VectorSynchronizer` in `packages/dartclaw_search/lib/src/` |
+| Knowledge graph | `packages/dartclaw_core/lib/src/knowledge/` |
+| Local stores and write primitives | `packages/dartclaw_core/lib/src/storage/{turn_state_store,webhook_delivery_store,kv_service,atomic_write,write_op}.dart`; `.../channel/thread_binding.dart` |
+| Store wiring, standalone lease | `packages/dartclaw_runtime/lib/src/runtime/{storage_wiring,standalone_execution_lease}.dart` |
+| Projects, usage, audit, maintenance | `packages/dartclaw_runtime/lib/src/{project/project_service_impl,observability/usage_tracker,maintenance/session_maintenance_service}.dart`; `packages/dartclaw_kernel/lib/src/guard_audit.dart` |
+| `rebuild-index` | `apps/dartclaw_cli/lib/src/commands/rebuild_index_command.dart` |

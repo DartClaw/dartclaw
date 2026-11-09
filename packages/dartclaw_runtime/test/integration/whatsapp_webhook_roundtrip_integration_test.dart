@@ -7,122 +7,16 @@ import 'dart:io';
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' hide TurnManager;
 import 'package:dartclaw_runtime/src/turn_manager.dart' show TurnManager;
-import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeGuard;
+import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeAgentHarness, FakeGuard;
 import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
 import '../whatsapp_test_support.dart';
 
-class _ChannelWorker implements AgentHarness {
-  @override
-  String skillActivationLine(String skill) => "Use the '$skill' skill.";
-
-  final _eventsCtrl = StreamController<BridgeEvent>.broadcast();
-  Completer<TurnResult>? _turnCompleter;
-  Completer<void> _turnInvoked = Completer<void>();
-
-  int turnCallCount = 0;
-  List<Map<String, dynamic>>? lastMessages;
-
-  Future<void> get turnInvoked => _turnInvoked.future;
-
-  @override
-  bool get supportsCostReporting => true;
-
-  @override
-  bool get supportsToolApproval => true;
-
-  @override
-  bool get supportsStreaming => true;
-
-  @override
-  bool get supportsCachedTokens => false;
-
-  @override
-  bool get supportsSessionContinuity => false;
-
-  @override
-  bool get supportsPreCompactHook => false;
-
-  @override
-  PromptStrategy get promptStrategy => PromptStrategy.replace;
-
-  @override
-  WorkerState get state => WorkerState.idle;
-
-  @override
-  bool get isRootProcessTerminationConfirmed => true;
-
-  @override
-  bool get supportsStructuredOutput => false;
-
-  @override
-  bool get supportsOutputSchemaConstraint => false;
-
-  @override
-  bool get supportsNoWorkTools => false;
-
-  @override
-  bool get supportsProviderSessionResume => false;
-
-  @override
-  Stream<BridgeEvent> get events => _eventsCtrl.stream;
-
-  @override
-  Future<void> start() async {}
-
-  @override
-  Future<TurnResult> turn({
-    required String sessionId,
-    required List<Map<String, dynamic>> messages,
-    required String systemPrompt,
-    String? agentId,
-    Map<String, dynamic>? mcpServers,
-    String? providerSessionId,
-    bool requestProviderSessionResume = false,
-    String? directory,
-    String? model,
-    String? effort,
-    int? maxTurns,
-    Map<String, dynamic>? outputSchema,
-  }) {
-    turnCallCount++;
-    lastMessages = messages;
-    _turnCompleter = Completer<TurnResult>();
-    if (!_turnInvoked.isCompleted) {
-      _turnInvoked.complete();
-    }
-    return _turnCompleter!.future;
-  }
-
-  void completeSuccessWithText(String text) {
-    _eventsCtrl.add(DeltaEvent(text));
-    _turnCompleter?.complete(const TurnResult(stopReason: 'end_turn', inputTokens: 50, outputTokens: 20));
-    _turnInvoked = Completer<void>();
-  }
-
-  @override
-  Future<void> resetSessionContinuity(String sessionId) async {}
-
-  @override
-  Future<void> cancel() async {
-    _turnCompleter?.completeError(StateError('Cancelled'));
-  }
-
-  @override
-  Future<void> stop() async {}
-
-  @override
-  Future<void> dispose() async {
-    if (_turnCompleter != null && !_turnCompleter!.isCompleted) {
-      _turnCompleter!.completeError(StateError('Disposed'));
-    }
-    if (!_eventsCtrl.isClosed) {
-      await _eventsCtrl.close();
-    }
-  }
-}
+void _completeSuccessWithText(FakeAgentHarness worker, String text) => worker
+  ..emit(DeltaEvent(text))
+  ..completeSuccess(const TurnResult(stopReason: 'end_turn', inputTokens: 50, outputTokens: 20));
 
 Map<String, dynamic> _webhookEnvelope({required String from, required String body, String? chatId}) {
   return {
@@ -136,7 +30,7 @@ void main() {
   late Directory tempDir;
   late SessionService sessions;
   late MessageService messages;
-  late _ChannelWorker worker;
+  late FakeAgentHarness worker;
   late TurnManager turns;
   late MessageQueue queue;
   late ChannelManager channelManager;
@@ -145,7 +39,7 @@ void main() {
   late Handler handler;
 
   Future<void> buildStack({GuardChain? guardChain}) async {
-    worker = _ChannelWorker();
+    worker = FakeAgentHarness();
     turns = TurnManager(
       turnLimits: const TurnLimitsConfig.defaults(),
       messages: messages,
@@ -166,6 +60,9 @@ void main() {
             String? senderJid,
             String? senderDisplayName,
             String? groupJid,
+            String? recipientId,
+            String? threadId,
+            List<ChannelAttachment> attachments = const [],
           }) async {
             final session = await sessions.getOrCreateByKey(sessionKey, type: SessionType.channel);
             final turnId = await turns.startTurn(session.id, [
@@ -223,7 +120,7 @@ void main() {
 
     await worker.turnInvoked;
     expect(gowa.chatPresenceUpdates, [('123@s.whatsapp.net', true)]);
-    worker.completeSuccessWithText('Here is your update summary.');
+    _completeSuccessWithText(worker, 'Here is your update summary.');
 
     await gowa.firstSent;
     expect(gowa.chatPresenceUpdates, [('123@s.whatsapp.net', true), ('123@s.whatsapp.net', false)]);
@@ -266,7 +163,7 @@ void main() {
       {'role': 'user', 'content': 'task: summarize the competitor landscape'},
     ]);
 
-    worker.completeSuccessWithText('I will handle that request.');
+    _completeSuccessWithText(worker, 'I will handle that request.');
     await gowa.firstSent;
     expect(gowa.sentTexts.single.$2, isNot(contains('Task created')));
   });

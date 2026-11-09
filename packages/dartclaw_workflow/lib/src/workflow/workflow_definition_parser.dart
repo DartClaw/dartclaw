@@ -390,6 +390,8 @@ class WorkflowDefinitionParser {
       turnTimeoutSeconds: turnTimeoutSeconds,
       parallel: (_optionalBool(raw['parallel'], 'Step "$id": "parallel"', sourcePath)) ?? false,
       entryGate: _optionalStringValue(raw['entryGate'], 'Step "$id": "entryGate"', sourcePath),
+      revise: _parseRevise(raw, id, stepType, sourcePath),
+      maxRevisions: _parseMaxRevisions(raw, id, stepType, sourcePath),
       inputs: _parseStringList(raw['inputs'], 'Step "$id": "inputs"', sourcePath),
       outputs: outputs,
       maxRetries: _optionalInt(raw['maxRetries'], 'Step "$id": "maxRetries"', sourcePath),
@@ -866,6 +868,29 @@ class WorkflowDefinitionParser {
     throw FormatException('$fieldPath keys must be non-empty strings${_at(sourcePath)}.');
   }
 
+  String? _parseRevise(YamlMap raw, String id, WorkflowTaskType stepType, String? sourcePath) {
+    final value = _optionalStringValue(raw['revise'], 'Step "$id": "revise"', sourcePath);
+    if (value != null && !_stepRule.field('revise').appliesTo(stepType)) {
+      throw FormatException('Step "$id": "revise" is only valid for approval steps${_at(sourcePath)}.');
+    }
+    return value;
+  }
+
+  int? _parseMaxRevisions(YamlMap raw, String id, WorkflowTaskType stepType, String? sourcePath) {
+    final value = _optionalInt(raw['maxRevisions'], 'Step "$id": "maxRevisions"', sourcePath);
+    if (value == null) return null;
+    if (!_stepRule.field('maxRevisions').appliesTo(stepType)) {
+      throw FormatException('Step "$id": "maxRevisions" is only valid for approval steps${_at(sourcePath)}.');
+    }
+    if (value < WorkflowStep.minMaxRevisions || value > WorkflowStep.maxMaxRevisions) {
+      throw FormatException(
+        'Step "$id": "maxRevisions" must be between ${WorkflowStep.minMaxRevisions} and '
+        '${WorkflowStep.maxMaxRevisions}, got $value${_at(sourcePath)}.',
+      );
+    }
+    return value;
+  }
+
   String? _optionalStringValue(Object? raw, String fieldPath, String? sourcePath) {
     if (raw == null) return null;
     if (raw is String) return raw;
@@ -922,6 +947,8 @@ const _typedStepFieldNames = {
   'turn_timeout',
   'parallel',
   'entryGate',
+  'revise',
+  'maxRevisions',
   'inputs',
   'outputs',
   'maxRetries',

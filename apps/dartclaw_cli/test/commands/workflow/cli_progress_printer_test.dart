@@ -15,7 +15,7 @@ void main() {
       printer = CliProgressPrinter(
         commandPrefix: 'dartclaw workflow',
         totalSteps: 6,
-        workflowName: 'story-and-implement',
+        workflowName: 'implement-story',
         writeLine: output.add,
       );
     });
@@ -23,7 +23,7 @@ void main() {
     test('workflowStarted outputs correct format', () {
       printer.workflowStarted();
       expect(output, hasLength(1));
-      expect(output.first, '[workflow] Starting: story-and-implement (6 steps)');
+      expect(output.first, '[workflow] Starting: implement-story (6 steps)');
     });
 
     test('stepRunning includes provider when present', () {
@@ -85,7 +85,7 @@ void main() {
       final standalonePrinter = CliProgressPrinter(
         commandPrefix: 'dartclaw workflow',
         totalSteps: 6,
-        workflowName: 'plan-and-implement-inline',
+        workflowName: 'implement-prd-inline',
         writeLine: output.add,
         standalone: true,
       );
@@ -166,7 +166,7 @@ void main() {
       printer = CliProgressPrinter(
         commandPrefix: 'dartclaw workflow',
         totalSteps: 6,
-        workflowName: 'story-and-implement',
+        workflowName: 'implement-story',
         writeLine: writeLineOutput.add,
         liveStatusLine: LiveStatusLine(
           write: liveOutput.add,
@@ -183,7 +183,7 @@ void main() {
       final colored = CliProgressPrinter(
         commandPrefix: 'dartclaw workflow',
         totalSteps: 6,
-        workflowName: 'story-and-implement',
+        workflowName: 'implement-story',
         writeLine: (_) {},
         liveStatusLine: LiveStatusLine(
           write: colorOut.add,
@@ -233,7 +233,7 @@ void main() {
     test('permanent lines route through the live sink, leaving writeLine untouched', () {
       printer.workflowStarted();
       expect(writeLineOutput, isEmpty);
-      expect(liveOutput.join(), contains('[workflow] Starting: story-and-implement (6 steps)'));
+      expect(liveOutput.join(), contains('[workflow] Starting: implement-story (6 steps)'));
     });
 
     test('live token routing matches a running step regardless of how its key was built', () {
@@ -311,7 +311,7 @@ void main() {
       printer = CliProgressPrinter(
         commandPrefix: 'dartclaw workflow',
         totalSteps: 6,
-        workflowName: 'story-and-implement',
+        workflowName: 'implement-story',
         writeLine: output.add,
       );
     });

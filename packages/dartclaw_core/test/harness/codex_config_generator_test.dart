@@ -206,6 +206,49 @@ enabled = true
         expect(CodexConfigGenerator.splitPluginTables('')!.pluginTables, isEmpty);
       });
 
+      test('lifts the permission profile – its selector and every permissions table – out of the remainder', () {
+        const config = '''
+model = "gpt-5.6-sol"
+default_permissions = "andthen" # beta profiles
+
+[permissions.andthen]
+extends = ":workspace"
+
+[permissions.andthen.filesystem]
+"~/.ssh" = "deny"
+
+[projects."/some/path"]
+trust_level = "trusted"
+
+[permissions.andthen.filesystem.":workspace_roots"]
+"**/.env" = "deny"
+
+[plugins."andthen@andthen"]
+enabled = true
+''';
+
+        final split = CodexConfigGenerator.splitPluginTables(config)!;
+
+        expect(split.defaultPermissions, 'default_permissions = "andthen" # beta profiles');
+        expect(split.permissionTables, [
+          '[permissions.andthen]\nextends = ":workspace"',
+          '[permissions.andthen.filesystem]\n"~/.ssh" = "deny"',
+          '[permissions.andthen.filesystem.":workspace_roots"]\n"**/.env" = "deny"',
+        ]);
+        expect(split.pluginTables.single.header, '[plugins."andthen@andthen"]');
+        expect(split.remainder, isNot(contains('permissions')));
+        expect(split.remainder, contains('trust_level'));
+      });
+
+      test('leaves a default_permissions key that belongs to another table where it is', () {
+        const config = '[profiles.work]\ndefault_permissions = "work"\n';
+
+        final split = CodexConfigGenerator.splitPluginTables(config)!;
+
+        expect(split.defaultPermissions, isNull);
+        expect(split.remainder, contains('default_permissions = "work"'));
+      });
+
       group('refuses, rather than half-splicing, a document outside the supported subset', () {
         test('a bare [plugins] table, whose keys no [plugins.<name>] table owns', () {
           expect(CodexConfigGenerator.splitPluginTables('[plugins]\nauto_update = false\n'), isNull);
@@ -219,6 +262,15 @@ enabled = true
         test('a top-level plugins inline table or dotted key', () {
           expect(CodexConfigGenerator.splitPluginTables('plugins = { andthen = { enabled = true } }\n'), isNull);
           expect(CodexConfigGenerator.splitPluginTables('plugins.andthen.enabled = true\n'), isNull);
+        });
+
+        test('a permission profile declared outside a [permissions.*] table', () {
+          expect(CodexConfigGenerator.splitPluginTables('permissions.andthen.extends = ":workspace"\n'), isNull);
+          expect(
+            CodexConfigGenerator.splitPluginTables('permissions = { andthen = { extends = ":workspace" } }\n'),
+            isNull,
+          );
+          expect(CodexConfigGenerator.splitPluginTables('[[permissions.andthen]]\nextends = ":workspace"\n'), isNull);
         });
 
         test('an unterminated string or array', () {

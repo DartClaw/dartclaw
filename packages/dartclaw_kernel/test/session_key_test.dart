@@ -37,6 +37,41 @@ void main() {
         expected: 'agent:main:group:whatsapp:group%40g.us:123%40s.whatsapp.net',
       ),
       (
+        name: 'dmShared with a thread',
+        actual: SessionKey.dmShared(threadId: '1700000000.000100'),
+        expected: 'agent:main:dm:shared:thread:1700000000.000100',
+      ),
+      (
+        name: 'dmPerContact with a thread',
+        actual: SessionKey.dmPerContact(peerId: 'U1', threadId: '1700000000.000100'),
+        expected: 'agent:main:dm:contact:U1:thread:1700000000.000100',
+      ),
+      (
+        name: 'dmPerChannelContact with a thread',
+        actual: SessionKey.dmPerChannelContact(channelType: 'slack', peerId: 'U1', threadId: '1700000000.000100'),
+        expected: 'agent:main:dm:slack:U1:thread:1700000000.000100',
+      ),
+      (
+        name: 'groupShared with a thread',
+        actual: SessionKey.groupShared(channelType: 'slack', groupId: 'C1', threadId: '1700000000.000100'),
+        expected: 'agent:main:group:slack:C1:thread:1700000000.000100',
+      ),
+      (
+        name: 'groupPerMember with a thread',
+        actual: SessionKey.groupPerMember(
+          channelType: 'slack',
+          groupId: 'C1',
+          peerId: 'U1',
+          threadId: '1700000000.000100',
+        ),
+        expected: 'agent:main:group:slack:C1:U1:thread:1700000000.000100',
+      ),
+      (
+        name: 'a thread id is encoded like every other component',
+        actual: SessionKey.groupShared(channelType: 'slack', groupId: 'C1', threadId: 'a:b/c'),
+        expected: 'agent:main:group:slack:C1:thread:a%3Ab%2Fc',
+      ),
+      (
         name: 'cronSession format',
         actual: SessionKey.cronSession(jobId: 'daily-summary'),
         expected: 'agent:main:cron:daily-summary',
@@ -83,6 +118,10 @@ void main() {
       (
         name: 'groupPerMember empty peerId',
         build: () => SessionKey.groupPerMember(channelType: 'whatsapp', groupId: 'group@g.us', peerId: ''),
+      ),
+      (
+        name: 'groupShared empty threadId',
+        build: () => SessionKey.groupShared(channelType: 'slack', groupId: 'C1', threadId: ''),
       ),
       (name: 'taskSession empty taskId', build: () => SessionKey.taskSession(taskId: '')),
       (
@@ -143,6 +182,66 @@ void main() {
         expect(() => SessionKey.parse('invalid'), throwsFormatException);
         expect(() => SessionKey.parse('foo:bar:baz:qux'), throwsFormatException);
       });
+    });
+
+    group('channelRoute', () {
+      final routeCases = [
+        (
+          name: 'a per-channel DM key names its channel and peer',
+          key: SessionKey.dmPerChannelContact(channelType: 'whatsapp', peerId: '123@s.whatsapp.net'),
+          route: (channelType: 'whatsapp', recipientId: '123@s.whatsapp.net', threadId: null),
+        ),
+        (
+          name: 'a Slack DM thread key keeps the peer and returns the thread, which a two-part split refused',
+          key: SessionKey.dmPerChannelContact(channelType: 'slack', peerId: 'U1', threadId: '1700000000.000100'),
+          route: (channelType: 'slack', recipientId: 'U1', threadId: '1700000000.000100'),
+        ),
+        (
+          name: 'a per-contact DM key spans channels',
+          key: SessionKey.dmPerContact(peerId: 'U1', threadId: '1.5'),
+          route: (channelType: null, recipientId: 'U1', threadId: '1.5'),
+        ),
+        (
+          name: 'a shared group key names the group',
+          key: SessionKey.groupShared(channelType: 'slack', groupId: 'C1', threadId: 'a:b/c'),
+          route: (channelType: 'slack', recipientId: 'C1', threadId: 'a:b/c'),
+        ),
+        (
+          name: 'a per-member group key names the group, not the member',
+          key: SessionKey.groupPerMember(channelType: 'slack', groupId: 'C1', peerId: 'U1', threadId: '1.5'),
+          route: (channelType: 'slack', recipientId: 'C1', threadId: '1.5'),
+        ),
+        (
+          name: 'a per-member group key without a thread',
+          key: SessionKey.groupPerMember(channelType: 'whatsapp', groupId: 'group@g.us', peerId: '1@s.whatsapp.net'),
+          route: (channelType: 'whatsapp', recipientId: 'group@g.us', threadId: null),
+        ),
+        (
+          name: 'a peer literally named thread is a peer, not a suffix',
+          key: SessionKey.dmPerChannelContact(channelType: 'slack', peerId: 'thread'),
+          route: (channelType: 'slack', recipientId: 'thread', threadId: null),
+        ),
+      ];
+
+      for (final testCase in routeCases) {
+        test(testCase.name, () {
+          expect(SessionKey.parse(testCase.key).channelRoute, testCase.route);
+        });
+      }
+
+      final unroutable = [
+        (name: 'the shared DM key', key: SessionKey.dmShared()),
+        (name: 'a shared DM thread key', key: SessionKey.dmShared(threadId: '1.5')),
+        (name: 'a web key', key: SessionKey.webSession()),
+        (name: 'a task key', key: SessionKey.taskSession(taskId: 't')),
+        (name: 'a cron key', key: SessionKey.cronSession(jobId: 'j')),
+      ];
+
+      for (final testCase in unroutable) {
+        test('${testCase.name} names no channel route', () {
+          expect(SessionKey.parse(testCase.key).channelRoute, isNull);
+        });
+      }
     });
   });
 }

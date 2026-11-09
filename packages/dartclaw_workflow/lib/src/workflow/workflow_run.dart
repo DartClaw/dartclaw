@@ -1,6 +1,8 @@
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:logging/logging.dart';
 
+import 'workflow_run_origin.dart';
+
 const _sentinel = Object();
 
 final _log = Logger('WorkflowExecutionCursor');
@@ -228,6 +230,9 @@ class WorkflowRun {
   /// Persisted workflow-owned shared worktree bindings for this run.
   final List<WorkflowWorktreeBinding> workflowWorktrees;
 
+  /// Where this run was started. Fixed at start; [copyWith] cannot change it.
+  final WorkflowRunOrigin origin;
+
   /// Last persisted workflow-owned shared worktree binding, retained for
   /// compatibility with single-binding callers.
   WorkflowWorktreeBinding? get workflowWorktree => workflowWorktrees.isEmpty ? null : workflowWorktrees.last;
@@ -250,6 +255,7 @@ class WorkflowRun {
     this.executionCursor,
     WorkflowWorktreeBinding? workflowWorktree,
     List<WorkflowWorktreeBinding> workflowWorktrees = const [],
+    this.origin = WorkflowRunOrigin.unknown,
   }) : workflowWorktrees = List<WorkflowWorktreeBinding>.unmodifiable(
          workflowWorktrees.isNotEmpty
              ? workflowWorktrees
@@ -295,6 +301,7 @@ class WorkflowRun {
     workflowWorktrees: identical(workflowWorktrees, _sentinel)
         ? this.workflowWorktrees
         : workflowWorktrees as List<WorkflowWorktreeBinding>,
+    origin: origin,
   );
 
   /// Serializes this run to a JSON-ready map.
@@ -315,6 +322,7 @@ class WorkflowRun {
     if (executionCursor != null) 'executionCursor': executionCursor!.toJson(),
     if (workflowWorktrees.isNotEmpty)
       'workflowWorktrees': workflowWorktrees.map((binding) => binding.toJson()).toList(),
+    'origin': origin.toJson(),
   };
 
   /// Reconstructs a [WorkflowRun] from its JSON representation.
@@ -334,6 +342,7 @@ class WorkflowRun {
     definitionJson: _toStringDynamicMap(json['definitionJson']),
     executionCursor: _toExecutionCursor(json['executionCursor']),
     workflowWorktrees: _toWorkflowWorktreeBindings(json['workflowWorktrees'] ?? json['workflowWorktree']),
+    origin: WorkflowRunOrigin.fromJson(json['origin']),
   );
 }
 

@@ -48,8 +48,7 @@ void main() {
         : null;
     handler.registerTool(
       MemoryObserveTool(
-        handler: (_) async => const {},
-        callerHandler: (arguments, context) async {
+        handler: (arguments, context) async {
           if (context.sessionId == 'temporary-session') {
             throw StateError('Temporary conversations cannot write memory');
           }
@@ -67,12 +66,15 @@ void main() {
       ),
     );
     handler.registerTool(KgAddTool(kg: kg, contextualWriteGuard: refuseTemporary));
-    final temporary = handler.scopedTo(
-      _AllowEveryTool(),
-      callerIdentity: const McpCallerIdentity(
-        authorityId: 'temporary:temporary-session',
-        sessionId: 'temporary-session',
-        agentId: 'main',
+    final temporary = handler.forCaller(
+      McpCaller(
+        identity: () => const McpCallerIdentity(
+          authorityId: 'temporary:temporary-session',
+          sessionId: 'temporary-session',
+          agentId: 'main',
+        ),
+        policy: _AllowEveryTool(),
+        guardsAsCaller: true,
       ),
     );
 

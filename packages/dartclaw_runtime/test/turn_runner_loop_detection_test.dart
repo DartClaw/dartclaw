@@ -61,6 +61,7 @@ void main() {
     LoopAction? loopAction,
     EventBus? eventBus,
     RecordingSseBroadcast? sse,
+    SessionLockManager? lockManager,
   }) {
     return TurnRunner(
       turnLimits: const TurnLimitsConfig.defaults(),
@@ -73,6 +74,7 @@ void main() {
       loopAction: loopAction,
       eventBus: eventBus,
       sseBroadcast: sse,
+      lockManager: lockManager,
     );
   }
 
@@ -158,6 +160,45 @@ void main() {
       expect(events, hasLength(1));
       expect(events.first.mechanism, 'turnChainDepth');
       expect(events.first.action, 'abort');
+    });
+  });
+
+  group('TurnRunner — admission rejected at the global cap', () {
+    test('records no turn-chain depth for the attempt', () async {
+      final locks = SessionLockManager(maxParallel: 1);
+      final loopDetector = LoopDetector(config: loopConfig(maxConsecutiveTurns: 1));
+      final runner = buildRunner(loopDetector: loopDetector, loopAction: LoopAction.abort, lockManager: locks);
+      final session = await sessions.getOrCreateMainSession();
+      worker.responseText = 'ok';
+      await locks.acquire('another-session');
+
+      for (var attempt = 0; attempt < 3; attempt++) {
+        await expectLater(
+          runner.admitTurn(session.id, isHumanInput: false),
+          throwsA(isA<BusyTurnException>().having((busy) => busy.isSameSession, 'isSameSession', isFalse)),
+        );
+      }
+      locks.release('another-session');
+
+      // Depth 1 is at the threshold of 1; a rejected attempt that had counted would trip it.
+      final turnId = await runner.startTurn(session.id, []).timeout(const Duration(seconds: 2));
+      expect(turnId, isNotEmpty);
+      await runner.waitForCompletion(session.id).timeout(const Duration(seconds: 2));
+    });
+
+    test('a loop abort after the slot is taken releases the session lock', () async {
+      final locks = SessionLockManager(maxParallel: 1);
+      final loopDetector = LoopDetector(config: loopConfig(maxConsecutiveTurns: 1));
+      final runner = buildRunner(loopDetector: loopDetector, loopAction: LoopAction.abort, lockManager: locks);
+      final session = await sessions.getOrCreateMainSession();
+      worker.responseText = 'ok';
+      await runner.startTurn(session.id, []).timeout(const Duration(seconds: 2));
+      await runner.waitForCompletion(session.id).timeout(const Duration(seconds: 2));
+
+      await expectLater(runner.admitTurn(session.id, isHumanInput: false), throwsA(isA<LoopDetectedException>()));
+
+      expect(locks.isLocked(session.id), isFalse);
+      expect(locks.activeCount, 0);
     });
   });
 

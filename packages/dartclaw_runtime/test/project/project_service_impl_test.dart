@@ -48,6 +48,7 @@ void main() {
   });
 
   ProjectServiceImpl makeService({
+    String? localDir,
     ProjectConfig? projectConfig,
     CredentialsConfig? credentials,
     EventBus? eventBus,
@@ -56,6 +57,7 @@ void main() {
     gitHubProbeRunner,
   }) => ProjectServiceImpl(
     dataDir: dataDir,
+    localDir: localDir ?? p.join(tempDir.path, 'local-repo'),
     projectConfig: projectConfig ?? const ProjectConfig.defaults(),
     credentials: credentials ?? const CredentialsConfig.defaults(),
     eventBus: eventBus,
@@ -65,10 +67,13 @@ void main() {
 
   group('initialize', () {
     test('creates _local project', () async {
-      final svc = makeService();
+      final localDir = p.join(tempDir.path, 'runtime-repo');
+      final svc = makeService(localDir: localDir);
       await svc.initialize();
       final local = svc.localProject;
       expect(local.id, equals('_local'));
+      expect(local.localPath, localDir);
+      expect(local.name, 'runtime-repo');
       expect(local.status, equals(ProjectStatus.ready));
       expect(local.configDefined, isFalse);
     });
@@ -132,6 +137,24 @@ void main() {
       expect(project, isNotNull);
       expect(project!.configDefined, isTrue);
       expect(project.status, equals(ProjectStatus.ready));
+    });
+
+    test('a config-defined project whose first clone is in flight stays cloning', () async {
+      final cloneResult = Completer<({int exitCode, String stderr, String stdout})>();
+      final config = ProjectConfig(
+        definitions: {'cfg-project': const ProjectDefinition(id: 'cfg-project', remote: 'git@example.com:u/cfg.git')},
+      );
+
+      final svc = makeService(
+        projectConfig: config,
+        gitRunner: (args, {environment, workingDirectory}) => cloneResult.future,
+      );
+      await svc.initialize();
+
+      final project = await svc.get('cfg-project');
+      expect(project!.status, equals(ProjectStatus.cloning));
+      expect(project.errorMessage, isNull);
+      cloneResult.complete((exitCode: 0, stderr: '', stdout: ''));
     });
 
     test('seeds config-defined localPath projects without cloning', () async {
@@ -630,7 +653,7 @@ void main() {
       await svc.ensureFresh(makeReadyProject());
 
       final fetchCall = git.recordedArguments.firstWhere((c) => c.isNotEmpty && c[0] == 'fetch', orElse: () => []);
-      expect(fetchCall, contains('main'));
+      expect(fetchCall, contains('+refs/heads/main:refs/remotes/origin/main'));
     });
 
     test('fetch for external project honors explicit ref override', () async {
@@ -641,8 +664,8 @@ void main() {
       await svc.ensureFresh(makeReadyProject(), ref: 'release/0.16', strict: true);
 
       final fetchCall = git.recordedArguments.firstWhere((c) => c.isNotEmpty && c[0] == 'fetch', orElse: () => []);
-      expect(fetchCall, contains('release/0.16'));
-      expect(fetchCall, isNot(contains('main')));
+      expect(fetchCall, contains('+refs/heads/release/0.16:refs/remotes/origin/release/0.16'));
+      expect(fetchCall.join(' '), isNot(contains('main')));
     });
 
     test('rejects option-shaped fetch refs before invoking git', () async {
@@ -751,11 +774,11 @@ void main() {
       final svc = makeService(
         gitRunner: (args, {environment, workingDirectory}) async {
           calls.add(args);
-          if (args.isNotEmpty && args.first == 'fetch' && args.contains('release/0.16')) {
+          if (args.isNotEmpty && args.first == 'fetch' && args.any((a) => a.contains('release/0.16'))) {
             await Future<void>.delayed(const Duration(milliseconds: 15));
             return (exitCode: 0, stderr: '', stdout: '');
           }
-          if (args.isNotEmpty && args.first == 'fetch' && args.contains('missing/ref')) {
+          if (args.isNotEmpty && args.first == 'fetch' && args.any((a) => a.contains('missing/ref'))) {
             return (exitCode: 1, stderr: 'fatal: invalid ref', stdout: '');
           }
           return (exitCode: 0, stderr: '', stdout: '');
@@ -774,8 +797,83 @@ void main() {
 
       final fetchCalls = calls.where((args) => args.isNotEmpty && args.first == 'fetch').toList();
       expect(fetchCalls, hasLength(2));
-      expect(fetchCalls.any((args) => args.contains('release/0.16')), isTrue);
-      expect(fetchCalls.any((args) => args.contains('missing/ref')), isTrue);
+      expect(fetchCalls.any((args) => args.any((a) => a.contains('release/0.16'))), isTrue);
+      expect(fetchCalls.any((args) => args.any((a) => a.contains('missing/ref'))), isTrue);
+    });
+  });
+
+  group('ensureFresh against a real shallow clone', () {
+    Future<void> git(String dir, List<String> args) async {
+      final result = await Process.run('git', args, workingDirectory: dir);
+      expect(result.exitCode, 0, reason: 'git ${args.join(' ')}: ${result.stderr}');
+    }
+
+    Future<ProcessResult> gitRaw(String dir, List<String> args) => Process.run('git', args, workingDirectory: dir);
+
+    late String remoteUrl;
+    late String featureSha;
+
+    setUp(() async {
+      final work = Directory(p.join(tempDir.path, 'work'))..createSync();
+      final bare = Directory(p.join(tempDir.path, 'remote.git'))..createSync();
+      await git(bare.path, ['init', '--bare', '-b', 'main']);
+      await git(work.path, ['init', '-b', 'main']);
+      await git(work.path, ['config', 'user.name', 'Test']);
+      await git(work.path, ['config', 'user.email', 'test@test.local']);
+      for (final n in ['one', 'two', 'three']) {
+        File(p.join(work.path, '$n.txt')).writeAsStringSync(n);
+        await git(work.path, ['add', '.']);
+        await git(work.path, ['commit', '-m', n]);
+      }
+      await git(work.path, ['checkout', '-b', 'feat/mean']);
+      File(p.join(work.path, 'mean.txt')).writeAsStringSync('mean');
+      await git(work.path, ['add', '.']);
+      await git(work.path, ['commit', '-m', 'mean']);
+      featureSha = ((await gitRaw(work.path, ['rev-parse', 'HEAD'])).stdout as String).trim();
+      await git(work.path, ['remote', 'add', 'origin', bare.path]);
+      await git(work.path, ['push', 'origin', 'main', 'feat/mean']);
+      remoteUrl = 'file://${bare.path}';
+    });
+
+    Future<(ProjectServiceImpl, Project)> cloneWithProductionPath() async {
+      final svc = ProjectServiceImpl(
+        dataDir: dataDir,
+        localDir: p.join(tempDir.path, 'local-repo'),
+        projectConfig: const ProjectConfig.defaults(),
+        credentials: const CredentialsConfig.defaults(),
+      );
+      await svc.initialize();
+      final created = await svc.create(name: 'fixture', remoteUrl: remoteUrl);
+      expect(created.cloneStrategy, CloneStrategy.shallow);
+      for (var i = 0; i < 200; i++) {
+        final current = await svc.get(created.id);
+        if (current?.status == ProjectStatus.ready) return (svc, current!);
+        if (current?.status == ProjectStatus.error) fail('clone failed: ${current?.errorMessage}');
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      }
+      fail('clone did not finish');
+    }
+
+    test('a branch other than the default is fetched as origin/<branch>', () async {
+      final (svc, project) = await cloneWithProductionPath();
+      expect((await gitRaw(project.localPath, ['rev-parse', '--verify', 'origin/feat/mean'])).exitCode, isNot(0));
+
+      await svc.ensureFresh(project, ref: 'feat/mean', strict: true);
+
+      final tracking = await gitRaw(project.localPath, ['rev-parse', '--verify', 'origin/feat/mean']);
+      expect(tracking.exitCode, 0, reason: '${tracking.stderr}');
+      expect((tracking.stdout as String).trim(), featureSha);
+      // The clone stays shallow: only the fetched branch's missing history is added.
+      expect((await gitRaw(project.localPath, ['rev-parse', '--is-shallow-repository'])).stdout, 'true\n');
+    });
+
+    test('a full commit SHA and a refs/ name are fetched as given', () async {
+      final (svc, project) = await cloneWithProductionPath();
+
+      await svc.ensureFresh(project, ref: featureSha, strict: true);
+      await svc.ensureFresh(project, ref: 'refs/heads/feat/mean', strict: true);
+
+      expect((await gitRaw(project.localPath, ['cat-file', '-t', featureSha])).stdout, 'commit\n');
     });
   });
 }

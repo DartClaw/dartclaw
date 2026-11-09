@@ -1,3 +1,6 @@
+import 'dart:convert';
+
+import 'package:dartclaw_core/dartclaw_core.dart' show ChannelNotificationAction;
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
 import 'package:test/test.dart';
 
@@ -147,6 +150,164 @@ void main() {
       expect(sections, hasLength(2));
       final referenceWidgets = ((sections[1] as Map<String, dynamic>)['widgets'] as List).cast<Map<String, dynamic>>();
       expect(referenceWidgets, hasLength(2));
+    });
+  });
+
+  group('ChatCardBuilder.runNotification', () {
+    Map<String, dynamic> innerCard(Map<String, dynamic> card) =>
+        ((card['cardsV2'] as List).single as Map<String, dynamic>)['card'] as Map<String, dynamic>;
+
+    List<Map<String, dynamic>> widgetsOf(Object? section) =>
+        ((section as Map<String, dynamic>)['widgets'] as List).cast<Map<String, dynamic>>();
+
+    test('builds a button-free card with the workflow as title and facts in order', () {
+      final card = builder.runNotification(
+        runId: 'run-9',
+        title: 'Release <check>',
+        status: 'awaiting_approval',
+        facts: const {'Workflow': 'release', 'Run': 'run-9', 'Step': 'approve & ship'},
+        body: 'Gates the <deploy>.',
+      );
+
+      expect(((card['cardsV2'] as List).single as Map<String, dynamic>)['cardId'], 'run_run-9');
+      final inner = innerCard(card);
+      expect(inner['header'], {'title': 'Release <check>', 'subtitle': 'Awaiting Approval'});
+
+      final sections = inner['sections'] as List;
+      expect(sections, hasLength(3));
+      final badge = widgetsOf(sections[0]).single['decoratedText'] as Map<String, dynamic>;
+      expect(badge['topLabel'], 'Status');
+      expect(badge['text'], '<font color="#f9ab00"><b>Awaiting Approval</b></font>');
+
+      final facts = [for (final w in widgetsOf(sections[1])) w['decoratedText'] as Map<String, dynamic>];
+      expect([for (final f in facts) f['topLabel']], ['Workflow', 'Run', 'Step']);
+      expect(facts.last['text'], 'approve &amp; ship');
+
+      expect(
+        (widgetsOf(sections[2]).single['textParagraph'] as Map<String, dynamic>)['text'],
+        'Gates the &lt;deploy&gt;.',
+      );
+      expect(jsonEncode(card), isNot(contains('buttonList')));
+    });
+
+    test('renders a button per action, invoking the action ID with the action data as parameters', () {
+      final card = builder.runNotification(
+        runId: 'run-9',
+        title: 'Release',
+        status: 'awaiting_approval',
+        actions: const [
+          ChannelNotificationAction(id: 'run_approve', label: 'Approve'),
+          ChannelNotificationAction(id: 'run_reject', label: 'Reject'),
+        ],
+        actionData: const {'runId': 'run-9', 'stepId': 'gate', 'nonce': 'abc123'},
+      );
+
+      final sections = innerCard(card)['sections'] as List;
+      final buttons = ((widgetsOf(sections.last).single['buttonList'] as Map<String, dynamic>)['buttons'] as List)
+          .cast<Map<String, dynamic>>();
+      expect([for (final b in buttons) b['text']], ['Approve', 'Reject']);
+      final actions = [
+        for (final b in buttons) (b['onClick'] as Map<String, dynamic>)['action'] as Map<String, dynamic>,
+      ];
+      expect([for (final a in actions) a['function']], ['run_approve', 'run_reject']);
+      for (final action in actions) {
+        expect(action['parameters'], [
+          {'key': 'runId', 'value': 'run-9'},
+          {'key': 'stepId', 'value': 'gate'},
+          {'key': 'nonce', 'value': 'abc123'},
+        ]);
+      }
+      expect(buttons.first['color'], isNot(buttons.last['color']));
+      expect(jsonEncode(card), isNot(contains('OPEN_DIALOG')));
+    });
+
+    test('opens a dialog from Request changes only, and only when the notification carries it', () {
+      final card = builder.runNotification(
+        runId: 'run-9',
+        title: 'Release',
+        status: 'awaiting_approval',
+        actions: const [
+          ChannelNotificationAction(id: 'run_approve', label: 'Approve'),
+          ChannelNotificationAction(id: 'run_reject', label: 'Reject'),
+          ChannelNotificationAction(id: 'run_request_changes', label: 'Request changes'),
+        ],
+        actionData: const {'runId': 'run-9', 'stepId': 'gate', 'nonce': 'abc123'},
+      );
+
+      final sections = innerCard(card)['sections'] as List;
+      final buttons = ((widgetsOf(sections.last).single['buttonList'] as Map<String, dynamic>)['buttons'] as List)
+          .cast<Map<String, dynamic>>();
+      final actions = [
+        for (final b in buttons) (b['onClick'] as Map<String, dynamic>)['action'] as Map<String, dynamic>,
+      ];
+      expect([for (final a in actions) a['function']], ['run_approve', 'run_reject', 'run_request_changes']);
+      expect([for (final a in actions) a['interaction']], [null, null, 'OPEN_DIALOG']);
+      expect(actions.last['parameters'], [
+        {'key': 'runId', 'value': 'run-9'},
+        {'key': 'stepId', 'value': 'gate'},
+        {'key': 'nonce', 'value': 'abc123'},
+      ]);
+    });
+
+    test('shows the error only for a failed run', () {
+      final failed = innerCard(
+        builder.runNotification(runId: 'r', title: 'W', status: 'failed', errorSummary: 'a < b'),
+      );
+      final failedSections = failed['sections'] as List;
+      expect(failedSections, hasLength(2));
+      expect((widgetsOf(failedSections.last).single['textParagraph'] as Map<String, dynamic>)['text'], 'a &lt; b');
+
+      final finished = innerCard(
+        builder.runNotification(runId: 'r', title: 'W', status: 'finished', errorSummary: 'x'),
+      );
+      expect(finished['sections'], hasLength(1));
+    });
+
+    test('labels every run status', () {
+      String subtitle(String status) =>
+          innerCard(builder.runNotification(runId: 'r', title: 'W', status: status))['header']['subtitle'] as String;
+
+      expect(
+        [
+          for (final s in ['started', 'awaiting_approval', 'finished', 'failed', 'step_completed']) subtitle(s),
+        ],
+        ['Started', 'Awaiting Approval', 'Finished', 'Failed', 'Step Completed'],
+      );
+    });
+  });
+
+  group('ChatCardBuilder dialogs', () {
+    test('the request-changes dialog is one multiline input and a submit button carrying run, step and nonce', () {
+      final body = builder.requestChangesDialog(
+        runId: 'run-9',
+        stepId: 'gate',
+        nonce: 'abc123',
+        postMessageId: 'spaces/AAA/messages/M1',
+      );
+
+      final widgets = (((body['sections'] as List).single as Map<String, dynamic>)['widgets'] as List)
+          .cast<Map<String, dynamic>>();
+      expect(widgets, hasLength(2));
+      final input = widgets.first['textInput'] as Map<String, dynamic>;
+      expect(input['name'], 'feedback');
+      expect(input['type'], 'MULTIPLE_LINE');
+      final button = ((widgets.last['buttonList'] as Map<String, dynamic>)['buttons'] as List).single as Map;
+      final action = (button['onClick'] as Map<String, dynamic>)['action'] as Map<String, dynamic>;
+      expect(action['function'], 'run_request_changes_submit');
+      expect(action['parameters'], [
+        {'key': 'runId', 'value': 'run-9'},
+        {'key': 'stepId', 'value': 'gate'},
+        {'key': 'nonce', 'value': 'abc123'},
+        {'key': 'postMessageId', 'value': 'spaces/AAA/messages/M1'},
+      ]);
+    });
+
+    test('a message dialog holds only the escaped text and no input or button', () {
+      final body = builder.messageDialog('Only <admins> may do this.');
+
+      final encoded = jsonEncode(body);
+      expect(encoded, contains('Only &lt;admins&gt; may do this.'));
+      expect(encoded, allOf(isNot(contains('textInput')), isNot(contains('buttonList'))));
     });
   });
 

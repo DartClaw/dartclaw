@@ -847,6 +847,9 @@ final class _HistoryBrowserHarness extends FakeAgentHarness
   bool? lastApproved;
 
   @override
+  HarnessTurnContext? get activeTurnContext => _context;
+
+  @override
   void setTurnContext(HarnessTurnContext? context) => _context = context;
 
   @override

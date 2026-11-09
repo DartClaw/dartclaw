@@ -4,7 +4,7 @@ DartClaw workflows are multi-step agent pipelines defined in YAML. Each step run
 
 Every workflow step runs as an `AgentExecution`, DartClaw's shared runtime record for provider, model, session, workspace, and token-budget state. The task and workflow surfaces look the same to operators.
 
-This guide walks through a progressive refinement process – from a single rough step to a production-ready pipeline. The built-in workflows (`story-and-implement`, `plan-and-implement`, and `code-review`) are worked examples of the fully matured end state.
+This guide walks through a progressive refinement process – from a single rough step to a production-ready pipeline. The built-in workflows (`implement-story`, `implement-prd`, and `code-review`) are worked examples of the fully matured end state.
 
 ## Schema-Aware Editing
 
@@ -246,7 +246,7 @@ Review steps emit several distinct datum types, and the canonical key name encod
 | Review report location | `review_report_path` | Review-report path (`review_report_path` preset) | `andthen:review` steps, and the `aggregate-reviews` step (bare, post-aggregate) |
 | Total findings | `findings_count` | Non-negative integer (`findings_count` preset) | The same review / aggregate steps |
 | Auto-remediable gate value | `gating_findings_count` | Non-negative integer (`gating_findings_count` preset) | The same review / aggregate steps; read by the remediation loop's `entryGate`/`exitGate` |
-| Structured pass/findings object | `verdict` (or `review_verdict`) | `{pass, findings_count, findings[], summary}` (`verdict` preset) | Custom review steps that want the inline object instead of a report path |
+| Structured pass/findings object | `verdict` (or `review_verdict`) | `{pass, findings_count, findings[], summary}` (`verdict` preset) | The built-in review steps, whose non-gating findings feed the [follow-up draft](#follow-up-draft-from-review-findings), and custom review steps that want the inline object instead of a report path |
 
 `review_report_path` resolves like every other `format: path` output. The review step writes its report into `$DARTCLAW_STEP_ARTIFACTS_DIR` (via `--output-dir`); when it emits no usable path, the engine captures the newest matching file from that per-step directory and writes an absolute value to context. When the step *does* emit a path that exists and is inside the workspace, that path is what downstream steps read — a path a step names is honoured, not second-guessed. A path that escapes the workspace is never used, and with nothing in the step's artifacts directory to capture, the step fails naming that path — no unrelated workspace file is substituted for it. A clean review that leaves no report (zero findings) gets a durable diagnostic stub materialized in the same directory, so downstream steps always have a report path; a review that reports findings but leaves no report fails loudly.
 
@@ -255,6 +255,14 @@ The counts a review reports (`findings_count`, `gating_findings_count`) are the 
 Parallel source review steps prefix every key with their step id (`<source-step-id>.review_report_path`, etc.); the `aggregate-reviews` step's own outputs and single-review workflows keep the bare canonical names. Prefixing is **enforced**, not just conventional: a source step feeding an `aggregate-reviews` step that declares a bare (or mis-prefixed) review key fails validation, with a message naming the step and the required `<stepId>.`-prefixed form. The built-in remediation loop gates exclusively on `gating_findings_count` — it never branches on a `verdict` field. This convention is contract-locked in `built_in_workflow_contracts_test.dart`.
 
 > **Migration:** the review-report-path key was previously named `review_findings`. That name is retired — a workflow declaring a `review_findings` output is rejected at parse time, naming `review_report_path` as the replacement. Rename `review_findings` → `review_report_path` (and `<stepId>.review_findings` → `<stepId>.review_report_path`).
+
+#### Follow-Up Draft from Review Findings
+
+Findings below the gating severity (`medium`, `low`) never trigger remediation, so they would otherwise stay in a report file. When an `implement-story`, `implement-prd` or `code-review` run **completes** with such findings, the host creates one task in `draft` that lists them (severity, location, description), with the run page path and the run's `TARGET` / `FEATURE` / `BRANCH` / `PR_NUMBER` inputs. It is an ordinary task: nothing runs until you start it from its task page, and it is not tied to the run's review or merge flow. The run page shows "N follow-ups" linking to it, `GET /api/workflows/runs/<id>` returns `followUpTaskId`, and the "finished" chat post carries one line, "N follow-ups → <task page link>".
+
+- Only a review's final verdict counts: a review whose own `gating_findings_count` is above 0 was remediated, and the re-review's verdict replaces it. In `implement-prd`, a story whose review needed its remediation loop contributes nothing; story reviews and the plan review otherwise merge into the same draft, and a finding both report is listed twice.
+- A run with nothing to list, and a run that fails or is cancelled, creates no draft. If creating the draft fails, the run still completes and the failure is logged with the run id.
+- A custom review step takes part by declaring a `verdict` output next to its `gating_findings_count` (the same step-prefix rule applies), as a top-level step, inside a loop, or as a direct child of a foreach. `critical` and `high` findings gate, the same rule the review prompt states; there is no switch to turn the draft off.
 
 #### Aggregating Parallel Reviews
 
@@ -594,9 +602,9 @@ Key runtime behavior:
 
 #### File-Based Artifact Contract
 
-Artifact-producing skills write artifacts to disk and emit workspace-relative paths under their `outputs:` block, never inline content. The built-in `plan-and-implement` authoring step uses `andthen:plan` for plan and story-spec artifacts. Workflow steps downstream read the paths via `file_read`. This lets parallel agent steps see each other's files through the filesystem rather than inline serialization.
+Artifact-producing skills write artifacts to disk and emit workspace-relative paths under their `outputs:` block, never inline content. The built-in `implement-prd` authoring step uses `andthen:plan` for plan and story-spec artifacts. Workflow steps downstream read the paths via `file_read`. This lets parallel agent steps see each other's files through the filesystem rather than inline serialization.
 
-Built-in `plan-and-implement` reuses existing committed inputs through `dartclaw-discover-andthen-plan`: discovery emits flat `prd`, `plan`, and `story_specs` values. Missing `prd` is a fail-fast error. A missing `plan` (or missing `story_specs.items` key) causes the `plan` step, using `andthen:plan`, to author or republish the plan bundle. Discovery excludes `done` and `skipped` stories and omits direct and transitive dependents of `skipped` stories from runnable output. It prunes dependencies only when the referenced story is `done`. An empty `story_specs.items: []` means no story is left to run, so the foreach iterates zero times and the workflow proceeds to plan-level review.
+Built-in `implement-prd` reuses existing committed inputs through `dartclaw-discover-andthen-plan`: discovery emits flat `prd`, `plan`, and `story_specs` values. Missing `prd` is a fail-fast error. A missing `plan` (or missing `story_specs.items` key) causes the `plan` step, using `andthen:plan`, to author or republish the plan bundle. Discovery excludes `done` and `skipped` stories and omits direct and transitive dependents of `skipped` stories from runnable output. It prunes dependencies only when the referenced story is `done`. An empty `story_specs.items: []` means no story is left to run, so the foreach iterates zero times and the workflow proceeds to plan-level review.
 
 #### Artifact Auto-Commit
 
@@ -836,10 +844,10 @@ The first match wins. Explicit per-step values still override defaults.
 `dartclaw workflow show <name>` prints the raw authored YAML. Add `--resolved` to emit the fully merged form – `stepDefaults` already applied to each step and any workflow-level `variables:` defaults substituted. The emitted YAML round-trips through the parser, so it is itself a valid workflow definition:
 
 ```bash
-dartclaw workflow show plan-and-implement --resolved
-dartclaw workflow show plan-and-implement --resolved --step plan-review
-dartclaw workflow show plan-and-implement --resolved --json        # JSON wrapper for scripting
-dartclaw workflow show plan-and-implement --standalone              # bypass the server
+dartclaw workflow show implement-prd --resolved
+dartclaw workflow show implement-prd --resolved --step plan-review
+dartclaw workflow show implement-prd --resolved --json        # JSON wrapper for scripting
+dartclaw workflow show implement-prd --standalone              # bypass the server
 ```
 
 `show` is an authoring-inspection command; it does not probe provider skill availability. Install AndThen or any other referenced skill provider-side before running workflows that reference those skills. Missing refs are reported by the run preflight before step dispatch.
@@ -879,7 +887,7 @@ confirm it has stopped, then pause the stale run and resume it explicitly.
 
 ```bash
 dartclaw init --workflow      # write a minimal standalone config (data dir: ./.dartclaw)
-dartclaw workflow run --standalone story-and-implement --var FEATURE="Add search"
+dartclaw workflow run --standalone implement-story --var FEATURE="Add search"
 ```
 
 `dartclaw init --workflow` runs a short wizard (provider, auth method, model, config folder) and writes a minimal config tuned for workflow use – no HTTP port, channels, or container setup. Add `--non-interactive` with `--provider`, `--auth-claude`/`--auth-codex`, and `--model-claude`/`--model-codex` to script it. On completion it prints the exact `workflow run --standalone` command for your config location.
@@ -890,7 +898,7 @@ Standalone mode composes workflow infrastructure only: task, session and turn pe
 
 `resume`, `cancel`, `pause`, and `retry` accept the same `--standalone` (with `--force`), reaching the engine through the same headless composition and the same `WorkflowService` the server uses. `cancel` and `pause` only transition persisted run state, so they provision no skills, configure no provider capacity, and start no provider process. This closes the zero-server loop: when a `workflow run --standalone` pauses at an `approval` step, `dartclaw workflow resume <run-id> --standalone` drives it forward to completion without ever starting `dartclaw serve`, and `dartclaw workflow cancel <run-id> --standalone --feedback "…"` records a rejection. Invalid-state attempts (resuming a `running` run, retrying a non-`failed` one) surface the engine guard as a clean message + non-zero exit; a stale `running` run left by a killed process is not auto-reconciled. See the [CLI reference](cli-reference.md#workflow-resume) for the full command surface.
 
-`--inline` runs any definition on the **current branch** with no workflow-owned integration branch, worktree, or merge-back – it overrides the definition's git strategy (`integrationBranch: false` + `worktree: inline`) at run time. It applies identically in standalone and connected mode through the single `WorkflowService.start(...)` seam, so you no longer need a duplicate `*-inline` definition just to flip git behavior. Multi-story inline runs (e.g. `plan-and-implement --inline`) execute stories one at a time in the shared checkout – concurrency is clamped to 1 automatically. `--inline` is orthogonal to `--allow-dirty-localpath`: it changes git strategy only and does not relax the dirty-tree guard. See [CLI operations](cli-operations.md#inline-runs---inline) for examples.
+`--inline` runs any definition on the **current branch** with no workflow-owned integration branch, worktree, or merge-back – it overrides the definition's git strategy (`integrationBranch: false` + `worktree: inline`) at run time. It applies identically in standalone and connected mode through the single `WorkflowService.start(...)` seam, so you no longer need a duplicate `*-inline` definition just to flip git behavior. Multi-story inline runs (e.g. `implement-prd --inline`) execute stories one at a time in the shared checkout – concurrency is clamped to 1 automatically. `--inline` is orthogonal to `--allow-dirty-localpath`: it changes git strategy only and does not relax the dirty-tree guard. See [CLI operations](cli-operations.md#inline-runs---inline) for examples.
 
 ### Agent workflow tools
 
@@ -898,6 +906,34 @@ In chat, ask the agent to list available workflows or start a named definition w
 calls `workflow_list` and `workflow_run`; required-variable validation and the returned run location come from the same
 workflow service used by the API and web forms. See [Web UI and API](web-ui-and-api.md#orchestration-and-content-mcp-tools)
 for the schemas.
+
+A run started from chat posts its started, awaiting-approval and finished or failed messages back to where it was
+started: into that thread on Google Chat and Slack, or as plain messages to that conversation on WhatsApp and Signal.
+A run started anywhere else (the web form, the API, the CLI, a schedule) posts to the channel named by
+`workflow.chat_notifications`, one thread per run, or nowhere when that block is not set. See
+[Workflow run notifications](configuration.md#workflow-run-notifications).
+
+### Approving from chat
+
+The awaiting-approval post of a run on Google Chat or Slack carries **Approve** and **Reject** buttons. Approve resumes
+the run; Reject cancels it, with no feedback (use the run page or API to cancel with feedback). A gate that names a `revise` step (see [Request changes](#request-changes)) adds a third button, **Request changes**: on Slack it opens a modal and on Google Chat a dialog with a feedback field, and only an admin sender gets the form. Only a sender listed
+under `governance.admin_senders` can resolve an approval; anyone else is told so (as an ephemeral reply on Slack, in the click response on Google Chat) and the buttons stay. An
+empty `admin_senders` list makes every sender an admin, which in a group channel means every member can approve or
+reject runs, so list the approvers before you rely on buttons in a shared space. See
+[Governance](governance.md#admin-senders). Each button works once: after a resolution, from any surface, the post is
+edited to say who resolved it and when ("Approved by Ana at 14:05 UTC"), and a run that ends with the approval
+unresolved (an approval timeout) edits it to "No longer pending". WhatsApp and Signal posts have no buttons.
+
+The agent can do the same from a chat turn with `workflow_resume`, `workflow_cancel` and `workflow_request_changes` (all take `run_id`; cancel also
+takes an optional `feedback`, request changes a required one) and read a run's state with `workflow_status`. The write tools need a live chat turn from an
+admin sender, so they are refused in web chat, scheduled turns, any call with the shared gateway token and the turns of a task or
+workflow step (even one an admin started: an approval gate is for a human, never the agent resolving its own work), and a bound
+agent has them only if its `tools` list names them. Resolving from the run page or the HTTP API needs no admin sender.
+Every resolution from a button, a tool or the web is written to the audit log (guard `RunApprovalGate`).
+
+### Request changes
+
+Where a gate names a `revise` step, a reviewer who finds the plan weak can ask for changes instead of rejecting the run: the run goes back to that step with the feedback, runs the steps after it, and pauses at the same gate again, up to the gate's `maxRevisions` (default 3). Every step completed before the `revise` step is kept. The run page shows a feedback field beside Approve and Reject; Slack opens a modal and Google Chat a dialog from the post's **Request changes** button; WhatsApp and Signal use the `workflow_request_changes` tool; `POST /api/workflows/runs/<id>/request-changes` takes `{"feedback": "..."}`. At the limit the post and the page say so and offer only Approve and Reject. To review the built-in plan before any story starts, run `implement-prd` with `PLAN_REVIEW=true` (see [`approval` Steps](workflows-reference.md#approval-steps) for the YAML).
 
 ### Web launch forms
 
@@ -959,9 +995,9 @@ To wire it up end-to-end, expose the server publicly (or via a tunnel for local 
 
 ## Built-In Workflows as Worked Examples
 
-### `story-and-implement` – Feature Pipeline
+### `implement-story` – Feature Pipeline
 
-Pipeline that first classifies `FEATURE` with `dartclaw-discover-andthen-spec`. It accepts an inline feature description or an existing FIS path; an existing written source that is not a FIS fails with a pointer to `plan-and-implement`. Inline descriptions produce a FIS with `andthen:plan`; existing FIS files are reused. The workflow then implements via `andthen:exec-plan`, runs an integrated `andthen:review`, and enters the remediation loop only when the loop `entryGate` sees remaining findings. If implementation completes every story in its plan, `andthen:exec-plan` runs one simplification pass inside that step.
+Pipeline that first classifies `FEATURE` with `dartclaw-discover-andthen-spec`. It accepts an inline feature description or an existing FIS path; an existing written source that is not a FIS fails with a pointer to `implement-prd`. Inline descriptions produce a FIS with `andthen:plan`; existing FIS files are reused. The workflow then implements via `andthen:exec-plan`, runs an integrated `andthen:review`, and enters the remediation loop only when the loop `entryGate` sees remaining findings. If implementation completes every story in its plan, `andthen:exec-plan` runs one simplification pass inside that step.
 
 Notable patterns:
 - **Narrow input guard**: FIS-path reuse is decided by `dartclaw-discover-andthen-spec`, not by relying on `andthen:plan` inference.
@@ -975,7 +1011,7 @@ Role usage:
 - `@reviewer`: `integrated-review`, `re-review`
 - `@executor`: `implement`, `remediate`
 
-### `plan-and-implement` – Story Fan-Out
+### `implement-prd` – Story Fan-Out
 
 Multi-story pipeline organized around PRD-as-input, a merged plan step (`andthen:plan`) that produces the story plan and per-story specs in one pass when needed, and the per-story exec layer. A per-story `foreach` pipeline then runs `implement -> review-story -> story-remediation` under `worktree: auto`, which means serial runs stay inline while real fan-out still gets per-item git isolation/promotion. Built-in step sequence: `discover-plan-state -> plan -> story-pipeline -> plan-review -> review-aggregate -> remediation-loop`.
 
@@ -990,6 +1026,7 @@ Notable patterns:
 - **Runtime-owned git lifecycle**: authored YAML focuses on planning/spec/remediation handoffs while `gitStrategy` handles quick review, promotion, publish, and cleanup.
 - **Step defaults**: planner, executor, reviewer, and workflow-general roles are resolved once for the whole workflow.
 - **Bounded remediation**: the batch follows the same remediation/re-review loop pattern as `code-review`, stopping on success or after `maxIterations: 3`.
+- **Follow-up draft**: non-gating findings from the story reviews and the plan review merge into one draft task when the run completes (see [Follow-Up Draft from Review Findings](#follow-up-draft-from-review-findings)).
 
 Role usage:
 - `@workflow`: `discover-plan-state`
@@ -1007,6 +1044,7 @@ Notable patterns:
 - **Role-based model defaults**: built-ins can reference `@workflow`, `@planner`, `@executor`, and `@reviewer` instead of hardcoding provider/model pairs in YAML.
 - **Review routing**: built-ins use `andthen:review` for code and gap review.
 - **Bounded remediation**: the remediation loop stops on success or after `maxIterations: 3`.
+- **Follow-up draft**: the final review's non-gating findings become one draft task, linked from the run page (see [Follow-Up Draft from Review Findings](#follow-up-draft-from-review-findings)).
 
 Role usage:
 - `@reviewer`: `review-code`, `re-review`
@@ -1040,8 +1078,8 @@ correctness for speed, which is a test-fixture trade rather than a production on
 DartClaw ships four DC-native skills and resolves all other workflow steps through canonical AndThen references:
 
 **DC-native (shipped with DartClaw)**:
-- `dartclaw-discover-andthen-spec` – existing FIS path guard for `story-and-implement`
-- `dartclaw-discover-andthen-plan` – AndThen PRD/plan/story-spec discovery for `plan-and-implement`
+- `dartclaw-discover-andthen-spec` – existing FIS path guard for `implement-story`
+- `dartclaw-discover-andthen-plan` – AndThen PRD/plan/story-spec discovery for `implement-prd`
 - `dartclaw-validate-workflow` – workflow YAML validation helper
 - `dartclaw-merge-resolve` – agent-assisted workflow promotion conflict resolution
 

@@ -7,7 +7,7 @@ import 'package:test/test.dart';
 
 void main() {
   group('ThreadBinding', () {
-    final binding = ThreadBinding(
+    final binding = ThreadBinding.task(
       channelType: 'googlechat',
       threadId: 'spaces/AAAA/threads/BBBB',
       taskId: 'task-123',
@@ -38,7 +38,7 @@ void main() {
       final restored = ThreadBinding.fromJson(json);
       expect(restored.channelType, equals(binding.channelType));
       expect(restored.threadId, equals(binding.threadId));
-      expect(restored.taskId, equals(binding.taskId));
+      expect(restored.targetId, equals(binding.targetId));
       expect(restored.sessionKey, equals(binding.sessionKey));
       expect(restored.createdAt, equals(binding.createdAt));
       expect(restored.lastActivity, equals(binding.lastActivity));
@@ -50,7 +50,7 @@ void main() {
       // Other fields unchanged.
       expect(updated.channelType, equals(binding.channelType));
       expect(updated.threadId, equals(binding.threadId));
-      expect(updated.taskId, equals(binding.taskId));
+      expect(updated.targetId, equals(binding.targetId));
       expect(updated.sessionKey, equals(binding.sessionKey));
       expect(updated.createdAt, equals(binding.createdAt));
     });
@@ -73,7 +73,7 @@ void main() {
       String sessionKey = 'sk:1',
     }) {
       final now = DateTime.now();
-      return ThreadBinding(
+      return ThreadBinding.task(
         channelType: channelType,
         threadId: threadId,
         taskId: taskId,
@@ -98,7 +98,7 @@ void main() {
       await store.create(b);
       final found = store.lookupByThread('googlechat', 'spaces/X/threads/Y');
       expect(found, isNotNull);
-      expect(found!.taskId, equals('task-abc'));
+      expect(found!.targetId, equals('task-abc'));
     });
 
     test('lookupByThread() returns null for unknown thread', () {
@@ -133,7 +133,7 @@ void main() {
       await store.create(b1);
       await store.create(b2);
       final found = store.lookupByThread('googlechat', 'spaces/X/threads/Y');
-      expect(found!.taskId, equals('task-2'));
+      expect(found!.targetId, equals('task-2'));
     });
 
     test('delete() removes binding; subsequent lookup returns null', () async {
@@ -160,7 +160,7 @@ void main() {
     test('reconcile() removes bindings for tasks not in active set', () async {
       await store.create(makeBinding(taskId: 'task-active', threadId: 'spaces/X/threads/A'));
       await store.create(makeBinding(taskId: 'task-terminal', threadId: 'spaces/X/threads/B'));
-      final pruned = await store.reconcile({'task-active'});
+      final pruned = await store.reconcile(activeTaskIds: {'task-active'}, activeRunIds: const {});
       expect(pruned, equals(1));
       expect(store.lookupByThread('googlechat', 'spaces/X/threads/A'), isNotNull);
       expect(store.lookupByThread('googlechat', 'spaces/X/threads/B'), isNull);
@@ -169,7 +169,7 @@ void main() {
     test('reconcile() preserves bindings for active tasks', () async {
       await store.create(makeBinding(taskId: 'task-1', threadId: 'spaces/X/threads/1'));
       await store.create(makeBinding(taskId: 'task-2', threadId: 'spaces/X/threads/2'));
-      final pruned = await store.reconcile({'task-1', 'task-2'});
+      final pruned = await store.reconcile(activeTaskIds: {'task-1', 'task-2'}, activeRunIds: const {});
       expect(pruned, equals(0));
     });
 
@@ -177,7 +177,7 @@ void main() {
       await store.create(makeBinding(taskId: 'task-a', threadId: 'spaces/X/threads/A'));
       await store.create(makeBinding(taskId: 'task-b', threadId: 'spaces/X/threads/B'));
       await store.create(makeBinding(taskId: 'task-c', threadId: 'spaces/X/threads/C'));
-      final pruned = await store.reconcile({'task-a'});
+      final pruned = await store.reconcile(activeTaskIds: {'task-a'}, activeRunIds: const {});
       expect(pruned, equals(2));
     });
 
@@ -212,7 +212,7 @@ void main() {
       String sessionKey = 'sk:1',
     }) {
       final now = DateTime.utc(2026, 3, 21);
-      return ThreadBinding(
+      return ThreadBinding.task(
         channelType: channelType,
         threadId: threadId,
         taskId: taskId,
@@ -231,21 +231,67 @@ void main() {
       if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
     });
 
-    test('load() drops persisted bindings on channels that carry no thread identity', () async {
-      // Bindings keyed by a WhatsApp/Signal group JID were written by an earlier
-      // /bind that had a group fallback; the router never resolved them.
+    test(
+      'load() keeps every well-formed row whichever channels are registered, and a row without a kind is a task',
+      () async {
+        // The store loads before any channel registers, so a load-time rule on the channel
+        // would delete and rewrite away rows whose adapter simply is not registered yet.
+        final now = DateTime.utc(2026, 3, 21).toIso8601String();
+        final rows = [
+          {
+            'channelType': 'googlechat',
+            'threadId': 'spaces/X/threads/Y',
+            'kind': 'task',
+            'taskId': 'task-gchat',
+            'sessionKey': 'sk:1',
+            'createdAt': now,
+            'lastActivity': now,
+          },
+          {
+            'channelType': 'slack',
+            'threadId': 'C1:1700000000.000000',
+            'kind': 'run',
+            'runId': 'run-slack',
+            'createdAt': now,
+            'lastActivity': now,
+          },
+          {
+            'channelType': 'whatsapp',
+            'threadId': 'group-a@g.us',
+            'taskId': 'task-legacy',
+            'sessionKey': 'sk:2',
+            'createdAt': now,
+            'lastActivity': now,
+          },
+        ];
+        tempFile.writeAsStringSync(jsonEncode(rows));
+
+        final store = ThreadBindingStore(tempFile);
+        await store.load();
+
+        expect(store.lookupByThread('googlechat', 'spaces/X/threads/Y')?.targetId, 'task-gchat');
+        final run = store.lookupByThread('slack', 'C1:1700000000.000000');
+        expect((run?.kind, run?.targetId, run?.sessionKey), (ThreadBindingKind.run, 'run-slack', null));
+        final legacy = store.lookupByThread('whatsapp', 'group-a@g.us');
+        expect((legacy?.kind, legacy?.targetId), (ThreadBindingKind.task, 'task-legacy'));
+        expect(store.lookupByTask('task-legacy'), hasLength(1));
+        expect(store.lookupByRun('run-slack'), hasLength(1));
+        expect(jsonDecode(tempFile.readAsStringSync()), rows, reason: 'load() rewrites nothing');
+      },
+    );
+
+    test('load() skips a row of an unknown kind and keeps the rest', () async {
       final now = DateTime.utc(2026, 3, 21).toIso8601String();
       tempFile.writeAsStringSync(
         jsonEncode([
-          for (final row in [('whatsapp', 'group-a@g.us'), ('signal', 'signal-group-1')])
-            {
-              'channelType': row.$1,
-              'threadId': row.$2,
-              'taskId': 'task-orphan',
-              'sessionKey': 'sk:1',
-              'createdAt': now,
-              'lastActivity': now,
-            },
+          {
+            'channelType': 'slack',
+            'threadId': 'C1:1',
+            'kind': 'job',
+            'jobId': 'j',
+            'createdAt': now,
+            'lastActivity': now,
+          },
           {
             'channelType': 'googlechat',
             'threadId': 'spaces/X/threads/Y',
@@ -260,13 +306,25 @@ void main() {
       final store = ThreadBindingStore(tempFile);
       await store.load();
 
-      expect(store.lookupByTask('task-orphan'), isEmpty);
+      expect(store.lookupByThread('slack', 'C1:1'), isNull);
       expect(store.lookupByThread('googlechat', 'spaces/X/threads/Y'), isNotNull);
-      expect(
-        tempFile.readAsStringSync(),
-        isNot(contains('task-orphan')),
-        reason: 'the drop is rewritten so the rows do not reappear on the next load',
+    });
+
+    test('a run binding round-trips through the file under its runId key', () async {
+      final now = DateTime.utc(2026, 3, 21);
+      final store1 = ThreadBindingStore(tempFile);
+      await store1.create(
+        ThreadBinding.run(channelType: 'slack', threadId: 'C1:1.5', runId: 'run-1', createdAt: now, lastActivity: now),
       );
+
+      final stored = (jsonDecode(tempFile.readAsStringSync()) as List).single as Map<String, dynamic>;
+      expect(stored['kind'], 'run');
+      expect(stored['runId'], 'run-1');
+      expect(stored.containsKey('taskId'), isFalse);
+      expect(stored.containsKey('sessionKey'), isFalse);
+      final store2 = ThreadBindingStore(tempFile);
+      await store2.load();
+      expect(store2.lookupByRun('run-1').single.threadId, 'C1:1.5');
     });
 
     test('create() persists to JSON file; new store load() reads it back', () async {
@@ -278,7 +336,7 @@ void main() {
       await store2.load();
       final found = store2.lookupByThread('googlechat', 'spaces/X/threads/Y');
       expect(found, isNotNull);
-      expect(found!.taskId, equals('task-abc'));
+      expect(found!.targetId, equals('task-abc'));
     });
 
     test('delete() persists; reloaded store does not have the binding', () async {
@@ -318,7 +376,7 @@ void main() {
       await store1.load();
       await store1.create(makeBinding(taskId: 'active', threadId: 'spaces/X/threads/A'));
       await store1.create(makeBinding(taskId: 'terminal', threadId: 'spaces/X/threads/B'));
-      await store1.reconcile({'active'});
+      await store1.reconcile(activeTaskIds: {'active'}, activeRunIds: const {});
 
       final store2 = ThreadBindingStore(tempFile);
       await store2.load();
@@ -327,34 +385,77 @@ void main() {
     });
   });
 
-  group('extractThreadId', () {
-    ChannelMessage makeMessage(Map<String, String> metadata) {
-      return ChannelMessage(
-        channelType: ChannelType.googlechat,
-        senderJid: 'users/123',
-        text: 'hello',
-        metadata: metadata,
-      );
-    }
+  group('ThreadBindingStore — run bindings', () {
+    late Directory tempDir;
+    late ThreadBindingStore store;
+    final now = DateTime.utc(2026, 3, 21);
 
-    test('returns threadName when present and non-empty', () {
-      final msg = makeMessage({'threadName': 'spaces/X/threads/Y'});
-      expect(extractThreadId(msg), equals('spaces/X/threads/Y'));
+    ThreadBinding task(String id, String thread, {DateTime? lastActivity}) => ThreadBinding.task(
+      channelType: 'slack',
+      threadId: thread,
+      taskId: id,
+      sessionKey: 'sk:$id',
+      createdAt: now,
+      lastActivity: lastActivity ?? now,
+    );
+
+    ThreadBinding run(String id, String thread, {DateTime? lastActivity}) => ThreadBinding.run(
+      channelType: 'slack',
+      threadId: thread,
+      runId: id,
+      createdAt: now,
+      lastActivity: lastActivity ?? now,
+    );
+
+    setUp(() {
+      tempDir = Directory.systemTemp.createTempSync('thread_binding_run_test_');
+      store = ThreadBindingStore(File('${tempDir.path}/thread-bindings.json'));
     });
 
-    test('returns null for empty string', () {
-      final msg = makeMessage({'threadName': ''});
-      expect(extractThreadId(msg), isNull);
+    tearDown(() => tempDir.deleteSync(recursive: true));
+
+    test('a task and a run sharing an ID are looked up and deleted by kind', () async {
+      await store.create(task('same', 'C1:1'));
+      await store.create(run('same', 'C1:2'));
+
+      expect(store.lookupByTask('same').single.threadId, 'C1:1');
+      expect(store.lookupByRun('same').single.threadId, 'C1:2');
+
+      final removed = await store.deleteByTarget(ThreadBindingKind.run, 'same');
+
+      expect(removed.single.threadId, 'C1:2');
+      expect(store.lookupByTask('same'), hasLength(1));
+      expect(await store.deleteByTaskId('same'), hasLength(1));
+      expect(store.lookupByThread('slack', 'C1:1'), isNull);
     });
 
-    test('returns null when key is missing', () {
-      final msg = makeMessage({});
-      expect(extractThreadId(msg), isNull);
+    test('the idle sweep removes an idle task binding and keeps an equally idle run binding', () async {
+      final idle = now.subtract(const Duration(days: 2));
+      await store.create(task('t', 'C1:1', lastActivity: idle));
+      await store.create(run('r', 'C1:2', lastActivity: idle));
+
+      final expired = await store.removeExpiredBindings(now.subtract(const Duration(hours: 1)));
+
+      expect(expired.map((binding) => binding.targetId), ['t']);
+      expect(store.lookupByRun('r'), hasLength(1));
     });
 
-    test('returns null when metadata has other keys but not threadName', () {
-      final msg = makeMessage({'spaceName': 'spaces/X', 'senderDisplayName': 'Alice'});
-      expect(extractThreadId(msg), isNull);
+    test('reconcile() judges each binding against the active set of its own kind', () async {
+      await store.create(task('active-task', 'C1:1'));
+      await store.create(task('gone-task', 'C1:2'));
+      await store.create(run('active-run', 'C1:3'));
+      await store.create(run('gone-run', 'C1:4'));
+      // A run ID in the task set (and the reverse) must not keep a binding of the other kind.
+      await store.create(run('active-task', 'C1:5'));
+
+      final pruned = await store.reconcile(activeTaskIds: {'active-task'}, activeRunIds: {'active-run'});
+
+      expect(pruned, 3);
+      expect(store.lookupByThread('slack', 'C1:1'), isNotNull);
+      expect(store.lookupByThread('slack', 'C1:3'), isNotNull);
+      expect(store.lookupByThread('slack', 'C1:2'), isNull);
+      expect(store.lookupByThread('slack', 'C1:4'), isNull);
+      expect(store.lookupByThread('slack', 'C1:5'), isNull);
     });
   });
 

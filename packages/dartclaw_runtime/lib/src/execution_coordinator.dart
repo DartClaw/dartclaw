@@ -22,18 +22,22 @@ final class ExecutionCoordinator {
     required CreateExecutionWorker createWorker,
     AdmitExecution? admitExecution,
     ReleaseExecutionAdmission? releaseAdmission,
+    WhenAdmissionCapacityAvailable? whenAdmissionCapacityAvailable,
     TurnRunner? primary,
     bool allowPrimaryBackgroundFallback = false,
     Duration outcomeTtl = const Duration(seconds: 30),
     ExecutionNow? now,
     Iterable<ExecutionReleaseHook> releaseHooks = const [],
     DestroyContainerAuthority? destroyContainerAuthority,
+    void Function(AgentHarness harness)? onHarnessDisposed,
   }) : _createWorker = createWorker,
        _admitExecution = admitExecution,
        _releaseAdmission = releaseAdmission,
+       _whenAdmissionCapacityAvailable = whenAdmissionCapacityAvailable,
        _primary = primary,
        _releaseHooks = List.unmodifiable(releaseHooks),
        _destroyContainerAuthority = destroyContainerAuthority,
+       _onHarnessDisposed = onHarnessDisposed,
        allowsPrimaryBackgroundFallback = allowPrimaryBackgroundFallback && providerCapacities.isEmpty,
        _outcomes = _OutcomeRetention(outcomeTtl, now ?? DateTime.now),
        _workerGates = {for (final entry in providerCapacities.entries) entry.key: WorkerCapacityGate(entry.value)} {
@@ -50,9 +54,11 @@ final class ExecutionCoordinator {
   final CreateExecutionWorker _createWorker;
   final AdmitExecution? _admitExecution;
   final ReleaseExecutionAdmission? _releaseAdmission;
+  final WhenAdmissionCapacityAvailable? _whenAdmissionCapacityAvailable;
   final TurnRunner? _primary;
   final List<ExecutionReleaseHook> _releaseHooks;
   final DestroyContainerAuthority? _destroyContainerAuthority;
+  final void Function(AgentHarness harness)? _onHarnessDisposed;
   final bool allowsPrimaryBackgroundFallback;
   final _OutcomeRetention _outcomes;
   final WorkerCapacityGate _primaryGate = WorkerCapacityGate(1);
@@ -157,15 +163,39 @@ final class ExecutionCoordinator {
     final acquisitionId = _nextAcquisitionId++;
     _acquiring[acquisitionId] = (request: routedRequest, lane: lane);
     try {
-      await _admitExecution.call(routedRequest);
+      // A polled request (task, workflow) that is fail-fast takes its permit
+      // before admission: the poller re-attempts every cycle, and admission
+      // records loop depth and a rate event that an attempt the lane cannot run
+      // must not leave behind. Other fail-fast callers (logical agents) may wait
+      // on a same-session lock inside admission, which must not hold a permit,
+      // and a temporary request may reuse its retained worker's permit, so those
+      // keep admission before the permit.
+      WorkerCapacityPermit? permit;
+      if (routedRequest.admission == ExecutionAdmission.failFast &&
+          (routedRequest.surface == ExecutionSurface.task || routedRequest.surface == ExecutionSurface.workflow)) {
+        permit = await _acquirePermit(_gateFor(lane, routedRequest), routedRequest, lane);
+        if (permit == null) return null;
+      }
+      try {
+        await _admitExecution.call(routedRequest);
+      } catch (_) {
+        _returnPermit(permit, routedRequest, lane);
+        rethrow;
+      }
+      if (permit != null && _closing) {
+        _releaseAdmission?.call(routedRequest.sessionId);
+        _returnPermit(permit, routedRequest, lane);
+        return null;
+      }
       ExecutionLease? lease;
       try {
         lease = await switch (lane) {
-          ExecutionLane.primary => _acquirePrimary(routedRequest),
-          ExecutionLane.worker => _acquireWorker(routedRequest),
+          ExecutionLane.primary => _acquirePrimary(routedRequest, permit),
+          ExecutionLane.worker => _acquireWorker(routedRequest, permit),
         };
       } catch (_) {
         _releaseAdmission?.call(routedRequest.sessionId);
+        _returnPermit(permit, routedRequest, lane);
         rethrow;
       }
       if (lease == null) _releaseAdmission?.call(routedRequest.sessionId);
@@ -174,6 +204,18 @@ final class ExecutionCoordinator {
       _acquiring.remove(acquisitionId);
       _completeDrainIfIdle();
     }
+  }
+
+  /// Completes when the global admission cap has room for another session.
+  ///
+  /// Reserves nothing: the caller re-attempts [acquire] and may have to wait
+  /// again.
+  Future<void> whenAdmissionCapacityAvailable() {
+    final whenAvailable = _whenAdmissionCapacityAvailable;
+    if (whenAvailable == null) {
+      throw StateError('Every execution requires coordinator-owned admission');
+    }
+    return whenAvailable();
   }
 
   ExecutionLane _laneFor(ExecutionRequest request) => switch (request.surface) {
@@ -202,12 +244,29 @@ final class ExecutionCoordinator {
     return request._route(providerId: primary.providerId, policy: primary.executionPolicy);
   }
 
-  Future<ExecutionLease?> _acquirePrimary(ExecutionRequest request) async {
+  WorkerCapacityGate _gateFor(ExecutionLane lane, ExecutionRequest request) => switch (lane) {
+    ExecutionLane.primary => _primaryGate,
+    ExecutionLane.worker =>
+      _workerGates[request.providerId] ??
+          (throw StateError('Provider "${request.providerId}" is not configured for worker execution')),
+  };
+
+  /// Returns a permit taken before admission when the acquisition fails; safe
+  /// after a path that already released or quarantined it.
+  void _returnPermit(WorkerCapacityPermit? permit, ExecutionRequest request, ExecutionLane lane) {
+    if (permit == null) return;
+    final gate = _gateFor(lane, request);
+    final activeBefore = gate.activeCount;
+    permit.release();
+    if (gate.activeCount != activeBefore) _emit(ExecutionEventKind.capacityChanged, request, lane);
+  }
+
+  Future<ExecutionLease?> _acquirePrimary(ExecutionRequest request, WorkerCapacityPermit? preAcquired) async {
     final primary = _primary;
     if (primary == null) {
       throw StateError('Primary execution is unavailable in this composition');
     }
-    final permit = await _acquirePermit(_primaryGate, request, ExecutionLane.primary);
+    final permit = preAcquired ?? await _acquirePermit(_primaryGate, request, ExecutionLane.primary);
     if (permit == null) return null;
     if (_closing) {
       permit.release();
@@ -216,11 +275,8 @@ final class ExecutionCoordinator {
     return _register(request, ExecutionLane.primary, permit, primary);
   }
 
-  Future<ExecutionLease?> _acquireWorker(ExecutionRequest request) async {
-    final gate = _workerGates[request.providerId];
-    if (gate == null) {
-      throw StateError('Provider "${request.providerId}" is not configured for worker execution');
-    }
+  Future<ExecutionLease?> _acquireWorker(ExecutionRequest request, WorkerCapacityPermit? preAcquired) async {
+    final gate = _gateFor(ExecutionLane.worker, request);
     if (request.surface == ExecutionSurface.temporary) {
       final retained = _takeCached(request);
       if (retained != null) {
@@ -233,7 +289,7 @@ final class ExecutionCoordinator {
         if (_closing) throw StateError('Execution coordinator is closing');
       }
     }
-    final permit = await _acquirePermit(gate, request, ExecutionLane.worker);
+    final permit = preAcquired ?? await _acquirePermit(gate, request, ExecutionLane.worker);
     if (permit == null) return null;
 
     try {

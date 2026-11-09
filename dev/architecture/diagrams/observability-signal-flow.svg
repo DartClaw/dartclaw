@@ -1,0 +1,197 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 654" width="1000" height="654" role="img" aria-labelledby="title desc">
+  <title id="title">Observability signal flow</title>
+  <desc id="desc">Event producers fire DartclawEvents onto the EventBus. Three collectors read it: GuardAuditSubscriber into the audit log, AlertRouter into operator channels, and the SSE bridge into the web UI. Producers that must fail closed bypass the bus and call GuardAuditLogger.writeEntry, which is awaited.</desc>
+  <style>
+
+    svg { --bg:#f6f7f9; --card:#ffffff; --ink:#1e2030; --ink2:#4c4f69; --ink3:#6c6f85; --rule:#ccd0da; --edge:#8c8fa1; --hi:#1e66f5; --on:#ffffff; --panel:#1e1e2e; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+      --host:#40a02b; --host-d:#1f5c2a; --host-l:#2d7a1f; --ext:#e07c4f; --ext-d:#a8481c; --ext-l:#b5531f; --store:#179299; --store-d:#0f5f63; --store-l:#0e7377;
+      --sec:#d20f39; --sec-d:#9b0c2c; --sec-l:#b80d33; --chan:#8839ef; --chan-d:#5d23a8; --chan-l:#7027d4; --neu:#7c7f93; --neu-d:#4c4f69; --neu-l:#5c5f77; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#181825; --card:#1e1e2e; --ink:#cdd6f4; --ink2:#bac2de; --ink3:#9399b2; --rule:#45475a; --edge:#7f849c; --hi:#89b4fa; --on:#f5f7ff; --panel:#11111b; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+        --host:#a6e3a1; --host-d:#2f6b3a; --host-l:#a6e3a1; --ext:#fab387; --ext-d:#8f4a24; --ext-l:#fab387; --store:#94e2d5; --store-d:#1f6460; --store-l:#94e2d5;
+        --sec:#f38ba8; --sec-d:#8a2c45; --sec-l:#f38ba8; --chan:#cba6f7; --chan-d:#5e3f94; --chan-l:#cba6f7; --neu:#9399b2; --neu-d:#45475a; --neu-l:#bac2de; }
+    }
+    text { fill: var(--ink); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .mono, .kick, .badge text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+    .bg { fill: var(--bg); }
+    .title { font-size: 21px; font-weight: 700; }
+    .lede { fill: var(--ink3); font-size: 13px; }
+    .kick { font-size: 10.5px; font-weight: 600; letter-spacing: .1em; fill: var(--kl, var(--ink3)); }
+    .k-host { --k:var(--host); --kd:var(--host-d); --kl:var(--host-l); }
+    .k-ext { --k:var(--ext); --kd:var(--ext-d); --kl:var(--ext-l); }
+    .k-store { --k:var(--store); --kd:var(--store-d); --kl:var(--store-l); }
+    .k-sec { --k:var(--sec); --kd:var(--sec-d); --kl:var(--sec-l); }
+    .k-chan { --k:var(--chan); --kd:var(--chan-d); --kl:var(--chan-l); }
+    .k-neu { --k:var(--neu); --kd:var(--neu-d); --kl:var(--neu-l); }
+    .band { fill: color-mix(in srgb, var(--k) 6%, var(--bg)); stroke: color-mix(in srgb, var(--k) 50%, var(--bg)); stroke-width: 1.4; stroke-dasharray: 7 5; }
+    .box { stroke-width: 1.5; }
+    .tint .box { fill: color-mix(in srgb, var(--k) 13%, var(--card)); stroke: var(--k); }
+    .line .box { fill: var(--card); stroke: var(--k); }
+    .ghost .box { fill: none; stroke: var(--k); stroke-dasharray: 5 4; }
+    .solid .box { fill: var(--kd); stroke: var(--kd); }
+    .name { font-size: 14.5px; font-weight: 700; }
+    .sub { font-size: 11.5px; fill: var(--ink2); }
+    .mono { font-size: 11.5px; fill: var(--ink2); }
+    .solid text { fill: var(--on); }
+    .solid .sub, .solid .mono { fill: var(--on); fill-opacity: .82; }
+    .badge rect { fill: none; stroke: var(--kl); stroke-width: 1.2; }
+    .badge text { font-size: 9.5px; font-weight: 700; letter-spacing: .06em; fill: var(--kl); text-anchor: middle; }
+    .solid .badge rect { stroke: var(--on); stroke-opacity: .7; }
+    .solid .badge text { fill: var(--on); }
+    .e path { fill: none; stroke: var(--ec, var(--edge)); stroke-width: var(--ew, 1.6px); marker-end: var(--em, url(#ah)); }
+    .e.main path { stroke: var(--ec, var(--host)); stroke-width: var(--ew, 2.4px); marker-end: var(--em, url(#ah-main)); }
+    .e.bad path { stroke: var(--ec, var(--sec)); marker-end: var(--em, url(#ah-bad)); }
+    .e.dash path { stroke-dasharray: 6 4; }
+    .el { font-size: 11px; fill: var(--ink2); paint-order: stroke; stroke: var(--halo, var(--bg)); stroke-width: 4px; stroke-linejoin: round; }
+    .in-host .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    .ah { fill: var(--edge); } .ah-main { fill: var(--host); } .ah-bad { fill: var(--sec); } .ah-hi { fill: var(--hi); }
+    .panel { fill: var(--panel); }
+    .panel-kick { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10.5px; font-weight: 700; letter-spacing: .12em; fill: var(--panel-kick); }
+    .p1 { fill: var(--panel-ink); font-size: 13px; }
+    .p1 tspan.b { font-weight: 700; }
+    .p2 { fill: var(--panel-sub); font-size: 12.5px; }
+    .lg { font-size: 11px; fill: var(--ink2); }
+    .chip rect { fill: color-mix(in srgb, var(--k) 10%, var(--card)); stroke: var(--k); stroke-width: 1; }
+    .chip text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10px; font-weight: 600; fill: var(--kl); }
+    .step circle { fill: var(--kd); } .step text { fill: var(--on); font-size: 11px; font-weight: 700; text-anchor: middle; }
+    /* Interaction, effective only when the SVG is opened directly. */
+    .n { cursor: pointer; }
+    .n:hover .box, a:focus-visible .box { stroke: var(--hi); stroke-width: 2.8; }
+    .d { display: none; pointer-events: none; }
+    .n:hover .d, a:focus-visible .d { display: inline; }
+    svg:has(.n:hover) .d0, svg:has(a:focus-visible) .d0 { display: none; }
+    svg:has(.n:hover) .edges .e { opacity: .14; }
+    .e.join path { marker-end: none; }
+    .band.inner { fill: none; stroke-dasharray: 3 4; }
+    .mono-name { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13.5px; }
+    .edges .el { --halo: color-mix(in srgb, var(--neu) 6%, var(--bg)); }
+    svg:has(#prod:hover) .edges :is(.f-prod,.t-prod) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#bus:hover) .edges :is(.f-bus,.t-bus) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#sub:hover) .edges :is(.f-sub,.t-sub) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#logger:hover) .edges :is(.f-logger,.t-logger) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#wcall:hover) .edges :is(.f-wcall,.t-wcall) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#ndjson:hover) .edges :is(.f-ndjson,.t-ndjson) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#router:hover) .edges :is(.f-router,.t-router) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#adapter:hover) .edges :is(.f-adapter,.t-adapter) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#chan:hover) .edges :is(.f-chan,.t-chan) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#bridge:hover) .edges :is(.f-bridge,.t-bridge) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#bcast:hover) .edges :is(.f-bcast,.t-bcast) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#sse:hover) .edges :is(.f-sse,.t-sse) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+  </style>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-main" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path class="ah-main" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-bad" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="ah-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="654"/>
+  <!-- Details panel: painted first so node details (.d) draw on top -->
+  <rect class="panel" x="16" y="558" width="968" height="80" rx="12"/>
+  <text class="panel-kick" x="36" y="582">DETAILS</text>
+  <g class="d0"><text class="p1" x="36" y="606">Hover a box for its role and file; its connections light up. Click it to open its section.</text><text class="p2" x="36" y="626">Inside a rendered document this image is static. Click it to open the interactive SVG.</text></g>
+
+  <text class="kick" x="24" y="32">DATA FLOW · EventBus subscribers</text>
+  <text class="title" x="24" y="58">Observability signal flow</text>
+  <text class="lede" x="24" y="80">Each signal has one collector. Producers that must fail closed skip the bus and call writeEntry.</text>
+
+  <g class="k-neu"><rect class="band" x="16" y="250" width="444" height="268" rx="14"/><text class="kick" x="32" y="272">AUDIT TRAIL</text></g>
+  <g class="k-neu"><rect class="band" x="474" y="250" width="226" height="268" rx="14"/><text class="kick" x="490" y="272">OPERATOR ALERTS</text></g>
+  <g class="k-neu"><rect class="band" x="714" y="250" width="270" height="268" rx="14"/><text class="kick" x="730" y="272">LIVE UI</text></g>
+
+  <g class="edges">
+    <g class="e main f-prod t-bus"><path d="M500,154 V176"/><text class="el" x="510" y="170" text-anchor="start">fire(event)</text></g>
+    <g class="e main f-bus t-sub"><path d="M130,226 V280"/><text class="el" x="140" y="241" text-anchor="start">GuardBlockEvent, ToolPermissionDeniedEvent</text></g>
+    <g class="e main f-bus t-router"><path d="M620,226 V280"/><text class="el" x="628" y="241" text-anchor="start">every event</text></g>
+    <g class="e main f-bus t-bridge"><path d="M850,226 V280"/><text class="el" x="858" y="241" text-anchor="start">selected events</text></g>
+    <g class="e  f-sub t-logger"><path d="M130,332 V366"/><text class="el" x="140" y="354" text-anchor="start">logVerdict, logPermissionDenied</text></g>
+    <g class="e  f-wcall t-logger"><path d="M278,393 H230"/><text class="el" x="254" y="386" text-anchor="middle">awaited</text></g>
+    <g class="e  f-logger t-ndjson"><path d="M130,418 V452"/><text class="el" x="140" y="440" text-anchor="start">append</text></g>
+    <g class="e  f-router t-adapter"><path d="M620,332 V366"/><text class="el" x="628" y="354" text-anchor="start">deliver</text></g>
+    <g class="e  f-adapter t-chan"><path d="M620,418 V452"/><text class="el" x="628" y="440" text-anchor="start">sendMessage</text></g>
+    <g class="e  f-bridge t-bcast"><path d="M850,332 V366"/><text class="el" x="858" y="354" text-anchor="start">broadcast(name, data)</text></g>
+    <g class="e  f-bcast t-sse"><path d="M850,418 V452"/><text class="el" x="858" y="440" text-anchor="start">event: &lt;name&gt;</text></g>
+  </g>
+
+  <a href="../observability-operations-architecture.md#1-overview"><g class="n line k-host" id="prod">
+    <rect class="box" x="24" y="106" width="952" height="48" rx="9"/>
+    <text class="name" x="36" y="125">event producers</text>
+    <text class="sub" x="36" y="141">guards, tasks, workflows, credential and container health, governance, scheduler, RunnerObserver</text>
+    <g class="d"><text class="p1" x="36" y="606"><tspan class="b">event producers</tspan> · every DartclawEvent subtype is fired by exactly one owner of that fact</text><text class="p2" x="36" y="626">Credential health, capacity lifecycle and alert classification each have one writer (design rule 3), so two paths cannot disagree.</text></g>
+  </g></a>
+  <a href="../observability-operations-architecture.md#1-overview"><g class="n solid k-host" id="bus">
+    <rect class="box" x="24" y="178" width="952" height="48" rx="9"/>
+    <text class="name mono-name" x="36" y="197">EventBus</text>
+    <text class="sub" x="36" y="213">sealed DartclawEvent stream (dartclaw_core); fire() isolates subscriber exceptions</text>
+    <g class="d"><text class="p1" x="36" y="606"><tspan class="b">EventBus</tspan> · one broadcast stream; usage, logging and capacity do not read it</text><text class="p2" x="36" y="626">fire() runs the add under runZonedGuarded, so a throwing subscriber is logged and never fails the publisher.</text></g>
+  </g></a>
+  <a href="../observability-operations-architecture.md#4-audit-logging"><g class="n tint k-host" id="sub">
+    <rect class="box" x="32" y="282" width="196" height="50" rx="9"/>
+    <text class="name mono-name" x="44" y="301">GuardAuditSubscriber</text>
+    <text class="sub" x="44" y="317">bridges two bus events</text>
+    <g class="d"><text class="p1" x="36" y="606"><tspan class="b">GuardAuditSubscriber</tspan> · GuardBlockEvent and ToolPermissionDeniedEvent become audit entries</text><text class="p2" x="36" y="626">Lives in dartclaw_runtime so the kernel logger stays free of the bus (audit/guard_audit_subscriber.dart).</text></g>
+  </g></a>
+  <a href="../observability-operations-architecture.md#guardauditlogger"><g class="n tint k-host" id="logger">
+    <rect class="box" x="32" y="368" width="196" height="50" rx="9"/>
+    <text class="name mono-name" x="44" y="387">GuardAuditLogger</text>
+    <text class="sub" x="44" y="403">one serialized write chain</text>
+    <g class="d"><text class="p1" x="36" y="606"><tspan class="b">GuardAuditLogger</tspan> · logs at INFO, WARNING or SEVERE and appends an NDJSON line to the day partition</text><text class="p2" x="36" y="626">dartclaw_kernel guard_audit.dart: appends share one _pendingWrite future; logVerdict is unawaited, writeEntry awaited.</text></g>
+  </g></a>
+  <a href="../observability-operations-architecture.md#guardauditlogger"><g class="n tint k-sec" id="wcall">
+    <rect class="box" x="278" y="368" width="170" height="50" rx="9"/>
+    <text class="name" x="290" y="387">writeEntry callers</text>
+    <text class="sub" x="290" y="403">fail closed on error</text>
+    <g class="d"><text class="p1" x="36" y="606"><tspan class="b">writeEntry callers</tspan> · egress, knowledge writes, review and run-approval gates, refusal audits, Slack webhook, database egress</text><text class="p2" x="36" y="626">They await writeEntry and refuse the action when the append fails, so they cannot rely on the bus path.</text></g>
+  </g></a>
+  <a href="../observability-operations-architecture.md#partitions-and-retention"><g class="n tint k-store" id="ndjson">
+    <rect class="box" x="32" y="454" width="196" height="50" rx="9"/>
+    <text class="name mono-name" x="44" y="473">audit-YYYY-MM-DD</text>
+    <text class="sub" x="44" y="489">.ndjson, one file per day</text>
+    <g class="d"><text class="p1" x="36" y="606"><tspan class="b">audit-YYYY-MM-DD</tspan> · date-partitioned files in the data directory; AuditLogReader serves them to /health-dashboard</text><text class="p2" x="36" y="626">Retention guard_audit.max_retention_days (default 30, 0 keeps all) is applied by the session-maintenance job.</text></g>
+  </g></a>
+  <a href="../observability-operations-architecture.md#2-alerts"><g class="n tint k-host" id="router">
+    <rect class="box" x="490" y="282" width="194" height="50" rx="9"/>
+    <text class="name mono-name" x="502" y="301">AlertRouter</text>
+    <text class="sub" x="502" y="317">classify, route, throttle</text>
+    <g class="d"><text class="p1" x="36" y="606"><tspan class="b">AlertRouter</tspan> · subscribes to every DartclawEvent; off by default (alerts.enabled: false)</text><text class="p2" x="36" y="626">Reconfigurable on alerts.*; the pipeline is the alert pipeline figure (alerts/alert_router.dart).</text></g>
+  </g></a>
+  <a href="../observability-operations-architecture.md#routing-formatting-throttling"><g class="n tint k-host" id="adapter">
+    <rect class="box" x="490" y="368" width="194" height="50" rx="9"/>
+    <text class="name mono-name" x="502" y="387">AlertDeliveryAdapter</text>
+    <text class="sub" x="502" y="403">best effort, no retry</text>
+    <g class="d"><text class="p1" x="36" y="606"><tspan class="b">AlertDeliveryAdapter</tspan> · resolves an AlertTarget to a Channel and calls sendMessage</text><text class="p2" x="36" y="626">An unknown channel logs a warning and a send failure logs an error; nothing is thrown or retried.</text></g>
+  </g></a>
+  <a href="../observability-operations-architecture.md#routing-formatting-throttling"><g class="n tint k-chan" id="chan">
+    <rect class="box" x="490" y="454" width="194" height="50" rx="9"/>
+    <text class="name" x="502" y="473">Channel</text>
+    <text class="sub" x="502" y="489">any registered channel</text>
+    <g class="d"><text class="p1" x="36" y="606"><tspan class="b">Channel</tspan> · any registered channel, looked up by target.channel</text><text class="p2" x="36" y="626">Alerts reach the operator through the same channel infrastructure as user messages.</text></g>
+  </g></a>
+  <a href="../observability-operations-architecture.md#global-broadcast-get-apievents"><g class="n tint k-host" id="bridge">
+    <rect class="box" x="730" y="282" width="238" height="50" rx="9"/>
+    <text class="name mono-name" x="742" y="301">EventBusSseBridge</text>
+    <text class="sub" x="742" y="317">and task_sse_routes subscribe too</text>
+    <g class="d"><text class="p1" x="36" y="606"><tspan class="b">EventBusSseBridge</tspan> · bus events become named SSE frames: loop_detected, task_review_ready, compaction_starting, conversation_changed</text><text class="p2" x="36" y="626">Excludes EmergencyStopEvent: that frame stays with EmergencyStopHandler so a stop is never sent twice.</text></g>
+  </g></a>
+  <a href="../observability-operations-architecture.md#global-broadcast-get-apievents"><g class="n tint k-host" id="bcast">
+    <rect class="box" x="730" y="368" width="238" height="50" rx="9"/>
+    <text class="name mono-name" x="742" y="387">SseBroadcast</text>
+    <text class="sub" x="742" y="403">named events, all clients</text>
+    <g class="chip k-host"><rect x="882" y="375" width="76" height="16" rx="8"/><text x="889" y="387">← emitters</text></g>
+    <g class="d"><text class="p1" x="36" y="606"><tspan class="b">SseBroadcast</tspan> · fans event: &lt;name&gt; frames to every client and drops closed ones</text><text class="p2" x="36" y="626">Runtime emitters (governance, emergency stop, TurnRunner, DeliveryService) call it directly. It exists only when the primary lane is on.</text></g>
+  </g></a>
+  <a href="../observability-operations-architecture.md#7-real-time-streaming-sse"><g class="n tint k-chan" id="sse">
+    <rect class="box" x="730" y="454" width="238" height="50" rx="9"/>
+    <text class="name" x="742" y="473">SSE endpoints</text>
+    <text class="sub" x="742" y="489">/api/events, /api/tasks/events</text>
+    <g class="d"><text class="p1" x="36" y="606"><tspan class="b">SSE endpoints</tspan> · browser EventSource clients of the web UI</text><text class="p2" x="36" y="626">/api/events answers 503 without SseBroadcast; the five streams are in the SSE topology figure.</text></g>
+  </g></a>
+  <g transform="translate(24,530)">
+    <g class="tint k-host"><rect class="box" x="0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="22" y="10">DartClaw component</text>
+    <g class="tint k-sec"><rect class="box" x="155.60000000000002" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="177.60000000000002" y="10">fail-closed producer</text>
+    <g class="tint k-store"><rect class="box" x="323.6" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="345.6" y="10">file</text>
+    <g class="tint k-chan"><rect class="box" x="392.40000000000003" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="414.40000000000003" y="10">outside the host</text>
+    <g class="e main"><path d="M535.6,6 H567.6"/></g><text class="lg" x="575.6" y="10">bus fan-out</text>
+    <g class="e "><path d="M665.8,6 H697.8"/></g><text class="lg" x="705.8" y="10">call or write</text>
+  </g>
+</svg>

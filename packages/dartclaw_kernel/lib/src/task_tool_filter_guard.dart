@@ -15,7 +15,9 @@ class TaskToolFilterGuard extends Guard {
   /// legacy unrestricted empty-list behavior.
   new({this.denyEmptyAllowlist = false});
 
-  static const _noToolsPolicy = '__knowledge_inbox_no_tools__';
+  /// An allowed-tools entry that denies every tool call, for a turn whose input is
+  /// untrusted data and whose answer needs no tool.
+  static const noToolsPolicy = '__no_tools__';
 
   /// Whether an empty [allowedTools] list represents a closed policy.
   final bool denyEmptyAllowlist;
@@ -87,16 +89,18 @@ class TaskToolFilterGuard extends Guard {
     final hasSessionPolicy = sessionId != null && _allowedToolsBySession.containsKey(sessionId);
     final tools = hasSessionPolicy ? _allowedToolsBySession[sessionId] : allowedTools;
     if (tools == null) return GuardVerdict.pass();
-    if (tools.contains(_noToolsPolicy)) {
-      return GuardVerdict.block(
-        'Tool "${context.toolName ?? 'unknown'}" is not in this task\'s allowed tools: ${tools.join(', ')}',
-      );
-    }
+    // StructuredOutput is how a schema-bound Claude turn returns its reply, not a
+    // work tool, so it passes even under the no-tools sentinel.
     if (sessionId != null &&
         _claudeStructuredOutputSessionIds.contains(sessionId) &&
         context.toolName == 'claude:StructuredOutput' &&
         context.rawProviderToolName == 'StructuredOutput') {
       return GuardVerdict.pass();
+    }
+    if (tools.contains(noToolsPolicy)) {
+      return GuardVerdict.block(
+        'Tool "${context.toolName ?? 'unknown'}" is not in this task\'s allowed tools: ${tools.join(', ')}',
+      );
     }
     if (tools.isEmpty) {
       if (!denyEmptyAllowlist) return GuardVerdict.pass();

@@ -856,6 +856,79 @@ void main() {
       });
     });
 
+    group('image input', () {
+      Future<Map<String, dynamic>> turnPayload(List<Map<String, dynamic>> messages) async {
+        late CapturingFakeProcess fake;
+        final h = buildClaudeHarness(
+          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
+            fake = makeCapturingClaudeProcess();
+            scheduleMicrotask(() => fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}})));
+            Future.delayed(const Duration(milliseconds: 20), () {
+              fake.emitStdout(
+                jsonEncode({
+                  'type': 'result',
+                  'result': 'ok',
+                  'cost_usd': 0.01,
+                  'duration_ms': 100,
+                  'duration_api_ms': 50,
+                  'num_turns': 1,
+                  'is_error': false,
+                  'session_id': 'test-session',
+                }),
+              );
+            });
+            return fake;
+          },
+        );
+        addTeardownAsync(() => h.dispose());
+        await h.start();
+        await h.turn(sessionId: 'test', messages: messages, systemPrompt: '');
+        return fake.capturedStdinJson.lastWhere((entry) => entry['type'] == 'user');
+      }
+
+      test('the last entry\'s images are written as image blocks after the text block', () async {
+        final payload = await turnPayload([
+          {
+            'role': 'user',
+            'content': 'what is this?',
+            'images': [
+              {'mediaType': 'image/png', 'data': 'UE5H'},
+            ],
+          },
+        ]);
+
+        expect(payload['message'], {
+          'role': 'user',
+          'content': [
+            {'type': 'text', 'text': 'what is this?'},
+            {
+              'type': 'image',
+              'source': {'type': 'base64', 'media_type': 'image/png', 'data': 'UE5H'},
+            },
+          ],
+        });
+      });
+
+      test('an entry without images writes the string content, malformed images included', () async {
+        final plain = await turnPayload([
+          {'role': 'user', 'content': 'hello'},
+        ]);
+        final malformed = await turnPayload([
+          {
+            'role': 'user',
+            'content': 'hello',
+            'images': [
+              'nope',
+              {'mediaType': 3},
+            ],
+          },
+        ]);
+
+        expect(plain['message'], {'role': 'user', 'content': 'hello'});
+        expect(malformed['message'], {'role': 'user', 'content': 'hello'});
+      });
+    });
+
     group('hook callbacks', () {
       test('can_use_tool denies when dontAsk mode unexpectedly emits a native permission request', () async {
         late CapturingFakeProcess fake;
@@ -969,6 +1042,19 @@ void main() {
               containsPair('response', containsPair('hookSpecificOutput', containsPair('permissionDecision', 'deny'))),
             ),
           ),
+        );
+        expect(
+          fake.capturedStdinJson,
+          contains(
+            containsPair(
+              'response',
+              containsPair(
+                'response',
+                containsPair('hookSpecificOutput', containsPair('permissionDecisionReason', 'blocked')),
+              ),
+            ),
+          ),
+          reason: 'the guard verdict reason reaches the model, not only a generic block',
         );
         fake.emitStdout(jsonEncode({'type': 'result', 'result': 'done', 'is_error': false}));
         await turnFuture;
@@ -1171,6 +1257,50 @@ void main() {
           isTrue,
         );
         expect(fake.capturedStdinJson, isNotEmpty);
+      });
+
+      test('PreToolUse holds Claude Grep and Glob to FileGuard from the hook cwd', () async {
+        final ws = Directory.systemTemp.createTempSync('claude_search_guard_').resolveSymbolicLinksSync();
+        addTearDown(() => Directory(ws).deleteSync(recursive: true));
+        Directory('$ws/.ssh').createSync();
+        Directory('$ws/proj').createSync();
+        final recording = RecordingGuard();
+        late CapturingFakeProcess fake;
+        final h = buildClaudeHarness(
+          processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
+            fake = makeCapturingClaudeProcess();
+            scheduleMicrotask(() {
+              fake.emitStdout(jsonEncode({'type': 'control_response', 'response': {}}));
+            });
+            return fake;
+          },
+          guardChain: GuardChain(guards: [recording, FileGuard()]),
+        );
+        addTeardownAsync(() => h.dispose());
+        await h.start();
+
+        Future<String?> decisionFor(String toolName, Map<String, dynamic> toolInput, {String? cwd}) async {
+          fake.emitStdout(
+            jsonEncode({
+              'type': 'control_request',
+              'request_id': 'req-$toolName-${fake.capturedStdinJson.length}',
+              'request': {
+                'subtype': 'hook_callback',
+                'input': {'hook_event_name': 'PreToolUse', 'cwd': ?cwd, 'tool_name': toolName, 'tool_input': toolInput},
+              },
+            }),
+          );
+          await pumpEventQueue();
+          final Map<String, dynamic> last = fake.capturedStdinJson.last;
+          return last['response']['response']['hookSpecificOutput']['permissionDecision'] as String?;
+        }
+
+        expect(await decisionFor('Grep', {'pattern': 'PRIVATE KEY', 'path': '$ws/.ssh'}), 'deny');
+        expect(recording.lastContext!.toolName, 'file_read');
+        expect(await decisionFor('Glob', {'pattern': '**/id_*', 'path': ws}), 'allow');
+        expect(await decisionFor('Grep', {'pattern': 'KEY', 'path': '../.ssh'}, cwd: '$ws/proj'), 'deny');
+        expect(recording.lastContext!.toolInput!['cwd'], '$ws/proj');
+        expect(await decisionFor('Grep', {'pattern': 'KEY'}, cwd: '$ws/proj'), 'allow');
       });
 
       test('malformed hook callbacks deny exactly once and do not poison later valid callbacks', () async {
@@ -1491,9 +1621,8 @@ void main() {
         expect(preCompactEntry['hookCallbackIds'], contains('hook_pre_compact'));
       });
 
-      test('memory search SDK schema advertises the bounded integer limit', () async {
+      test('initialize carries hooks only: memory tools are served over /mcp, never the control protocol', () async {
         late CapturingFakeProcess fake;
-        Future<Map<String, dynamic>> memoryHandler(Map<String, dynamic> _) async => {};
         final h = ClaudeCodeHarness(
           cwd: '/tmp',
           processFactory: (exe, args, {workingDirectory, environment, includeParentEnvironment = true}) async {
@@ -1506,10 +1635,6 @@ void main() {
           commandProbe: defaultClaudeCommandProbe,
           delayFactory: noOpClaudeDelay,
           environment: const {'ANTHROPIC_API_KEY': 'sk-test-key'},
-          onMemoryApply: memoryHandler,
-          onMemoryObserve: memoryHandler,
-          onMemorySearch: memoryHandler,
-          onMemoryRead: memoryHandler,
         );
         addTeardownAsync(() => h.dispose());
 
@@ -1518,32 +1643,7 @@ void main() {
         final initRequest = fake.capturedStdinJson.firstWhere(
           (message) => message['type'] == 'control_request' && (message['request'] as Map?)?['subtype'] == 'initialize',
         );
-        final request = initRequest['request'] as Map<String, dynamic>;
-        final servers = request['sdkMcpServers'] as Map<String, dynamic>;
-        final server = servers['dartclaw'] as Map<String, dynamic>;
-        final tools = server['tools'] as List<dynamic>;
-        final search = tools.cast<Map<String, dynamic>>().singleWhere((tool) => tool['name'] == 'memory_search');
-        final schema = search['input_schema'] as Map<String, dynamic>;
-        final limit = (schema['properties'] as Map<String, dynamic>)['limit'] as Map<String, dynamic>;
-        expect(limit, containsPair('type', 'integer'));
-        expect(limit, containsPair('minimum', 1));
-        expect(limit, containsPair('maximum', 50));
-        expect(schema['additionalProperties'], isFalse);
-
-        final observe = tools.cast<Map<String, dynamic>>().singleWhere((tool) => tool['name'] == 'memory_observe');
-        final observeSchema = observe['input_schema'] as Map<String, dynamic>;
-        expect(observeSchema['required'], ['text', 'role']);
-        expect(observeSchema['additionalProperties'], isFalse);
-
-        final read = tools.cast<Map<String, dynamic>>().singleWhere((tool) => tool['name'] == 'memory_read');
-        final readSchema = read['input_schema'] as Map<String, dynamic>;
-        expect(readSchema['oneOf'], hasLength(2));
-        expect(readSchema['additionalProperties'], isFalse);
-
-        final apply = tools.cast<Map<String, dynamic>>().singleWhere((tool) => tool['name'] == 'memory_apply');
-        final applySchema = apply['input_schema'] as Map<String, dynamic>;
-        expect(applySchema['additionalProperties'], isFalse);
-        expect((applySchema['properties'] as Map<String, dynamic>)['operations'], containsPair('minItems', 1));
+        expect((initRequest['request'] as Map<String, dynamic>).keys, unorderedEquals(['subtype', 'hooks']));
       });
     });
 

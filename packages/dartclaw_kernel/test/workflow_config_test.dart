@@ -208,6 +208,227 @@ workflow:
       expect(config.warnings, anyElement(contains('runtime_artifacts_retention.prune_after_days')));
     });
 
+    test('workflow.chat_notifications is null when the block is absent', () {
+      final config = _load('port: 3000');
+      expect(config.workflow.chatNotifications, isNull);
+      expect(config.warnings, isEmpty);
+    });
+
+    test('workflow.chat_notifications with channel and recipient only posts the default four events', () {
+      final config = _load('''
+workflow:
+  chat_notifications:
+    channel: slack
+    recipient: C0123ABC
+''');
+
+      expect(
+        config.workflow.chatNotifications,
+        const WorkflowChatNotificationsConfig(channel: ChannelType.slack, recipient: 'C0123ABC'),
+      );
+      expect(config.workflow.chatNotifications!.events, {
+        WorkflowChatNotificationEvent.started,
+        WorkflowChatNotificationEvent.awaitingApproval,
+        WorkflowChatNotificationEvent.finished,
+        WorkflowChatNotificationEvent.failed,
+      });
+      expect(config.warnings, isEmpty);
+    });
+
+    test('workflow.chat_notifications.events narrows to the listed subset', () {
+      final config = _load('''
+workflow:
+  chat_notifications:
+    channel: googlechat
+    recipient: spaces/AAAA
+    events: [finished]
+''');
+
+      expect(config.workflow.chatNotifications!.channel, ChannelType.googlechat);
+      expect(config.workflow.chatNotifications!.events, {WorkflowChatNotificationEvent.finished});
+      expect(config.warnings, isEmpty);
+    });
+
+    test('workflow.chat_notifications.events opts in to step_completed and collapses duplicates', () {
+      final config = _load('''
+workflow:
+  chat_notifications:
+    channel: signal
+    recipient: "+46700000000"
+    events: [started, step_completed, started, failed]
+''');
+
+      expect(config.workflow.chatNotifications!.events, {
+        WorkflowChatNotificationEvent.started,
+        WorkflowChatNotificationEvent.stepCompleted,
+        WorkflowChatNotificationEvent.failed,
+      });
+      expect(config.warnings, isEmpty);
+    });
+
+    test('workflow.chat_notifications equality and hashCode follow the event set, not its order', () {
+      const a = WorkflowChatNotificationsConfig(
+        channel: ChannelType.slack,
+        recipient: 'C1',
+        events: {WorkflowChatNotificationEvent.started, WorkflowChatNotificationEvent.failed},
+      );
+      const b = WorkflowChatNotificationsConfig(
+        channel: ChannelType.slack,
+        recipient: 'C1',
+        events: {WorkflowChatNotificationEvent.failed, WorkflowChatNotificationEvent.started},
+      );
+      expect(a, b);
+      expect(a.hashCode, b.hashCode);
+      expect(const WorkflowConfig(chatNotifications: a), isNot(const WorkflowConfig()));
+      expect(const WorkflowConfig(chatNotifications: a), const WorkflowConfig(chatNotifications: b));
+    });
+
+    final invalidBlocks = <String, ({String yaml, String key, List<String> mentions})>{
+      'an unknown event name': (
+        yaml: '''
+workflow:
+  chat_notifications:
+    channel: slack
+    recipient: C1
+    events: [finished, bogus]
+''',
+        key: 'workflow.chat_notifications.events',
+        mentions: ['"bogus"', 'awaiting_approval', 'step_completed'],
+      ),
+      'a non-string event': (
+        yaml: '''
+workflow:
+  chat_notifications:
+    channel: slack
+    recipient: C1
+    events: [finished, 3]
+''',
+        key: 'workflow.chat_notifications.events',
+        mentions: ['"3"'],
+      ),
+      'an empty events list': (
+        yaml: '''
+workflow:
+  chat_notifications:
+    channel: slack
+    recipient: C1
+    events: []
+''',
+        key: 'workflow.chat_notifications.events',
+        mentions: ['empty list'],
+      ),
+      'a non-list events value': (
+        yaml: '''
+workflow:
+  chat_notifications:
+    channel: slack
+    recipient: C1
+    events: finished
+''',
+        key: 'workflow.chat_notifications.events',
+        mentions: ['"String"'],
+      ),
+      'a channel outside the notification channels': (
+        yaml: '''
+workflow:
+  chat_notifications:
+    channel: telegram
+    recipient: C1
+''',
+        key: 'workflow.chat_notifications.channel',
+        mentions: ['"telegram"', 'whatsapp, signal, googlechat, slack'],
+      ),
+      'the web channel': (
+        yaml: '''
+workflow:
+  chat_notifications:
+    channel: web
+    recipient: C1
+''',
+        key: 'workflow.chat_notifications.channel',
+        mentions: ['"web"'],
+      ),
+      'a non-string channel': (
+        yaml: '''
+workflow:
+  chat_notifications:
+    channel: 7
+    recipient: C1
+''',
+        key: 'workflow.chat_notifications.channel',
+        mentions: ['"int"'],
+      ),
+      'a missing channel': (
+        yaml: '''
+workflow:
+  chat_notifications:
+    recipient: C1
+''',
+        key: 'workflow.chat_notifications.channel',
+        mentions: ['Missing', 'slack'],
+      ),
+      'a missing recipient': (
+        yaml: '''
+workflow:
+  chat_notifications:
+    channel: slack
+''',
+        key: 'workflow.chat_notifications.recipient',
+        mentions: ['Missing'],
+      ),
+      'a blank recipient': (
+        yaml: '''
+workflow:
+  chat_notifications:
+    channel: slack
+    recipient: "   "
+''',
+        key: 'workflow.chat_notifications.recipient',
+        mentions: ['Missing'],
+      ),
+      'a non-string recipient': (
+        yaml: '''
+workflow:
+  chat_notifications:
+    channel: slack
+    recipient: 12345
+''',
+        key: 'workflow.chat_notifications.recipient',
+        mentions: ['"int"'],
+      ),
+      'a non-map block': (
+        yaml: '''
+workflow:
+  chat_notifications: slack
+''',
+        key: 'workflow.chat_notifications',
+        mentions: ['"String"'],
+      ),
+      'two defects in one block': (
+        yaml: '''
+workflow:
+  chat_notifications:
+    channel: telegram
+    events: [bogus]
+''',
+        key: 'workflow.chat_notifications.channel',
+        mentions: ['"telegram"'],
+      ),
+    };
+    for (final entry in invalidBlocks.entries) {
+      test('workflow.chat_notifications with ${entry.key} is ignored with one warning', () {
+        final config = _load(entry.value.yaml);
+
+        expect(config.workflow.chatNotifications, isNull);
+        expect(config.warnings, hasLength(1), reason: config.warnings.join('\n'));
+        expect(config.warnings.single, contains(entry.value.key));
+        expect(config.warnings.single, endsWith('– ignoring workflow.chat_notifications'));
+        for (final mention in entry.value.mentions) {
+          expect(config.warnings.single, contains(mention));
+        }
+      });
+    }
+
     for (final value in ['-1', 'wrong']) {
       test('workflow.runtime_artifacts_retention keeps its fused prune warning for $value', () {
         final config = _load('''

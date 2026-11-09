@@ -348,7 +348,6 @@ _ConfiguredServerFixture _buildConfiguredServer(
   final healthService = includeHealthService
       ? HealthService(
           worker: worker,
-          searchDbPath: p.join(tempDir.path, 'search.db'),
           sessionsDir: p.join(tempDir.path, 'sessions'),
           tasksDir: p.join(tempDir.path, 'tasks'),
         )

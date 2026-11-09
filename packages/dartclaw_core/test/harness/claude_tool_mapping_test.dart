@@ -13,6 +13,13 @@ void main() {
       expect(adapter.mapToolName('Read'), CanonicalTool.fileRead);
     });
 
+    test('maps the Grep and Glob search tools to file_read', () {
+      final adapter = ClaudeProtocolAdapter();
+      expect(adapter.mapToolName('Grep'), CanonicalTool.fileRead);
+      expect(adapter.mapToolName('Glob'), CanonicalTool.fileRead);
+      expect(ClaudeProtocolAdapter.nativeToolNames('file_read'), containsAll(['Read', 'Grep', 'Glob']));
+    });
+
     test('maps Write and write_file to file_write', () {
       final adapter = ClaudeProtocolAdapter();
       expect(adapter.mapToolName('Write'), CanonicalTool.fileWrite);

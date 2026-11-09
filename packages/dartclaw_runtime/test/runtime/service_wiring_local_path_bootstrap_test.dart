@@ -13,10 +13,8 @@ import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
-// Resolved via package URI in setUpAll. Avoids depending on Directory.current
-// (mutated concurrently by sibling test files), which previously caused the
-// relative-path versions of these helpers to misresolve under default-
-// concurrency runs.
+// Resolved via package URI in setUpAll, so the suite does not depend on
+// whether it runs from the package or the repo root.
 late String _staticDirPath;
 late String _templatesDirPath;
 
@@ -103,6 +101,10 @@ DartclawConfig _schedulingConfig(
 const _orchestrationAndContentTools = {
   'workflow_run',
   'workflow_list',
+  'workflow_resume',
+  'workflow_cancel',
+  'workflow_request_changes',
+  'workflow_status',
   'schedule_upsert',
   'schedule_list',
   'attach_media',
@@ -618,6 +620,7 @@ steps:
           'kg_contradictions',
           'context_research',
           'workflow_list',
+          'workflow_status',
           'schedule_list',
           if (searchEnabled) 'brave_search',
         },
@@ -642,13 +645,16 @@ steps:
           'kg_add',
           'kg_invalidate',
           'workflow_run',
+          'workflow_resume',
+          'workflow_cancel',
+          'workflow_request_changes',
           'schedule_upsert',
           'attach_media',
           'wiki_write',
         },
       );
 
-      // All six carry a CanonicalTool mapping, so the container lane can reach
+      // Every one carries a CanonicalTool mapping, so the container lane can reach
       // whichever of them its own tool policy names — the host lane's rule,
       // not a second one. Deny-by-default still holds per authority.
       expect(

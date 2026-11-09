@@ -1,0 +1,186 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 630" width="1000" height="630" role="img" aria-labelledby="title desc">
+  <title id="title">Live task delivery: events to the UI</title>
+  <desc id="desc">Task, project, turn-wait, workflow and runner events are fired on the in-process EventBus. The task SSE route subscribes to them for each connected client, adds task_progress snapshots from TaskProgressTracker and execution_capacity straight from RunnerObserver, and streams the lot to the Web UI. Trace summaries are read per request, not streamed.</desc>
+  <style>
+
+    svg { --bg:#f6f7f9; --card:#ffffff; --ink:#1e2030; --ink2:#4c4f69; --ink3:#6c6f85; --rule:#ccd0da; --edge:#8c8fa1; --hi:#1e66f5; --on:#ffffff; --panel:#1e1e2e; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+      --host:#40a02b; --host-d:#1f5c2a; --host-l:#2d7a1f; --ext:#e07c4f; --ext-d:#a8481c; --ext-l:#b5531f; --store:#179299; --store-d:#0f5f63; --store-l:#0e7377;
+      --sec:#d20f39; --sec-d:#9b0c2c; --sec-l:#b80d33; --chan:#8839ef; --chan-d:#5d23a8; --chan-l:#7027d4; --neu:#7c7f93; --neu-d:#4c4f69; --neu-l:#5c5f77; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#181825; --card:#1e1e2e; --ink:#cdd6f4; --ink2:#bac2de; --ink3:#9399b2; --rule:#45475a; --edge:#7f849c; --hi:#89b4fa; --on:#f5f7ff; --panel:#11111b; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+        --host:#a6e3a1; --host-d:#2f6b3a; --host-l:#a6e3a1; --ext:#fab387; --ext-d:#8f4a24; --ext-l:#fab387; --store:#94e2d5; --store-d:#1f6460; --store-l:#94e2d5;
+        --sec:#f38ba8; --sec-d:#8a2c45; --sec-l:#f38ba8; --chan:#cba6f7; --chan-d:#5e3f94; --chan-l:#cba6f7; --neu:#9399b2; --neu-d:#45475a; --neu-l:#bac2de; }
+    }
+    text { fill: var(--ink); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .mono, .kick, .badge text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+    .bg { fill: var(--bg); }
+    .title { font-size: 21px; font-weight: 700; }
+    .lede { fill: var(--ink3); font-size: 13px; }
+    .kick { font-size: 10.5px; font-weight: 600; letter-spacing: .1em; fill: var(--kl, var(--ink3)); }
+    .k-host { --k:var(--host); --kd:var(--host-d); --kl:var(--host-l); }
+    .k-ext { --k:var(--ext); --kd:var(--ext-d); --kl:var(--ext-l); }
+    .k-store { --k:var(--store); --kd:var(--store-d); --kl:var(--store-l); }
+    .k-sec { --k:var(--sec); --kd:var(--sec-d); --kl:var(--sec-l); }
+    .k-chan { --k:var(--chan); --kd:var(--chan-d); --kl:var(--chan-l); }
+    .k-neu { --k:var(--neu); --kd:var(--neu-d); --kl:var(--neu-l); }
+    .band { fill: color-mix(in srgb, var(--k) 6%, var(--bg)); stroke: color-mix(in srgb, var(--k) 50%, var(--bg)); stroke-width: 1.4; stroke-dasharray: 7 5; }
+    .box { stroke-width: 1.5; }
+    .tint .box { fill: color-mix(in srgb, var(--k) 13%, var(--card)); stroke: var(--k); }
+    .line .box { fill: var(--card); stroke: var(--k); }
+    .ghost .box { fill: none; stroke: var(--k); stroke-dasharray: 5 4; }
+    .solid .box { fill: var(--kd); stroke: var(--kd); }
+    .name { font-size: 14.5px; font-weight: 700; }
+    .sub { font-size: 11.5px; fill: var(--ink2); }
+    .mono { font-size: 11.5px; fill: var(--ink2); }
+    .solid text { fill: var(--on); }
+    .solid .sub, .solid .mono { fill: var(--on); fill-opacity: .82; }
+    .badge rect { fill: none; stroke: var(--kl); stroke-width: 1.2; }
+    .badge text { font-size: 9.5px; font-weight: 700; letter-spacing: .06em; fill: var(--kl); text-anchor: middle; }
+    .solid .badge rect { stroke: var(--on); stroke-opacity: .7; }
+    .solid .badge text { fill: var(--on); }
+    .e path { fill: none; stroke: var(--ec, var(--edge)); stroke-width: var(--ew, 1.6px); marker-end: var(--em, url(#ah)); }
+    .e.main path { stroke: var(--ec, var(--host)); stroke-width: var(--ew, 2.4px); marker-end: var(--em, url(#ah-main)); }
+    .e.bad path { stroke: var(--ec, var(--sec)); marker-end: var(--em, url(#ah-bad)); }
+    .e.dash path { stroke-dasharray: 6 4; }
+    .el { font-size: 11px; fill: var(--ink2); paint-order: stroke; stroke: var(--halo, var(--bg)); stroke-width: 4px; stroke-linejoin: round; }
+    .in-host .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    .ah { fill: var(--edge); } .ah-main { fill: var(--host); } .ah-bad { fill: var(--sec); } .ah-hi { fill: var(--hi); }
+    .panel { fill: var(--panel); }
+    .panel-kick { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10.5px; font-weight: 700; letter-spacing: .12em; fill: var(--panel-kick); }
+    .p1 { fill: var(--panel-ink); font-size: 13px; }
+    .p1 tspan.b { font-weight: 700; }
+    .p2 { fill: var(--panel-sub); font-size: 12.5px; }
+    .lg { font-size: 11px; fill: var(--ink2); }
+    .chip rect { fill: color-mix(in srgb, var(--k) 10%, var(--card)); stroke: var(--k); stroke-width: 1; }
+    .chip text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10px; font-weight: 600; fill: var(--kl); }
+    .step circle { fill: var(--kd); } .step text { fill: var(--on); font-size: 11px; font-weight: 700; text-anchor: middle; }
+    /* Interaction, effective only when the SVG is opened directly. */
+    .n { cursor: pointer; }
+    .n:hover .box, a:focus-visible .box { stroke: var(--hi); stroke-width: 2.8; }
+    .d { display: none; pointer-events: none; }
+    .n:hover .d, a:focus-visible .d { display: inline; }
+    svg:has(.n:hover) .d0, svg:has(a:focus-visible) .d0 { display: none; }
+    svg:has(.n:hover) .edges .e { opacity: .14; }
+    .e.join path { marker-end: none; }
+    .band.inner { fill: none; stroke-dasharray: 3 4; }
+    .mono-name { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13.5px; }
+    svg:has(#svc:hover) .edges :is(.f-svc,.t-svc) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#rec:hover) .edges :is(.f-rec,.t-rec) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#other:hover) .edges :is(.f-other,.t-other) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#observer:hover) .edges :is(.f-observer,.t-observer) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#bus:hover) .edges :is(.f-bus,.t-bus) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#tracker:hover) .edges :is(.f-tracker,.t-tracker) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#sse:hover) .edges :is(.f-sse,.t-sse) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#ui:hover) .edges :is(.f-ui,.t-ui) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#traces:hover) .edges :is(.f-traces,.t-traces) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+  </style>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-main" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path class="ah-main" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-bad" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="ah-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="630"/>
+  <!-- Details panel: painted first so node details (.d) draw on top -->
+  <rect class="panel" x="16" y="534" width="968" height="80" rx="12"/>
+  <text class="panel-kick" x="36" y="558">DETAILS</text>
+  <g class="d0"><text class="p1" x="36" y="582">Hover a box for what it emits or consumes; its connections light up. Click it to open its section.</text><text class="p2" x="36" y="602">Inside a rendered document this image is static. Click it to open the interactive SVG.</text></g>
+
+  <text class="kick" x="24" y="32">DATA FLOW · EventBus → GET /api/tasks/events</text>
+  <text class="title" x="24" y="58">Live task delivery: events to the UI</text>
+  <text class="lede" x="24" y="80">One stream per client. Runner capacity bypasses the EventBus and goes straight to the stream.</text>
+
+  <g class="k-host"><rect class="band" x="16" y="100" width="210" height="354" rx="14"/><text class="kick" x="32" y="122">EVENT PRODUCERS</text></g>
+
+  <g class="edges">
+    <g class="e  f-svc t-bus"><path d="M214,166 H314"/><text class="el" x="264" y="159" text-anchor="middle">status changes</text></g>
+    <g class="e  f-rec t-bus"><path d="M214,246 H314"/><text class="el" x="264" y="239" text-anchor="middle">task events</text></g>
+    <g class="e  f-other t-bus"><path d="M214,326 H314"/><text class="el" x="264" y="319" text-anchor="middle">other events</text></g>
+    <g class="e  f-observer t-bus"><path d="M214,406 H386 V360"/><text class="el" x="300" y="399" text-anchor="middle">runner state</text></g>
+    <g class="e  f-bus t-tracker"><path d="M456,166 H542"/><text class="el" x="499" y="159" text-anchor="middle">task events</text></g>
+    <g class="e main f-bus t-sse"><path d="M456,290 H542"/><text class="el" x="499" y="283" text-anchor="middle">events</text></g>
+    <g class="e  f-tracker t-sse"><path d="M667,198 V234"/><text class="el" x="675" y="221" text-anchor="start">task_progress</text></g>
+    <g class="e dash f-observer t-sse"><path d="M214,430 H500 V352 H542"/><text class="el" x="357" y="423" text-anchor="middle">capacityChanges, direct</text></g>
+    <g class="e main f-sse t-ui"><path d="M790,306 H858"/><text class="el" x="824" y="299" text-anchor="middle">SSE</text></g>
+    <g class="e dash f-traces t-ui"><path d="M790,452 H918 V378"/><text class="el" x="852" y="445" text-anchor="middle">per request</text></g>
+  </g>
+
+  <a href="../task-execution-architecture.md#32-entry-points"><g class="n tint k-host" id="svc">
+    <rect class="box" x="28" y="134" width="186" height="64" rx="9"/>
+    <text class="name mono-name" x="40" y="157">TaskService</text>
+    <text class="sub" x="40" y="175">TaskStatusChangedEvent,</text>
+    <text class="sub" x="40" y="191">after the write</text>
+    <g class="d"><text class="p1" x="36" y="582"><tspan class="b">TaskService</tspan> · transition awaits the statusChanged task event, then fires TaskStatusChangedEvent</text><text class="p2" x="36" y="602">TaskReviewReadyEvent is not on this stream: EventBusSseBridge relays it as task_review_ready on the global SSE broadcast.</text></g>
+  </g></a>
+  <a href="../task-execution-architecture.md#72-persistence-and-recorder"><g class="n tint k-host" id="rec">
+    <rect class="box" x="28" y="214" width="186" height="64" rx="9"/>
+    <text class="name mono-name" x="40" y="237">TaskEventRecorder</text>
+    <text class="sub" x="40" y="255">TaskEventCreatedEvent,</text>
+    <text class="sub" x="40" y="271">only after the insert</text>
+    <g class="d"><text class="p1" x="36" y="582"><tspan class="b">TaskEventRecorder</tspan> · fires TaskEventCreatedEvent once the task_events insert succeeded; the write side is the turn-recording figure</text><text class="p2" x="36" y="602">A subscriber never sees an event whose row failed to insert.</text></g>
+  </g></a>
+  <g class="n line k-neu" id="other">
+    <rect class="box" x="28" y="294" width="186" height="64" rx="9"/>
+    <text class="name" x="40" y="317">other producers</text>
+    <text class="sub" x="40" y="335">ProjectService, turn waits,</text>
+    <text class="sub" x="40" y="351">workflow runs and steps</text>
+    <g class="d"><text class="p1" x="36" y="582"><tspan class="b">other producers</tspan> · ProjectStatusChangedEvent, TurnWaitStateChangedEvent, WorkflowRunStatusChangedEvent and WorkflowStepCompletedEvent</text><text class="p2" x="36" y="602">The task stream forwards them as project_status, turn_wait_state and workflow_sidebar_update.</text></g>
+  </g>
+  <a href="../task-execution-architecture.md#76-runnerobserver"><g class="n tint k-host" id="observer">
+    <rect class="box" x="28" y="374" width="186" height="64" rx="9"/>
+    <text class="name mono-name" x="40" y="397">RunnerObserver</text>
+    <text class="sub" x="40" y="415">RunnerStateChangedEvent;</text>
+    <text class="sub" x="40" y="431">capacityChanges stream</text>
+    <g class="d"><text class="p1" x="36" y="582"><tspan class="b">RunnerObserver</tspan> · fires RunnerStateChangedEvent on the EventBus; the SSE route subscribes to its capacityChanges stream directly</text><text class="p2" x="36" y="602">Metrics and capacity are in memory and reset on restart.</text></g>
+  </g></a>
+  <a href="../task-execution-architecture.md#73-observability-pipeline"><g class="n solid k-host" id="bus">
+    <rect class="box" x="316" y="134" width="140" height="224" rx="9"/>
+    <text class="name mono-name" x="328" y="157">EventBus</text>
+    <text class="sub" x="328" y="175">in-process,</text>
+    <text class="sub" x="328" y="191">typed events;</text>
+    <text class="sub" x="328" y="207">no replay for</text>
+    <text class="sub" x="328" y="223">late subscribers</text>
+    <g class="d"><text class="p1" x="36" y="582"><tspan class="b">EventBus</tspan> · a broadcast stream: an event with no subscriber is dropped, and a subscriber exception never reaches the producer</text><text class="p2" x="36" y="602">A client connecting later misses earlier events, so the stream opens with a connected snapshot of current state.</text></g>
+  </g></a>
+  <a href="../task-execution-architecture.md#74-taskprogresstracker"><g class="n tint k-host" id="tracker">
+    <rect class="box" x="544" y="134" width="246" height="64" rx="9"/>
+    <text class="name mono-name" x="556" y="157">TaskProgressTracker</text>
+    <text class="sub" x="556" y="175">TaskEventCreatedEvent in;</text>
+    <text class="sub" x="556" y="191">1 s throttle, seeded at start</text>
+    <g class="d"><text class="p1" x="36" y="582"><tspan class="b">TaskProgressTracker</tspan> · starts on running, sums tokenUpdate totals, keeps the latest toolCalled activity, emits a TaskProgressSnapshot</text><text class="p2" x="36" y="602">progress is 0 to 100 and null without a budget; a final isComplete snapshot is emitted when the task leaves running.</text></g>
+  </g></a>
+  <a href="../task-execution-architecture.md#75-sse"><g class="n solid k-host" id="sse">
+    <rect class="box" x="544" y="236" width="246" height="140" rx="9"/>
+    <text class="name mono-name" x="556" y="259">GET /api/tasks/events</text>
+    <text class="sub" x="556" y="277">connected snapshot, then:</text>
+    <text class="sub" x="556" y="293">task_status_changed, task_event,</text>
+    <text class="sub" x="556" y="309">task_progress, runner_state,</text>
+    <text class="sub" x="556" y="325">execution_capacity, project_status,</text>
+    <text class="sub" x="556" y="341">turn_wait_state,</text>
+    <text class="sub" x="556" y="357">workflow_sidebar_update</text>
+    <g class="d"><text class="p1" x="36" y="582"><tspan class="b">GET /api/tasks/events</tspan> · the first frame is connected: review count, active tasks and workflows, runner snapshot and projects</text><text class="p2" x="36" y="602">api/task_sse_routes.dart. Each client holds its own subscriptions, cancelled when it disconnects.</text></g>
+  </g></a>
+  <g class="n tint k-chan" id="ui">
+    <rect class="box" x="860" y="236" width="116" height="140" rx="9"/>
+    <text class="name" x="872" y="259">Web UI</text>
+    <text class="sub" x="872" y="277">task pages,</text>
+    <text class="sub" x="872" y="293">dashboard,</text>
+    <text class="sub" x="872" y="309">sidebar</text>
+    <g class="d"><text class="p1" x="36" y="582"><tspan class="b">Web UI</tspan> · consumes the task SSE stream for live status, timeline and progress</text><text class="p2" x="36" y="602">Trace summaries are read per request from GET /api/traces, not streamed.</text></g>
+  </g>
+  <a href="../task-execution-architecture.md#8-turn-traces"><g class="n tint k-host" id="traces">
+    <rect class="box" x="544" y="420" width="246" height="64" rx="9"/>
+    <text class="name mono-name" x="556" y="443">GET /api/traces</text>
+    <text class="sub" x="556" y="461">TurnTraceService.query:</text>
+    <text class="sub" x="556" y="477">newest first, limit 50 (max 500)</text>
+    <g class="d"><text class="p1" x="36" y="582"><tspan class="b">GET /api/traces</tspan> · api/trace_routes.dart; also GET /api/traces/&lt;id&gt;. Not part of the SSE stream</text><text class="p2" x="36" y="602">The summary (token, duration and tool-call totals, trace count) covers the full filtered set, not the page.</text></g>
+  </g></a>
+  <g transform="translate(24,508)">
+    <g class="tint k-host"><rect class="box" x="0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="22" y="10">DartClaw component</text>
+    <g class="tint k-chan"><rect class="box" x="155.60000000000002" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="177.60000000000002" y="10">client</text>
+    <g class="e main"><path d="M236.8,6 H268.8"/></g><text class="lg" x="276.8" y="10">event delivery</text>
+    <g class="e "><path d="M385.6,6 H417.6"/></g><text class="lg" x="425.6" y="10">event on the bus</text>
+    <g class="e dash"><path d="M546.8,6 H578.8"/></g><text class="lg" x="586.8" y="10">direct or per request</text>
+  </g>
+</svg>

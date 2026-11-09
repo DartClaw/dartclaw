@@ -59,8 +59,12 @@ WorkflowTurnAdapter _buildWorkflowTurnAdapter(
 
       var effectiveProjectId = (projectId ?? variables['PROJECT'])?.trim();
       final resolvedProject = await requireProject(effectiveProjectId);
-      if (resolvedProject != null && (effectiveProjectId == null || effectiveProjectId.isEmpty) && declaresProject) {
-        effectiveProjectId = resolvedProject.id;
+      if ((effectiveProjectId == null || effectiveProjectId.isEmpty) && declaresProject) {
+        // The zero-server lane's default project is its local repository. Naming
+        // it here is what lets the engine's project-gated git lifecycle (setup,
+        // promotion, publish) engage instead of skipping setup and then failing
+        // promotion for want of a binding.
+        effectiveProjectId = resolvedProject?.id ?? (localFallbackDir != null ? _localProjectId : null);
       }
 
       String? effectiveBranch;

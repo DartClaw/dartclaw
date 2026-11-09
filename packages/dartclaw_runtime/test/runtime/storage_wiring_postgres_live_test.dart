@@ -12,6 +12,7 @@ import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_workflow/testing.dart' show FakeProviderAuthPreflight;
 import 'package:logging/logging.dart';
+import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 void main() {
@@ -64,7 +65,7 @@ void main() {
       expect((await runtime.taskService.get(task.id))?.title, 'Postgres');
       expect(opens, 1);
       expect(File(config.dartclawDbPath).existsSync(), isFalse);
-      expect(File(config.searchDbPath).existsSync(), isFalse);
+      expect(File(p.join(config.server.dataDir, 'search.db')).existsSync(), isFalse);
 
       await runtime.shutdown();
       runtime = null;

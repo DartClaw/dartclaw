@@ -60,11 +60,14 @@ class FileWorkflowRunRepository implements WorkflowRunRepository, WorkflowRunCha
             (expectedUpdatedAt != null && existing.updatedAt != expectedUpdatedAt)) {
           return false;
         }
-        _runs(state)[run.id] = run
-            .copyWith(
-              workflowWorktrees: run.workflowWorktrees.isEmpty ? existing.workflowWorktrees : run.workflowWorktrees,
-            )
-            .toJson();
+        _runs(state)[run.id] = {
+          ...run
+              .copyWith(
+                workflowWorktrees: run.workflowWorktrees.isEmpty ? existing.workflowWorktrees : run.workflowWorktrees,
+              )
+              .toJson(),
+          'origin': existing.origin.toJson(),
+        };
         return true;
       });
 

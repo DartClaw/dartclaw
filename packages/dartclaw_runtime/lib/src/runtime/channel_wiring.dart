@@ -10,13 +10,18 @@ import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnMa
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:dartclaw_signal/dartclaw_signal.dart';
+import 'package:dartclaw_slack/dartclaw_slack.dart';
 import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
 import 'package:http/http.dart' as http;
 import 'package:logging/logging.dart';
+import 'package:meta/meta.dart' show visibleForTesting;
 import 'package:path/path.dart' as p;
 
+import '../config/message_queue_reconfigurer.dart';
+import '../task/channel_review_gate.dart';
 import 'channel_agent_binding.dart';
 import 'channel_session_title.dart';
+import 'channel_turn_attachments.dart';
 import 'feedback_observer_factory.dart';
 import 'model_resolver.dart';
 import 'reserved_command_handler.dart';
@@ -26,7 +31,7 @@ import 'task_wiring.dart';
 /// Constructs and exposes channel-layer services.
 ///
 /// Owns channel manager, WhatsApp, Signal, Google Chat (including Space Events),
-/// task notification subscriber, and the dispatch helpers used by channel turns.
+/// Slack, task notification subscriber, and the dispatch helpers used by channel turns.
 class ChannelWiring {
   new({
     required this.config,
@@ -37,13 +42,15 @@ class ChannelWiring {
     required TaskWiring task,
     required String resolvedConfigPath,
     ChannelAgentBinder? agentBinder,
+    GuardAuditLogger? auditLogger,
   }) : _dataDir = dataDir,
        _port = port,
        _eventBus = eventBus,
        _storage = storage,
        _task = task,
        _resolvedConfigPath = resolvedConfigPath,
-       _agentBinder = agentBinder;
+       _agentBinder = agentBinder,
+       _auditLogger = auditLogger;
 
   final DartclawConfig config;
   final String _dataDir;
@@ -53,17 +60,20 @@ class ChannelWiring {
   final TaskWiring _task;
   final String _resolvedConfigPath;
   final ChannelAgentBinder? _agentBinder;
+  final GuardAuditLogger? _auditLogger;
 
   static final _log = Logger('ChannelWiring');
 
   ChannelManager? _channelManager;
   WhatsAppChannel? _whatsAppChannel;
   SignalChannel? _signalChannel;
+  SlackChannel? _slackChannel;
   GoogleChatChannel? _googleChatChannel;
   GoogleChatWebhookHandler? _googleChatWebhookHandler;
   GoogleChatSpaceEventsWiring? _spaceEventsWiring;
   TaskNotificationSubscriber? _taskNotificationSubscriber;
   ThreadBindingStore? _threadBindingStore;
+  var _threadBindingEnabled = false;
   PauseController? _pauseController;
   String? _webhookSecret;
   ChannelManager? _fallbackDeliveryChannelManager;
@@ -72,11 +82,40 @@ class ChannelWiring {
   ChannelManager? get channelManager => _channelManager;
   WhatsAppChannel? get whatsAppChannel => _whatsAppChannel;
   SignalChannel? get signalChannel => _signalChannel;
+  SlackChannel? get slackChannel => _slackChannel;
   GoogleChatChannel? get googleChatChannel => _googleChatChannel;
   GoogleChatWebhookHandler? get googleChatWebhookHandler => _googleChatWebhookHandler;
   GoogleChatSpaceEventsWiring? get spaceEventsWiring => _spaceEventsWiring;
   TaskNotificationSubscriber? get taskNotificationSubscriber => _taskNotificationSubscriber;
   ThreadBindingStore? get threadBindingStore => _threadBindingStore;
+
+  /// The store task-binding writers and readers use: [threadBindingStore] only while
+  /// `features.thread_binding.enabled` gates task binding on.
+  ThreadBindingStore? get taskThreadBindingStore => _threadBindingEnabled ? _threadBindingStore : null;
+
+  ChannelReviewHandler? _reviewHandler;
+
+  /// The task review handler Google Chat cards reach: the task service's, behind the `governance.admin_senders` gate.
+  /// Null until [wire] runs.
+  @visibleForTesting
+  ChannelReviewHandler? get reviewHandler => _reviewHandler;
+
+  ChannelRunApprovalHandler? _runApprovalHandler;
+
+  /// Binds the run-approval handler both adapters forward to. They capture [_forwardRunApproval] at
+  /// construction, before the workflow service exists; until this runs, a click is answered as unavailable.
+  void bindRunApprovals(ChannelRunApprovalHandler handler) => _runApprovalHandler = handler;
+
+  /// The handler both adapters hold: [bindRunApprovals] decides what a click reaches.
+  @visibleForTesting
+  ChannelRunApprovalHandler get runApprovalHandler => _forwardRunApproval;
+
+  Future<ChannelRunApprovalResult> _forwardRunApproval(ChannelRunApprovalRequest request) async {
+    final handler = _runApprovalHandler;
+    if (handler == null) return const ChannelRunApprovalFailed('Run approvals are unavailable');
+    return handler(request);
+  }
+
   PauseController? get pauseController => _pauseController;
   String? get webhookSecret => _webhookSecret;
   ChannelManager? get fallbackDeliveryChannelManager => _fallbackDeliveryChannelManager;
@@ -93,21 +132,28 @@ class ChannelWiring {
     required SseBroadcast sseBroadcast,
     required MessageRedactor? messageRedactor,
     required HealthService healthService,
+    required ConfigNotifier configNotifier,
     BudgetEnforcer? budgetEnforcer,
   }) async {
     final sessions = _storage.sessions;
     final messages = _storage.messages;
     final taskService = _storage.taskService;
 
-    final reviewHandler = _task.reviewHandler;
+    final reviewHandler = _reviewHandler = adminGatedReviewHandler(
+      _task.reviewHandler,
+      isAdmin: config.governance.isAdmin,
+      auditLogger: _auditLogger,
+    );
 
     final googleChatConfig = resolveChannelConfig<GoogleChatConfig>(config, ChannelType.googlechat);
     final whatsAppConfig = resolveChannelConfig<WhatsAppConfig>(config, ChannelType.whatsapp);
     final signalConfig = resolveChannelConfig<SignalConfig>(config, ChannelType.signal);
+    final slackConfig = resolveChannelConfig<SlackConfig>(config, ChannelType.slack);
 
     final googleChatEnabled = googleChatConfig.enabled;
     final waEnabled = whatsAppConfig.enabled;
     final sigEnabled = signalConfig.enabled;
+    final slackEnabled = slackConfig.enabled;
 
     final liveScopeConfig = LiveScopeConfig(config.sessions.scopeConfig);
 
@@ -118,25 +164,29 @@ class ChannelWiring {
         ChannelType.whatsapp: whatsAppConfig.groupAllowlist,
         ChannelType.signal: signalConfig.groupAllowlist,
         ChannelType.googlechat: googleChatConfig.groupAllowlist,
+        ChannelType.slack: slackConfig.groupAllowlist,
       },
       dms: {
         ChannelType.whatsapp: whatsAppConfig.dmAllowlist,
         ChannelType.signal: signalConfig.dmAllowlist,
         ChannelType.googlechat: googleChatConfig.dmAllowlist,
+        ChannelType.slack: slackConfig.dmAllowlist,
       },
     );
 
-    // Initialize ThreadBindingStore if thread binding is enabled.
+    // The one live ThreadBindingStore holds task bindings (gated by the flag alone) and the
+    // thread of each run that posts to workflow.chat_notifications, so either turns it on.
     final threadBindingEnabled = config.features.threadBinding.enabled;
-    if (threadBindingEnabled) {
+    _threadBindingEnabled = threadBindingEnabled;
+    if (threadBindingEnabled || config.workflow.chatNotifications != null) {
       final bindingsFile = File(p.join(_dataDir, 'thread-bindings.json'));
       final store = ThreadBindingStore(bindingsFile);
       await store.load();
       _threadBindingStore = store;
-      _log.info('ThreadBindingStore initialized (features.thread_binding.enabled)');
+      _log.info('ThreadBindingStore initialized (task binding: $threadBindingEnabled)');
     }
 
-    if (waEnabled || sigEnabled || googleChatEnabled) {
+    if (waEnabled || sigEnabled || googleChatEnabled || slackEnabled) {
       // Build per-sender rate limiter from governance config.
       final governance = config.governance;
       final perSenderLimiter = governance.rateLimits.perSender.enabled
@@ -153,6 +203,7 @@ class ChannelWiring {
       _channelManager = _buildChannelManager(
         config: config,
         googleChatConfig: googleChatConfig,
+        slackConfig: slackConfig,
         liveScopeConfig: liveScopeConfig,
         rows: rows,
         sessions: sessions,
@@ -175,7 +226,8 @@ class ChannelWiring {
             pauseController: pauseController,
             replayPausedTurns: (collapsed) =>
                 ReservedCommandHandler.drainPauseQueue(collapsed: collapsed, queue: _channelManager!.queue),
-            threadBindingStore: _threadBindingStore,
+            threadBindingStore: taskThreadBindingStore,
+            auditLogger: _auditLogger,
           ),
           perSenderRateLimiter: perSenderLimiter,
           isAdmin: governance.isAdmin,
@@ -184,6 +236,7 @@ class ChannelWiring {
           threadBindingEnabled: threadBindingEnabled,
         ),
       );
+      configNotifier.register(MessageQueueReconfigurer(_channelManager!.queue));
     }
 
     if (waEnabled && _channelManager != null) {
@@ -348,6 +401,7 @@ class ChannelWiring {
           config: googleChatConfig,
           channelManager: activeChannelManager,
           reviewHandler: reviewHandler,
+          runApprovalHandler: _forwardRunApproval,
           dmAccess: googleChatDmAccess,
           mentionGating: googleChatMentionGating,
           eventBus: _eventBus,
@@ -356,11 +410,11 @@ class ChannelWiring {
           slashCommandHandler: slashCommandHandler,
           deduplicator: deduplicator,
           subscriptionManager: subscriptionManager,
-          dispatchMessage: (message) => _dispatchInboundChannelMessage(
+          dispatchMessage: (message) => dispatchInboundChannelMessage(
             channelManager: activeChannelManager,
             sessions: sessions,
             messages: messages,
-            serverRef: serverRefGetter,
+            turnManagerGetter: () => serverRefGetter().turns,
             config: config,
             message: message,
             agentBinder: _agentBinder,
@@ -459,12 +513,49 @@ class ChannelWiring {
       }
     }
 
+    if (slackEnabled && _channelManager != null) {
+      try {
+        final events = slackConfig.mode == 'events';
+        String? secretOf(String? name) {
+          final secret = config.credentials[name ?? '']?.secret;
+          return secret == null || secret.isEmpty ? null : secret;
+        }
+
+        final botToken = secretOf(slackConfig.botTokenCredential);
+        final appToken = events ? null : secretOf(slackConfig.appTokenCredential);
+        final signingSecret = events ? secretOf(slackConfig.signingSecretCredential) : null;
+        if (botToken == null || (events ? signingSecret == null : appToken == null)) {
+          throw StateError('channels.slack credentials do not resolve to a value');
+        }
+        messageRedactor?.registerLiterals([botToken, ?appToken, ?signingSecret]);
+        final slackChannel = SlackChannel(
+          config: slackConfig,
+          api: SlackWebApiClient(botToken: botToken, appToken: appToken),
+          mode: slackConfig.mode,
+          signingSecret: signingSecret,
+          runApprovalHandler: _forwardRunApproval,
+          dmAccess: DmAccessController(mode: slackConfig.dmAccess, allowlist: slackConfig.dmIds.toSet()),
+          mentionGating: MentionGating(
+            requireMention: slackConfig.requireMention,
+            mentionPatterns: slackConfig.mentionPatterns,
+            ownJid: '',
+          ),
+          channelManager: _channelManager!,
+        );
+        _channelManager!.registerChannel(slackChannel);
+        _slackChannel = slackChannel;
+        healthService.slackReporter = slackChannel.healthReporter;
+        _log.info('Slack channel registered');
+      } catch (e) {
+        _log.warning('Failed to initialize Slack channel: $e');
+      }
+    }
+
     if (_channelManager != null) {
       _taskNotificationSubscriber = TaskNotificationSubscriber(
         tasks: taskService,
         channelManager: _channelManager!,
-        threadBindings: _threadBindingStore,
-        threadBindingEnabled: threadBindingEnabled,
+        threadBindings: taskThreadBindingStore,
         baseUrl: config.server.baseUrl,
       );
       _taskNotificationSubscriber!.subscribe(_eventBus);
@@ -512,6 +603,7 @@ class ChannelWiring {
   ChannelManager _buildChannelManager({
     required DartclawConfig config,
     required GoogleChatConfig googleChatConfig,
+    required SlackConfig slackConfig,
     required LiveScopeConfig liveScopeConfig,
     required GroupConfigResolver rows,
     required SessionService sessions,
@@ -532,6 +624,8 @@ class ChannelWiring {
       isAdmin: config.governance.isAdmin,
       turnObserver: FeedbackObserverFactory.build(
         googleChatConfig: googleChatConfig,
+        slackConfig: slackConfig,
+        redactor: redactor,
         sessions: sessions,
         turnManagerGetter: turnManagerGetter,
       ),
@@ -543,6 +637,9 @@ class ChannelWiring {
             String? senderJid,
             String? senderDisplayName,
             String? groupJid,
+            String? recipientId,
+            String? threadId,
+            List<ChannelAttachment> attachments = const [],
           }) async {
             final row = rows.resolveRow(channelType, groupId: groupJid, peerId: senderJid);
             final overrides = resolveChannelTurnOverrides(sessionKey: sessionKey, config: config, row: row);
@@ -556,9 +653,17 @@ class ChannelWiring {
               senderJid: senderJid,
               senderDisplayName: senderDisplayName,
               groupJid: groupJid,
+              provenance: TurnProvenance.channel(
+                channelType: channelType,
+                recipientId: recipientId,
+                threadId: threadId,
+                sessionKey: sessionKey,
+                senderId: senderJid,
+              ),
               model: overrides.model,
               effort: overrides.effort,
               binding: _agentBinder?.bind(row),
+              attachments: attachments,
             );
           },
     );
@@ -584,11 +689,14 @@ class ChannelWiring {
     );
   }
 
-  static Future<String> _dispatchInboundChannelMessage({
+  /// The direct inbound route, used by Google Chat's webhook; the queue route builds the same provenance from the
+  /// dispatcher arguments [MessageQueue] derives from the same message.
+  @visibleForTesting
+  static Future<String> dispatchInboundChannelMessage({
     required ChannelManager channelManager,
     required SessionService sessions,
     required MessageService messages,
-    required DartclawServer Function() serverRef,
+    required TurnManager Function() turnManagerGetter,
     required DartclawConfig config,
     required ChannelMessage message,
     ChannelAgentBinder? agentBinder,
@@ -599,13 +707,20 @@ class ChannelWiring {
     return dispatchChannelTurn(
       sessions: sessions,
       messages: messages,
-      turnManagerGetter: () => serverRef().turns,
+      turnManagerGetter: turnManagerGetter,
       sessionKey: sessionKey,
       message: message.text,
       channelType: message.channelType,
       senderJid: message.senderJid,
       senderDisplayName: message.senderDisplayName,
       groupJid: message.groupJid,
+      provenance: TurnProvenance.channel(
+        channelType: message.channelType,
+        recipientId: resolveRecipientId(message),
+        threadId: channelManager.threadedNotificationsFor(message.channelType.name)?.extractThread(message.metadata),
+        sessionKey: sessionKey,
+        senderId: message.senderJid,
+      ),
       model: overrides.model,
       effort: overrides.effort,
       binding: agentBinder?.bind(row),
@@ -632,9 +747,11 @@ Future<String> dispatchChannelTurn({
   String? senderJid,
   String? senderDisplayName,
   String? groupJid,
+  required TurnProvenance provenance,
   String? model,
   String? effort,
   ChannelAgentBinding? binding,
+  List<ChannelAttachment> attachments = const [],
 }) async {
   final session = binding == null
       ? await sessions.getOrCreateByKey(sessionKey, type: SessionType.channel)
@@ -646,8 +763,13 @@ Future<String> dispatchChannelTurn({
           executionMode: binding.policy.mode,
           workspace: binding.definition.workspace,
         );
-  final metadata = senderDisplayName != null ? jsonEncode({'senderDisplayName': senderDisplayName}) : null;
-  await messages.insertMessage(sessionId: session.id, role: 'user', content: message, metadata: metadata);
+  final staged = await stageChannelAttachments(messages, session.id, attachments);
+  final persisted = await messages.insertMessage(
+    sessionId: session.id,
+    role: 'user',
+    content: message,
+    metadata: channelMessageMetadata(senderDisplayName, staged),
+  );
 
   if (session.title == null && senderJid != null) {
     await sessions.updateTitle(session.id, channelSessionTitle(channelType, senderJid));
@@ -656,33 +778,41 @@ Future<String> dispatchChannelTurn({
   // The current message is already persisted; pass full history so channel
   // continuity matches the web route.
   final history = await messages.getMessages(session.id);
-  final messagesList = history.map((m) => <String, dynamic>{'role': m.role, 'content': m.content}).toList();
+  final messagesList = await channelTurnEntries(messages, session.id, history, activeId: persisted.id, staged: staged);
 
   final turns = turnManagerGetter();
   final origin = (channel: channelType.name, contact: senderDisplayName ?? senderJid, group: groupJid != null);
   final String turnId;
   if (binding == null) {
-    turnId = await turns.startTurn(
-      session.id,
-      messagesList,
-      source: 'channel',
-      isHumanInput: true,
-      model: model,
-      effort: effort,
-      promptScope: PromptScope.primary,
-      origin: origin,
+    turnId = await _untilAdmitted(
+      turns,
+      () => turns.startTurn(
+        session.id,
+        messagesList,
+        source: 'channel',
+        isHumanInput: true,
+        model: model,
+        effort: effort,
+        promptScope: PromptScope.primary,
+        origin: origin,
+        provenance: provenance,
+      ),
     );
   } else {
     final agent = binding.definition;
-    turnId = await turns.reserveTurn(
-      session.id,
-      agentName: agent.id,
-      model: model ?? _nonBlank(agent.model),
-      effort: effort ?? _nonBlank(agent.effort),
-      isHumanInput: true,
-      behaviorOverride: binding.behavior,
-      promptScope: binding.promptScope,
-      origin: origin,
+    turnId = await _untilAdmitted(
+      turns,
+      () => turns.reserveTurn(
+        session.id,
+        agentName: agent.id,
+        model: model ?? _nonBlank(agent.model),
+        effort: effort ?? _nonBlank(agent.effort),
+        isHumanInput: true,
+        behaviorOverride: binding.behavior,
+        promptScope: binding.promptScope,
+        origin: origin,
+        provenance: provenance,
+      ),
     );
     try {
       turns.executeTurn(session.id, turnId, messagesList, source: 'channel', agentName: agent.id);
@@ -693,6 +823,21 @@ Future<String> dispatchChannelTurn({
   }
   final outcome = await turns.waitForOutcome(session.id, turnId);
   return outcome.responseText ?? '';
+}
+
+/// Runs [start], waiting for a free slot whenever the global turn cap rejects it.
+///
+/// The inbound message is already persisted, so the caller's own retry would
+/// duplicate it. Same-session busy and every other failure propagate.
+Future<String> _untilAdmitted(TurnManager turns, Future<String> Function() start) async {
+  while (true) {
+    try {
+      return await start();
+    } on BusyTurnException catch (busy) {
+      if (busy.isSameSession) rethrow;
+      await turns.whenAdmissionCapacityAvailable();
+    }
+  }
 }
 
 String? _nonBlank(String? value) {

@@ -263,6 +263,40 @@ void main() {
         'message': {'role': 'user', 'content': 'Hello'},
       });
     });
+
+    test('sends images as base64 image blocks after the text block', () {
+      final adapter = ClaudeProtocolAdapter();
+      final payload = adapter.buildTurnRequest(
+        message: 'What is this?',
+        images: [
+          {'mediaType': 'image/png', 'data': 'UE5H'},
+          {'mediaType': 'image/jpeg', 'data': 'SlBH'},
+        ],
+      );
+
+      expect(payload['message'], {
+        'role': 'user',
+        'content': [
+          {'type': 'text', 'text': 'What is this?'},
+          {
+            'type': 'image',
+            'source': {'type': 'base64', 'media_type': 'image/png', 'data': 'UE5H'},
+          },
+          {
+            'type': 'image',
+            'source': {'type': 'base64', 'media_type': 'image/jpeg', 'data': 'SlBH'},
+          },
+        ],
+      });
+    });
+
+    test('keeps the string content when images is null or empty', () {
+      final adapter = ClaudeProtocolAdapter();
+      final plain = adapter.buildTurnRequest(message: 'Hello');
+
+      expect(adapter.buildTurnRequest(message: 'Hello', images: const []), plain);
+      expect((plain['message'] as Map)['content'], 'Hello');
+    });
   });
 
   group('ClaudeProtocolAdapter.buildApprovalResponse', () {
@@ -319,6 +353,25 @@ void main() {
           'response': {
             'continue': true,
             'hookSpecificOutput': {'hookEventName': 'PreToolUse', 'permissionDecision': 'deny'},
+          },
+        },
+      });
+    });
+
+    test('deny with reason', () {
+      final adapter = ClaudeProtocolAdapter();
+      expect(adapter.buildHookResponse('req-5', allow: false, reason: 'Command blocked: rm -rf'), {
+        'type': 'control_response',
+        'response': {
+          'subtype': 'success',
+          'request_id': 'req-5',
+          'response': {
+            'continue': true,
+            'hookSpecificOutput': {
+              'hookEventName': 'PreToolUse',
+              'permissionDecision': 'deny',
+              'permissionDecisionReason': 'Command blocked: rm -rf',
+            },
           },
         },
       });

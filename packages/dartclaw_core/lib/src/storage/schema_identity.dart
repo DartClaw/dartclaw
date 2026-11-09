@@ -189,6 +189,7 @@ const _taskTables = [
     SchemaColumn('definition_json', 'TEXT', notNull: true, defaultValue: "'{}'"),
     SchemaColumn('execution_cursor_json', 'TEXT'),
     SchemaColumn('workflow_worktree_json', 'TEXT'),
+    SchemaColumn('origin_json', 'TEXT'),
   ]),
   SchemaTable('workflow_run_migrations', [
     SchemaColumn('name', 'TEXT', primaryKey: true),
@@ -280,7 +281,8 @@ const _taskBootstrap = [
     status TEXT NOT NULL DEFAULT 'pending', context_json TEXT NOT NULL DEFAULT '{}',
     variables_json TEXT NOT NULL DEFAULT '{}', started_at TEXT NOT NULL, updated_at TEXT NOT NULL, completed_at TEXT,
     error_message TEXT, total_tokens bigint NOT NULL DEFAULT 0, current_step_index bigint NOT NULL DEFAULT 0,
-    definition_json TEXT NOT NULL DEFAULT '{}', execution_cursor_json TEXT, workflow_worktree_json TEXT)''',
+    definition_json TEXT NOT NULL DEFAULT '{}', execution_cursor_json TEXT, workflow_worktree_json TEXT,
+    origin_json TEXT)''',
   'CREATE INDEX idx_workflow_runs_status ON workflow_runs(status)',
   'CREATE INDEX idx_workflow_runs_definition ON workflow_runs(definition_name)',
   'CREATE TABLE workflow_run_migrations (name TEXT PRIMARY KEY, applied_at TEXT NOT NULL)',

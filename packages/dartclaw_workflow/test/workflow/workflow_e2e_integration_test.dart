@@ -10,7 +10,7 @@ import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart'
     show HarnessFactory, PostgresBackend, Task, WorkflowStepCompletedEvent;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show EventBus, TaskStatusChangedEvent, WorkflowContext, WorkflowRunStatusChangedEvent;
+    show EventBus, TaskStatusChangedEvent, WorkflowContext, WorkflowRunStatusChangedEvent, WorkflowRunOrigin;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart'
     show DartclawRuntime, LogService, PrCreated, PrCreationFailed, PrCreationResult, PrCreator;
 import 'package:logging/logging.dart';
@@ -747,12 +747,12 @@ void main() {
     return completer.future;
   }
 
-  // Primary story-and-implement live-e2e scenario. It feeds a pre-authored FIS
+  // Primary implement-story live-e2e scenario. It feeds a pre-authored FIS
   // so the run exercises the orchestration-critical steps (detect → implement →
   // reviews → merge → git → PR) without paying for a live authoring turn — the
   // synthesize scenario's only unique live value. The synthesize/existing/
   // low-confidence branch matrix stays covered deterministically by the stubbed
-  // workflow_builtin_story_and_implement_test.dart; live authoring coverage lives
+  // workflow_builtin_implement_story_test.dart; live authoring coverage lives
   // in the spec step-isolation probe.
   //
   // TD-114 existing-spec-reuse canary: when FEATURE is a path to an existing
@@ -761,11 +761,11 @@ void main() {
   // model to emit it) so the `spec` step's `spec_source == synthesized` gate is
   // false and the step is skipped, rather than re-synthesizing the reused spec.
   test(
-    'story-and-implement e2e reuses an existing FIS and skips the spec step',
+    'implement-story e2e reuses an existing FIS and skips the spec step',
     () async {
       final timestamp = DateTime.now().millisecondsSinceEpoch;
-      final w = await wireUp(prTitle: 'E2E story-and-implement reuse $timestamp');
-      final artifactDir = createPreservedArtifactDir('story-and-implement-reuse-e2e');
+      final w = await wireUp(prTitle: 'E2E implement-story reuse $timestamp');
+      final artifactDir = createPreservedArtifactDir('implement-story-reuse-e2e');
       Logger('E2E.StepArtifacts').info('Preserving step artifacts in ${artifactDir.path}');
 
       // Seed a reusable implementation spec for BUG-001 into the fixture so the
@@ -789,7 +789,7 @@ void main() {
       // The workflow runs in a git worktree checked out from the base branch,
       // so the seeded spec must be committed — an uncommitted working-tree file
       // is invisible there and the classifier would (correctly) report no
-      // existing spec. Mirrors the plan-and-implement PRD-seed commit above.
+      // existing spec. Mirrors the implement-prd PRD-seed commit above.
       final addSpec = await Process.run('git', ['add', seededSpecPath], workingDirectory: fixtureDir);
       if (addSpec.exitCode != 0) {
         fail('Failed to stage reusable spec fixture: ${addSpec.stderr}');
@@ -803,7 +803,7 @@ void main() {
         fail('Failed to commit reusable spec fixture: ${commitSpec.stderr}');
       }
 
-      final definition = w.workflowRegistry.getByName('story-and-implement')!;
+      final definition = w.workflowRegistry.getByName('implement-story')!;
 
       final recorder = WorkflowExecutionRecorder(
         w.eventBus,
@@ -819,7 +819,7 @@ void main() {
       recorder.start();
 
       final variables = {'FEATURE': seededSpecPath, 'PROJECT': 'workflow-test-todo-app', 'BRANCH': 'main'};
-      final run = await w.workflowService.start(definition, variables);
+      final run = await w.workflowService.start(definition, variables, origin: WorkflowRunOrigin.unknown);
       final completionFuture = awaitWorkflowCompletion(w.eventBus, run.id);
 
       final finalStatus = await completionFuture.timeout(
@@ -885,14 +885,14 @@ void main() {
   );
 
   test(
-    'plan-and-implement e2e with real Codex harness and per-story worktrees',
+    'implement-prd e2e with real Codex harness and per-story worktrees',
     () async {
       final timestamp = DateTime.now().millisecondsSinceEpoch;
-      final w = await wireUp(prTitle: 'E2E plan-and-implement $timestamp');
-      final artifactDir = createPreservedArtifactDir('plan-and-implement-e2e');
+      final w = await wireUp(prTitle: 'E2E implement-prd $timestamp');
+      final artifactDir = createPreservedArtifactDir('implement-prd-e2e');
       Logger('E2E.StepArtifacts').info('Preserving step artifacts in ${artifactDir.path}');
 
-      final definition = w.workflowRegistry.getByName('plan-and-implement')!;
+      final definition = w.workflowRegistry.getByName('implement-prd')!;
 
       final recorder = WorkflowExecutionRecorder(
         w.eventBus,
@@ -912,12 +912,12 @@ void main() {
       // `plan` step gate false → the authoring turn is skipped and the foreach
       // runs directly on the pre-made stories. The synthesize/existing/resume
       // branch matrix stays covered deterministically by the stubbed
-      // workflow_builtin_plan_and_implement_test.dart; live plan authoring moves
+      // workflow_builtin_implement_prd_test.dart; live plan authoring moves
       // to the plan step-isolation probe. Every seed file must be committed: the
       // workflow runs in a worktree off the base branch, so an uncommitted seed
       // is invisible there (the R6 root cause) and discovery would (correctly)
-      // report no plan — mirrors the story-and-implement reuse-seed commit above.
-      const planDir = 'docs/specs/e2e-plan-and-implement';
+      // report no plan — mirrors the implement-story reuse-seed commit above.
+      const planDir = 'docs/specs/e2e-implement-prd';
       const prdPath = '$planDir/prd.md';
       const planJsonPath = '$planDir/plan.json';
       const story1FisPath = '$planDir/s01-fix-bug-002-due-date-persistence.md';
@@ -1021,15 +1021,15 @@ void main() {
         story2FisPath,
       ], workingDirectory: fixtureDir);
       if (addSeed.exitCode != 0) {
-        fail('Failed to stage plan-and-implement plan seed: ${addSeed.stderr}');
+        fail('Failed to stage implement-prd plan seed: ${addSeed.stderr}');
       }
       final commitSeed = await Process.run('git', [
         'commit',
         '-qm',
-        'Add pre-authored plan-and-implement plan fixture',
+        'Add pre-authored implement-prd plan fixture',
       ], workingDirectory: fixtureDir);
       if (commitSeed.exitCode != 0) {
-        fail('Failed to commit plan-and-implement plan seed: ${commitSeed.stderr}');
+        fail('Failed to commit implement-prd plan seed: ${commitSeed.stderr}');
       }
       final variables = {
         'FEATURE': prdPath,
@@ -1037,7 +1037,7 @@ void main() {
         'BRANCH': 'main',
         'MAX_PARALLEL': '2',
       };
-      final run = await w.workflowService.start(definition, variables);
+      final run = await w.workflowService.start(definition, variables, origin: WorkflowRunOrigin.unknown);
       final completionFuture = awaitWorkflowCompletion(w.eventBus, run.id);
 
       final finalStatus = await completionFuture.timeout(
@@ -1135,8 +1135,8 @@ void main() {
         0,
         reason: 'plan step must be skipped when a pre-authored plan.json + story FIS are discovered',
       );
-      expect(recorder.count('prd'), 0, reason: 'plan-and-implement requires a discovered PRD');
-      expect(recorder.count('revise-prd'), 0, reason: 'plan-and-implement no longer revises PRDs');
+      expect(recorder.count('prd'), 0, reason: 'implement-prd requires a discovered PRD');
+      expect(recorder.count('revise-prd'), 0, reason: 'implement-prd no longer revises PRDs');
 
       expect(
         recorder.count('implement'),

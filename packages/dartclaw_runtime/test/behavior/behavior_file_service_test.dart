@@ -263,6 +263,20 @@ void main() {
       expect(result, isNot(contains('- Contact:')));
     });
 
+    test('tells the agent to write standard Markdown links, not channel markup', () async {
+      final service = BehaviorFileService(workspaceDir: globalDir.path);
+
+      final result = await service.composeSystemPrompt(origin: (channel: 'slack', contact: 'Ada', group: true));
+
+      expect(
+        result,
+        contains(
+          '- Contact: "Ada"\n'
+          "- Reply format: standard Markdown, links as [label](url); never the channel's own markup.",
+        ),
+      );
+    });
+
     test('encodes a contact label so it cannot forge a prompt section', () async {
       final service = BehaviorFileService(workspaceDir: globalDir.path);
 
@@ -1039,7 +1053,7 @@ void main() {
     });
   });
 
-  group('soul stand-in', () {
+  group('agent prompt', () {
     const origin = (channel: 'signal', contact: 'Alice', group: false);
 
     /// Splits a composed prompt into its `\n\n`-joined sections.
@@ -1052,58 +1066,53 @@ void main() {
       File('${globalDir.path}/AGENTS.md').writeAsStringSync('## Agent notes');
     });
 
-    test('the variant carries the stand-in where the workspace SOUL body stands, with the channel origin', () async {
-      final base = BehaviorFileService(workspaceDir: globalDir.path, memoryCorpus: _writeMemoryCorpus(globalDir));
-      final variant = base.withSoul('You are Ana.');
+    test('the system composition keeps the workspace SOUL first and appends the prompt after TOOLS', () async {
+      final base = BehaviorFileService(workspaceDir: globalDir.path, personalMemoryEnabled: false);
+      final variant = base.withAgentPrompt('You are Ana.');
 
       final composed = await variant.composeSystemPrompt(scope: PromptScope.task, origin: origin);
       final baseline = await base.composeSystemPrompt(scope: PromptScope.task, origin: origin);
 
-      expect(sections(composed).first, 'You are Ana.');
-      expect(sections(baseline).first, 'Workspace soul');
-      expect(sections(composed).skip(1), sections(baseline).skip(1));
+      expect(sections(composed).first, 'Workspace soul');
+      expect(sections(composed).last, 'You are Ana.');
+      expect(sections(composed).sublist(0, sections(composed).length - 1), sections(baseline));
       expect(composed, contains('## Channel\n- Channel: signal'));
-      expect(composed, isNot(contains('## User Context')));
-      expect(composed, isNot(contains('UNTRUSTED MEMORY CONTEXT')));
-      expect(composed, isNot(contains('## Recent Errors')));
     });
 
-    test('the append-strategy composition matches, AGENTS and the memory hint included', () async {
-      final base = BehaviorFileService(workspaceDir: globalDir.path, memoryCorpus: _writeMemoryCorpus(globalDir));
-      final variant = base.withSoul('You are Ana.');
+    test('the append-strategy composition closes with the prompt after AGENTS.md', () async {
+      final base = BehaviorFileService(workspaceDir: globalDir.path, personalMemoryEnabled: false);
+      final variant = base.withAgentPrompt('You are Ana.');
 
       final composed = await variant.composeStaticPrompt(scope: PromptScope.task, origin: origin);
       final baseline = await base.composeStaticPrompt(scope: PromptScope.task, origin: origin);
 
-      expect(sections(composed).first, 'You are Ana.');
-      expect(sections(composed).skip(1), sections(baseline).skip(1));
-      expect(composed, contains('## Agent notes'));
-      expect(composed, contains('## Memory retrieval'));
-      expect(composed, isNot(contains('## User Context')));
-      expect(composed, isNot(contains('UNTRUSTED MEMORY CONTEXT')));
+      expect(sections(composed).first, 'Workspace soul');
+      expect(composed.indexOf('## Agent notes'), lessThan(composed.indexOf('You are Ana.')));
+      expect(composed, '$baseline\n\nYou are Ana.');
     });
 
-    test('a blank stand-in yields no variant and composes exactly as the base service', () async {
+    test('a blank prompt yields no variant and composes exactly as the base service', () async {
       final base = BehaviorFileService(workspaceDir: globalDir.path);
 
-      expect(base.withSoul('   \n'), same(base));
+      expect(base.withAgentPrompt('   \n'), same(base));
       expect(
-        await base.withSoul('').composeSystemPrompt(scope: PromptScope.task, origin: origin),
+        await base.withAgentPrompt('').composeSystemPrompt(scope: PromptScope.task, origin: origin),
         await base.composeSystemPrompt(scope: PromptScope.task, origin: origin),
       );
     });
 
     test(
-      'the variant shares the workspace dir and collaborators, and the restricted scope keeps the stand-in',
+      'the variant shares the workspace dir and collaborators, and the restricted scope is the prompt alone',
       () async {
         final base = BehaviorFileService(
           workspaceDir: globalDir.path,
+          personalMemoryEnabled: false,
           maxMemoryBytes: 4096,
           onboardingExpiryDays: 3,
           compactInstructions: 'Custom compact',
           identifierPreservation: IdentifierPreservationMode.off,
         );
-        final variant = base.withSoul('You are Ana.');
+        final variant = base.withAgentPrompt('You are Ana.');
 
         expect(variant, isNot(same(base)));
         expect(variant.workspaceDir, base.workspaceDir);
@@ -1112,9 +1121,20 @@ void main() {
         expect(variant.compactInstructions, 'Custom compact');
         expect(variant.identifierPreservation, IdentifierPreservationMode.off);
         expect(await variant.composeSystemPrompt(scope: PromptScope.restricted, origin: origin), 'You are Ana.');
-        expect(await variant.composeSystemPrompt(scope: PromptScope.restricted), contains('You are Ana.'));
+        expect(await variant.composeStaticPrompt(scope: PromptScope.restricted), 'You are Ana.');
       },
     );
+
+    test('a prompt without any SOUL.md is the persona, not appended to the generic default', () async {
+      final emptyDir = Directory.systemTemp.createTempSync('behavior_test_no_soul');
+      addTearDown(() => emptyDir.deleteSync(recursive: true));
+      final service = BehaviorFileService(
+        workspaceDir: emptyDir.path,
+        personalMemoryEnabled: false,
+      ).withAgentPrompt('You are Ana.');
+
+      expect(await service.composeSystemPrompt(scope: PromptScope.task), 'You are Ana.');
+    });
   });
 
   group('named-agent workspace scoping', () {
@@ -1158,22 +1178,115 @@ void main() {
       expect(absent, contains(BehaviorFileService.defaultPrompt));
     });
 
-    test('explicit prompt occupies SOUL while retaining only that agent workspace tools', () async {
-      final agentDir = Directory.systemTemp.createTempSync('behavior_test_prompt_agent');
-      addTearDown(() => agentDir.deleteSync(recursive: true));
-      File('${agentDir.path}/SOUL.md').writeAsStringSync('FILE SOUL');
-      File('${agentDir.path}/TOOLS.md').writeAsStringSync('AGENT TOOLS');
-      final service = BehaviorFileService(workspaceDir: globalDir.path)
-          .forAgentWorkspace(AgentWorkspace(agentId: 'researcher', directory: agentDir.path))
-          .withSoul('EXPLICIT SOUL');
+    group('forAgentDefinition', () {
+      late Directory agentDir;
+      late BehaviorFileService base;
 
-      final prompt = await service.composeSystemPrompt(scope: PromptScope.task);
-      final restricted = await service.composeSystemPrompt(scope: PromptScope.restricted);
+      AgentWorkspace workspace() => AgentWorkspace(agentId: 'researcher', directory: agentDir.path);
 
-      expect(prompt, contains('EXPLICIT SOUL'));
-      expect(prompt, contains('AGENT TOOLS'));
-      expect(prompt, isNot(contains('FILE SOUL')));
-      expect(restricted, 'EXPLICIT SOUL');
+      setUp(() {
+        agentDir = Directory.systemTemp.createTempSync('behavior_test_definition_agent');
+        addTearDown(() => agentDir.deleteSync(recursive: true));
+        File('${globalDir.path}/SOUL.md').writeAsStringSync('OWNER SOUL');
+        File('${agentDir.path}/SOUL.md').writeAsStringSync('AGENT SOUL');
+        File('${agentDir.path}/USER.md').writeAsStringSync('AGENT USER');
+        File('${agentDir.path}/TOOLS.md').writeAsStringSync('AGENT TOOLS');
+        File('${agentDir.path}/AGENTS.md').writeAsStringSync('AGENT NOTES');
+        base = BehaviorFileService(workspaceDir: globalDir.path, personalMemoryEnabled: false);
+      });
+
+      test('a prompt is appended after the agent workspace files instead of replacing SOUL.md', () async {
+        final definition = AgentDefinition(
+          id: 'researcher',
+          description: 'Researcher',
+          prompt: 'EXTRA INSTRUCTIONS',
+          workspace: workspace(),
+        );
+        final behavior = base.forAgentDefinition(definition);
+
+        for (final composed in [
+          await behavior.composeSystemPrompt(scope: PromptScope.task),
+          await behavior.composeStaticPrompt(scope: PromptScope.task),
+        ]) {
+          expect(composed, startsWith('AGENT SOUL'));
+          expect(composed, contains('AGENT USER'));
+          expect(composed, contains('AGENT TOOLS'));
+          expect(composed, endsWith('EXTRA INSTRUCTIONS'));
+          expect(composed, isNot(contains('OWNER')));
+        }
+        expect(await behavior.composeStaticPrompt(scope: PromptScope.task), contains('AGENT NOTES\n\nEXTRA'));
+      });
+
+      test('the restricted profile omits workspace files, so the prompt stays the whole persona', () async {
+        final definition = AgentDefinition(
+          id: 'researcher',
+          description: 'Researcher',
+          prompt: 'EXTRA INSTRUCTIONS',
+          securityProfile: 'restricted',
+          workspace: workspace(),
+        );
+        final behavior = base.forAgentDefinition(definition);
+
+        expect(await behavior.composeStaticPrompt(scope: PromptScope.restricted), 'EXTRA INSTRUCTIONS');
+        expect(await behavior.composeSystemPrompt(scope: PromptScope.restricted), 'EXTRA INSTRUCTIONS');
+      });
+
+      test('the built-in search agent keeps its default prompt as the whole restricted persona', () async {
+        final search = AgentDefinition.fromYaml('search', const {}, [], dataDir: globalDir.path);
+        final behavior = base.forAgentDefinition(search, workspace: workspace());
+
+        expect(search.prompt, isNotEmpty);
+        expect(await behavior.composeStaticPrompt(scope: PromptScope.restricted), search.prompt);
+      });
+
+      test('an output contract follows the prompt in every scope', () async {
+        final definition = AgentDefinition.fromYaml(
+          'researcher',
+          {
+            'prompt': 'EXTRA INSTRUCTIONS',
+            'tools': ['Read'],
+            'output_schema': {
+              'type': 'object',
+              'properties': {
+                'title': {'type': 'string'},
+              },
+              'required': ['title'],
+            },
+          },
+          [],
+          dataDir: globalDir.path,
+          ownerWorkspaceDir: globalDir.path,
+        );
+        final contract = renderOutputSchemaContract(definition.outputSchema!);
+        final behavior = base.forAgentDefinition(definition, workspace: workspace());
+
+        for (final scope in [PromptScope.task, PromptScope.restricted]) {
+          final composed = await behavior.composeStaticPrompt(scope: scope);
+          expect(composed, endsWith('EXTRA INSTRUCTIONS\n\n$contract'), reason: scope.name);
+        }
+        expect(
+          await behavior.composeSystemPrompt(scope: PromptScope.task),
+          endsWith('EXTRA INSTRUCTIONS\n\n$contract'),
+        );
+        expect(await behavior.composeStaticPrompt(scope: PromptScope.task), startsWith('AGENT SOUL'));
+      });
+
+      test('a blank prompt composes exactly the workspace files', () async {
+        final definition = AgentDefinition(
+          id: 'researcher',
+          description: 'Researcher',
+          prompt: '  ',
+          workspace: workspace(),
+        );
+        final behavior = base.forAgentDefinition(definition);
+        final workspaceOnly = base.forAgentWorkspace(workspace());
+
+        expect(
+          await behavior.composeStaticPrompt(scope: PromptScope.task),
+          await workspaceOnly.composeStaticPrompt(scope: PromptScope.task),
+        );
+        expect(await behavior.composeStaticPrompt(scope: PromptScope.task), startsWith('AGENT SOUL'));
+      });
     });
   });
 }

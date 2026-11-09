@@ -1,0 +1,207 @@
+name: implement-story-inline
+description: >-
+  Inline variant of implement-story – same pipeline, but runs directly on
+  the current branch in the live checkout: no integration branch, no worktree,
+  no merge-back at the end. Use when you want the workflow to operate on the
+  branch you are already working on.
+variables:
+  FEATURE:
+    required: true
+    description: "Inline feature description or path to an AndThen FIS with plan/story provenance"
+  PROJECT:
+    required: false
+    description: Target project for coding steps (omit for default project)
+  BRANCH:
+    required: false
+    description: >-
+      Injected by run.sh from the operator's current branch. Not consumed by
+      this workflow – review prompts scope by the FIS, not by branch diff,
+      because inline mode has no synthetic base ref.
+    default: ""
+
+project: "{{PROJECT}}"
+
+gitStrategy:
+  integrationBranch: false
+  worktree: inline
+
+stepDefaults:
+  - match: "spec"
+    provider: "@planner"
+    model: "@planner"
+  - match: "implement*"
+    provider: "@executor"
+    model: "@executor"
+  - match: "*review*"
+    provider: "@reviewer"
+    model: "@reviewer"
+  - match: "remediate*"
+    provider: "@executor"
+    model: "@executor"
+  - match: "*"
+    provider: "@workflow"
+    model: "@workflow"
+
+steps:
+  - id: detect-spec-input
+    name: Detect Spec Input
+    skill: dartclaw-discover-andthen-spec
+    allowedTools: [shell, file_read]
+    # FEATURE is auto-framed as a <FEATURE> data tag (untrusted input).
+    # Never reference {{FEATURE}} inline – that would suppress auto-framing
+    # and route attacker-controlled text through as instructions.
+    workflowVariables: [FEATURE]
+    outputs:
+      spec_path:
+        format: path
+        schema:
+          type: string
+        description: Workspace-relative path to the existing implementation specification on disk, or empty when input requires spec synthesis.
+      spec_source:
+        schema: narrative_text
+        description: "'existing' for a reusable FIS, 'synthesized' for an inline description that needs a FIS."
+
+  - id: spec
+    name: Generate Specification
+    skill: andthen:plan
+    entryGate: "spec_source == synthesized"
+    # FEATURE is interpolated inline by design – the spec skill acts on the
+    # feature description, so it is a direct argument, not auto-framed.
+    prompt: "--auto {{FEATURE}} Write one FIS for a single story."
+    outputs:
+      spec_path:
+        format: path
+        schema:
+          type: string
+          minLength: 1
+        description: Workspace-relative path to the implementation specification on disk.
+      spec_source:
+        schema: narrative_text
+        description: "'existing' for a reusable FIS, 'synthesized' for an inline description that needs a FIS."
+
+  - id: implement
+    name: Implement
+    skill: andthen:exec-plan
+    # No allowedTools grant here (unlike the built-in): the maintainer profile
+    # runs under a broader permission mode, so mutating steps in the inline
+    # customs deliberately omit per-tool allowlists rather than mirror the
+    # built-in's file_edit grants.
+    # Task-level retry covers transient provider/CLI exits without retrying an
+    # explicit semantic failed step outcome.
+    maxRetries: 1
+    prompt: "--auto {{context.spec_path}}"
+
+  - id: integrated-review
+    name: Integrated Review
+    skill: andthen:review
+    onFailure: retry
+    maxRetries: 1
+    allowedTools: [shell, file_read, file_write, web_fetch, mcp_call, 'claude:Agent']
+    prompt: >-
+      --mode gap --auto
+      --output-dir "$DARTCLAW_STEP_ARTIFACTS_DIR"
+      Review implementation of {{context.spec_path}}. Scope by the FIS –
+      assess only the working-tree state implementing this spec; the live
+      checkout may contain unrelated operator work, so do not flag it.
+    outputs:
+      integrated-review.review_report_path: review_report_path
+      integrated-review.findings_count: findings_count
+      integrated-review.gating_findings_count: gating_findings_count
+
+  - id: review-aggregate
+    name: Aggregate Review Findings
+    type: aggregate-reviews
+    aggregateReviews: [integrated-review]
+    outputs:
+      review_report_path: review_report_path
+      findings_count: findings_count
+      gating_findings_count: gating_findings_count
+
+  - id: remediation-loop
+    name: Remediation Loop
+    type: loop
+    maxIterations: 5
+    entryGate: "gating_findings_count > 0"
+    exitGate: "gating_findings_count == 0"
+    # On exhaustion, fall through to the deterministic verify-all → verify-fix-loop
+    # gate below instead of failing the run; that gate mechanically resolves
+    # guardrail-class residue and is the genuine fail point if it cannot.
+    onMaxIterations: continue
+    steps:
+      - id: remediate
+        name: Remediate Findings
+        skill: andthen:implement-fix
+        entryGate: "gating_findings_count > 0"
+        inputs: [spec_path]
+        prompt: "--auto {{context.review_report_path}}"
+        outputs:
+          remediation_summary:
+            schema: narrative_text
+            description: Summary of what was changed during this remediation pass.
+
+      - id: re-review
+        name: Re-review Gaps
+        skill: andthen:review
+        allowedTools: [shell, file_read, file_write, web_fetch, mcp_call, 'claude:Agent']
+        inputs: [remediation_summary]
+        prompt: >-
+          --mode gap,code,security --auto
+          --output-dir "$DARTCLAW_STEP_ARTIFACTS_DIR"
+          Review implementation of {{context.spec_path}}. Scope by the FIS
+          – assess only the working-tree state implementing this spec; the
+          live checkout may contain unrelated operator work, so do not
+          flag it.
+        outputs:
+          review_report_path: review_report_path
+          findings_count: findings_count
+          gating_findings_count: gating_findings_count
+
+  # --- Deterministic verification gate ----------------------------------------
+  # After the review/remediation loop, run the CI-equivalent gates as a
+  # deterministic bash step. Unlike the
+  # skill-driven steps above, these don't depend on an agent choosing to run
+  # verification: verify-gate.sh runs fixed commands, captures output under the
+  # run artifacts dir, and prints `pass`/`fail` that the fix loop branches on.
+  #
+  # Bash steps execute on the host with a sandboxed workdir (<dataDir>/workspace);
+  # verify-gate.sh lives at <dataDir>/workflows/custom (committed under
+  # .dartclaw/workflows/custom/) and locates the repo itself.
+  - id: verify-all
+    name: Verify CI Gate
+    type: bash
+    timeout: 90m
+    script: >-
+      ../workflows/custom/scripts/verify-gate.sh all
+      {{workflow.runtime_artifacts_dir}}
+    outputs:
+      verify-all.result: text
+
+  - id: verify-fix-loop
+    name: Verification Fix Loop
+    type: loop
+    maxIterations: 3
+    entryGate: "verify-all.result == fail"
+    exitGate: "verify-recheck.result == pass"
+    steps:
+      - id: fix-verification
+        name: Fix Verification Failures
+        skill: andthen:triage
+        provider: "@executor"
+        model: "@executor"
+        prompt: >-
+          --auto The deterministic verification gate failed. Read the failure
+          logs under {{workflow.runtime_artifacts_dir}}/verify/ (format.log,
+          analyze.log, test.log, arch.log, fitness.log, whitespace.log) and
+          fix only the reported gate failures. Scope strictly to these failures
+          — preserve behavior and do not refactor unrelated code or touch other
+          operator work in the checkout.
+
+      - id: verify-recheck
+        name: Re-run Verification Gate
+        type: bash
+        timeout: 90m
+        script: >-
+          ../workflows/custom/scripts/verify-gate.sh all
+          {{workflow.runtime_artifacts_dir}}
+        outputs:
+          verify-recheck.result: text

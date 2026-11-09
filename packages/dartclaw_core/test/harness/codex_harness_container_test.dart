@@ -276,9 +276,9 @@ void main() {
       // Codex's own sandbox tooling cannot start under the container
       // hardening, and its failure mode is a completed turn with every tool
       // call silently panicking – so the spawn must always widen to
-      // danger-full-access inside the boundary.
-      final spawn = container.commands.last.join(' ');
-      expect(spawn, contains('sandbox_permissions=["disk-full-read-write-access", "network-full-access"]'));
+      // danger-full-access inside the boundary. The thread's `sandbox` is what
+      // Codex applies; the spawn carries no sandbox override.
+      expect(container.commands.last.join(' '), isNot(contains('sandbox')));
 
       final process = container.spawned!;
       final turn = harness.turn(
@@ -289,6 +289,8 @@ void main() {
         systemPrompt: '',
       );
       await respondToLatestThreadStart(process);
+      final threadStart = process.sentMessages.lastWhere((message) => message['method'] == 'thread/start');
+      expect((threadStart['params'] as Map<String, dynamic>)['sandbox'], 'danger-full-access');
       await waitForSentMessage(process, 'turn/start');
       final params = process.sentMessages.lastWhere((message) => message['method'] == 'turn/start')['params'];
       expect(params, isA<Map<String, dynamic>>());

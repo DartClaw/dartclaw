@@ -7,6 +7,9 @@
 #   bash examples/run.sh production       # uses production.yaml
 #   bash examples/run.sh dev --port 4000  # dev with custom port
 #
+# Prerequisite: a PostgreSQL 14+ database (docs/guide/postgresql.md) with DARTCLAW_DATABASE_URL exported and its
+# empty schema bootstrapped once: dartclaw --config examples/<config>.yaml doctor --fix (see examples/README.md).
+#
 # Available configs: dev, production, personal-assistant
 # Data is stored in the data_dir specified in the config (default: .dartclaw-example/).
 

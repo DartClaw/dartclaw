@@ -2,11 +2,11 @@
 
 ## Overview
 
-A lightweight contact management system built on messaging channels. The agent receives messages from allowlisted contacts via WhatsApp, Signal, or Google Chat, extracts key information (names, action items, follow-ups, meeting notes), and stores structured data in memory. You can query your contact history and pending items via the web UI.
+A lightweight contact management system built on messaging channels. The agent receives messages from allowlisted contacts via WhatsApp, Signal, Google Chat, or Slack, extracts key information (names, action items, follow-ups, meeting notes), and stores structured data in memory. You can query your contact history and pending items via the web UI.
 
 ## Features Used
 
-- [Channels](../whatsapp.md) -- receives messages from contacts via DM allowlist (WhatsApp, [Signal](../signal.md), or [Google Chat](../google-chat.md))
+- [Channels](../whatsapp.md) -- receives messages from contacts via DM allowlist (WhatsApp, [Signal](../signal.md), [Google Chat](../google-chat.md), or [Slack](../slack.md))
 - [Canonical memory](../workspace.md) -- stores structured contact data and action items in topic entries
 - [Memory search](../search.md) -- retrieves contact history and pending items on demand
 - [Content guard](../security.md) -- classifies agent-boundary and fetched content for safety
@@ -37,7 +37,7 @@ channels:
   #   service_account: ${GOOGLE_CHAT_SERVICE_ACCOUNT}
   #   dm_access: allowlist
   #   dm_allowlist:
-  #     - "alice@example.com"
+  #     - "users/12345678901234567890"   # Google Chat user resource name
 
 # Session scoping -- controls how DM conversations are partitioned
 sessions:
@@ -126,6 +126,8 @@ scheduling:
 
 ## Workflow
 
+[![Contact CRM tracker: allowlisted messages become memory entries](diagrams/recipe-05-crm-tracker.svg)](diagrams/recipe-05-crm-tracker.svg)
+
 1. **Contact sends a message** to your DartClaw number or Google Chat bot
 2. **DM allowlist check** -- only messages from listed contacts are processed
 3. **Guard chain** bounds what the agent may do with the message (command, file, network, tool policy)
@@ -138,11 +140,11 @@ scheduling:
 
 ## Customization Tips
 
-- **Multi-channel tracking**: Enable Signal and/or Google Chat alongside WhatsApp -- all channels write to the same memory, so contact history is unified
+- **Multi-channel tracking**: Enable Signal, Google Chat, and/or Slack alongside WhatsApp -- all channels write to the same memory, so contact history is unified
 - **Add contact categories**: Extend the category system in SOUL.md (e.g., 'prospects', 'vendors', 'personal')
 - **Weekly digest**: Add a weekly cron job to generate a comprehensive contact activity report
 - **Auto-reminders**: Add a morning cron job that checks for overdue action items and announces them
-- **Manage allowlists via API**: Use `PATCH /api/config` to add/remove contacts without restarting the server (available since 0.6). Or edit allowlists in the web UI at `/settings/channels/<channel_type>`
+- **Manage allowlists via API**: `POST` and `DELETE /api/config/channels/<channel_type>/dm-allowlist` add and remove a contact without a restart, as does the web UI at `/settings/channels/<channel_type>`. Editing `dm_allowlist` in `dartclaw.yaml` or through `PATCH /api/config` needs a restart
 - **Background tasks**: Ask for work in ordinary language. The agent uses `task_create`, with follow-up through the
   listing and review tools. See [Common Patterns](_common-patterns.md#channel-to-task-integration).
 - **Session scoping**: `dm_scope: per-contact` gives each contact a shared session across channels (recommended for CRM). The default, `per-channel-contact`, keeps a separate session per channel when the same person contacts you from multiple channels
@@ -150,7 +152,7 @@ scheduling:
 ## Gotchas & Limitations
 
 - **Not a real CRM**: Data is stored as canonical topic entries, not a relational database. Complex queries (e.g., "all contacts in London with overdue tasks") may produce approximate results
-- **Channel must be connected**: Messages are only received when the channel sidecar (GOWA for WhatsApp, signal-cli for Signal) is running and paired. Google Chat uses webhooks (no sidecar). Check connection status at `/settings` in the web UI
-- **No media extraction**: The agent processes text messages only. Images, voice notes, and documents are not parsed
+- **Channel must be connected**: Messages are only received when the channel sidecar (GOWA for WhatsApp, signal-cli for Signal) is running and paired. Google Chat uses webhooks and Slack uses Socket Mode or webhooks (no sidecar). Check connection status at `/settings` in the web UI; for Slack, `dartclaw doctor` reports it in the `slack.transport` row
+- **No media extraction on WhatsApp and Signal**: The agent processes text messages only there. Images, voice notes, and documents are not parsed. Slack files do reach the turn (see [Slack](../slack.md#inbound-files)); Google Chat attachments do not
 - **Session maintenance recommended**: Active contact tracking accumulates many sessions. Configure `sessions.maintenance` to auto-prune old sessions -- see [Common Patterns](_common-patterns.md#session-maintenance)
 - **Outbound redaction**: If contacts share sensitive data (API keys, passwords), the redactor strips it from stored responses but the raw inbound message is processed by the agent

@@ -11,4 +11,7 @@ enum ChannelType {
 
   /// Google Chat integration via the Google Chat REST API.
   googlechat,
+
+  /// Slack integration via Socket Mode and the Slack Web API.
+  slack,
 }

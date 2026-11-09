@@ -47,7 +47,7 @@ export 'src/codex_harness_test_helpers.dart'
         waitForSentMessage;
 export 'src/fake_agent_harness.dart' show FakeAgentHarness;
 export 'src/canonical_memory_fixture.dart' show seedCanonicalMemory;
-export 'src/fake_channel.dart' show FakeChannel;
+export 'src/fake_channel.dart' show FakeChannel, FakeThreadedNotifications, RecordedThreadedSend;
 export 'src/fake_channel_manager.dart' show FakeChannelManager;
 export 'src/fake_codex_process.dart' show FakeCodexProcess;
 export 'src/fake_content_classifier.dart' show FakeContentClassifier;

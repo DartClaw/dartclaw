@@ -26,6 +26,7 @@ typedef ServeSearchIndexFactory = FullTextIndex Function(
 /// Starts the DartClaw HTTP server with web UI.
 class ServeCommand extends Command<void> {
   final DartclawConfig? _config;
+  final Map<String, String> _environment;
   final DatabaseBackendFactory? _taskBackendFactory;
   final bool _taskBackendIsPrepared;
   final ServeSearchIndexFactory? _searchIndexFactory;
@@ -50,6 +51,7 @@ class ServeCommand extends Command<void> {
 
   new({
     DartclawConfig? config,
+    Map<String, String>? environment,
     DatabaseBackendFactory? taskBackendFactory,
     bool taskBackendIsPrepared = false,
     ServeSearchIndexFactory? searchIndexFactory,
@@ -65,6 +67,7 @@ class ServeCommand extends Command<void> {
     bool runWorkflowSkillsBootstrap = true,
     bool connectChannels = true,
   }) : _config = config,
+       _environment = environment ?? Platform.environment,
        _taskBackendFactory = taskBackendFactory,
        _taskBackendIsPrepared = taskBackendIsPrepared,
        _searchIndexFactory = searchIndexFactory,
@@ -120,6 +123,7 @@ class ServeCommand extends Command<void> {
         _config ??
             loadCliConfig(
               configPath: globalResults?['config'] as String?,
+              env: _environment,
               cliOverrides: {
                 if (argResults!.wasParsed('port')) 'port': argResults!['port'] as String,
                 if (argResults!.wasParsed('host')) 'host': argResults!['host'] as String,
@@ -156,8 +160,8 @@ class ServeCommand extends Command<void> {
     // If no config file exists, create a default empty one so ConfigWriter (and
     // the config API routes that depend on it) can operate.
     final explicitConfigPath = globalResults?['config'] as String?;
-    final explicitEnvConfig = Platform.environment['DARTCLAW_CONFIG'];
-    final resolvedConfigPath = resolveCliConfigPath(configPath: explicitConfigPath);
+    final explicitEnvConfig = _environment['DARTCLAW_CONFIG'];
+    final resolvedConfigPath = resolveCliConfigPath(configPath: explicitConfigPath, env: _environment);
     final resolvedConfigFile = File(resolvedConfigPath);
     if (!resolvedConfigFile.existsSync() && explicitConfigPath == null && explicitEnvConfig == null) {
       final defaultDir = Directory(p.dirname(resolvedConfigPath));
@@ -169,7 +173,7 @@ class ServeCommand extends Command<void> {
     // Only applies to default-discovery or DARTCLAW_HOME paths; explicit --config or
     // DARTCLAW_CONFIG installs may intentionally keep config separate from data.
     if (explicitConfigPath == null && explicitEnvConfig == null) {
-      final expandedDataDir = expandHome(config.server.dataDir);
+      final expandedDataDir = expandHome(config.server.dataDir, env: _environment);
       final configDir = p.dirname(resolvedConfigPath);
       if (!p.equals(expandedDataDir, configDir)) {
         _stderrLine(
@@ -384,7 +388,7 @@ class ServeCommand extends Command<void> {
         configPath: resolvedConfigPath,
         notifier: runtime.configNotifier,
         reloadConfig: config.gateway.reload,
-        configLoader: () => loadCliConfig(configPath: resolvedConfigPath),
+        configLoader: () => loadCliConfig(configPath: resolvedConfigPath, env: _environment),
         platformCapabilities: _platformCapabilities,
       );
       reloadTrigger.start();

@@ -12,6 +12,7 @@ void main() {
     final fallback = Directory('${root.path}/fallback')..createSync();
     final service = ProjectServiceImpl(
       dataDir: root.path,
+      localDir: root.path,
       projectConfig: ProjectConfig(
         definitions: {
           'named-id': ProjectDefinition(id: 'named-id', name: 'Human Name', localPath: named.path, isDefault: true),

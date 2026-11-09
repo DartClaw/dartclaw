@@ -43,6 +43,7 @@ const _derivedMembershipSources = <String, String>{
   'governance.budget.action': 'config_parser_governance.dart',
   'governance.loop_detection.action': 'config_parser_governance.dart',
   'workflow.runtime_artifacts_retention.mode': 'workflow_config.dart',
+  'workflow.chat_notifications.channel': 'workflow_config.dart',
   'tasks.worktree.merge_strategy': 'config_parser.dart',
 };
 
@@ -265,7 +266,7 @@ void _registerConfigMembershipDispositionTests() {
         expect(source.substring(start, end), contains('FieldConstraints.evaluate('), reason: entry.key);
       }
     }
-    expect(_derivedMembershipDeclarations, hasLength(21));
+    expect(_derivedMembershipDeclarations, hasLength(22));
     expect(_membershipResiduals, hasLength(19));
     expect(_membershipResidualReasons.values, everyElement(isNotEmpty));
     final ruled = _registryDispositions.expand((section) => section.keys).toList();
@@ -322,6 +323,10 @@ void _registerConfigMembershipDispositionTests() {
       'governance.loop_detection.action': LoopAction.values.map((value) => value.name).toSet(),
       'workflow.runtime_artifacts_retention.mode': MaintenanceMode.values.map((value) => value.name).toSet(),
       'workflow.approvals': WorkflowApprovalPolicy.values.map((value) => value.yamlValue).toSet(),
+      'workflow.chat_notifications.channel': {
+        for (final channel in ChannelType.values)
+          if (channel != ChannelType.web) channel.name,
+      },
     };
 
     for (final entry in mapperSpellings.entries) {

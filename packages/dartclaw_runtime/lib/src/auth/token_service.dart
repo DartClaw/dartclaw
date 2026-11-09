@@ -2,9 +2,8 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_kernel/dartclaw_kernel.dart' show constantTimeEquals;
 import 'package:path/path.dart' as p;
-
-import 'auth_utils.dart';
 
 /// Manages the gateway authentication token.
 ///

@@ -70,7 +70,7 @@ steps:
   });
 
   group('S03 – prd/plan resolve byte-identical globs after relocation', () {
-    final def = _load('plan-and-implement.yaml');
+    final def = _load('implement-prd.yaml');
     final discover = def.steps.singleWhere((s) => s.id == 'discover-plan-state');
 
     test('prd resolves **/*prd.md', () {
@@ -90,7 +90,7 @@ steps:
   });
 
   group('S04 – per-story prompts carry only their own story context', () {
-    final def = _load('plan-and-implement.yaml');
+    final def = _load('implement-prd.yaml');
 
     test('implement declares no story_specs input, so no <story_specs> is auto-framed', () {
       final implement = def.steps.singleWhere((s) => s.id == 'implement');

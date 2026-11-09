@@ -6,12 +6,15 @@ import 'package:dartclaw_core/dartclaw_core.dart'
         ChannelResponse,
         DmAccessController,
         MentionGating,
+        ThreadedNotifications,
         chunkNativeChatMarkup,
         sourceMessageIdMetadataKey;
 import 'package:logging/logging.dart';
 
 import 'google_chat_config.dart';
 import 'google_chat_rest_client.dart' show GoogleChatRestClient, messageNamePattern, typingIndicatorEmoji;
+import 'google_chat_threaded_notifications.dart';
+import 'google_chat_utils.dart' show outboundFallbackText;
 import 'markdown_converter.dart';
 
 const _firstChunkMetadataKey = 'isFirstChunk';
@@ -50,6 +53,11 @@ class GoogleChatChannel extends Channel {
     this.mentionGating,
   }) : _channelManager = channelManager;
 
+  late final _threadedNotifications = GoogleChatThreadedNotifications(restClient);
+
+  @override
+  ThreadedNotifications? get threadedNotifications => _threadedNotifications;
+
   /// Channel manager used to route normalized inbound messages, if attached.
   ChannelManager? get channelManager => _channelManager;
 
@@ -78,7 +86,7 @@ class GoogleChatChannel extends Channel {
     }
 
     final structuredPayload = response.structuredPayload;
-    final fallbackText = _fallbackText(response);
+    final fallbackText = outboundFallbackText(response);
     final isFirstChunk = response.metadata[_firstChunkMetadataKey] as bool? ?? true;
     final displayText = isFirstChunk ? _withSenderAttribution(response, fallbackText) : fallbackText;
 
@@ -144,61 +152,6 @@ class GoogleChatChannel extends Channel {
     }
 
     await restClient.send(spaceName: recipientJid, text: displayText);
-  }
-
-  /// Sends a notification [response] to [recipientJid] in a new or existing
-  /// thread identified by [threadKey].
-  ///
-  /// Returns the server-assigned thread name from the API response, or `null`
-  /// if the send failed. The thread name can be stored as a [ThreadBinding]
-  /// to route subsequent inbound messages from that thread to the task session.
-  Future<String?> sendMessageWithThread(
-    String recipientJid,
-    ChannelResponse response, {
-    required String threadKey,
-  }) async {
-    final structuredPayload = response.structuredPayload;
-    final fallbackText = _fallbackText(response);
-
-    if (structuredPayload != null) {
-      final result = await restClient.send(spaceName: recipientJid, card: structuredPayload, threadKey: threadKey);
-      if (result.messageName != null) {
-        return result.threadName;
-      }
-      _log.warning('Google Chat threaded card send failed for $recipientJid, falling back to plain text');
-    }
-
-    if (fallbackText.isEmpty) {
-      return null;
-    }
-
-    final result = await restClient.send(spaceName: recipientJid, text: fallbackText, threadKey: threadKey);
-    return result.threadName;
-  }
-
-  /// Sends a notification [response] to [recipientJid] in an existing
-  /// server-assigned thread named [threadName].
-  Future<void> sendMessageToThreadName(
-    String recipientJid,
-    ChannelResponse response, {
-    required String threadName,
-  }) async {
-    final structuredPayload = response.structuredPayload;
-    final fallbackText = _fallbackText(response);
-
-    if (structuredPayload != null) {
-      final sent = await restClient.send(spaceName: recipientJid, card: structuredPayload, threadName: threadName);
-      if (sent.messageName != null) {
-        return;
-      }
-      _log.warning('Google Chat thread-name card send failed for $recipientJid, falling back to plain text');
-    }
-
-    if (fallbackText.isEmpty) {
-      return;
-    }
-
-    await restClient.send(spaceName: recipientJid, text: fallbackText, threadName: threadName);
   }
 
   /// Associates a pending typing placeholder with an outbound turn id.
@@ -273,13 +226,6 @@ class GoogleChatChannel extends Channel {
     _pendingPlaceholders.clear();
     _pendingReactions.clear();
     _log.info('Google Chat channel disconnected');
-  }
-
-  String _fallbackText(ChannelResponse response) {
-    if (response.text.isNotEmpty) {
-      return response.text;
-    }
-    return response.structuredPayload == null ? '' : 'DartClaw sent an update.';
   }
 
   String? _nonEmptyString(Object? value) {

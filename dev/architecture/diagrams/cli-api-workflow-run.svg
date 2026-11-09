@@ -1,0 +1,184 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 866" width="1000" height="866" role="img" aria-labelledby="title desc">
+  <title id="title">Connected workflow run</title>
+  <desc id="desc">The CLI posts to /api/workflows/run, opens the per-run SSE stream and renders frames until a terminal, paused or awaitingApproval status arrives, then exits 0, 1 or 2. If the stream drops it re-fetches the run; Ctrl-C posts a cancel and keeps waiting.</desc>
+  <style>
+
+    svg { --bg:#f6f7f9; --card:#ffffff; --ink:#1e2030; --ink2:#4c4f69; --ink3:#6c6f85; --rule:#ccd0da; --edge:#8c8fa1; --hi:#1e66f5; --on:#ffffff; --panel:#1e1e2e; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+      --host:#40a02b; --host-d:#1f5c2a; --host-l:#2d7a1f; --ext:#e07c4f; --ext-d:#a8481c; --ext-l:#b5531f; --store:#179299; --store-d:#0f5f63; --store-l:#0e7377;
+      --sec:#d20f39; --sec-d:#9b0c2c; --sec-l:#b80d33; --chan:#8839ef; --chan-d:#5d23a8; --chan-l:#7027d4; --neu:#7c7f93; --neu-d:#4c4f69; --neu-l:#5c5f77; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#181825; --card:#1e1e2e; --ink:#cdd6f4; --ink2:#bac2de; --ink3:#9399b2; --rule:#45475a; --edge:#7f849c; --hi:#89b4fa; --on:#f5f7ff; --panel:#11111b; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+        --host:#a6e3a1; --host-d:#2f6b3a; --host-l:#a6e3a1; --ext:#fab387; --ext-d:#8f4a24; --ext-l:#fab387; --store:#94e2d5; --store-d:#1f6460; --store-l:#94e2d5;
+        --sec:#f38ba8; --sec-d:#8a2c45; --sec-l:#f38ba8; --chan:#cba6f7; --chan-d:#5e3f94; --chan-l:#cba6f7; --neu:#9399b2; --neu-d:#45475a; --neu-l:#bac2de; }
+    }
+    text { fill: var(--ink); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .mono, .kick, .badge text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+    .bg { fill: var(--bg); }
+    .title { font-size: 21px; font-weight: 700; }
+    .lede { fill: var(--ink3); font-size: 13px; }
+    .kick { font-size: 10.5px; font-weight: 600; letter-spacing: .1em; fill: var(--kl, var(--ink3)); }
+    .k-host { --k:var(--host); --kd:var(--host-d); --kl:var(--host-l); }
+    .k-ext { --k:var(--ext); --kd:var(--ext-d); --kl:var(--ext-l); }
+    .k-store { --k:var(--store); --kd:var(--store-d); --kl:var(--store-l); }
+    .k-sec { --k:var(--sec); --kd:var(--sec-d); --kl:var(--sec-l); }
+    .k-chan { --k:var(--chan); --kd:var(--chan-d); --kl:var(--chan-l); }
+    .k-neu { --k:var(--neu); --kd:var(--neu-d); --kl:var(--neu-l); }
+    .band { fill: color-mix(in srgb, var(--k) 6%, var(--bg)); stroke: color-mix(in srgb, var(--k) 50%, var(--bg)); stroke-width: 1.4; stroke-dasharray: 7 5; }
+    .box { stroke-width: 1.5; }
+    .tint .box { fill: color-mix(in srgb, var(--k) 13%, var(--card)); stroke: var(--k); }
+    .line .box { fill: var(--card); stroke: var(--k); }
+    .ghost .box { fill: none; stroke: var(--k); stroke-dasharray: 5 4; }
+    .solid .box { fill: var(--kd); stroke: var(--kd); }
+    .name { font-size: 14.5px; font-weight: 700; }
+    .sub { font-size: 11.5px; fill: var(--ink2); }
+    .mono { font-size: 11.5px; fill: var(--ink2); }
+    .solid text { fill: var(--on); }
+    .solid .sub, .solid .mono { fill: var(--on); fill-opacity: .82; }
+    .badge rect { fill: none; stroke: var(--kl); stroke-width: 1.2; }
+    .badge text { font-size: 9.5px; font-weight: 700; letter-spacing: .06em; fill: var(--kl); text-anchor: middle; }
+    .solid .badge rect { stroke: var(--on); stroke-opacity: .7; }
+    .solid .badge text { fill: var(--on); }
+    .e path { fill: none; stroke: var(--ec, var(--edge)); stroke-width: var(--ew, 1.6px); marker-end: var(--em, url(#ah)); }
+    .e.main path { stroke: var(--ec, var(--host)); stroke-width: var(--ew, 2.4px); marker-end: var(--em, url(#ah-main)); }
+    .e.bad path { stroke: var(--ec, var(--sec)); marker-end: var(--em, url(#ah-bad)); }
+    .e.dash path { stroke-dasharray: 6 4; }
+    .el { font-size: 11px; fill: var(--ink2); paint-order: stroke; stroke: var(--halo, var(--bg)); stroke-width: 4px; stroke-linejoin: round; }
+    .in-host .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    .ah { fill: var(--edge); } .ah-main { fill: var(--host); } .ah-bad { fill: var(--sec); } .ah-hi { fill: var(--hi); }
+    .panel { fill: var(--panel); }
+    .panel-kick { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10.5px; font-weight: 700; letter-spacing: .12em; fill: var(--panel-kick); }
+    .p1 { fill: var(--panel-ink); font-size: 13px; }
+    .p1 tspan.b { font-weight: 700; }
+    .p2 { fill: var(--panel-sub); font-size: 12.5px; }
+    .lg { font-size: 11px; fill: var(--ink2); }
+    .chip rect { fill: color-mix(in srgb, var(--k) 10%, var(--card)); stroke: var(--k); stroke-width: 1; }
+    .chip text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10px; font-weight: 600; fill: var(--kl); }
+    .step circle { fill: var(--kd); } .step text { fill: var(--on); font-size: 11px; font-weight: 700; text-anchor: middle; }
+    /* Interaction, effective only when the SVG is opened directly. */
+    .n { cursor: pointer; }
+    .n:hover .box, a:focus-visible .box { stroke: var(--hi); stroke-width: 2.8; }
+    .d { display: none; pointer-events: none; }
+    .n:hover .d, a:focus-visible .d { display: inline; }
+    svg:has(.n:hover) .d0, svg:has(a:focus-visible) .d0 { display: none; }
+    svg:has(.n:hover) .edges .e { opacity: .14; }
+    .e.join path { marker-end: none; }
+    .band.inner { fill: none; stroke-dasharray: 3 4; }
+    .mono-name { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13.5px; }
+    .life { stroke: var(--edge); stroke-width: 1.3; stroke-dasharray: 3 5; }
+    svg:has(#cli:hover) .edges :is(.f-cli,.t-cli) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#srv:hover) .edges :is(.f-srv,.t-srv) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#m1:hover) .edges :is(.f-m1,.t-m1) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#m2:hover) .edges :is(.f-m2,.t-m2) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#m3:hover) .edges :is(.f-m3,.t-m3) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#m4:hover) .edges :is(.f-m4,.t-m4) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#m5:hover) .edges :is(.f-m5,.t-m5) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#m6:hover) .edges :is(.f-m6,.t-m6) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#m7:hover) .edges :is(.f-m7,.t-m7) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+  </style>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-main" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path class="ah-main" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-bad" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="ah-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="866"/>
+  <!-- Details panel: painted first so node details (.d) draw on top -->
+  <rect class="panel" x="16" y="770" width="968" height="80" rx="12"/>
+  <text class="panel-kick" x="36" y="794">DETAILS</text>
+  <g class="d0"><text class="p1" x="36" y="818">Hover a message for what it carries; its arrow lights up. Click it to open its section.</text><text class="p2" x="36" y="838">Inside a rendered document this image is static. Click it to open the interactive SVG.</text></g>
+
+  <text class="kick" x="24" y="32">SEQUENCE · ApiWorkflowConnection.run</text>
+  <text class="title" x="24" y="58">Connected workflow run</text>
+  <text class="lede" x="24" y="80">workflow run &lt;name&gt; starts a run, follows its SSE stream and maps the final status to an exit code.</text>
+
+  <g class="k-neu"><rect class="band inner" x="24" y="464" width="952" height="84" rx="10"/><text class="kick" x="40" y="486">IF THE STREAM DROPS</text></g>
+  <g class="k-neu"><rect class="band inner" x="24" y="640" width="952" height="84" rx="10"/><text class="kick" x="40" y="662">AT ANY TIME</text></g>
+  <line class="life" x1="190" y1="152" x2="190" y2="736"/>
+  <line class="life" x1="810" y1="152" x2="810" y2="736"/>
+
+  <g class="edges">
+    <g class="e main f-cli f-m1 t-srv t-m1"><path d="M192,194 H808"/></g>
+    <g class="e main dash f-srv f-m2 t-cli t-m2"><path d="M808,273 H192"/></g>
+    <g class="e main f-cli f-m3 t-srv t-m3"><path d="M192,352 H808"/></g>
+    <g class="e main dash f-srv f-m4 t-cli t-m4"><path d="M808,422 H192"/></g>
+    <g class="e dash f-cli f-m5 t-srv t-m5"><path d="M192,516 H808"/></g>
+    <g class="e main dash f-srv f-m6 t-cli t-m6"><path d="M808,594 H192"/></g>
+    <g class="e dash f-cli f-m7 t-srv t-m7"><path d="M192,688 H808"/></g>
+  </g>
+
+  <a href="../cli-api-architecture.md#connected-run"><g class="n solid k-host" id="cli">
+    <rect class="box" x="90" y="100" width="200" height="52" rx="9"/>
+    <text class="name mono-name" x="102" y="119">workflow run</text>
+    <text class="sub" x="102" y="135">ApiWorkflowConnection</text>
+    <g class="d"><text class="p1" x="36" y="818"><tspan class="b">workflow run</tspan> · apps/dartclaw_cli, commands/workflow/api_workflow_connection.dart</text><text class="p2" x="36" y="838">Thin HTTP/SSE client: it has no engine and no local state, and renders what the server streams (ADR-030).</text></g>
+  </g></a>
+  <a href="../cli-api-architecture.md#5-server-route-families"><g class="n solid k-host" id="srv">
+    <rect class="box" x="710" y="100" width="200" height="52" rx="9"/>
+    <text class="name mono-name" x="722" y="119">dartclaw serve</text>
+    <text class="sub" x="722" y="135">workflow_routes.dart</text>
+    <g class="d"><text class="p1" x="36" y="818"><tspan class="b">dartclaw serve</tspan> · packages/dartclaw_runtime, api/workflow_routes.dart</text><text class="p2" x="36" y="838">The same routes the web UI uses; the CLI has no privileged path, so guards and observability apply to CLI runs.</text></g>
+  </g></a>
+  <a href="../cli-api-architecture.md#connected-run"><g class="n tint k-host" id="m1">
+    <rect class="box" x="300" y="168" width="400" height="52" rx="9"/>
+    <g class="step"><circle cx="320" cy="194.0" r="10"/><text x="320" y="198.0">1</text></g>
+    <text class="name mono-name" x="338" y="187">POST /api/workflows/run</text>
+    <g class="badge"><rect x="650" y="175" width="40" height="16" rx="8"/><text x="670" y="187">POST</text></g>
+    <text class="sub" x="338" y="203">definition, variables, surface cli, project, approvals</text>
+    <g class="d"><text class="p1" x="36" y="818"><tspan class="b">POST /api/workflows/run</tspan> · body: definition, variables, surface: cli, project, approvals, allowDirtyLocalPath, inline</text><text class="p2" x="36" y="838">The server shapes both launch routes alike: it injects PROJECT and validates required variables before it starts the run.</text></g>
+  </g></a>
+  <a href="../cli-api-architecture.md#connected-run"><g class="n tint k-host" id="m2">
+    <rect class="box" x="300" y="238" width="400" height="70" rx="9"/>
+    <g class="step"><circle cx="320" cy="260" r="10"/><text x="320" y="264">2</text></g>
+    <text class="name mono-name" x="338" y="261">201 created run</text>
+    <text class="sub" x="338" y="279">run JSON including definitionJson</text>
+    <g class="chip k-sec"><rect x="338" y="284" width="132" height="16" rx="8"/><text x="345" y="296">4xx: no run, exit 5</text></g>
+    <g class="d"><text class="p1" x="36" y="818"><tspan class="b">201 created run</tspan> · the run row; definitionJson lets the CLI count steps and name them for progress lines</text><text class="p2" x="36" y="838">A 400 INVALID_INPUT, 404 DEFINITION_NOT_FOUND or 409 WORKFLOW_PRECONDITION_FAILED creates no run; the CLI prints it and exits 5.</text></g>
+  </g></a>
+  <a href="../cli-api-architecture.md#connected-run"><g class="n tint k-host" id="m3">
+    <rect class="box" x="300" y="326" width="400" height="52" rx="9"/>
+    <g class="step"><circle cx="320" cy="352.0" r="10"/><text x="320" y="356.0">3</text></g>
+    <text class="name mono-name" x="338" y="345">GET /api/workflows/runs/&lt;id&gt;/events</text>
+    <g class="badge"><rect x="657" y="333" width="33" height="16" rx="8"/><text x="674" y="345">SSE</text></g>
+    <text class="sub" x="338" y="361">opens the per-run stream</text>
+    <g class="d"><text class="p1" x="36" y="818"><tspan class="b">GET /api/workflows/runs/&lt;id&gt;/events</tspan> · answered with a connected frame: current run status plus one status per step</text><text class="p2" x="36" y="838">The handler subscribes to the EventBus per run id; 404 if the run is gone, 503 if no event bus is configured.</text></g>
+  </g></a>
+  <a href="../cli-api-architecture.md#connected-run"><g class="n tint k-host" id="m4">
+    <rect class="box" x="300" y="396" width="400" height="52" rx="9"/>
+    <g class="step"><circle cx="320" cy="422.0" r="10"/><text x="320" y="426.0">4</text></g>
+    <text class="name mono-name" x="338" y="415">step frames, then status change</text>
+    <text class="sub" x="338" y="431">--json echoes each frame</text>
+    <g class="d"><text class="p1" x="36" y="818"><tspan class="b">step frames, then status change</tspan> · step, parallel, loop and map completions, task status, token progress, approval requests</text><text class="p2" x="36" y="838">CliProgressPrinter renders them; the closing workflow_status_changed carries total tokens and the current step index.</text></g>
+  </g></a>
+  <a href="../cli-api-architecture.md#connected-run"><g class="n line k-host" id="m5">
+    <rect class="box" x="300" y="490" width="400" height="52" rx="9"/>
+    <g class="step"><circle cx="320" cy="516.0" r="10"/><text x="320" y="520.0">5</text></g>
+    <text class="name mono-name" x="338" y="509">GET /api/workflows/runs/&lt;id&gt;</text>
+    <g class="badge"><rect x="657" y="497" width="33" height="16" rx="8"/><text x="674" y="509">GET</text></g>
+    <text class="sub" x="338" y="525">terminal, paused or awaiting approval: stop; else retry</text>
+    <g class="d"><text class="p1" x="36" y="818"><tspan class="b">GET /api/workflows/runs/&lt;id&gt;</tspan> · the client reconnects up to 3 times, waiting 1, 2 and 4 s; each drop first re-fetches the run</text><text class="p2" x="36" y="838">completed, failed, cancelled, paused and awaitingApproval end the wait; pending and running reconnect and print a notice.</text></g>
+  </g></a>
+  <a href="../cli-api-architecture.md#connected-run"><g class="n tint k-host" id="m6">
+    <rect class="box" x="300" y="568" width="400" height="52" rx="9"/>
+    <g class="step"><circle cx="320" cy="594.0" r="10"/><text x="320" y="598.0">6</text></g>
+    <text class="name mono-name" x="338" y="587">terminal workflow_status_changed</text>
+    <text class="sub" x="338" y="603">exit: completed 0, failed 1, other 2</text>
+    <g class="d"><text class="p1" x="36" y="818"><tspan class="b">terminal workflow_status_changed</tspan> · cancelled, paused and awaitingApproval exit 2; the standalone lane maps the same way</text><text class="p2" x="36" y="838">A transport or HTTP failure instead maps through connectedExitCode: 3 transport, 4 auth, 5 other 4xx, 6 for 5xx.</text></g>
+  </g></a>
+  <a href="../cli-api-architecture.md#connected-run"><g class="n line k-host" id="m7">
+    <rect class="box" x="300" y="662" width="400" height="52" rx="9"/>
+    <g class="step"><circle cx="320" cy="688.0" r="10"/><text x="320" y="692.0">7</text></g>
+    <text class="name mono-name" x="338" y="681">Ctrl-C: POST .../runs/&lt;id&gt;/cancel</text>
+    <g class="badge"><rect x="650" y="669" width="40" height="16" rx="8"/><text x="670" y="681">POST</text></g>
+    <text class="sub" x="338" y="697">keeps waiting; a second Ctrl-C exits 1</text>
+    <g class="d"><text class="p1" x="36" y="818"><tspan class="b">Ctrl-C: POST .../runs/&lt;id&gt;/cancel</tspan> · the first interrupt is a control action: it requests cancel and still waits for the terminal state</text><text class="p2" x="36" y="838">A second interrupt calls exit(1) at once, leaving the server run to finish its own cancel.</text></g>
+  </g></a>
+  <g transform="translate(24,744)">
+    <g class="solid k-host"><rect class="box" x="0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="22" y="10">participant</text>
+    <g class="tint k-host"><rect class="box" x="112.2" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="134.2" y="10">message</text>
+    <g class="line k-host"><rect class="box" x="199.60000000000002" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="221.60000000000002" y="10">conditional</text>
+    <g class="e main"><path d="M311.8,6 H343.8"/></g><text class="lg" x="351.8" y="10">request or event</text>
+    <g class="e main dash"><path d="M473.0,6 H505.0"/></g><text class="lg" x="513.0" y="10">response or stream</text>
+    <g class="e dash"><path d="M646.6,6 H678.6"/></g><text class="lg" x="686.6" y="10">control, on demand</text>
+  </g>
+</svg>

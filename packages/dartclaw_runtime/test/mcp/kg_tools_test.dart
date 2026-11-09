@@ -8,6 +8,8 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:test/test.dart';
 
+const _steward = McpCallerContext(authorityId: mcpStewardPrincipal, sourceEvent: 'test:kg');
+
 void main() {
   late TemporalKnowledgeGraphService kg;
 
@@ -19,13 +21,13 @@ void main() {
     final timeline = KgTimelineTool(kg: kg);
     final invalidate = KgInvalidateTool(kg: kg);
 
-    final addResult = await add.call({
+    final addResult = await add.callWithContext({
       'entity': 'GitHub Actions',
       'predicate': 'runner',
       'value': 'ubuntu-latest',
       'valid_from': '2026-05-01T00:00:00Z',
       'source': 'wiki/ci.md',
-    });
+    }, _steward);
     final addJson = jsonDecode((addResult as dynamic).content as String) as Map<String, dynamic>;
     expect(addJson['status'], 'added');
 
@@ -39,11 +41,11 @@ void main() {
     final timelineResult = await timeline.call({'entity': 'GitHub Actions'});
     expect(jsonDecode((timelineResult as dynamic).content as String), containsPair('status', 'ok'));
 
-    final invalidateResult = await invalidate.call({
+    final invalidateResult = await invalidate.callWithContext({
       'id': addJson['id'],
       'invalidated_at': '2026-05-03T00:00:00Z',
       'reason': 'runner image changed',
-    });
+    }, _steward);
     expect(jsonDecode((invalidateResult as dynamic).content as String), containsPair('status', 'invalidated'));
   });
 
@@ -139,13 +141,13 @@ void main() {
     test('kg_add emits audit record on successful add', () async {
       final add = KgAddTool(kg: kg, auditLogger: auditLogger);
 
-      final result = await add.call({
+      final result = await add.callWithContext({
         'entity': 'Audit Test',
         'predicate': 'status',
         'value': 'active',
         'valid_from': '2026-01-01T00:00:00Z',
         'source': 'test',
-      });
+      }, _steward);
       expect(jsonDecode((result as dynamic).content as String), containsPair('status', 'added'));
 
       // Flush the fire-and-forget write chain.
@@ -175,13 +177,13 @@ void main() {
       );
 
       final add = KgAddTool(kg: kg, auditLogger: auditLogger);
-      final result = await add.call({
+      final result = await add.callWithContext({
         'entity': 'Conflict Entity',
         'predicate': 'status',
         'value': 'inactive',
         'valid_from': '2026-01-01T00:00:00Z',
         'source': 'test',
-      });
+      }, _steward);
       expect(jsonDecode((result as dynamic).content as String), containsPair('status', 'contradiction'));
 
       await auditLogger.cleanOldFiles(0);
@@ -206,7 +208,11 @@ void main() {
       );
 
       final invalidate = KgInvalidateTool(kg: kg, auditLogger: auditLogger);
-      final result = await invalidate.call({'id': id, 'invalidated_at': '2026-06-01T00:00:00Z', 'reason': 'stale'});
+      final result = await invalidate.callWithContext({
+        'id': id,
+        'invalidated_at': '2026-06-01T00:00:00Z',
+        'reason': 'stale',
+      }, _steward);
       expect(jsonDecode((result as dynamic).content as String), containsPair('status', 'invalidated'));
 
       await auditLogger.cleanOldFiles(0);
@@ -228,7 +234,11 @@ void main() {
     test('S06 kg_invalidate emits denied audit record on not-found', () async {
       final invalidate = KgInvalidateTool(kg: kg, auditLogger: auditLogger);
 
-      final result = await invalidate.call({'id': 404, 'invalidated_at': '2026-06-01T00:00:00Z', 'reason': 'missing'});
+      final result = await invalidate.callWithContext({
+        'id': 404,
+        'invalidated_at': '2026-06-01T00:00:00Z',
+        'reason': 'missing',
+      }, _steward);
       expect(jsonDecode((result as dynamic).content as String), containsPair('status', 'not_found'));
 
       await auditLogger.cleanOldFiles(0);
@@ -250,13 +260,13 @@ void main() {
         auditLogger: GuardAuditLogger(dataDir: occupied.path),
       );
 
-      final result = await add.call({
+      final result = await add.callWithContext({
         'entity': 'Audit Failure',
         'predicate': 'status',
         'value': 'active',
         'valid_from': '2026-01-01T00:00:00Z',
         'source': 'test',
-      });
+      }, _steward);
 
       final json = jsonDecode((result as dynamic).content as String) as Map<String, dynamic>;
       expect(json['status'], 'denied');
@@ -274,11 +284,11 @@ void main() {
       );
       final invalidate = KgInvalidateTool(kg: kg, auditLogger: auditLogger);
 
-      final result = await invalidate.call({
+      final result = await invalidate.callWithContext({
         'id': id,
         'invalidated_at': '2026-06-01T00:00:00Z',
         'reason': 'token=secret-value',
-      });
+      }, _steward);
       expect(jsonDecode((result as dynamic).content as String), containsPair('status', 'invalidated'));
 
       final entry = jsonDecode(File(auditLogger.auditFilePath).readAsLinesSync().single) as Map<String, dynamic>;
@@ -292,11 +302,11 @@ void main() {
     test('kg_invalidate rejects non-existent fact ID', () async {
       final invalidate = KgInvalidateTool(kg: kg);
 
-      final result = await invalidate.call({
+      final result = await invalidate.callWithContext({
         'id': 999999,
         'invalidated_at': '2026-06-01T00:00:00Z',
         'reason': 'does not exist',
-      });
+      }, _steward);
       final json = jsonDecode((result as dynamic).content as String) as Map<String, dynamic>;
       expect(json['status'], 'not_found', reason: 'arbitrary IDs must be rejected, not silently accepted');
       expect(json['id'], 999999);
@@ -312,37 +322,37 @@ void main() {
       );
 
       final invalidate = KgInvalidateTool(kg: kg);
-      final result = await invalidate.call({
+      final result = await invalidate.callWithContext({
         'id': id,
         'invalidated_at': '2026-06-01T00:00:00Z',
         'reason': 'superseded',
-      });
+      }, _steward);
       expect(jsonDecode((result as dynamic).content as String), containsPair('status', 'invalidated'));
     });
 
     test('S06/S08 kg_add records owner and kg_invalidate enforces ownership', () async {
       final add = KgAddTool(kg: kg, principalProvider: () => 'alice');
-      final addResult = await add.call({
+      final addResult = await add.callWithContext({
         'entity': 'Owned Fact',
         'predicate': 'status',
         'value': 'active',
         'valid_from': '2026-01-01T00:00:00Z',
         'source': 'test',
-      });
+      }, _steward);
       final id = (jsonDecode((addResult as dynamic).content as String) as Map<String, dynamic>)['id'] as int;
       expect(await kg.ownerForFact(id), 'alice');
 
       final denied = await KgInvalidateTool(
         kg: kg,
         principalProvider: () => 'bob',
-      ).call({'id': id, 'invalidated_at': '2026-06-01T00:00:00Z', 'reason': 'not mine'});
+      ).callWithContext({'id': id, 'invalidated_at': '2026-06-01T00:00:00Z', 'reason': 'not mine'}, _steward);
       expect(jsonDecode((denied as dynamic).content as String), containsPair('status', 'denied'));
       expect((await kg.query(entity: 'Owned Fact', includeInvalidated: true)).single.invalidatedAt, isNull);
 
       final allowed = await KgInvalidateTool(
         kg: kg,
         principalProvider: () => 'alice',
-      ).call({'id': id, 'invalidated_at': '2026-06-01T00:00:00Z', 'reason': 'mine'});
+      ).callWithContext({'id': id, 'invalidated_at': '2026-06-01T00:00:00Z', 'reason': 'mine'}, _steward);
       expect(jsonDecode((allowed as dynamic).content as String), containsPair('status', 'invalidated'));
     });
 
@@ -358,13 +368,13 @@ void main() {
       final denied = await KgInvalidateTool(
         kg: kg,
         principalProvider: () => 'alice',
-      ).call({'id': id, 'invalidated_at': '2026-06-01T00:00:00Z', 'reason': 'not steward'});
+      ).callWithContext({'id': id, 'invalidated_at': '2026-06-01T00:00:00Z', 'reason': 'not steward'}, _steward);
       expect(jsonDecode((denied as dynamic).content as String), containsPair('status', 'denied'));
 
       final allowed = await KgInvalidateTool(
         kg: kg,
         principalProvider: () => systemKgPrincipal,
-      ).call({'id': id, 'invalidated_at': '2026-06-01T00:00:00Z', 'reason': 'steward'});
+      ).callWithContext({'id': id, 'invalidated_at': '2026-06-01T00:00:00Z', 'reason': 'steward'}, _steward);
       expect(jsonDecode((allowed as dynamic).content as String), containsPair('status', 'invalidated'));
     });
 
@@ -375,24 +385,24 @@ void main() {
       // change: writes run as the steward principal, a non-steward caller is denied,
       // and the steward default may invalidate.
       final add = KgAddTool(kg: kg);
-      final addResult = await add.call({
+      final addResult = await add.callWithContext({
         'entity': 'Steward Default Fact',
         'predicate': 'status',
         'value': 'active',
         'valid_from': '2026-01-01T00:00:00Z',
         'source': 'test',
-      });
+      }, _steward);
       final id = (jsonDecode((addResult as dynamic).content as String) as Map<String, dynamic>)['id'] as int;
       expect(await kg.ownerForFact(id), systemKgPrincipal);
 
       final denied = await KgInvalidateTool(
         kg: kg,
         principalProvider: () => 'mallory',
-      ).call({'id': id, 'invalidated_at': '2026-06-01T00:00:00Z', 'reason': 'not steward'});
+      ).callWithContext({'id': id, 'invalidated_at': '2026-06-01T00:00:00Z', 'reason': 'not steward'}, _steward);
       expect(jsonDecode((denied as dynamic).content as String), containsPair('status', 'denied'));
 
       final allowed = await KgInvalidateTool(kg: kg)
-          .call({'id': id, 'invalidated_at': '2026-06-01T00:00:00Z', 'reason': 'steward default'});
+          .callWithContext({'id': id, 'invalidated_at': '2026-06-01T00:00:00Z', 'reason': 'steward default'}, _steward);
       expect(jsonDecode((allowed as dynamic).content as String), containsPair('status', 'invalidated'));
     });
   });

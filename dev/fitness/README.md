@@ -216,7 +216,7 @@ await SafeProcess.git(['status'], plan: plan, workingDirectory: dir);
 // After
 await runGit(['status'], workingDirectory: dir, plan: plan, noSystemConfig: false);
 ```
-`plan` defaults to `const EmptyProcessEnvironmentPlan()` and `noSystemConfig` to `true`; pass `noSystemConfig: false` only for user-visible or remote-transport git, and name the classification at the call site (see `dev/architecture/security-architecture.md` § Git Subprocess Centralization).
+`plan` defaults to `const EmptyProcessEnvironmentPlan()` and `noSystemConfig` to `true`; pass `noSystemConfig: false` only for user-visible or remote-transport git, and name the classification at the call site (see `dev/architecture/security-architecture.md` § Subprocess Hygiene and Git Runner).
 
 Each gate holds its own allowlist — `test/allowlist/safe_process_raw_git.txt` for gate 1,
 `test/allowlist/safe_process_git_seam.txt` for gate 2:

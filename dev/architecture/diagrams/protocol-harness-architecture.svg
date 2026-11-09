@@ -1,0 +1,211 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 668" width="1000" height="668" role="img" aria-labelledby="title desc">
+  <title id="title">Harness architecture</title>
+  <desc id="desc">The turn engine in the Dart host (TurnManager, ExecutionCoordinator, TurnRunner) calls one AgentHarness contract. ClaudeCodeHarness, CodexHarness and AcpHarness each spawn a provider binary over stdio with its own wire protocol, and route every tool call through the GuardChain. Claude and Codex call back into the host /mcp endpoint.</desc>
+  <style>
+
+    svg { --bg:#f6f7f9; --card:#ffffff; --ink:#1e2030; --ink2:#4c4f69; --ink3:#6c6f85; --rule:#ccd0da; --edge:#8c8fa1; --hi:#1e66f5; --on:#ffffff; --panel:#1e1e2e; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+      --host:#40a02b; --host-d:#1f5c2a; --host-l:#2d7a1f; --ext:#e07c4f; --ext-d:#a8481c; --ext-l:#b5531f; --store:#179299; --store-d:#0f5f63; --store-l:#0e7377;
+      --sec:#d20f39; --sec-d:#9b0c2c; --sec-l:#b80d33; --chan:#8839ef; --chan-d:#5d23a8; --chan-l:#7027d4; --neu:#7c7f93; --neu-d:#4c4f69; --neu-l:#5c5f77; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#181825; --card:#1e1e2e; --ink:#cdd6f4; --ink2:#bac2de; --ink3:#9399b2; --rule:#45475a; --edge:#7f849c; --hi:#89b4fa; --on:#f5f7ff; --panel:#11111b; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+        --host:#a6e3a1; --host-d:#2f6b3a; --host-l:#a6e3a1; --ext:#fab387; --ext-d:#8f4a24; --ext-l:#fab387; --store:#94e2d5; --store-d:#1f6460; --store-l:#94e2d5;
+        --sec:#f38ba8; --sec-d:#8a2c45; --sec-l:#f38ba8; --chan:#cba6f7; --chan-d:#5e3f94; --chan-l:#cba6f7; --neu:#9399b2; --neu-d:#45475a; --neu-l:#bac2de; }
+    }
+    text { fill: var(--ink); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .mono, .kick, .badge text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+    .bg { fill: var(--bg); }
+    .title { font-size: 21px; font-weight: 700; }
+    .lede { fill: var(--ink3); font-size: 13px; }
+    .kick { font-size: 10.5px; font-weight: 600; letter-spacing: .1em; fill: var(--kl, var(--ink3)); }
+    .k-host { --k:var(--host); --kd:var(--host-d); --kl:var(--host-l); }
+    .k-ext { --k:var(--ext); --kd:var(--ext-d); --kl:var(--ext-l); }
+    .k-store { --k:var(--store); --kd:var(--store-d); --kl:var(--store-l); }
+    .k-sec { --k:var(--sec); --kd:var(--sec-d); --kl:var(--sec-l); }
+    .k-chan { --k:var(--chan); --kd:var(--chan-d); --kl:var(--chan-l); }
+    .k-neu { --k:var(--neu); --kd:var(--neu-d); --kl:var(--neu-l); }
+    .band { fill: color-mix(in srgb, var(--k) 6%, var(--bg)); stroke: color-mix(in srgb, var(--k) 50%, var(--bg)); stroke-width: 1.4; stroke-dasharray: 7 5; }
+    .box { stroke-width: 1.5; }
+    .tint .box { fill: color-mix(in srgb, var(--k) 13%, var(--card)); stroke: var(--k); }
+    .line .box { fill: var(--card); stroke: var(--k); }
+    .ghost .box { fill: none; stroke: var(--k); stroke-dasharray: 5 4; }
+    .solid .box { fill: var(--kd); stroke: var(--kd); }
+    .name { font-size: 14.5px; font-weight: 700; }
+    .sub { font-size: 11.5px; fill: var(--ink2); }
+    .mono { font-size: 11.5px; fill: var(--ink2); }
+    .solid text { fill: var(--on); }
+    .solid .sub, .solid .mono { fill: var(--on); fill-opacity: .82; }
+    .badge rect { fill: none; stroke: var(--kl); stroke-width: 1.2; }
+    .badge text { font-size: 9.5px; font-weight: 700; letter-spacing: .06em; fill: var(--kl); text-anchor: middle; }
+    .solid .badge rect { stroke: var(--on); stroke-opacity: .7; }
+    .solid .badge text { fill: var(--on); }
+    .e path { fill: none; stroke: var(--ec, var(--edge)); stroke-width: var(--ew, 1.6px); marker-end: var(--em, url(#ah)); }
+    .e.main path { stroke: var(--ec, var(--host)); stroke-width: var(--ew, 2.4px); marker-end: var(--em, url(#ah-main)); }
+    .e.bad path { stroke: var(--ec, var(--sec)); marker-end: var(--em, url(#ah-bad)); }
+    .e.dash path { stroke-dasharray: 6 4; }
+    .el { font-size: 11px; fill: var(--ink2); paint-order: stroke; stroke: var(--halo, var(--bg)); stroke-width: 4px; stroke-linejoin: round; }
+    .in-host .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    .ah { fill: var(--edge); } .ah-main { fill: var(--host); } .ah-bad { fill: var(--sec); } .ah-hi { fill: var(--hi); }
+    .panel { fill: var(--panel); }
+    .panel-kick { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10.5px; font-weight: 700; letter-spacing: .12em; fill: var(--panel-kick); }
+    .p1 { fill: var(--panel-ink); font-size: 13px; }
+    .p1 tspan.b { font-weight: 700; }
+    .p2 { fill: var(--panel-sub); font-size: 12.5px; }
+    .lg { font-size: 11px; fill: var(--ink2); }
+    .chip rect { fill: color-mix(in srgb, var(--k) 10%, var(--card)); stroke: var(--k); stroke-width: 1; }
+    .chip text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10px; font-weight: 600; fill: var(--kl); }
+    .step circle { fill: var(--kd); } .step text { fill: var(--on); font-size: 11px; font-weight: 700; text-anchor: middle; }
+    /* Interaction, effective only when the SVG is opened directly. */
+    .n { cursor: pointer; }
+    .n:hover .box, a:focus-visible .box { stroke: var(--hi); stroke-width: 2.8; }
+    .d { display: none; pointer-events: none; }
+    .n:hover .d, a:focus-visible .d { display: inline; }
+    svg:has(.n:hover) .d0, svg:has(a:focus-visible) .d0 { display: none; }
+    svg:has(.n:hover) .edges .e { opacity: .14; }
+    .e.join path { marker-end: none; }
+    .band.inner { fill: none; stroke-dasharray: 3 4; }
+    .mono-name { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13.5px; }
+    .e.both path { marker-start: var(--em, url(#ah)); }
+    svg:has(#tm:hover) .edges :is(.f-tm,.t-tm) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#ec:hover) .edges :is(.f-ec,.t-ec) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#tr:hover) .edges :is(.f-tr,.t-tr) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#ah:hover) .edges :is(.f-ah,.t-ah) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#claudeH:hover) .edges :is(.f-claudeH,.t-claudeH) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#codexH:hover) .edges :is(.f-codexH,.t-codexH) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#acpH:hover) .edges :is(.f-acpH,.t-acpH) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#claudeP:hover) .edges :is(.f-claudeP,.t-claudeP) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#codexP:hover) .edges :is(.f-codexP,.t-codexP) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#acpP:hover) .edges :is(.f-acpP,.t-acpP) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#mcp:hover) .edges :is(.f-mcp,.t-mcp) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+  </style>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-main" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path class="ah-main" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-bad" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="ah-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="668"/>
+  <!-- Details panel: painted first so node details (.d) draw on top -->
+  <rect class="panel" x="16" y="572" width="968" height="80" rx="12"/>
+  <text class="panel-kick" x="36" y="596">DETAILS</text>
+  <g class="d0"><text class="p1" x="36" y="620">Hover a box for its role and file; its connections light up. Click a box to open its section.</text><text class="p2" x="36" y="640">Inside a rendered document this image is static. Click it to open the interactive SVG.</text></g>
+
+  <text class="kick" x="24" y="32">C4 · LEVEL 3 · TURN ENGINE AND HARNESSES</text>
+  <text class="title" x="24" y="58">Harness architecture</text>
+  <text class="lede" x="24" y="80">TurnRunner drives every provider through one AgentHarness contract; only the adapters know a wire format.</text>
+
+  <g class="k-host"><rect class="band" x="16" y="100" width="656" height="372" rx="14"/><text class="kick" x="32" y="122">DART HOST PROCESS · dartclaw serve</text></g>
+  <g class="k-sec"><rect class="band inner" x="406" y="126" width="250" height="332" rx="10"/><text class="kick" x="422" y="148">EVERY TOOL CALL → GuardChain</text></g>
+  <g class="k-ext"><rect class="band" x="744" y="100" width="240" height="372" rx="14"/><text class="kick" x="760" y="122">PROVIDER PROCESSES · stdio</text></g>
+  <g class="k-host"><rect class="band" x="744" y="488" width="240" height="78" rx="14"/><text class="kick" x="760" y="510">DART HOST PROCESS · /mcp</text></g>
+  <text class="el" x="934" y="483" text-anchor="end">tools/call over HTTP</text>
+
+  <g class="edges">
+    <g class="e  f-tm t-ec"><path d="M118,210 V234"/><text class="el" x="126" y="227" text-anchor="start">acquire</text></g>
+    <g class="e  f-ec t-tr"><path d="M118,296 V320"/><text class="el" x="126" y="313" text-anchor="start">lease.runner</text></g>
+    <g class="e main f-tr t-ah"><path d="M212,352 H256"/><text class="el" x="214" y="346" text-anchor="start">turn()</text></g>
+    <g class="e join f-ah t-claudeH"><path d="M382,199 H422"/></g>
+    <g class="e join f-ah t-codexH"><path d="M382,293 H422"/></g>
+    <g class="e join f-ah t-acpH"><path d="M382,387 H422"/></g>
+    <g class="e both f-claudeH t-claudeP"><path d="M642,199 H758"/><text class="el" x="700" y="193" text-anchor="middle">stream-json</text></g>
+    <g class="e both f-codexH t-codexP"><path d="M642,293 H758"/><text class="el" x="700" y="287" text-anchor="middle">JSON-RPC</text></g>
+    <g class="e both f-acpH t-acpP"><path d="M642,387 H758"/><text class="el" x="700" y="381" text-anchor="middle">JSON-RPC</text></g>
+    <g class="e join f-claudeP t-mcp"><path d="M918,199 H962 V478 H940"/></g>
+    <g class="e  f-codexP t-mcp"><path d="M918,293 H940 V514"/></g>
+  </g>
+
+  <a href="../control-protocol.md#63-reserve-execute-settle"><g class="n tint k-host" id="tm">
+    <rect class="box" x="24" y="150" width="188" height="60" rx="9"/>
+    <text class="name mono-name" x="36" y="173">TurnManager</text>
+    <text class="sub" x="36" y="191">reserveTurn, executeTurn</text>
+    <g class="d"><text class="p1" x="36" y="620"><tspan class="b">TurnManager</tspan> · facade over the coordinator: reserve, execute, cancel and outcome lookup across runners</text><text class="p2" x="36" y="640">dartclaw_runtime/lib/src/turn_manager.dart. Same-session reservations run one at a time (SessionMutationCoordinator).</text></g>
+  </g></a>
+  <a href="../control-protocol.md#62-execution-allocation"><g class="n tint k-host" id="ec">
+    <rect class="box" x="24" y="236" width="188" height="60" rx="9"/>
+    <text class="name mono-name" x="36" y="259">ExecutionCoordinator</text>
+    <text class="sub" x="36" y="277">lanes, pool_size, leases</text>
+    <g class="d"><text class="p1" x="36" y="620"><tspan class="b">ExecutionCoordinator</tspan> · sole post-governance allocator: lane, capacity permit, worker reuse, replacement, quarantine</text><text class="p2" x="36" y="640">dartclaw_runtime/lib/src/execution_coordinator.dart. Callers never inspect provider identity.</text></g>
+  </g></a>
+  <a href="../control-protocol.md#63-reserve-execute-settle"><g class="n tint k-host" id="tr">
+    <rect class="box" x="24" y="322" width="188" height="60" rx="9"/>
+    <text class="name mono-name" x="36" y="345">TurnRunner</text>
+    <text class="sub" x="36" y="363">one active turn per runner</text>
+    <g class="d"><text class="p1" x="36" y="620"><tspan class="b">TurnRunner</tspan> · one harness's turn engine: guards, prompt, event stream, usage, persistence, limits, cancel</text><text class="p2" x="36" y="640">dartclaw_runtime/lib/src/turn_runner*.dart. A second concurrent turn on one runner is refused with BusyTurnException.</text></g>
+  </g></a>
+  <a href="../control-protocol.md#21-the-agentharness-contract"><g class="n solid k-host" id="ah">
+    <rect class="box" x="258" y="158" width="124" height="270" rx="9"/>
+    <text class="name mono-name" x="270" y="181">AgentHarness</text>
+    <text class="sub" x="270" y="199">the contract:</text>
+    <text class="sub" x="270" y="215"></text>
+    <text class="sub" x="270" y="231">turn()</text>
+    <text class="sub" x="270" y="247">cancel()</text>
+    <text class="sub" x="270" y="263">stop()</text>
+    <text class="sub" x="270" y="279">events stream</text>
+    <text class="sub" x="270" y="295"></text>
+    <text class="sub" x="270" y="311">capability</text>
+    <text class="sub" x="270" y="327">getters</text>
+    <g class="d"><text class="p1" x="36" y="620"><tspan class="b">AgentHarness</tspan> · provider-neutral: start, turn(), cancel, stop, an event stream and capability getters that default to the safe answer</text><text class="p2" x="36" y="640">dartclaw_core/lib/src/harness/agent_harness.dart. Callers read capabilities and never branch on provider identity.</text></g>
+  </g></a>
+  <a href="../control-protocol.md#3-claude-code-protocol"><g class="n tint k-host" id="claudeH">
+    <rect class="box" x="422" y="158" width="218" height="82" rx="9"/>
+    <text class="name mono-name" x="434" y="181">ClaudeCodeHarness</text>
+    <g class="badge"><rect x="583" y="169" width="47" height="16" rx="8"/><text x="606" y="181">JSONL</text></g>
+    <text class="sub" x="434" y="199">ClaudeProtocolAdapter</text>
+    <text class="sub" x="434" y="215">extends BaseHarness</text>
+    <text class="sub" x="434" y="231">PreToolUse hook callbacks</text>
+    <g class="d"><text class="p1" x="36" y="620"><tspan class="b">ClaudeCodeHarness</tspan> · one long-lived claude process; per-turn changes to cwd, model, effort or schema restart it</text><text class="p2" x="36" y="640">dartclaw_core/lib/src/harness/claude_code_harness*.dart. BaseHarness adds the lifecycle lock, crash backoff and bounded stdout/stderr.</text></g>
+  </g></a>
+  <a href="../control-protocol.md#4-codex-protocol"><g class="n tint k-host" id="codexH">
+    <rect class="box" x="422" y="252" width="218" height="82" rx="9"/>
+    <text class="name mono-name" x="434" y="275">CodexHarness</text>
+    <g class="badge"><rect x="562" y="263" width="68" height="16" rx="8"/><text x="596" y="275">JSON-RPC</text></g>
+    <text class="sub" x="434" y="293">CodexProtocolAdapter</text>
+    <text class="sub" x="434" y="309">extends BaseHarness</text>
+    <text class="sub" x="434" y="325">requestApproval replies</text>
+    <g class="d"><text class="p1" x="36" y="620"><tspan class="b">CodexHarness</tspan> · one long-lived codex app-server; one thread per DartClaw session, opened lazily</text><text class="p2" x="36" y="640">dartclaw_core/lib/src/harness/codex_harness.dart. Approval requests are the only interception point; there is no hook system.</text></g>
+  </g></a>
+  <a href="../control-protocol.md#5-acp"><g class="n tint k-host" id="acpH">
+    <rect class="box" x="422" y="346" width="218" height="82" rx="9"/>
+    <text class="name mono-name" x="434" y="369">AcpHarness</text>
+    <g class="badge"><rect x="562" y="357" width="68" height="16" rx="8"/><text x="596" y="369">JSON-RPC</text></g>
+    <text class="sub" x="434" y="387">AcpProtocolAdapter</text>
+    <text class="sub" x="434" y="403">extends AgentHarness only</text>
+    <text class="sub" x="434" y="419">fs/* reverse calls</text>
+    <g class="d"><text class="p1" x="36" y="620"><tspan class="b">AcpHarness</tspan> · one long-lived ACP agent; one ACP session per turn, host execution only</text><text class="p2" x="36" y="640">dartclaw_acp/lib/src/acp_harness.dart. No BaseHarness: a process exit fails the turn and the coordinator discards the worker.</text></g>
+  </g></a>
+  <a href="../control-protocol.md#31-spawn"><g class="n tint k-ext" id="claudeP">
+    <rect class="box" x="760" y="158" width="156" height="82" rx="9"/>
+    <text class="name mono-name" x="772" y="181">claude</text>
+    <text class="sub" x="772" y="199">claude --print</text>
+    <text class="sub" x="772" y="215">--input-format</text>
+    <text class="sub" x="772" y="231">stream-json</text>
+    <g class="d"><text class="p1" x="36" y="620"><tspan class="b">claude</tspan> · the published claude CLI, long-lived, one per harness</text><text class="p2" x="36" y="640">Spawned on the host or through docker exec -i into a hardened container; stdio works for both.</text></g>
+  </g></a>
+  <a href="../control-protocol.md#41-spawn-and-handshake"><g class="n tint k-ext" id="codexP">
+    <rect class="box" x="760" y="252" width="156" height="82" rx="9"/>
+    <text class="name mono-name" x="772" y="275">codex app-server</text>
+    <text class="sub" x="772" y="293">one thread per</text>
+    <text class="sub" x="772" y="309">DartClaw session</text>
+    <g class="d"><text class="p1" x="36" y="620"><tspan class="b">codex app-server</tspan> · codex app-server, long-lived, JSON-RPC 2.0-like messages as JSONL</text><text class="p2" x="36" y="640">DartClaw never passes --yolo; the configured approval policy decides which operations reach the host.</text></g>
+  </g></a>
+  <a href="../control-protocol.md#5-acp"><g class="n ghost k-ext" id="acpP">
+    <rect class="box" x="760" y="346" width="156" height="82" rx="9"/>
+    <text class="name mono-name" x="772" y="369">ACP agent</text>
+    <text class="sub" x="772" y="387">configured binary,</text>
+    <text class="sub" x="772" y="403">for example goose acp</text>
+    <g class="d"><text class="p1" x="36" y="620"><tspan class="b">ACP agent</tspan> · any ACP agent that advertises and honors host fs capabilities, run on the host</text><text class="p2" x="36" y="640">Relay and unverified agents are unavailable: no container boundary is mediated for an ACP client.</text></g>
+  </g></a>
+  <a href="../control-protocol.md#8-mcp-integration"><g class="n tint k-host" id="mcp">
+    <rect class="box" x="760" y="516" width="208" height="44" rx="9"/>
+    <text class="name mono-name" x="772" y="535">McpProtocolHandler</text>
+    <text class="sub" x="772" y="551">POST /mcp, Streamable HTTP</text>
+    <g class="d"><text class="p1" x="36" y="620"><tspan class="b">McpProtocolHandler</tspan> · tool server for harnesses: memory, knowledge graph, sessions, tasks, workflows, web, search</text><text class="p2" x="36" y="640">dartclaw_runtime/lib/src/mcp/. Every call is guarded and audited once at the dispatch seam; bearer or container bridge identifies the caller.</text></g>
+  </g></a>
+  <g transform="translate(24,546)">
+    <g class="solid k-host"><rect class="box" x="0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="22" y="10">contract</text>
+    <g class="tint k-host"><rect class="box" x="93.6" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="115.6" y="10">DartClaw component</text>
+    <g class="tint k-ext"><rect class="box" x="249.20000000000002" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="271.20000000000005" y="10">provider process</text>
+    <g class="e main"><path d="M392.4,6 H424.4"/></g><text class="lg" x="432.4" y="10">turn call</text>
+    <g class="e both"><path d="M510.2,6 H542.2"/></g><text class="lg" x="550.2" y="10">stdio, both ways</text>
+  </g>
+</svg>

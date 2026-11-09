@@ -1,0 +1,173 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 736" width="1000" height="736" role="img" aria-labelledby="title desc">
+  <title id="title">Bounded contexts around tasks, workflows and the operator</title>
+  <desc id="desc">Task and workflow contexts, their shared project-registry upstream, channel delivery and conversation-session, with the cross-cutting contexts below: configuration-platform and observability-alerting serve every context, operator-interface conforms to every context it renders, and dartclaw_kernel is the Shared Kernel under all of them.</desc>
+  <style>
+
+    svg { --bg:#f6f7f9; --card:#ffffff; --ink:#1e2030; --ink2:#4c4f69; --ink3:#6c6f85; --rule:#ccd0da; --edge:#8c8fa1; --hi:#1e66f5; --on:#ffffff; --panel:#1e1e2e; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+      --host:#40a02b; --host-d:#1f5c2a; --host-l:#2d7a1f; --ext:#e07c4f; --ext-d:#a8481c; --ext-l:#b5531f; --store:#179299; --store-d:#0f5f63; --store-l:#0e7377;
+      --sec:#d20f39; --sec-d:#9b0c2c; --sec-l:#b80d33; --chan:#8839ef; --chan-d:#5d23a8; --chan-l:#7027d4; --neu:#7c7f93; --neu-d:#4c4f69; --neu-l:#5c5f77; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#181825; --card:#1e1e2e; --ink:#cdd6f4; --ink2:#bac2de; --ink3:#9399b2; --rule:#45475a; --edge:#7f849c; --hi:#89b4fa; --on:#f5f7ff; --panel:#11111b; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+        --host:#a6e3a1; --host-d:#2f6b3a; --host-l:#a6e3a1; --ext:#fab387; --ext-d:#8f4a24; --ext-l:#fab387; --store:#94e2d5; --store-d:#1f6460; --store-l:#94e2d5;
+        --sec:#f38ba8; --sec-d:#8a2c45; --sec-l:#f38ba8; --chan:#cba6f7; --chan-d:#5e3f94; --chan-l:#cba6f7; --neu:#9399b2; --neu-d:#45475a; --neu-l:#bac2de; }
+    }
+    text { fill: var(--ink); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .mono, .kick, .badge text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+    .bg { fill: var(--bg); }
+    .title { font-size: 21px; font-weight: 700; }
+    .lede { fill: var(--ink3); font-size: 13px; }
+    .kick { font-size: 10.5px; font-weight: 600; letter-spacing: .1em; fill: var(--kl, var(--ink3)); }
+    .k-host { --k:var(--host); --kd:var(--host-d); --kl:var(--host-l); }
+    .k-ext { --k:var(--ext); --kd:var(--ext-d); --kl:var(--ext-l); }
+    .k-store { --k:var(--store); --kd:var(--store-d); --kl:var(--store-l); }
+    .k-sec { --k:var(--sec); --kd:var(--sec-d); --kl:var(--sec-l); }
+    .k-chan { --k:var(--chan); --kd:var(--chan-d); --kl:var(--chan-l); }
+    .k-neu { --k:var(--neu); --kd:var(--neu-d); --kl:var(--neu-l); }
+    .band { fill: color-mix(in srgb, var(--k) 6%, var(--bg)); stroke: color-mix(in srgb, var(--k) 50%, var(--bg)); stroke-width: 1.4; stroke-dasharray: 7 5; }
+    .box { stroke-width: 1.5; }
+    .tint .box { fill: color-mix(in srgb, var(--k) 13%, var(--card)); stroke: var(--k); }
+    .line .box { fill: var(--card); stroke: var(--k); }
+    .ghost .box { fill: none; stroke: var(--k); stroke-dasharray: 5 4; }
+    .solid .box { fill: var(--kd); stroke: var(--kd); }
+    .name { font-size: 14.5px; font-weight: 700; }
+    .sub { font-size: 11.5px; fill: var(--ink2); }
+    .mono { font-size: 11.5px; fill: var(--ink2); }
+    .solid text { fill: var(--on); }
+    .solid .sub, .solid .mono { fill: var(--on); fill-opacity: .82; }
+    .badge rect { fill: none; stroke: var(--kl); stroke-width: 1.2; }
+    .badge text { font-size: 9.5px; font-weight: 700; letter-spacing: .06em; fill: var(--kl); text-anchor: middle; }
+    .solid .badge rect { stroke: var(--on); stroke-opacity: .7; }
+    .solid .badge text { fill: var(--on); }
+    .e path { fill: none; stroke: var(--ec, var(--edge)); stroke-width: var(--ew, 1.6px); marker-end: var(--em, url(#ah)); }
+    .e.main path { stroke: var(--ec, var(--host)); stroke-width: var(--ew, 2.4px); marker-end: var(--em, url(#ah-main)); }
+    .e.bad path { stroke: var(--ec, var(--sec)); marker-end: var(--em, url(#ah-bad)); }
+    .e.dash path { stroke-dasharray: 6 4; }
+    .el { font-size: 11px; fill: var(--ink2); paint-order: stroke; stroke: var(--halo, var(--bg)); stroke-width: 4px; stroke-linejoin: round; }
+    .in-host .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    .ah { fill: var(--edge); } .ah-main { fill: var(--host); } .ah-bad { fill: var(--sec); } .ah-hi { fill: var(--hi); }
+    .panel { fill: var(--panel); }
+    .panel-kick { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10.5px; font-weight: 700; letter-spacing: .12em; fill: var(--panel-kick); }
+    .p1 { fill: var(--panel-ink); font-size: 13px; }
+    .p1 tspan.b { font-weight: 700; }
+    .p2 { fill: var(--panel-sub); font-size: 12.5px; }
+    .lg { font-size: 11px; fill: var(--ink2); }
+    .chip rect { fill: color-mix(in srgb, var(--k) 10%, var(--card)); stroke: var(--k); stroke-width: 1; }
+    .chip text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10px; font-weight: 600; fill: var(--kl); }
+    .step circle { fill: var(--kd); } .step text { fill: var(--on); font-size: 11px; font-weight: 700; text-anchor: middle; }
+    /* Interaction, effective only when the SVG is opened directly. */
+    .n { cursor: pointer; }
+    .n:hover .box, a:focus-visible .box { stroke: var(--hi); stroke-width: 2.8; }
+    .d { display: none; pointer-events: none; }
+    .n:hover .d, a:focus-visible .d { display: inline; }
+    svg:has(.n:hover) .d0, svg:has(a:focus-visible) .d0 { display: none; }
+    svg:has(.n:hover) .edges .e { opacity: .14; }
+    .e.join path { marker-end: none; }
+    .band.inner { fill: none; stroke-dasharray: 3 4; }
+    .mono-name { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13.5px; }
+    .edges .el { --halo: color-mix(in srgb, var(--neu) 6%, var(--bg)); }
+    svg:has(#proj:hover) .edges :is(.f-proj,.t-proj) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#task:hover) .edges :is(.f-task,.t-task) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#wf:hover) .edges :is(.f-wf,.t-wf) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#chan:hover) .edges :is(.f-chan,.t-chan) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#conv:hover) .edges :is(.f-conv,.t-conv) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#cfg:hover) .edges :is(.f-cfg,.t-cfg) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#obs:hover) .edges :is(.f-obs,.t-obs) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#op:hover) .edges :is(.f-op,.t-op) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#kernel:hover) .edges :is(.f-kernel,.t-kernel) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+  </style>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-main" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path class="ah-main" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-bad" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="ah-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="736"/>
+  <!-- Details panel: painted first so node details (.d) draw on top -->
+  <rect class="panel" x="16" y="640" width="968" height="80" rx="12"/>
+  <text class="panel-kick" x="36" y="664">DETAILS</text>
+  <g class="d0"><text class="p1" x="36" y="688">Hover a context for its purpose and invariant; its integrations light up. Click it to open the table.</text><text class="p2" x="36" y="708">Inside a rendered document this image is static. Click it to open the interactive SVG.</text></g>
+
+  <text class="kick" x="24" y="32">CONTEXT MAP · WORK, DELIVERY AND THE OPERATOR</text>
+  <text class="title" x="24" y="58">Bounded contexts around tasks, workflows and the operator</text>
+  <text class="lede" x="24" y="80">Task and workflow work flows out through channels and the operator interface. Three cross-cutting contexts and the kernel touch every other one.</text>
+
+  <g class="k-neu"><rect class="band" x="16" y="372" width="968" height="132" rx="14"/><text class="kick" x="32" y="394">CROSS-CUTTING · EACH ONE SERVES OR READS EVERY CONTEXT</text></g>
+  <text class="lg" x="24" y="632" text-anchor="start">OHS Open Host Service · C/S Customer/Supplier · PL Published Language. Chips inside the cross-cutting boxes are links to or from every context.</text>
+
+  <g class="edges">
+    <g class="e  f-proj t-task"><path d="M236,161 H264"/><text class="el" x="250" y="153" text-anchor="middle">OHS</text></g>
+    <g class="e  f-task t-wf"><path d="M478,161 H748"/><text class="el" x="612" y="153" text-anchor="middle">C/S</text></g>
+    <g class="e  f-proj t-wf"><path d="M129,130 V104 H861 V128"/><text class="el" x="495" y="98" text-anchor="middle">OHS</text></g>
+    <g class="e  f-task t-chan"><path d="M371,192 V268"/><text class="el" x="379" y="234" text-anchor="start">C/S</text></g>
+    <g class="e  f-conv t-chan"><path d="M506,301 H478"/><text class="el" x="492" y="293" text-anchor="middle">C/S</text></g>
+    <g class="e  f-wf t-op"><path d="M861,192 V408"/><text class="el" x="869" y="300" text-anchor="start">OHS</text></g>
+    <g class="e  f-conv t-op"><path d="M613,332 V408"/><text class="el" x="621" y="372" text-anchor="start">PL</text></g>
+  </g>
+
+  <a href="../context-map.md#bounded-contexts"><g class="n line k-host" id="proj">
+    <rect class="box" x="24" y="130" width="210" height="62" rx="9"/>
+    <text class="name mono-name" x="36" y="153">project-registry</text>
+    <text class="sub" x="36" y="171">supporting · git checkouts</text>
+    <g class="d"><text class="p1" x="36" y="688"><tspan class="b">project-registry</tspan> · manages the git checkouts that tasks and workflows execute against</text><text class="p2" x="36" y="708">A shared upstream of two contexts, each with its own name for it: Task.projectId and WorkflowDefinition.project. remoteUrl == '' means local-only.</text></g>
+  </g></a>
+  <a href="../context-map.md#bounded-contexts"><g class="n line k-host" id="task">
+    <rect class="box" x="266" y="130" width="210" height="62" rx="9"/>
+    <text class="name mono-name" x="278" y="153">task-review</text>
+    <text class="sub" x="278" y="171">supporting · reviewable work</text>
+    <g class="d"><text class="p1" x="36" y="688"><tspan class="b">task-review</tspan> · discrete reviewable units of work against a project checkout, with a git-backed review flow; absorbs scheduling</text><text class="p2" x="36" y="708">Worktrees stay keyed by task UUID. Lifecycle notifications return through channel delivery; ChannelTaskBridge only routes inbound.</text></g>
+  </g></a>
+  <a href="../context-map.md#bounded-contexts"><g class="n tint k-host" id="wf">
+    <rect class="box" x="750" y="130" width="222" height="62" rx="9"/>
+    <text class="name mono-name" x="762" y="153">workflow-orchestration</text>
+    <text class="sub" x="762" y="171">core, contested (H-1)</text>
+    <g class="d"><text class="p1" x="36" y="688"><tspan class="b">workflow-orchestration</tspan> · declarative multi-step pipelines run deterministically, with git branch topology and conflict resolution</text><text class="p2" x="36" y="708">The engine validates declared schema only; framework semantics live in definitions and skills (ADR-041). Steps create tasks.</text></g>
+  </g></a>
+  <a href="../context-map.md#bounded-contexts"><g class="n line k-chan" id="chan">
+    <rect class="box" x="266" y="270" width="210" height="62" rx="9"/>
+    <text class="name mono-name" x="278" y="293">channel-integration</text>
+    <text class="sub" x="278" y="311">supporting · ChannelMessage</text>
+    <g class="d"><text class="p1" x="36" y="688"><tspan class="b">channel-integration</tspan> · normalizes WhatsApp, Signal, Google Chat and Slack into one inbound and outbound contract</text><text class="p2" x="36" y="708">Every platform becomes a ChannelMessage before routing; a new platform adds an adapter, not context surface.</text></g>
+  </g></a>
+  <a href="../context-map.md#bounded-contexts"><g class="n line k-host" id="conv">
+    <rect class="box" x="508" y="270" width="210" height="62" rx="9"/>
+    <text class="name mono-name" x="520" y="293">conversation-session</text>
+    <text class="sub" x="520" y="311">supporting · sessions</text>
+    <g class="d"><text class="p1" x="36" y="688"><tspan class="b">conversation-session</tspan> · owns conversation identity and the rules deciding which conversation a message belongs to</text><text class="p2" x="36" y="708">Its scoping model drives channel routing, so session-key shapes follow channel needs. Web clients consume its snapshots.</text></g>
+  </g></a>
+  <a href="../context-map.md#bounded-contexts"><g class="n line k-neu" id="cfg">
+    <rect class="box" x="36" y="410" width="250" height="76" rx="9"/>
+    <text class="name mono-name" x="48" y="433">configuration-platform</text>
+    <text class="sub" x="48" y="451">supporting · typed operator intent</text>
+    <g class="chip k-host"><rect x="48" y="462" width="70" height="16" rx="8"/><text x="55" y="474">OHS → all</text></g>
+    <g class="chip k-host"><rect x="124" y="462" width="107" height="16" rx="8"/><text x="131" y="474">PL: ConfigDelta</text></g>
+    <g class="d"><text class="p1" x="36" y="688"><tspan class="b">configuration-platform</tspan> · one typed, validated, hot-reloadable source of operator intent, plus OS capability policy</text><text class="p2" x="36" y="708">Typed sections are an Open Host Service (registerExtensionParser extends it); ConfigDelta + Reconfigurable.watchKeys carries hot reload.</text></g>
+  </g></a>
+  <a href="../context-map.md#bounded-contexts"><g class="n line k-neu" id="obs">
+    <rect class="box" x="302" y="410" width="250" height="76" rx="9"/>
+    <text class="name mono-name" x="314" y="433">observability-alerting</text>
+    <text class="sub" x="314" y="451">supporting · events, traces, alerts</text>
+    <g class="chip k-host"><rect x="314" y="462" width="157" height="16" rx="8"/><text x="321" y="474">PL ← all: DartclawEvent</text></g>
+    <g class="d"><text class="p1" x="36" y="688"><tspan class="b">observability-alerting</tspan> · records what the runtime did and routes operational signals to the operator</text><text class="p2" x="36" y="708">The sealed DartclawEvent hierarchy is the exchange format; subscribers never reach into domains (ADR-011).</text></g>
+  </g></a>
+  <a href="../context-map.md#drift-findings"><g class="n line k-neu" id="op">
+    <rect class="box" x="568" y="410" width="400" height="76" rx="9"/>
+    <text class="name mono-name" x="580" y="433">operator-interface</text>
+    <text class="sub" x="580" y="451">supporting · routes, templates, web UI, CLI</text>
+    <g class="chip k-sec"><rect x="580" y="462" width="206" height="16" rx="8"/><text x="587" y="474">Conformist ← all (accepted D-1)</text></g>
+    <g class="d"><text class="p1" x="36" y="688"><tspan class="b">operator-interface</tspan> · one coherent surface over every runtime capability, server-rendered with zero external origins</text><text class="p2" x="36" y="708">Routes and templates import domain services directly with no translation layer; accepted for a server-rendered zero-JS UI.</text></g>
+  </g></a>
+  <a href="../context-map.md#bounded-contexts"><g class="n tint k-neu" id="kernel">
+    <rect class="box" x="24" y="524" width="952" height="48" rx="9"/>
+    <text class="name mono-name" x="36" y="543">dartclaw_kernel</text>
+    <text class="sub" x="36" y="559">Shared Kernel to all contexts, not itself a context: values, storage ports, typed config, guard contracts, utilities</text>
+    <g class="d"><text class="p1" x="36" y="688"><tspan class="b">dartclaw_kernel</tspan> · dependency-free values, storage ports including DatabaseBackend, typed configuration, guard contracts and utilities</text><text class="p2" x="36" y="708">Shared verbatim across contexts. Its zero-workspace-dependency position is enforced by the tier order.</text></g>
+  </g></a>
+  <g transform="translate(24,590)">
+    <g class="tint k-host"><rect class="box" x="0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="22" y="10">core subdomain</text>
+    <g class="line k-host"><rect class="box" x="130.8" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="152.8" y="10">supporting</text>
+    <g class="line k-chan"><rect class="box" x="236.8" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="258.8" y="10">channel</text>
+    <g class="line k-neu"><rect class="box" x="324.20000000000005" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="346.20000000000005" y="10">cross-cutting</text>
+    <g class="e "><path d="M448.80000000000007,6 H480.80000000000007"/></g><text class="lg" x="488.80000000000007" y="10">upstream to downstream</text>
+  </g>
+</svg>

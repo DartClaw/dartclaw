@@ -8,6 +8,10 @@ void main() {
   test('workflow controller swaps only server-rendered affected cards', () async {
     await expectNodeHarness(_workflowControllerHarness, [(await controller).absolute.uri.toString()]);
   });
+
+  test('request changes posts the feedback to the endpoint and shows a refusal as a toast', () async {
+    await expectNodeHarness(_requestChangesHarness, [(await controller).absolute.uri.toString()]);
+  });
 }
 
 const _workflowControllerHarness = r'''
@@ -112,4 +116,68 @@ emit({
 assert(ajaxRequests.length === 1, 'connected drift did not refresh the detail');
 assert(ajaxRequests[0].path === '/workflows/run-1', 'connected drift used the wrong detail URL');
 assert(ajaxRequests[0].options.target === '#main-content', 'connected drift used the wrong target');
+''';
+
+const _requestChangesHarness = r'''
+import { readFile } from 'node:fs/promises';
+
+function assert(condition, message) {
+  if (!condition) throw new Error(message);
+}
+
+const toasts = [];
+globalThis.window = {
+  location: { pathname: '/workflows/run-1' },
+  dartclaw: { ui: { showToast(type, message) { toasts.push([type, message]); } } },
+};
+globalThis.document = {
+  body: { dataset: {}, addEventListener() {} },
+  addEventListener() {},
+  querySelector() { return null; },
+  querySelectorAll() { return []; },
+};
+globalThis.Stimulus = { Controller: class {} };
+
+let source = await readFile(new URL(process.argv[1]), 'utf8');
+source = source.replace(
+  "import { updateRunningWorkflowsSection } from './sidebar_sections.js';",
+  'const updateRunningWorkflowsSection = (items) => items;',
+);
+const module = await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
+const controller = new module.default();
+
+function makeForm() {
+  const button = { disabled: false };
+  return {
+    button,
+    dataset: { runId: 'run-1' },
+    elements: { feedback: { value: '  split story 3  ' } },
+    querySelector() { return button; },
+  };
+}
+
+const requests = [];
+globalThis.fetch = async (url, init) => {
+  requests.push({ url, init });
+  return globalThis.nextResponse;
+};
+
+const refused = makeForm();
+globalThis.nextResponse = {
+  ok: false,
+  json: async () => ({ error: { code: 'INVALID_TRANSITION', message: 'This approval reached its revision limit' } }),
+};
+await controller.requestChanges({ preventDefault() {}, currentTarget: refused });
+assert(requests[0].url === '/api/workflows/runs/run-1/request-changes', 'wrong endpoint ' + requests[0].url);
+assert(requests[0].init.method === 'POST', 'not a POST');
+assert(JSON.parse(requests[0].init.body).feedback === '  split story 3  ', 'the field was not posted as typed');
+assert(toasts.length === 1 && toasts[0][0] === 'error', 'a refusal did not toast');
+assert(toasts[0][1] === 'This approval reached its revision limit', 'the toast lost the refusal text');
+assert(refused.button.disabled === false, 'a refused request left the button disabled');
+
+const accepted = makeForm();
+globalThis.nextResponse = { ok: true, json: async () => ({}) };
+await controller.requestChanges({ preventDefault() {}, currentTarget: accepted });
+assert(toasts.length === 1, 'an accepted request toasted');
+assert(accepted.button.disabled === true, 'an accepted request let the form be submitted twice');
 ''';

@@ -1,252 +1,172 @@
 # Architecture Governance
 
-Canonical reference for how DartClaw keeps package boundaries and structural
-constraints from drifting after a milestone ships.
+How DartClaw keeps package boundaries and structural constraints from drifting: the executable checks, what each
+enforces, the thresholds, and how to change them. This document owns the fitness functions. The topology they protect
+is in [System Architecture](system-architecture.md); the rationale for the mechanism is
+[ADR-033](../adrs/033-architectural-governance-via-fitness-functions.md). Per-gate failure guidance lives in
+[`dev/fitness/README.md`](../fitness/README.md).
 
-**Current through**: 0.27.1 LOC target amendment.
+**Current through**: 0.28.0
 
 ---
 
-## Purpose
-
-DartClaw uses two kinds of architectural documentation:
-
-- descriptive documents that explain how the system is designed
-- executable governance that fails when the code stops matching agreed
-  structural boundaries
-
-The executable part is the architecture fitness-function script:
-
-- Public repo source of truth: [`dev/tools/arch_check.dart`](../tools/arch_check.dart)
-
-This document explains what that script is for, what it currently enforces,
-what it does not enforce, and how to evolve it.
-
 ## Why This Exists
 
-The 0.16.3 package-decomposition milestone introduced new structural boundaries:
-
-- SQLite persistence moved out of `dartclaw_core` into `dartclaw_storage`
-- typed config loading moved into `dartclaw_config`
-- workflow parsing/validation/execution moved into `dartclaw_workflow`
-- server-only container orchestration moved into `dartclaw_server`
-
-The 0.16.3 decisions are recorded in
-[`ADR-020`](../adrs/020-package-decomposition-phase-2.md). The 0.25
-consolidation formed `dartclaw_kernel` from the models, config, and security
-packages, then absorbed `dartclaw_storage` back into `dartclaw_core`, as
-recorded in [`ADR-056`](../adrs/056-package-topology-consolidation.md). ADRs
-alone do not stop drift. The executable checks below protect the current
-topology mechanically instead of relying on memory or review luck.
+ADRs record why a boundary exists but do not stop it eroding. Package decomposition
+([ADR-020](../adrs/020-package-decomposition-phase-2.md), then [ADR-056](../adrs/056-package-topology-consolidation.md))
+only holds if a regression fails a build. Governance therefore pairs descriptive docs with executable checks that run
+locally and in CI.
 
 ## Governance Layers
 
-Architecture governance is intentionally layered:
+[![Governance layers](diagrams/governance-layers.svg)](diagrams/governance-layers.svg)
 
-1. `dart analyze`
-   Catches unresolved imports, stale re-exports, type mismatches, and a large
-   class of migration mistakes.
+Layers 1 to 3 run in that order in the CI Check job (format check first, workspace tests between layers 1 and 2), and
+the same commands run locally; a failing layer fails the build. `run_all.sh` stops at the first failing gate. It
+includes the schema and config-reference drift checks, version lockstep (`dev/tools/check_versions.sh`) and the Dart
+fitness tests (`bash dev/tools/run-fitness.sh`, i.e. `dart test dev/fitness/test/`). Layer 4 explains why a boundary
+exists and when it may change.
 
-2. `dart run dev/tools/arch_check.dart`
-   Enforces structural rules that the analyzer does not know about: per-package
-   LOC targets, the package-count ceiling, the core barrel's shape, and Claude
-   provider option ownership. Dependency direction is not here — it belongs to
-   the tier order and its fitness gate.
+The scripts complement the analyzer and tests; they do not replace them.
 
-3. Architecture docs and ADRs
-   Explain why the boundary exists and when it is acceptable to change it.
+## Dependency Direction
 
-`arch_check.dart` is not a replacement for the analyzer or tests; it is a
-boundary-governance layer that complements them.
+Dependency direction is governed by the tier order in [`dev/package_tiers.txt`](../package_tiers.txt), not by
+`arch_check.dart`:
 
-## Current Fitness Functions
+[![Package topology: tier order](diagrams/system-package-topology.svg)](diagrams/system-package-topology.svg)
 
-Dependency direction is **not** one of them. It is governed by the declared tier
-order in [`dev/package_tiers.txt`](../package_tiers.txt), enforced by
-`dev/fitness/test/dependency_direction_test.dart`. That gate derives the allowed
-edges from tier position, reconciles each member's declared pubspec dependencies
-against what its libraries actually import, and fails on a workspace member with
-no tier. There is no per-edge table and no exception entry in either place: an
-edge that cannot be expressed as a downward step is resolved by splitting a tier.
+An import or re-export may point only at a **strictly lower** tier. Same-tier edges are forbidden, which keeps channel
+packages from reaching each other, keeps `dartclaw_client` off core, and keeps the runtime and the ACP adapter apart.
+`dev/fitness/test/dependency_direction_test.dart` derives the allowed edges from this file, reconciles each member's
+declared pubspec dependencies against what its libraries import (declared-but-unimported and imported-but-undeclared
+both fail), and fails on a workspace member with no tier. There is no per-edge table and no exception mechanism: an edge
+that cannot be a downward step is resolved by splitting a tier ([ADR-034](../adrs/034-enforced-package-dependency-direction.md)).
 
-[`arch_check.dart`](../../dev/tools/arch_check.dart) enforces what is left:
+Related dependency gates, all in `dev/fitness/test/`:
 
-### L1: Fast Structural Boundaries
+| Gate | Enforces |
+|---|---|
+| `package_cycles_test.dart` | The workspace package graph is acyclic. Allowlist mandated empty |
+| `no_app_dependency_test.dart` | No `packages/` member depends on an `apps/` member, including via `dev_dependencies:` |
+| `workflow_task_boundary_test.dart` | `dartclaw_workflow/lib/src` imports only `dart:*`, siblings, `dartclaw_kernel`, `dartclaw_core` and its declared third-party set ([ADR-023](../adrs/023-workflow-task-boundary.md)). No allowlist |
+| `bridge_package_deps_test.dart` | `dartclaw_bridge` stays dependency-free. Allowlist mandated empty |
+| `testing_package_deps_test.dart` | `dartclaw_testing` depends on no shipped implementation package. Allowlist mandated empty |
+| `fitness_suite_deps_test.dart` | `dev/fitness` imports and depends on no DartClaw package; every gate scans source as text |
+| `src_import_hygiene_test.dart` | No production import of another package's `src/` |
+| `barrel_show_clauses_test.dart` | Every `export 'src/...'` in a package barrel carries a `show` clause |
 
-1. `dartclaw_core` barrel does not launder the kernel
-   A full re-export of the kernel barrel would make every kernel symbol look
-   core-owned; targeted `show`-scoped re-exports stay allowed.
+## `arch_check.dart`
 
-2. Claude provider option ownership
-   Keeps direct `inherit_user_settings` lookups centralized in `dartclaw_kernel`
-   instead of re-parsing provider options ad hoc.
+[`dev/tools/arch_check.dart`](../tools/arch_check.dart) enforces what the tier order does not:
 
-Cross-package `src/` imports are **not** here either. That rule belongs to
-`dev/fitness/test/src_import_hygiene_test.dart`, which owns the allowlist the
-exceptions are recorded in.
+| Check | Rule |
+|---|---|
+| L1 core barrel | `dartclaw_core.dart` does not re-export the whole kernel barrel. Targeted `show` re-exports are allowed |
+| L1 Claude provider options | Raw `['inherit_user_settings']` lookups appear only in `dartclaw_kernel` (`claude_provider_options.dart`, `config_parser.dart`) |
+| L2 per-package LOC target | One recorded target per workspace member with a `lib/` (`_libLocCeilings`). Fails at measured lines >= 110% of target (`locExceedsTarget` in `dev/tools/loc_target.dart`). A member without a target fails; a target for a member without `lib/` fails. `lib/src/generated/` is not counted |
+| L2 package count | `packages/` holds at most 14 directories (`_workspacePackageCeiling`). The root `workspace:` list also holds `apps/dartclaw_cli` and `dev/fitness` |
 
-### L2: Shape Constraints
+The script prints one line per check plus a summary and exits non-zero on any failure.
 
-3. Per-package `lib/` LOC targets
-   One recorded target per workspace member with a `lib/`. Growth fails when
-   measured lines reach at least 110% of that target. Shrinkage never fails the
-   size check. A member with no recorded target fails rather than going unmeasured.
+## Fitness Suite Gates
 
-4. Workspace package-count ceiling
-   Prevents premature decomposition and pubspec sprawl. It counts directories
-   under `packages/` only; the root `workspace:` list holds two more members
-   (`apps/dartclaw_cli` and `dev/fitness`).
+Shell and Dart scripts under [`dev/tools/fitness/`](../tools/fitness/), run by `run_all.sh`:
 
-`dev/tools/fitness/run_all.sh` is the broader CI fitness-suite entry point. It
-adds the workflow-private-config, framework-coupling, prose-parsing, CSS-comment,
-external-origin and task-executor boundary scripts, the config-schema drift
-check, the config-reference render self-test and its guide-drift check
-(`test_render_config_reference.sh`, `check_config_reference_drift.sh`), plus the
-Dart fitness tests under `dev/fitness/test/`.
+| Script | Enforces |
+|---|---|
+| `check_no_workflow_private_config.sh` | `_workflow*` task-config keys are read only from an allowlist of workflow-package files, behind `WorkflowTaskConfig` |
+| `check_no_framework_coupling.sh` | Zero `andthen` literals in `dartclaw_workflow/lib/src` outside built-in definition YAML ([ADR-041](../adrs/041-framework-agnostic-workflow-engine-generic-output-validation.md)) |
+| `check_no_prose_parsing.sh` | The retired prose-parsing constructs stay deleted (below) |
+| `check_css_comment_state.sh` | Served CSS has balanced comments |
+| `check_no_external_origins.sh` | Served templates, CSS and CSP load no subresource from an external origin |
+| `check_task_executor_workflow_refs.dart` | `task_executor.dart` mentions `_workflow*`, `workflowRunId` or `stepIndex` only at allowlisted sites, and the active workflow path spawns no CLI process |
+| `generate_config_schema.dart --check`, `generate_workflow_schema.dart --check` | Committed JSON schemas match their generators |
+| `test_render_config_reference.sh`, `check_config_reference_drift.sh` | The guide's config reference matches the renderer |
 
-Two of those gates hold the defect classes the 0.25 milestone is named for:
+Dart gates in `dev/fitness/test/` beyond the dependency set above:
 
-- **`check_no_prose_parsing.sh`** — the prose-parsing, repair-ladder and sentinel
-  constructs the milestone deleted stay deleted: the retired workflow-output
-  recovery and review-count derivation symbols, the retired `@advisor` mention
-  and review chat grammars, and the literal `'null'` path sentinel on the
-  artifact-claim path. It ships **no allowlist**, deliberately. It does not ask
-  "is this a prose parser?" — that question needs an exemption list larger than
-  the defect, because code-fence and prefix handling is legitimate in the
-  chunking and Markdown paths. It asks whether a named retired construct is
-  back, and every pattern in it was measured at zero before it was added. A
-  pattern that already matches is a finding against the story that owned the
-  deletion, never an exemption. Its reach is exactly that named set: it catches
-  the listed constructs returning, not the defect class in general.
-- **`no_second_implementation_test.dart`** (in the Dart suite, because that is
-  where the consulted-key allowlist reader lives) — a public production type
-  name declared in one workspace member's `lib/` may not be declared in
-  another's, apps included. A `typedef X = other.X;` re-alias is a re-export and
-  is skipped by the scan rather than exempted. Its allowlist is a ratchet pinned
-  at its actual size, so it can shrink and not grow; it started from the ten
-  cross-package duplicates the milestone began with and holds two. Every entry
-  states in one line why it survives, and both are legitimate: a port and its
-  adapter sharing the port's name. The four `PENDING` collisions the file carried
-  through the milestone were closed by production rename rather than by an
-  allowlist edit — `HarnessConfig`, `ReservedCommandHandler`,
-  `WorkflowValidationError` and `WindowsProcessTreeKillCommand`. A gate that consults its allowlist by key also fails on a **stale**
-entry — one it never looked up during the run, because the path, position or edge
-it named is gone. (Three allowlists — `bridge_package_deps.txt`,
-`testing_package_deps.txt` and `package_cycles.txt` — are mandated empty and
-consult nothing; their gates assert emptiness instead.)
+| Gate | Enforces |
+|---|---|
+| `max_file_loc_test.dart` | Each `packages/*/lib/src/**/*.dart` file below 1,650 lines (1,500 target); allowlist entries carry a shrink target |
+| `max_test_file_loc_test.dart` | Each `*_test.dart` below 1,430 lines (1,300 target); an allowlisted file may not reach 110% of its recorded baseline, and an entry for a file that dropped below the limit or vanished fails |
+| `constructor_param_count_test.dart` | No public constructor over 12 parameters |
+| `safe_process_usage_test.dart` | No raw `Process.run/start('git', ...)` in production; git goes through `runGit` from the kernel |
+| `no_cross_package_env_plan_duplicates_test.dart` | `ProcessEnvironmentPlan` implementations live in `dartclaw_kernel` |
+| `no_duplicate_local_fakes_test.dart` | A local fake/stub/mock class name is declared in one test file |
+| `no_second_implementation_test.dart` | A public production type name is declared in one workspace member only (below) |
+| `structured_output_refusal_test.dart` | Every production `AgentHarness` calls `requireStructuredOutputSupport` |
+| `enum_exhaustive_consumer_test.dart` | Named consumers enumerate every value of their enum |
+| `config_key_consumers_test.dart` | Every leaf in the config schema has a production consumer or a reasoned allowlist entry |
+| `config_load_seam_test.dart` | `DartclawConfig.load` is called only from `loadDartclawConfig` in `dartclaw_runtime` |
+| `config_section_tier_coverage_test.dart` | Every config section declares a `ConfigNotifier` reload tier |
+| `memory_architecture_test.dart` | Memory curation writes go through `MemoryApplyService.apply` with no durable run record, every exported memory API has a production consumer, and normative docs carry no retired memory model |
 
-## Current Thresholds
+Two gates hold the defect classes that [ADR-054](../adrs/054-model-first-delegation-and-one-authority-per-concern.md)
+names:
 
-The current thresholds live in code because they are executable policy, but the
-intent should remain documented here:
+- **`check_no_prose_parsing.sh`** asks whether a named retired construct is back, not whether code "is a prose parser":
+  the retired workflow-output recovery and review-count derivation symbols, the `ReviewCommand*` grammar, the
+  `@advisor` mention detector and `AdvisorMentionEvent`/`AdvisorInsightEvent`, and the literal `'null'` path sentinel in
+  `context_extractor.dart` and `produced_artifact_resolver.dart`. It ships no allowlist; each pattern was measured at
+  zero before being added, so a match is a finding against the change that reintroduced it, never an exemption. It
+  catches only the listed constructs.
+- **`no_second_implementation_test.dart`** scans every member with a `lib/`, apps included. A `typedef X = other.X;`
+  re-alias is skipped rather than exempted. Its allowlist is a ratchet that may shrink and not grow, and holds two
+  entries (`TurnManager`, `TurnRunner`), each a runtime class implementing the port core owns.
 
-| Constraint | Current value | Why it exists |
-|---|---:|---|
-| Per-package `lib/` LOC target | one recorded number per member in `_libLocCeilings` | Fail at measured LOC ≥ 110% of the target; smaller growth and shrinkage pass |
-| Production and test file LOC targets | 1,500 and 1,300 respectively | Fail at 1,650 and 1,430; allowlisted test files use 110% of their recorded baseline |
-| Workspace package count | `<= 13` | Keep the count under `packages/` exact, including `dartclaw_search` and `dartclaw_bridge` |
+**Allowlist rules.** Exceptions are plain-text files under `dev/fitness/test/allowlist/`, one `<key>  # <rationale>`
+line each. A gate that consults its allowlist by key also fails on a stale entry it never looked up, because the path,
+position or edge it named is gone. Run a gate file whole: a name-filtered `dart test -n` skips the scan that does the
+consulting and reports live entries as stale.
 
-Targets are recorded in code because they are executable policy. A size change
-below the ten-percent margin needs no target edit. When growth reaches the margin,
-review decomposition or record a deliberate target change with measured rationale.
-If the margin changes, update this document and the gates together.
+## Thresholds
 
-## What Is Explicitly In Scope
+| Constraint | Value | Where it lives |
+|---|---|---|
+| Per-package `lib/` LOC | One target per member; fails at >= 110% | `_libLocCeilings` in `arch_check.dart` |
+| Production file LOC | 1,500 target, fails at 1,650 | `max_file_loc_test.dart` |
+| Test file LOC | 1,300 target, fails at 1,430 | `max_test_file_loc_test.dart` |
+| Constructor parameters | <= 12 | `constructor_param_count_test.dart` |
+| Workspace package count | <= 14 under `packages/` | `_workspacePackageCeiling` in `arch_check.dart` |
 
-Architecture governance should focus on stable, high-signal boundaries:
+Targets are executable policy, so the numbers live in code. Shrinkage never fails and a change below the 10% margin needs
+no edit. When growth reaches the margin, decompose or record a deliberate target change; the amendment in ADR-033 sets
+the policy. A target change that admits growth beyond the margin records the measured value and rationale next to the
+number in `arch_check.dart` and in `CHANGELOG.md`. If the margin changes, update this document and the gates together.
 
-- package dependency direction (owned by the tier order, not by this script)
-- forbidden production dependencies
-- package/API surface size constraints
-- public-vs-private import hygiene
-- milestone-specific architectural seams that should not silently regress
+## Scope
 
-These checks should stay cheap enough to run locally during normal development.
+In scope: stable, high-signal boundaries that are cheap to check: dependency direction, forbidden production
+dependencies, package and API surface size, public-vs-private import hygiene, and seams a milestone closed that would be
+easy to regress mechanically.
 
-## What Is Explicitly Out of Scope
+Out of scope, handled elsewhere: behavioral correctness (tests), style and unused code (formatter, analyzer),
+refactoring preferences (review), and semantic architecture inference (too brittle for a regex script).
 
-The script should not try to encode every quality rule in the codebase.
-
-Examples that belong elsewhere:
-
-- behavioral correctness
-  Covered by tests.
-
-- style and unused code
-  Covered by formatter and analyzer.
-
-- subjective refactoring preferences
-  Covered by review and maintainers.
-
-- complex semantic architecture inference
-  Better handled by architecture review than a brittle regex-heavy script.
-
-## When To Update `arch_check.dart`
-
-Update the script when a shipped architectural decision introduces a boundary
-that should remain true after the milestone closes.
-
-Good candidates:
-
-- a new package is added with an agreed package-count ceiling impact
-- a package reaches 110% of its recorded `lib/` target and the target is deliberately changed
-- a milestone introduces a boundary that would be easy to regress mechanically
-
-Do not update the script just because a one-off cleanup happened. Fitness
-functions should encode enduring constraints, not temporary implementation
-details.
-
-**A package LOC target changes only when its recorded number is intentionally
-revised.** The size gate fails at exactly 110% of the target. A change below that
-margin needs no rebaseline. A target change that admits growth beyond the margin
-records the measured value and rationale in `arch_check.dart` and `CHANGELOG.md`,
-as described in [ADR-033](../adrs/033-architectural-governance-via-fitness-functions.md).
+Add or change a check when a shipped decision introduces a boundary that should stay true after the milestone closes:
+a new package (package-count impact), a deliberately revised LOC target, or a regression-prone seam. Do not encode
+one-off cleanups.
 
 ## Change Process
 
-When changing architecture governance:
+1. Change the code: `arch_check.dart`, `package_tiers.txt`, or the gate.
+2. Update this document and any affected ADR or architecture doc in the same change.
+3. Run `dart analyze` and `dart run dev/tools/arch_check.dart`; for fitness-suite changes also `bash dev/tools/fitness/run_all.sh`.
+4. State the rationale in the change. Do not silently loosen a threshold.
 
-1. Change the code
-   Update [`dev/tools/arch_check.dart`](../../dev/tools/arch_check.dart).
+## CI
 
-2. Change the explanation
-   Update this document and any affected ADR or architecture doc.
+`.github/workflows/ci.yml` runs four jobs:
 
-3. Re-run the baseline
-   Run:
-   - `dart analyze`
-   - `dart run dev/tools/arch_check.dart`
+| Job | Runs |
+|---|---|
+| **Check** | Embedded-asset generation, format, `dart analyze --fatal-infos`, `dev/tools/test_workspace.sh`, `arch_check.dart`, `dev/tools/fitness/run_all.sh` |
+| **PowerShell scripts** | `dev/tools/check_powershell.ps1` on Windows |
+| **Container boundary** | Builds the in-container bridge and runs `dev/testing/profiles/container/run.sh --ci`, which boots a config declaring no `container:` section and asserts the posture resolved to container isolation. An absent runtime fails the job: the server's advisory downgrade exits zero and would otherwise read as a pass. It has no fork-PR condition because it needs no secret and issues no model turn |
+| **PostgreSQL contract** | `dev/tools/postgres_contract.sh` |
 
-4. Explain the reason
-   If the boundary changed intentionally, document the rationale in the same
-   change. Do not silently loosen thresholds.
-
-## Operational Use
-
-Run the fitness functions from the public repo root:
-
-```bash
-dart run dev/tools/arch_check.dart
-```
-
-Expected behavior:
-
-- exit `0` when all checks pass
-- exit non-zero when any check fails
-- print one line per check plus a summary
-
-The script is designed as local governance tooling first. CI integration is
-useful, but not required for the governance model to be valid.
-
-`.github/workflows/ci.yml` runs two jobs. **Check** runs format, analyze, the
-workspace suite, `arch_check.dart` and `dev/tools/fitness/run_all.sh`.
-**Container boundary** is separate so a container-runtime problem fails by name
-rather than inside the test suite: it builds the in-container bridge and runs
-`dev/testing/profiles/container/run.sh --ci`, which boots a config declaring no
-`container:` section and asserts the posture resolved to container isolation. An
-absent runtime fails that job rather than skipping — the server's advisory
-downgrade exits zero and would otherwise read as a pass. It carries no fork-PR
-condition because it needs no secret and issues no model turn.
+**Check** is skipped for same-repo `pull_request` events, since the push already ran it.
 
 ## Related Documents
 
@@ -255,3 +175,5 @@ condition because it needs no secret and issues no model turn.
 - [Workflow Architecture](workflow-architecture.md)
 - [ADR-014: SDK Package Decomposition Strategy](../adrs/014-sdk-package-decomposition.md)
 - [ADR-020: Package Decomposition Phase 2](../adrs/020-package-decomposition-phase-2.md)
+- [ADR-033: Architectural Governance via Fitness Functions](../adrs/033-architectural-governance-via-fitness-functions.md)
+- [ADR-056: Package Topology Consolidation](../adrs/056-package-topology-consolidation.md)

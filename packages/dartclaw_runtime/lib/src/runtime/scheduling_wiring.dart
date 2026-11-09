@@ -182,7 +182,7 @@ class SchedulingWiring {
 
     if (config.memory.journalEnabled) {
       for (final context in _storage.memoryContexts.where((context) => context.allowsWrite)) {
-        final id = context.workspace == null ? 'memory-journal' : 'memory-journal:${context.workspace!.agentId}';
+        final id = workspaceMemoryJobId(MemoryJournal.jobId, context.workspace);
         _scheduledJobs.add(
           ScheduledJob(
             id: id,
@@ -208,9 +208,7 @@ class SchedulingWiring {
 
     if (curationCron != null) {
       for (final context in _storage.memoryContexts.where((context) => context.allowsWrite)) {
-        final id = context.workspace == null
-            ? memoryCurationJobId
-            : '$memoryCurationJobId:${context.workspace!.agentId}';
+        final id = workspaceMemoryJobId(memoryCurationJobId, context.workspace);
         final handlers = context.workspace == null ? _memoryHandlers : _memoryHandlersByPrincipal[context.principal];
         if (handlers == null) continue;
         _scheduledJobs.add(
@@ -440,8 +438,17 @@ class SchedulingWiring {
         channelManager ??
         (_fallbackDeliveryChannelManager = ChannelManager(
           queue: MessageQueue(
-            dispatcher: (sessionKey, message, {required channelType, senderJid, senderDisplayName, groupJid}) async =>
-                '',
+            dispatcher: (
+              sessionKey,
+              message, {
+              required channelType,
+              senderJid,
+              senderDisplayName,
+              groupJid,
+              recipientId,
+              threadId,
+              attachments = const [],
+            }) async => '',
           ),
           config: const ChannelConfig.defaults(),
         ));
@@ -613,7 +620,7 @@ const credentialHealthIntervalMinutes = 60;
 CronExpression? validateMemoryJournalConfig(DartclawConfig config) => _validateBuiltInMemoryJob(
   config,
   enabled: config.memory.journalEnabled,
-  jobId: 'memory-journal',
+  jobId: MemoryJournal.jobId,
   configKey: 'memory.journal',
   schedule: config.memory.journalSchedule,
 );

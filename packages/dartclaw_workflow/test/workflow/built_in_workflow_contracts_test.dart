@@ -1,5 +1,5 @@
 // Systematic prompt and structural contract suite for the three built-in
-// workflow definitions (story-and-implement, plan-and-implement, code-review).
+// workflow definitions (implement-story, implement-prd, code-review).
 //
 // These tests are invariants – they assert properties that must hold for every
 // future edit to the YAML definitions. Breaking one of them means either the
@@ -117,8 +117,8 @@ Set<String> _redundantlyDeclaredKeys({
   };
 }
 
-const _builtInWorkflows = ['story-and-implement.yaml', 'plan-and-implement.yaml', 'code-review.yaml'];
-const _inlineWorkflows = ['story-and-implement-inline.yaml', 'plan-and-implement-inline.yaml'];
+const _builtInWorkflows = ['implement-story.yaml', 'implement-prd.yaml', 'code-review.yaml'];
+const _inlineWorkflows = ['implement-story-inline.yaml', 'implement-prd-inline.yaml'];
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -178,12 +178,12 @@ void main() {
       }
     });
 
-    test('plan-and-implement starts with discover-plan-state', () {
-      final def = _load('plan-and-implement.yaml');
+    test('implement-prd starts with discover-plan-state', () {
+      final def = _load('implement-prd.yaml');
       expect(
         def.steps.first.id,
         'discover-plan-state',
-        reason: 'plan-and-implement must fail fast on missing PRD and expose story_specs for foreach',
+        reason: 'implement-prd must fail fast on missing PRD and expose story_specs for foreach',
       );
       expect(def.steps.first.skill, 'dartclaw-discover-andthen-plan');
 
@@ -196,15 +196,15 @@ void main() {
       expect(plan.entryGate, isNot(contains('story_specs.items isEmpty')));
       expect(plan.entryGate, "plan == null || plan == '' || story_specs == null || story_specs.items == null");
 
-      final inline = _loadInline('plan-and-implement-inline.yaml');
+      final inline = _loadInline('implement-prd-inline.yaml');
       final inlinePlan = inline.steps.singleWhere((step) => step.id == 'plan');
       expect(inlinePlan.skill, plan.skill);
       expect(inlinePlan.entryGate, isNot(contains('story_specs.items isEmpty')));
       expect(inlinePlan.entryGate, plan.entryGate);
     });
 
-    test('story-and-implement and code-review do not include project discovery steps', () {
-      for (final file in const ['story-and-implement.yaml', 'code-review.yaml']) {
+    test('implement-story and code-review do not include project discovery steps', () {
+      for (final file in const ['implement-story.yaml', 'code-review.yaml']) {
         final def = _load(file);
         expect(
           _flattenedSteps(def).map((s) => s.id),
@@ -214,20 +214,35 @@ void main() {
       }
     });
 
-    test('story-and-implement and code-review begin with their respective guard/work step', () {
-      expect(_load('story-and-implement.yaml').steps.first.id, 'detect-spec-input');
+    test('implement-story and code-review begin with their respective guard/work step', () {
+      expect(_load('implement-story.yaml').steps.first.id, 'detect-spec-input');
       expect(_load('code-review.yaml').steps.first.id, 'review-code');
     });
 
     test('spec_path has guard and synthesis producers', () {
-      final def = _load('story-and-implement.yaml');
+      final def = _load('implement-story.yaml');
       final producers = def.steps.where((step) => step.outputs?.containsKey('spec_path') ?? false);
 
       expect(producers.map((producer) => producer.id), ['detect-spec-input', 'spec']);
     });
 
-    test('plan-and-implement runs implement → review → nested loop per story', () {
-      final def = _load('plan-and-implement.yaml');
+    test('implement-prd review of the plan is opt-in: a gate after plan that revises plan, off by default', () {
+      final def = _load('implement-prd.yaml');
+      final ids = def.steps.map((step) => step.id).toList();
+      final gate = def.steps.singleWhere((step) => step.id == 'plan-approval');
+
+      expect(ids.indexOf('plan-approval'), ids.indexOf('plan') + 1, reason: 'the gate sits right after the plan step');
+      expect(ids.indexOf('story-pipeline'), ids.indexOf('plan-approval') + 1, reason: 'no story runs before it');
+      expect(gate.taskType, WorkflowTaskType.approval);
+      expect(gate.revise, 'plan');
+      expect(gate.entryGate, 'PLAN_REVIEW == true');
+      expect(gate.prompt, contains('{{context.plan}}'));
+      expect(def.variables['PLAN_REVIEW']?.defaultValue, 'false');
+      expect(def.variables['PLAN_REVIEW']?.required, isFalse);
+    });
+
+    test('implement-prd runs implement → review → nested loop per story', () {
+      final def = _load('implement-prd.yaml');
       expect(_flattenedSteps(def).where((step) => step.id == 'refactor'), isEmpty);
       expect(_flattenedSteps(def).where((step) => step.id == 'simplify-code'), isEmpty);
 
@@ -248,8 +263,8 @@ void main() {
       expect(loopController.outputKeys, isEmpty);
     });
 
-    test('story-and-implement reviews directly after implement', () {
-      final def = _load('story-and-implement.yaml');
+    test('implement-story reviews directly after implement', () {
+      final def = _load('implement-story.yaml');
       expect(_flattenedSteps(def).where((step) => step.id == 'refactor'), isEmpty);
       expect(_flattenedSteps(def).where((step) => step.id == 'simplify-code'), isEmpty);
 
@@ -260,8 +275,8 @@ void main() {
       expect(implement.maxRetries, 1);
     });
 
-    test('inline plan-and-implement mirrors the per-story nested-loop shape', () {
-      final def = _loadInline('plan-and-implement-inline.yaml');
+    test('inline implement-prd mirrors the per-story nested-loop shape', () {
+      final def = _loadInline('implement-prd-inline.yaml');
       expect(_flattenedSteps(def).where((step) => step.id == 'refactor'), isEmpty);
       expect(_flattenedSteps(def).where((step) => step.id == 'simplify-code'), isEmpty);
 
@@ -279,8 +294,8 @@ void main() {
 
     test('inline workflows run the full deterministic verification gate', () {
       for (final file in const [
-        'story-and-implement-inline.yaml',
-        'plan-and-implement-inline.yaml',
+        'implement-story-inline.yaml',
+        'implement-prd-inline.yaml',
         'review-and-remediate-inline.yaml',
       ]) {
         final def = _loadInline(file);
@@ -305,8 +320,8 @@ void main() {
 
     test('inline remediation-loop opts into onMaxIterations: continue; verify-fix-loop stays fail (TI05)', () {
       for (final file in const [
-        'story-and-implement-inline.yaml',
-        'plan-and-implement-inline.yaml',
+        'implement-story-inline.yaml',
+        'implement-prd-inline.yaml',
         'review-and-remediate-inline.yaml',
       ]) {
         final def = _loadInline(file);
@@ -420,7 +435,7 @@ void main() {
     });
 
     test('built-in exec-plan steps permit the Claude reviewer and simplifier subagents', () {
-      for (final file in const ['story-and-implement.yaml', 'plan-and-implement.yaml']) {
+      for (final file in const ['implement-story.yaml', 'implement-prd.yaml']) {
         final steps = _flattenedSteps(_load(file)).where((step) => step.skill == 'andthen:exec-plan');
         expect(steps, isNotEmpty);
         for (final step in steps) {
@@ -433,8 +448,8 @@ void main() {
       final definitions = <String, WorkflowDefinition>{
         for (final file in _builtInWorkflows) file: _load(file),
         for (final file in const [
-          'story-and-implement-inline.yaml',
-          'plan-and-implement-inline.yaml',
+          'implement-story-inline.yaml',
+          'implement-prd-inline.yaml',
           'review-and-remediate-inline.yaml',
         ])
           file: _loadInline(file),
@@ -477,38 +492,37 @@ void main() {
     });
 
     test('transient-failure retries are consistent on implement steps', () {
-      final customImplement = _loadInline('story-and-implement-inline.yaml').steps
-          .singleWhere((s) => s.id == 'implement');
+      final customImplement = _loadInline('implement-story-inline.yaml').steps.singleWhere((s) => s.id == 'implement');
       expect(customImplement.maxRetries, 1, reason: 'custom implement must retry transient harness failures');
     });
 
     test('discovery/classification steps are read-only', () {
-      final plan = _load('plan-and-implement.yaml');
+      final plan = _load('implement-prd.yaml');
       final discover = plan.steps.firstWhere((s) => s.id == 'discover-plan-state');
       expect(discover.allowedTools, isNotNull);
       expect(
         discover.allowedTools,
         isNot(contains('file_write')),
-        reason: 'plan-and-implement → discover-plan-state must never include file_write',
+        reason: 'implement-prd → discover-plan-state must never include file_write',
       );
 
-      final spec = _load('story-and-implement.yaml');
+      final spec = _load('implement-story.yaml');
       final detect = spec.steps.firstWhere((s) => s.id == 'detect-spec-input');
       expect(detect.allowedTools, isNotNull);
       expect(
         detect.allowedTools,
         isNot(contains('file_write')),
-        reason: 'story-and-implement → detect-spec-input must never include file_write',
+        reason: 'implement-story → detect-spec-input must never include file_write',
       );
     });
 
     test('remediation steps use the installed fix skill with a report path', () {
       const expectedStepIds = <String, Set<String>>{
-        'story-and-implement.yaml': {'remediate'},
-        'plan-and-implement.yaml': {'remediate-story', 'remediate'},
+        'implement-story.yaml': {'remediate'},
+        'implement-prd.yaml': {'remediate-story', 'remediate'},
         'code-review.yaml': {'remediate'},
-        'story-and-implement-inline.yaml': {'remediate'},
-        'plan-and-implement-inline.yaml': {'remediate-story', 'remediate'},
+        'implement-story-inline.yaml': {'remediate'},
+        'implement-prd-inline.yaml': {'remediate-story', 'remediate'},
         'multi-agent-review-inline.yaml': {'remediate'},
         'review-and-remediate-inline.yaml': {'remediate'},
       };
@@ -528,8 +542,8 @@ void main() {
       final files = <({String file, WorkflowDefinition definition})>[
         for (final file in _builtInWorkflows) (file: file, definition: _load(file)),
         for (final file in const [
-          'story-and-implement-inline.yaml',
-          'plan-and-implement-inline.yaml',
+          'implement-story-inline.yaml',
+          'implement-prd-inline.yaml',
           'multi-agent-review-inline.yaml',
           'review-and-remediate-inline.yaml',
         ])
@@ -591,8 +605,8 @@ void main() {
       final definitions = <String, WorkflowDefinition>{
         for (final file in _builtInWorkflows) file: _load(file),
         for (final file in const [
-          'story-and-implement-inline.yaml',
-          'plan-and-implement-inline.yaml',
+          'implement-story-inline.yaml',
+          'implement-prd-inline.yaml',
           'review-and-remediate-inline.yaml',
         ])
           file: _loadInline(file),
@@ -636,10 +650,10 @@ void main() {
 
     test('review workflows aggregate first-pass findings and re-review overwrites simple names', () {
       final expectedSources = {
-        'story-and-implement.yaml': ['integrated-review'],
-        'plan-and-implement.yaml': ['plan-review'],
-        'story-and-implement-inline.yaml': ['integrated-review'],
-        'plan-and-implement-inline.yaml': ['plan-review'],
+        'implement-story.yaml': ['integrated-review'],
+        'implement-prd.yaml': ['plan-review'],
+        'implement-story-inline.yaml': ['integrated-review'],
+        'implement-prd-inline.yaml': ['plan-review'],
       };
 
       for (final entry in expectedSources.entries) {
@@ -686,8 +700,8 @@ void main() {
       final definitions = <String, WorkflowDefinition>{
         for (final file in _builtInWorkflows) file: _load(file),
         for (final file in const [
-          'story-and-implement-inline.yaml',
-          'plan-and-implement-inline.yaml',
+          'implement-story-inline.yaml',
+          'implement-prd-inline.yaml',
           'review-and-remediate-inline.yaml',
         ])
           file: _loadInline(file),
@@ -774,8 +788,8 @@ void main() {
       }
     });
 
-    test('plan-and-implement: whole-plan pass gates on the gap review, re-review on gap,code,security', () {
-      final def = _load('plan-and-implement.yaml');
+    test('implement-prd: whole-plan pass gates on the gap review, re-review on gap,code,security', () {
+      final def = _load('implement-prd.yaml');
       final planReview = _flattenedSteps(def).firstWhere((s) => s.id == 'plan-review');
       final planReviewText = _allPromptText(planReview);
       expect(planReviewText, contains('{{context.plan}}'));
@@ -787,7 +801,7 @@ void main() {
     });
 
     test('only inline plan execution requests the reduced verification tier', () {
-      for (final file in const ['plan-and-implement.yaml', 'plan-and-implement-inline.yaml']) {
+      for (final file in const ['implement-prd.yaml', 'implement-prd-inline.yaml']) {
         final def = file.endsWith('-inline.yaml') ? _loadInline(file) : _load(file);
         final implement = _flattenedSteps(def).singleWhere((step) => step.id == 'implement');
         expect(implement.skill, 'andthen:exec-plan', reason: file);
@@ -805,8 +819,8 @@ void main() {
       final definitions = <String, WorkflowDefinition>{
         for (final file in _builtInWorkflows) file: _load(file),
         for (final file in const [
-          'story-and-implement-inline.yaml',
-          'plan-and-implement-inline.yaml',
+          'implement-story-inline.yaml',
+          'implement-prd-inline.yaml',
           'review-and-remediate-inline.yaml',
         ])
           file: _loadInline(file),
@@ -836,12 +850,12 @@ void main() {
       expect(checked, greaterThan(0), reason: 'built-ins must include andthen:review steps');
     });
 
-    test('plan-and-implement: per-story result output classifies sibling failures as non-blocking', () {
+    test('implement-prd: per-story result output classifies sibling failures as non-blocking', () {
       // Regression for #4 (2026-04-24 log): S02 implement returned needsInput
       // when scoped tests passed but the full suite was red on the sibling
       // S01 behavior. Keep the classification in the output contract rather
       // than a long step prompt.
-      final def = _load('plan-and-implement.yaml');
+      final def = _load('implement-prd.yaml');
       final implement = _flattenedSteps(def).firstWhere((s) => s.id == 'implement');
       final output = implement.outputs!['story_result']!;
       expect(output.presetName, 'narrative_text');
@@ -854,8 +868,8 @@ void main() {
       expect(rendered, contains('unrelated sibling or baseline failures are non-blocking'));
     });
 
-    test('plan-and-implement: plan outputs describe JSON-first plan artifacts', () {
-      final def = _load('plan-and-implement.yaml');
+    test('implement-prd: plan outputs describe JSON-first plan artifacts', () {
+      final def = _load('implement-prd.yaml');
       final discover = _flattenedSteps(def).firstWhere((s) => s.id == 'discover-plan-state');
       final plan = _flattenedSteps(def).firstWhere((s) => s.id == 'plan');
 
@@ -891,7 +905,7 @@ void main() {
         }
       }
 
-      for (final file in ['story-and-implement.yaml', 'story-and-implement-inline.yaml']) {
+      for (final file in ['implement-story.yaml', 'implement-story-inline.yaml']) {
         final def = file.endsWith('-inline.yaml') ? _loadInline(file) : _load(file);
         final detect = _flattenedSteps(def).firstWhere((step) => step.id == 'detect-spec-input');
         final output = detect.outputs!['spec_path']!;
@@ -912,8 +926,8 @@ void main() {
       final definitions = <String, WorkflowDefinition>{
         for (final file in _builtInWorkflows) file: _load(file),
         for (final file in const [
-          'story-and-implement-inline.yaml',
-          'plan-and-implement-inline.yaml',
+          'implement-story-inline.yaml',
+          'implement-prd-inline.yaml',
           'review-and-remediate-inline.yaml',
         ])
           file: _loadInline(file),
@@ -950,8 +964,8 @@ void main() {
       );
     });
 
-    test('plan-and-implement: only discover-plan-state opts in to FEATURE', () {
-      final def = _load('plan-and-implement.yaml');
+    test('implement-prd: only discover-plan-state opts in to FEATURE', () {
+      final def = _load('implement-prd.yaml');
       for (final step in _flattenedSteps(def)) {
         final opts = step.workflowVariables;
         if (step.id == 'discover-plan-state') {
@@ -962,8 +976,8 @@ void main() {
       }
     });
 
-    test('plan-and-implement: no non-discovery step references {{FEATURE}} in prompt text', () {
-      final def = _load('plan-and-implement.yaml');
+    test('implement-prd: no non-discovery step references {{FEATURE}} in prompt text', () {
+      final def = _load('implement-prd.yaml');
       final engine = WorkflowTemplateEngine();
       for (final step in _flattenedSteps(def)) {
         if (step.id == 'discover-plan-state') continue;
@@ -975,11 +989,11 @@ void main() {
       }
     });
 
-    test('story-and-implement: only detect-spec-input opts in to FEATURE', () {
+    test('implement-story: only detect-spec-input opts in to FEATURE', () {
       // The `spec` step interpolates {{FEATURE}} inline by design, so its
       // workflowVariables opt-in would be a redundant no-op – only the read-only
       // detect-spec-input classifier auto-frames FEATURE as untrusted data.
-      final def = _load('story-and-implement.yaml');
+      final def = _load('implement-story.yaml');
       for (final step in _flattenedSteps(def)) {
         final opts = step.workflowVariables;
         if (step.id == 'detect-spec-input') {
@@ -990,8 +1004,8 @@ void main() {
       }
     });
 
-    test('story-and-implement: no non-detection/spec step references {{FEATURE}} in prompt text', () {
-      final def = _load('story-and-implement.yaml');
+    test('implement-story: no non-detection/spec step references {{FEATURE}} in prompt text', () {
+      final def = _load('implement-story.yaml');
       final engine = WorkflowTemplateEngine();
       for (final step in _flattenedSteps(def)) {
         if (step.id == 'detect-spec-input' || step.id == 'spec') continue;
@@ -1061,7 +1075,7 @@ void main() {
 
     test('built-in path outputs infer filesystem resolvers', () {
       final parser = WorkflowDefinitionParser();
-      final specInferred = parser.parse(_loadSource('story-and-implement.yaml'));
+      final specInferred = parser.parse(_loadSource('implement-story.yaml'));
       for (final stepId in ['detect-spec-input', 'spec']) {
         final inferred = _flattenedSteps(specInferred).singleWhere((step) => step.id == stepId);
         expect(inferred.outputs!['spec_path']!.resolverOverride, isA<FileSystemOutput>(), reason: '$stepId.spec_path');
@@ -1069,7 +1083,7 @@ void main() {
 
       // `format: path` + `pathPattern` is now the only way to declare a
       // filesystem resolver, so each path output carries its own selector.
-      final planInferred = parser.parse(_loadSource('plan-and-implement.yaml'));
+      final planInferred = parser.parse(_loadSource('implement-prd.yaml'));
       final discover = _flattenedSteps(planInferred).singleWhere((step) => step.id == 'discover-plan-state');
       for (final key in const ['prd', 'plan', 'technical_research']) {
         expect(discover.outputs![key]!.resolverOverride, isA<FileSystemOutput>(), reason: key);
@@ -1077,7 +1091,7 @@ void main() {
     });
 
     test('built-in YAML does not restate inferable output plumbing', () {
-      for (final file in const ['story-and-implement.yaml', 'plan-and-implement.yaml']) {
+      for (final file in const ['implement-story.yaml', 'implement-prd.yaml']) {
         final source = _loadSource(file);
         expect(
           RegExp(r'^\s*format:\s*json\s*\n\s*schema:\s*non_negative_integer\s*$', multiLine: true).allMatches(source),
@@ -1124,8 +1138,8 @@ void main() {
       // the dispatch path. Locking the declarations here keeps the generic path
       // load-bearing.
       final planDefs = <String, WorkflowDefinition>{
-        'plan-and-implement.yaml': _load('plan-and-implement.yaml'),
-        'plan-and-implement-inline.yaml': _loadInline('plan-and-implement-inline.yaml'),
+        'implement-prd.yaml': _load('implement-prd.yaml'),
+        'implement-prd-inline.yaml': _loadInline('implement-prd-inline.yaml'),
       };
       for (final entry in planDefs.entries) {
         final discover = _flattenedSteps(entry.value).firstWhere((s) => s.id == 'discover-plan-state');
@@ -1148,8 +1162,8 @@ void main() {
       }
 
       final specDefs = <String, WorkflowDefinition>{
-        'story-and-implement.yaml': _load('story-and-implement.yaml'),
-        'story-and-implement-inline.yaml': _loadInline('story-and-implement-inline.yaml'),
+        'implement-story.yaml': _load('implement-story.yaml'),
+        'implement-story-inline.yaml': _loadInline('implement-story-inline.yaml'),
       };
       for (final entry in specDefs.entries) {
         final detect = _flattenedSteps(entry.value).firstWhere((s) => s.id == 'detect-spec-input');
@@ -1171,8 +1185,8 @@ void main() {
       // Leaving it out of the envelope would leave `entryGate: "spec_source ==
       // synthesized"` permanently false and silently reuse a reusable spec.
       final specDefs = <String, WorkflowDefinition>{
-        'story-and-implement.yaml': _load('story-and-implement.yaml'),
-        'story-and-implement-inline.yaml': _loadInline('story-and-implement-inline.yaml'),
+        'implement-story.yaml': _load('implement-story.yaml'),
+        'implement-story-inline.yaml': _loadInline('implement-story-inline.yaml'),
       };
       for (final entry in specDefs.entries) {
         final detect = _flattenedSteps(entry.value).firstWhere((s) => s.id == 'detect-spec-input');
@@ -1210,8 +1224,8 @@ void main() {
 
     test('only synthesis requires a nonempty spec path in both one-story workflows', () {
       final definitions = {
-        'story-and-implement.yaml': _load('story-and-implement.yaml'),
-        'story-and-implement-inline.yaml': _loadInline('story-and-implement-inline.yaml'),
+        'implement-story.yaml': _load('implement-story.yaml'),
+        'implement-story-inline.yaml': _loadInline('implement-story-inline.yaml'),
       };
       for (final entry in definitions.entries) {
         final detect = entry.value.steps.singleWhere((step) => step.id == 'detect-spec-input');
@@ -1231,7 +1245,7 @@ void main() {
     // it — including the required fields of an array element, which is what
     // rejected a live run's envelope on `parallel` / `wave` / `phase`.
     test('the finalizer prompt carries the complete root schema and required story fields', () {
-      final def = _load('plan-and-implement.yaml');
+      final def = _load('implement-prd.yaml');
       final discover = _flattenedSteps(def).firstWhere((s) => s.id == 'discover-plan-state');
       final schema = buildExecutionEnvelopeSchema(discover, discover.outputs)!;
       final prompt = buildFinalizerPrompt(schema);
@@ -1265,6 +1279,39 @@ void main() {
     });
   });
 
+  group('Review verdict outputs feed the follow-up draft', () {
+    // Output key is named like the step's own count keys; a prefixed step feeds
+    // review-aggregate, so the prefix rule applies to its verdict too.
+    const verdictOutputs = {
+      'code-review.yaml': {'review-code': 'review-code.verdict', 're-review': 're-review.verdict'},
+      'implement-prd.yaml': {'review-story': 'verdict', 'plan-review': 'plan-review.verdict', 're-review': 'verdict'},
+      'implement-story.yaml': {'integrated-review': 'integrated-review.verdict', 're-review': 'verdict'},
+    };
+
+    for (final entry in verdictOutputs.entries) {
+      test('${entry.key} review steps declare the verdict preset beside their counts', () {
+        final def = _load(entry.key);
+        for (final stepOutput in entry.value.entries) {
+          final step = def.steps.singleWhere((step) => step.id == stepOutput.key);
+          expect(step.outputs?[stepOutput.value]?.presetName, 'verdict', reason: '${stepOutput.key} verdict output');
+          expect(step.outputs?[stepOutput.value]?.format, OutputFormat.json);
+          final countKey = stepOutput.value.replaceAll(RegExp(r'verdict$'), 'gating_findings_count');
+          expect(step.outputs?[countKey]?.presetName, 'gating_findings_count', reason: '${stepOutput.key} count');
+        }
+      });
+    }
+
+    test('only those steps declare a verdict', () {
+      for (final entry in verdictOutputs.entries) {
+        final declared = {
+          for (final step in _load(entry.key).steps)
+            if (step.outputs?.values.any((config) => config.presetName == 'verdict') ?? false) step.id,
+        };
+        expect(declared, entry.value.keys.toSet(), reason: entry.key);
+      }
+    });
+  });
+
   group('Review output-key naming convention', () {
     // Locks the cross-workflow naming convention documented in
     // docs/guide/workflows.md § Review Output-Key Convention: the key
@@ -1276,8 +1323,8 @@ void main() {
     Map<String, WorkflowDefinition> conventionDefinitions() => {
       for (final file in _builtInWorkflows) file: _load(file),
       for (final file in const [
-        'story-and-implement-inline.yaml',
-        'plan-and-implement-inline.yaml',
+        'implement-story-inline.yaml',
+        'implement-prd-inline.yaml',
         'review-and-remediate-inline.yaml',
       ])
         file: _loadInline(file),

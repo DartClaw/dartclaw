@@ -1,0 +1,178 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 816" width="1000" height="816" role="img" aria-labelledby="title desc">
+  <title id="title">Bounded contexts around turn-orchestration</title>
+  <desc id="desc">Eight bounded contexts and the named pattern on each integration. turn-orchestration is the hub: provider-mediation, guarding-audit, knowledge-memory and conversation-session publish into it, runtime-governance gates it, and execution-isolation is its partner. guarding-audit and execution-isolation are deliberately separate ways.</desc>
+  <style>
+
+    svg { --bg:#f6f7f9; --card:#ffffff; --ink:#1e2030; --ink2:#4c4f69; --ink3:#6c6f85; --rule:#ccd0da; --edge:#8c8fa1; --hi:#1e66f5; --on:#ffffff; --panel:#1e1e2e; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+      --host:#40a02b; --host-d:#1f5c2a; --host-l:#2d7a1f; --ext:#e07c4f; --ext-d:#a8481c; --ext-l:#b5531f; --store:#179299; --store-d:#0f5f63; --store-l:#0e7377;
+      --sec:#d20f39; --sec-d:#9b0c2c; --sec-l:#b80d33; --chan:#8839ef; --chan-d:#5d23a8; --chan-l:#7027d4; --neu:#7c7f93; --neu-d:#4c4f69; --neu-l:#5c5f77; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#181825; --card:#1e1e2e; --ink:#cdd6f4; --ink2:#bac2de; --ink3:#9399b2; --rule:#45475a; --edge:#7f849c; --hi:#89b4fa; --on:#f5f7ff; --panel:#11111b; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+        --host:#a6e3a1; --host-d:#2f6b3a; --host-l:#a6e3a1; --ext:#fab387; --ext-d:#8f4a24; --ext-l:#fab387; --store:#94e2d5; --store-d:#1f6460; --store-l:#94e2d5;
+        --sec:#f38ba8; --sec-d:#8a2c45; --sec-l:#f38ba8; --chan:#cba6f7; --chan-d:#5e3f94; --chan-l:#cba6f7; --neu:#9399b2; --neu-d:#45475a; --neu-l:#bac2de; }
+    }
+    text { fill: var(--ink); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .mono, .kick, .badge text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+    .bg { fill: var(--bg); }
+    .title { font-size: 21px; font-weight: 700; }
+    .lede { fill: var(--ink3); font-size: 13px; }
+    .kick { font-size: 10.5px; font-weight: 600; letter-spacing: .1em; fill: var(--kl, var(--ink3)); }
+    .k-host { --k:var(--host); --kd:var(--host-d); --kl:var(--host-l); }
+    .k-ext { --k:var(--ext); --kd:var(--ext-d); --kl:var(--ext-l); }
+    .k-store { --k:var(--store); --kd:var(--store-d); --kl:var(--store-l); }
+    .k-sec { --k:var(--sec); --kd:var(--sec-d); --kl:var(--sec-l); }
+    .k-chan { --k:var(--chan); --kd:var(--chan-d); --kl:var(--chan-l); }
+    .k-neu { --k:var(--neu); --kd:var(--neu-d); --kl:var(--neu-l); }
+    .band { fill: color-mix(in srgb, var(--k) 6%, var(--bg)); stroke: color-mix(in srgb, var(--k) 50%, var(--bg)); stroke-width: 1.4; stroke-dasharray: 7 5; }
+    .box { stroke-width: 1.5; }
+    .tint .box { fill: color-mix(in srgb, var(--k) 13%, var(--card)); stroke: var(--k); }
+    .line .box { fill: var(--card); stroke: var(--k); }
+    .ghost .box { fill: none; stroke: var(--k); stroke-dasharray: 5 4; }
+    .solid .box { fill: var(--kd); stroke: var(--kd); }
+    .name { font-size: 14.5px; font-weight: 700; }
+    .sub { font-size: 11.5px; fill: var(--ink2); }
+    .mono { font-size: 11.5px; fill: var(--ink2); }
+    .solid text { fill: var(--on); }
+    .solid .sub, .solid .mono { fill: var(--on); fill-opacity: .82; }
+    .badge rect { fill: none; stroke: var(--kl); stroke-width: 1.2; }
+    .badge text { font-size: 9.5px; font-weight: 700; letter-spacing: .06em; fill: var(--kl); text-anchor: middle; }
+    .solid .badge rect { stroke: var(--on); stroke-opacity: .7; }
+    .solid .badge text { fill: var(--on); }
+    .e path { fill: none; stroke: var(--ec, var(--edge)); stroke-width: var(--ew, 1.6px); marker-end: var(--em, url(#ah)); }
+    .e.main path { stroke: var(--ec, var(--host)); stroke-width: var(--ew, 2.4px); marker-end: var(--em, url(#ah-main)); }
+    .e.bad path { stroke: var(--ec, var(--sec)); marker-end: var(--em, url(#ah-bad)); }
+    .e.dash path { stroke-dasharray: 6 4; }
+    .el { font-size: 11px; fill: var(--ink2); paint-order: stroke; stroke: var(--halo, var(--bg)); stroke-width: 4px; stroke-linejoin: round; }
+    .in-host .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    .ah { fill: var(--edge); } .ah-main { fill: var(--host); } .ah-bad { fill: var(--sec); } .ah-hi { fill: var(--hi); }
+    .panel { fill: var(--panel); }
+    .panel-kick { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10.5px; font-weight: 700; letter-spacing: .12em; fill: var(--panel-kick); }
+    .p1 { fill: var(--panel-ink); font-size: 13px; }
+    .p1 tspan.b { font-weight: 700; }
+    .p2 { fill: var(--panel-sub); font-size: 12.5px; }
+    .lg { font-size: 11px; fill: var(--ink2); }
+    .chip rect { fill: color-mix(in srgb, var(--k) 10%, var(--card)); stroke: var(--k); stroke-width: 1; }
+    .chip text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10px; font-weight: 600; fill: var(--kl); }
+    .step circle { fill: var(--kd); } .step text { fill: var(--on); font-size: 11px; font-weight: 700; text-anchor: middle; }
+    /* Interaction, effective only when the SVG is opened directly. */
+    .n { cursor: pointer; }
+    .n:hover .box, a:focus-visible .box { stroke: var(--hi); stroke-width: 2.8; }
+    .d { display: none; pointer-events: none; }
+    .n:hover .d, a:focus-visible .d { display: inline; }
+    svg:has(.n:hover) .d0, svg:has(a:focus-visible) .d0 { display: none; }
+    svg:has(.n:hover) .edges .e { opacity: .14; }
+    .e.join path { marker-end: none; }
+    .band.inner { fill: none; stroke-dasharray: 3 4; }
+    .mono-name { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13.5px; }
+    .e.bi path { marker-start: var(--em, url(#ah)); }
+    .edges .el { --halo: color-mix(in srgb, var(--neu) 6%, var(--bg)); }
+    svg:has(#turn:hover) .edges :is(.f-turn,.t-turn) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#provider:hover) .edges :is(.f-provider,.t-provider) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#gov:hover) .edges :is(.f-gov,.t-gov) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#exec:hover) .edges :is(.f-exec,.t-exec) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#guard:hover) .edges :is(.f-guard,.t-guard) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#tools:hover) .edges :is(.f-tools,.t-tools) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#know:hover) .edges :is(.f-know,.t-know) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#conv:hover) .edges :is(.f-conv,.t-conv) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+  </style>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-main" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path class="ah-main" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-bad" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="ah-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="816"/>
+  <!-- Details panel: painted first so node details (.d) draw on top -->
+  <rect class="panel" x="16" y="720" width="968" height="80" rx="12"/>
+  <text class="panel-kick" x="36" y="744">DETAILS</text>
+  <g class="d0"><text class="p1" x="36" y="768">Hover a context for its purpose and invariant; its integrations light up. Click it to open the table.</text><text class="p2" x="36" y="788">Inside a rendered document this image is static. Click it to open the interactive SVG.</text></g>
+
+  <text class="kick" x="24" y="32">CONTEXT MAP · THE EXECUTION CORE</text>
+  <text class="title" x="24" y="58">Bounded contexts around turn-orchestration</text>
+  <text class="lede" x="24" y="80">Arrows run from upstream to downstream. Six contexts meet at the turn hub; guarding-audit and execution-isolation compose only there.</text>
+
+  <g class="k-sec"><rect class="band" x="52" y="276" width="224" height="262" rx="14"/><text class="kick" x="68" y="298">DEFENSE LAYERS 3 + 5</text></g>
+  <text class="lg" x="24" y="662" text-anchor="start">Weight</text>
+  <text class="lg" x="24" y="688" text-anchor="start">Colour</text>
+  <text class="lg" x="24" y="712" text-anchor="start">OHS Open Host Service · C/S Customer/Supplier · P Partnership · SW Separate Ways.</text>
+
+  <g class="edges">
+    <g class="e  f-provider t-turn"><path d="M410,202 V298"/><text class="el" x="418" y="254" text-anchor="start">OHS</text></g>
+    <g class="e  f-gov t-turn"><path d="M620,202 V298"/><text class="el" x="628" y="254" text-anchor="start">C/S</text></g>
+    <g class="e bi f-exec t-turn"><path d="M266,342 H318"/><text class="el" x="292" y="334" text-anchor="middle">P</text></g>
+    <g class="e bi f-exec f-provider t-provider t-exec"><path d="M310,171 H236 V309"/><text class="el" x="272" y="163" text-anchor="start">P</text></g>
+    <g class="e  f-guard t-turn"><path d="M266,462 H350 V386"/><text class="el" x="358" y="430" text-anchor="start">OHS</text></g>
+    <g class="e dash join f-guard t-exec"><path d="M164,450 V375"/><text class="el" x="172" y="418" text-anchor="start">SW</text></g>
+    <g class="e  f-guard t-tools"><path d="M164,512 V568"/><text class="el" x="172" y="546" text-anchor="start">OHS</text></g>
+    <g class="e  f-tools t-exec"><path d="M64,601 H34 V342 H62"/><text class="el" x="34" y="472" text-anchor="middle">C/S</text></g>
+    <g class="e  f-know t-turn"><path d="M470,450 V386"/><text class="el" x="478" y="424" text-anchor="start">C/S</text></g>
+    <g class="e  f-know t-tools"><path d="M370,496 H316 V601 H268"/><text class="el" x="324" y="560" text-anchor="start">OHS</text></g>
+    <g class="e  f-know t-conv"><path d="M570,481 H878 V375"/><text class="el" x="730" y="473" text-anchor="middle">OHS</text></g>
+    <g class="e  f-conv t-turn"><path d="M778,342 H722"/><text class="el" x="750" y="334" text-anchor="middle">C/S</text></g>
+  </g>
+
+  <a href="../context-map.md#bounded-contexts"><g class="n solid k-host" id="turn">
+    <rect class="box" x="320" y="300" width="400" height="84" rx="9"/>
+    <text class="name mono-name" x="332" y="323">turn-orchestration</text>
+    <text class="sub" x="332" y="341">core · admit, run and observe one unit of agent work</text>
+    <text class="sub" x="332" y="357">serialized primary lane, hard per-provider leases</text>
+    <g class="d"><text class="p1" x="36" y="768"><tspan class="b">turn-orchestration</tspan> · admits, runs and observes one unit of agent work: one serialized primary lane, per-provider worker leases</text><text class="p2" x="36" y="788">Capacity is lease-based and reuse is only an optimization. Lives in dartclaw_runtime turn_*.dart and execution_coordinator*.dart.</text></g>
+  </g></a>
+  <a href="../context-map.md#bounded-contexts"><g class="n tint k-ext" id="provider">
+    <rect class="box" x="310" y="140" width="200" height="62" rx="9"/>
+    <text class="name mono-name" x="322" y="163">provider-mediation</text>
+    <text class="sub" x="322" y="181">core · AgentHarness, adapters</text>
+    <g class="d"><text class="p1" x="36" y="768"><tspan class="b">provider-mediation</tspan> · Claude JSONL, Codex JSON-RPC and ACP normalized to one host-owned execution contract</text><text class="p2" x="36" y="788">Provider branching stays inside adapters (AgentHarness + ProtocolAdapter); BridgeEvent is its published language.</text></g>
+  </g></a>
+  <a href="../context-map.md#bounded-contexts"><g class="n line k-sec" id="gov">
+    <rect class="box" x="530" y="140" width="200" height="62" rx="9"/>
+    <text class="name mono-name" x="542" y="163">runtime-governance</text>
+    <text class="sub" x="542" y="181">supporting · admission limits</text>
+    <g class="d"><text class="p1" x="36" y="768"><tspan class="b">runtime-governance</tspan> · cost, rate and runaway-autonomy limits, enforced before a turn starts</text><text class="p2" x="36" y="788">Governance is pre-execution and the coordinator is post-governance; every control is default-disabled.</text></g>
+  </g></a>
+  <a href="../context-map.md#bounded-contexts"><g class="n tint k-sec" id="exec">
+    <rect class="box" x="64" y="311" width="200" height="62" rx="9"/>
+    <text class="name mono-name" x="76" y="334">execution-isolation</text>
+    <text class="sub" x="76" y="352">core · principal, authority</text>
+    <g class="d"><text class="p1" x="36" y="768"><tspan class="b">execution-isolation</tspan> · binds each execution to one trust principal and mediates its provider traffic host-side</text><text class="p2" x="36" y="788">A container never crosses principals; credentials never enter a container environment. Its bridge frame format is a Published Language.</text></g>
+  </g></a>
+  <a href="../context-map.md#bounded-contexts"><g class="n tint k-sec" id="guard">
+    <rect class="box" x="64" y="450" width="200" height="62" rx="9"/>
+    <text class="name mono-name" x="76" y="473">guarding-audit</text>
+    <text class="sub" x="76" y="491">core · guards, verdicts</text>
+    <g class="d"><text class="p1" x="36" y="768"><tspan class="b">guarding-audit</tspan> · evaluates every tool call, inbound message and egress against policy and records the verdict</text><text class="p2" x="36" y="788">EventBus-free by design so guards run standalone; verdicts leave through GuardVerdictCallback. Fail-closed by default.</text></g>
+  </g></a>
+  <a href="../context-map.md#bounded-contexts"><g class="n ghost k-ext" id="tools">
+    <rect class="box" x="64" y="570" width="200" height="62" rx="9"/>
+    <text class="name mono-name" x="76" y="593">tool-surface</text>
+    <text class="sub" x="76" y="611">shared · host + outbound MCP</text>
+    <g class="d"><text class="p1" x="36" y="768"><tspan class="b">tool-surface</tspan> · publishes host-owned tools to provider binaries and consumes external MCP servers under guard</text><text class="p2" x="36" y="788">No subdomain of its own (it shares guarding and knowledge). Container executions reach /mcp only through the per-authority bridge.</text></g>
+  </g></a>
+  <a href="../context-map.md#bounded-contexts"><g class="n tint k-store" id="know">
+    <rect class="box" x="370" y="450" width="200" height="62" rx="9"/>
+    <text class="name mono-name" x="382" y="473">knowledge-memory</text>
+    <text class="sub" x="382" y="491">core · memory, search, graph</text>
+    <g class="d"><text class="p1" x="36" y="768"><tspan class="b">knowledge-memory</tspan> · retains, curates and synthesizes durable knowledge; serves citation-backed context to agents</text><text class="p2" x="36" y="788">The search index is a rebuildable projection; authoritative knowledge-graph facts live in durable storage.</text></g>
+  </g></a>
+  <a href="../context-map.md#bounded-contexts"><g class="n line k-host" id="conv">
+    <rect class="box" x="780" y="311" width="196" height="62" rx="9"/>
+    <text class="name mono-name" x="792" y="334">conversation-session</text>
+    <text class="sub" x="792" y="352">supporting · sessions</text>
+    <g class="d"><text class="p1" x="36" y="768"><tspan class="b">conversation-session</tspan> · conversation identity, retention, submissions, attempts, effective context and inbox state</text><text class="p2" x="36" y="788">The session key is deterministic, which decouples scoping from session discovery.</text></g>
+  </g></a>
+  <g transform="translate(80,652)">
+    <g class="solid k-neu"><rect class="box" x="0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="22" y="10">hub</text>
+    <g class="tint k-neu"><rect class="box" x="62.6" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="84.6" y="10">core subdomain</text>
+    <g class="line k-neu"><rect class="box" x="193.4" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="215.4" y="10">supporting</text>
+    <g class="ghost k-neu"><rect class="box" x="299.4" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="321.4" y="10">shared, no subdomain of its own</text>
+    <g class="e "><path d="M535.6,6 H567.6"/></g><text class="lg" x="575.6" y="10">upstream to downstream</text>
+    <g class="e bi"><path d="M734.0,6 H766.0"/></g><text class="lg" x="774.0" y="10">mutual</text>
+  </g>
+  <g transform="translate(80,678)">
+    <g class="tint k-host"><rect class="box" x="0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="22" y="10">turn flow and sessions</text>
+    <g class="tint k-ext"><rect class="box" x="180.4" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="202.4" y="10">faces a provider or MCP peer</text>
+    <g class="tint k-sec"><rect class="box" x="398.0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="420.0" y="10">isolates or limits</text>
+    <g class="tint k-store"><rect class="box" x="553.6" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="575.6" y="10">durable knowledge</text>
+  </g>
+</svg>

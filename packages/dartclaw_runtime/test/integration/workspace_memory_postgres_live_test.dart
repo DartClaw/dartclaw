@@ -165,16 +165,16 @@ void main() {
           kg: wiring.kg,
           synthesizer: (request) async {
             candidates[activeCaller] = request.candidates;
+            final ref = request.candidates.first.sourceRef;
             return jsonEncode({
               'statements': [
                 {
                   'text': request.candidates.first.text,
-                  'sourceRefs': [request.candidates.first.sourceRef.toJson()],
+                  'sourceRefs': [
+                    {'layer': ref.layer.wireName, 'locator': ref.locator, 'role': ref.role},
+                  ],
                 },
               ],
-              'sourceList': [request.candidates.first.sourceRef.toJson()],
-              'degradedLayers': [],
-              'noSourcesFound': false,
             });
           },
         );

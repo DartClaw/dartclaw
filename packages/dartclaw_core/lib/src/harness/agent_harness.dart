@@ -1,4 +1,5 @@
 import '../bridge/bridge_events.dart';
+import '../turn/turn_provenance.dart';
 import '../worker/worker_state.dart';
 
 /// Strategy for injecting behavior content into the agent's system prompt.
@@ -94,6 +95,7 @@ final class HarnessTurnContext {
     required this.agentName,
     this.turnTimeout,
     this.allowOperatorApproval = false,
+    this.provenance,
   });
 
   final String sessionId;
@@ -101,6 +103,9 @@ final class HarnessTurnContext {
   final String? source;
   final String agentName;
   final bool allowOperatorApproval;
+
+  /// Where the turn came from, for MCP tools that opt in to it. Null for turns the host built none for.
+  final TurnProvenance? provenance;
 
   /// Provider-process backstop derived from this turn's effective wall-clock budget.
   final Duration? turnTimeout;
@@ -270,6 +275,9 @@ final class UnsupportedHarnessCapabilityException implements Exception {
 
 /// Receives trusted host turn identity before provider execution begins.
 abstract interface class HarnessTurnContextSink {
+  /// The context of the turn the harness is executing, or null between turns.
+  HarnessTurnContext? get activeTurnContext;
+
   void setTurnContext(HarnessTurnContext? context);
 }
 
@@ -279,11 +287,6 @@ abstract interface class HarnessToolApprovalResponder {
 
   Future<void> resolveToolApproval({required String turnId, required String requestId, required bool approved});
 }
-
-typedef ContextualMemoryToolHandler = Future<Map<String, dynamic>> Function(
-  Map<String, dynamic> arguments,
-  HarnessTurnContext context,
-);
 
 /// Abstract harness interface that decouples consumers from the specific
 /// agent runtime (Deno worker, native CLI, etc.).

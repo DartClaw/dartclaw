@@ -681,6 +681,37 @@ void main() {
       expect(json.containsKey('sessionId'), isFalse);
       expect(json.containsKey('channel'), isFalse);
       expect(json.containsKey('peerId'), isFalse);
+      expect(json.containsKey('runId'), isFalse);
+      expect(json.containsKey('stepId'), isFalse);
+    });
+
+    test('run and step identity round-trips', () {
+      final entry = AuditEntry(
+        timestamp: DateTime.utc(2026, 1, 1),
+        guard: 'RunApprovalGate',
+        hook: 'button',
+        verdict: 'pass',
+        runId: 'run-1',
+        stepId: 'review',
+      );
+      final json = entry.toJson();
+      expect(json['runId'], 'run-1');
+      expect(json['stepId'], 'review');
+
+      final restored = AuditEntry.fromJson(json);
+      expect(restored.runId, 'run-1');
+      expect(restored.stepId, 'review');
+    });
+
+    test('an older line without run and step fields still parses', () {
+      final restored = AuditEntry.fromJson({
+        'timestamp': '2026-01-01T00:00:00.000Z',
+        'guard': 'g',
+        'hook': 'h',
+        'verdict': 'pass',
+      });
+      expect(restored.runId, isNull);
+      expect(restored.stepId, isNull);
     });
   });
 }

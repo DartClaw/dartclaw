@@ -3,7 +3,8 @@ import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowDefinitionSource, WorkflowRun, WorkflowService;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart'
+    show WorkflowDefinitionSource, WorkflowRun, WorkflowRunOrigin, WorkflowService;
 import 'package:logging/logging.dart';
 import 'package:shelf/shelf.dart';
 
@@ -155,7 +156,12 @@ class GitHubWebhookHandler {
 
     final WorkflowRun run;
     try {
-      run = await workflows.start(definition, variables, projectId: projectId);
+      run = await workflows.start(
+        definition,
+        variables,
+        projectId: projectId,
+        origin: const WorkflowRunOrigin(surface: 'github'),
+      );
     } catch (_) {
       if (reservation != null && reservation != WebhookDeliveryReservation.duplicate) {
         store?.releasePending(deliveryId);

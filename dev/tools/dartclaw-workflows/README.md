@@ -1,6 +1,6 @@
 # DartClaw Maintainer Workflows
 
-Run the built-in `story-and-implement`, `plan-and-implement`, and `code-review` workflows directly against this `dartclaw-public` checkout.
+Run the built-in `implement-story`, `implement-prd`, and `code-review` workflows directly against this `dartclaw-public` checkout.
 
 This is maintainer tooling, not an end-user example profile. It is for day-to-day DartClaw development when you want DartClaw to implement public-repo specs and plans without launching it from the private testing profile. Workflows run **server-less** via the standalone CLI path, operating on this checkout (the cwd repo) and keeping runtime state under `.dartclaw/` (config committed, execution files and worktrees gitignored). AndThen skills are resolved from your existing per-provider AndThen install (ADR-040) — this profile does not clone or cache AndThen.
 
@@ -10,26 +10,26 @@ Three built-in workflows ship in `packages/dartclaw_workflow/lib/src/workflow/de
 
 | Workflow | Required variable | Purpose |
 |----------|-------------------|---------|
-| `story-and-implement` | `FEATURE` | Single-feature pipeline. `FEATURE` accepts an inline description or a path to an existing FIS; an existing written source that is not a FIS is rejected with a pointer to `plan-and-implement`. `andthen:plan` authors a FIS for inline descriptions. |
-| `plan-and-implement` | `FEATURE` | Multi-story milestone pipeline. Requires an existing PRD. `dartclaw-discover-andthen-plan` emits flat `prd`, optional `plan`, and optional `story_specs`; `andthen:plan` authors missing plan/spec artifacts. |
+| `implement-story` | `FEATURE` | Single-feature pipeline. `FEATURE` accepts an inline description or a path to an existing FIS; an existing written source that is not a FIS is rejected with a pointer to `implement-prd`. `andthen:plan` authors a FIS for inline descriptions. |
+| `implement-prd` | `FEATURE` | Multi-story milestone pipeline. Requires an existing PRD. `dartclaw-discover-andthen-plan` emits flat `prd`, optional `plan`, and optional `story_specs`; `andthen:plan` authors missing plan/spec artifacts. |
 | `code-review` | `TARGET` | Single-methodology review of a PR / branch / module + bounded remediation loop. |
 
 Four custom **inline** variants ship in `.dartclaw/workflows/custom/`:
 
 | Workflow | Required variable | Purpose |
 |----------|-------------------|---------|
-| `story-and-implement-inline` | `FEATURE` | Same pipeline as `story-and-implement`, but runs on the current branch in the live checkout (`gitStrategy.integrationBranch: false`, `worktree: inline`). No integration branch, no worktree, no merge-back. Adds a deterministic verification gate after remediation (see below). |
-| `plan-and-implement-inline` | `FEATURE` | Same pipeline as `plan-and-implement`, but inline. Per-story worktrees are disabled and `MAX_PARALLEL` defaults to `1` because parallel sessions in a shared checkout would clobber each other. Adds a deterministic verification gate after remediation (see below). |
+| `implement-story-inline` | `FEATURE` | Same pipeline as `implement-story`, but runs on the current branch in the live checkout (`gitStrategy.integrationBranch: false`, `worktree: inline`). No integration branch, no worktree, no merge-back. Adds a deterministic verification gate after remediation (see below). |
+| `implement-prd-inline` | `FEATURE` | Same pipeline as `implement-prd`, but inline. Per-story worktrees are disabled and `MAX_PARALLEL` defaults to `1` because parallel sessions in a shared checkout would clobber each other. Adds a deterministic verification gate after remediation (see below). |
 | `review-and-remediate-inline` | `TARGET` | Review + remediate for an already-implemented milestone, version, or feature – nothing is implemented. Reviews all changes on the current branch (diffed against `BASE_BRANCH`, default `main`) through `andthen:review`, then runs a bounded remediation loop and the deterministic verification gate. The fuller counterpart to the built-in `code-review`. Runs inline on the current branch. |
 | `multi-agent-review-inline` | `TARGET` | Parallel multi-agent review: Codex (Sol 5.6) and Claude Code (Fable 5), both at xhigh effort, each run a full `andthen:review` pass with no pinned mode, aggregated into one report, then the bounded remediation loop (codex remediates, Claude re-reviews). Its configured verification gate is currently blocked by the invocation described below. `TARGET` carries the whole framing, including scope (e.g. branch vs base). Runs inline on the current branch. |
 
-**Deterministic verification gate.** After the review/remediation loop, `story-and-implement-inline`, `plan-and-implement-inline`, and `review-and-remediate-inline` run format (`dart format --set-exit-if-changed`), static analysis (`dart analyze --fatal-infos`), the full test suite (`dev/tools/test_workspace.sh`), architecture checks, fitness checks, `git diff --check`, and `git status --short` via `.dartclaw/workflows/custom/scripts/verify-gate.sh`. The script captures each gate's output under the run's artifacts dir (`<run>/verify/*.log`) and prints `pass`/`fail`; a bounded `verify-fix-loop` then dispatches `andthen:triage` to fix any failures and re-runs the combined gate until green or the iteration cap is hit. `multi-agent-review-inline` declares the same gate, but its current `bash` invocation with a substituted artifacts path is rejected by BashStepRunner before the script runs. This is the deterministic counterpart to the skill-driven verification the worktree-isolated built-ins rely on.
+**Deterministic verification gate.** After the review/remediation loop, `implement-story-inline`, `implement-prd-inline`, and `review-and-remediate-inline` run format (`dart format --set-exit-if-changed`), static analysis (`dart analyze --fatal-infos`), the full test suite (`dev/tools/test_workspace.sh`), architecture checks, fitness checks, `git diff --check`, and `git status --short` via `.dartclaw/workflows/custom/scripts/verify-gate.sh`. The script captures each gate's output under the run's artifacts dir (`<run>/verify/*.log`) and prints `pass`/`fail`; a bounded `verify-fix-loop` then dispatches `andthen:triage` to fix any failures and re-runs the combined gate until green or the iteration cap is hit. `multi-agent-review-inline` declares the same gate, but its current `bash` invocation with a substituted artifacts path is rejected by BashStepRunner before the script runs. This is the deterministic counterpart to the skill-driven verification the worktree-isolated built-ins rely on.
 
 > **Git-strategy half is now built in.** The inline *git strategy* itself (`integrationBranch: false` + `worktree: inline`, sequential multi-story execution) no longer needs a duplicate YAML — any built-in runs inline via `dartclaw workflow run <builtin> --inline`. These custom variants remain because of the **deterministic verification gate** above, which is DartClaw-repo-specific (hardcoded `dev/tools` paths, `test_workspace.sh`, repo arch/fitness checks). Full retirement of the `*-inline` YAMLs is deferred pending generalization of that verify-gate into a portable, configurable step.
 
 The inline variants live at `.dartclaw/workflows/custom/` — the standard instance-scoped custom-workflow drop folder (`<dataDir>/workflows/custom/`, with `<dataDir>` = `.dartclaw/`). The host loads them automatically as `WorkflowSource.custom`. They are git-tracked via `.dartclaw/.gitignore`'s allowlist; edit the YAMLs in place to tweak step config – changes take effect on the next run.
 
-The `story.sh` / `plan.sh` / `review.sh` / `multi-review.sh` convenience scripts run the **inline** variants. To get the worktree-isolated pipeline (separate workflow branch + merge-back), invoke `run.sh workflow run` directly with the unsuffixed name (`story-and-implement`, `plan-and-implement`); for a single-methodology worktree-isolated review use the built-in `code-review`.
+The `story.sh` / `plan.sh` / `review.sh` / `multi-review.sh` convenience scripts run the **inline** variants. To get the worktree-isolated pipeline (separate workflow branch + merge-back), invoke `run.sh workflow run` directly with the unsuffixed name (`implement-story`, `implement-prd`); for a single-methodology worktree-isolated review use the built-in `code-review`.
 
 After updating from an older checkout that provisioned the pre-rename discovery skill directories, start the workflow profile normally. `SkillProvisioner.ensureCacheCurrent` removes stale discovery skill directories from the profile data dir and reprovisions the renamed `dartclaw-discover-andthen-*` skills on the next workflow start.
 
@@ -62,24 +62,24 @@ List workflows:
 bash dev/tools/dartclaw-workflows/run.sh workflow list
 ```
 
-Run `story-and-implement` from a feature description:
+Run `implement-story` from a feature description:
 
 ```bash
-bash dev/tools/dartclaw-workflows/run.sh workflow run story-and-implement \
+bash dev/tools/dartclaw-workflows/run.sh workflow run implement-story \
   -v 'FEATURE=Add a /health endpoint returning service uptime and version'
 ```
 
-Run `story-and-implement` from an existing FIS:
+Run `implement-story` from an existing FIS:
 
 ```bash
-bash dev/tools/dartclaw-workflows/run.sh workflow run story-and-implement \
+bash dev/tools/dartclaw-workflows/run.sh workflow run implement-story \
   -v 'FEATURE=dev/bundle/docs/specs/0.16.5/fis/s13-pre-decomposition-helpers.md'
 ```
 
-Run `plan-and-implement`:
+Run `implement-prd`:
 
 ```bash
-bash dev/tools/dartclaw-workflows/run.sh workflow run plan-and-implement \
+bash dev/tools/dartclaw-workflows/run.sh workflow run implement-prd \
   -v 'FEATURE=Implement the next planned DartClaw milestone from the active PRD and plan'
 ```
 
@@ -105,7 +105,7 @@ For the parallel two-agent variant (Codex + Claude Code), use `multi-review.sh`.
 bash dev/tools/dartclaw-workflows/multi-review.sh 'the 0.22 milestone changes on this branch versus main'
 ```
 
-These wrap `run.sh workflow run --standalone --allow-dirty-localpath story-and-implement-inline|plan-and-implement-inline|review-and-remediate-inline|multi-agent-review-inline …`. `--allow-dirty-localpath` is required because inline mode mutates the live working tree by design.
+These wrap `run.sh workflow run --standalone --allow-dirty-localpath implement-story-inline|implement-prd-inline|review-and-remediate-inline|multi-agent-review-inline …`. `--allow-dirty-localpath` is required because inline mode mutates the live working tree by design.
 
 ## Injected Variables
 
@@ -115,7 +115,9 @@ Workflow start refuses to mutate a dirty local-path checkout by default. Add `--
 
 ### Worktree isolation for parallel stories
 
-`plan-and-implement` runs the per-story pipeline as a `foreach` with `MAX_PARALLEL` (default `2`), `gitStrategy.integrationBranch: true`, and `gitStrategy.worktree: auto`. With `MAX_PARALLEL > 1`, story iterations resolve to **per-map-item worktrees**. Workflow-level branch edits resolve to a **shared workflow worktree** because `integrationBranch: true` is set. The integration branch is attached under `.dartclaw/worktrees/`, and the live `dartclaw-public` checkout stays on the branch you launched from. The `artifacts.commit: true` setting in the YAML auto-commits PRD / plan / per-story FIS so spawned worktrees inherit them.
+`implement-prd` runs the per-story pipeline as a `foreach` with `MAX_PARALLEL` (default `2`), `gitStrategy.integrationBranch: true`, and `gitStrategy.worktree: auto`. With `MAX_PARALLEL > 1`, story iterations resolve to **per-map-item worktrees**. Workflow-level branch edits resolve to a **shared workflow worktree** because `integrationBranch: true` is set. The integration branch is attached under `.dartclaw/worktrees/`, and the live `dartclaw-public` checkout stays on the branch you launched from. The `artifacts.commit: true` setting in the YAML auto-commits PRD / plan / per-story FIS so spawned worktrees inherit them.
+
+Set `-v PLAN_REVIEW=true` to pause for approval of the plan before any story is implemented (the `plan-approval` gate; Request changes re-runs `plan` with the feedback); unset, the gate is skipped.
 
 Set `-v MAX_PARALLEL=1` to make story execution inline and sequential when you want determinism over throughput. Workflow-level branch edits still use the shared workflow worktree; this setting does not make the workflow operate in the project checkout.
 

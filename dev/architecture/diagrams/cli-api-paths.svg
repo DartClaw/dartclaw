@@ -1,0 +1,193 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 700" width="1000" height="700" role="img" aria-labelledby="title desc">
+  <title id="title">CLI paths: connected and standalone</title>
+  <desc id="desc">The full dartclaw binary talks HTTP and SSE to a running dartclaw serve by default. With --standalone, and always in dartclaw-workflow, write verbs probe GET /health, then run the shared runtime headless against a file checkpoint under data_dir/standalone. Local-only commands touch the filesystem and use neither path.</desc>
+  <style>
+
+    svg { --bg:#f6f7f9; --card:#ffffff; --ink:#1e2030; --ink2:#4c4f69; --ink3:#6c6f85; --rule:#ccd0da; --edge:#8c8fa1; --hi:#1e66f5; --on:#ffffff; --panel:#1e1e2e; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+      --host:#40a02b; --host-d:#1f5c2a; --host-l:#2d7a1f; --ext:#e07c4f; --ext-d:#a8481c; --ext-l:#b5531f; --store:#179299; --store-d:#0f5f63; --store-l:#0e7377;
+      --sec:#d20f39; --sec-d:#9b0c2c; --sec-l:#b80d33; --chan:#8839ef; --chan-d:#5d23a8; --chan-l:#7027d4; --neu:#7c7f93; --neu-d:#4c4f69; --neu-l:#5c5f77; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#181825; --card:#1e1e2e; --ink:#cdd6f4; --ink2:#bac2de; --ink3:#9399b2; --rule:#45475a; --edge:#7f849c; --hi:#89b4fa; --on:#f5f7ff; --panel:#11111b; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+        --host:#a6e3a1; --host-d:#2f6b3a; --host-l:#a6e3a1; --ext:#fab387; --ext-d:#8f4a24; --ext-l:#fab387; --store:#94e2d5; --store-d:#1f6460; --store-l:#94e2d5;
+        --sec:#f38ba8; --sec-d:#8a2c45; --sec-l:#f38ba8; --chan:#cba6f7; --chan-d:#5e3f94; --chan-l:#cba6f7; --neu:#9399b2; --neu-d:#45475a; --neu-l:#bac2de; }
+    }
+    text { fill: var(--ink); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .mono, .kick, .badge text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+    .bg { fill: var(--bg); }
+    .title { font-size: 21px; font-weight: 700; }
+    .lede { fill: var(--ink3); font-size: 13px; }
+    .kick { font-size: 10.5px; font-weight: 600; letter-spacing: .1em; fill: var(--kl, var(--ink3)); }
+    .k-host { --k:var(--host); --kd:var(--host-d); --kl:var(--host-l); }
+    .k-ext { --k:var(--ext); --kd:var(--ext-d); --kl:var(--ext-l); }
+    .k-store { --k:var(--store); --kd:var(--store-d); --kl:var(--store-l); }
+    .k-sec { --k:var(--sec); --kd:var(--sec-d); --kl:var(--sec-l); }
+    .k-chan { --k:var(--chan); --kd:var(--chan-d); --kl:var(--chan-l); }
+    .k-neu { --k:var(--neu); --kd:var(--neu-d); --kl:var(--neu-l); }
+    .band { fill: color-mix(in srgb, var(--k) 6%, var(--bg)); stroke: color-mix(in srgb, var(--k) 50%, var(--bg)); stroke-width: 1.4; stroke-dasharray: 7 5; }
+    .box { stroke-width: 1.5; }
+    .tint .box { fill: color-mix(in srgb, var(--k) 13%, var(--card)); stroke: var(--k); }
+    .line .box { fill: var(--card); stroke: var(--k); }
+    .ghost .box { fill: none; stroke: var(--k); stroke-dasharray: 5 4; }
+    .solid .box { fill: var(--kd); stroke: var(--kd); }
+    .name { font-size: 14.5px; font-weight: 700; }
+    .sub { font-size: 11.5px; fill: var(--ink2); }
+    .mono { font-size: 11.5px; fill: var(--ink2); }
+    .solid text { fill: var(--on); }
+    .solid .sub, .solid .mono { fill: var(--on); fill-opacity: .82; }
+    .badge rect { fill: none; stroke: var(--kl); stroke-width: 1.2; }
+    .badge text { font-size: 9.5px; font-weight: 700; letter-spacing: .06em; fill: var(--kl); text-anchor: middle; }
+    .solid .badge rect { stroke: var(--on); stroke-opacity: .7; }
+    .solid .badge text { fill: var(--on); }
+    .e path { fill: none; stroke: var(--ec, var(--edge)); stroke-width: var(--ew, 1.6px); marker-end: var(--em, url(#ah)); }
+    .e.main path { stroke: var(--ec, var(--host)); stroke-width: var(--ew, 2.4px); marker-end: var(--em, url(#ah-main)); }
+    .e.bad path { stroke: var(--ec, var(--sec)); marker-end: var(--em, url(#ah-bad)); }
+    .e.dash path { stroke-dasharray: 6 4; }
+    .el { font-size: 11px; fill: var(--ink2); paint-order: stroke; stroke: var(--halo, var(--bg)); stroke-width: 4px; stroke-linejoin: round; }
+    .in-host .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    .ah { fill: var(--edge); } .ah-main { fill: var(--host); } .ah-bad { fill: var(--sec); } .ah-hi { fill: var(--hi); }
+    .panel { fill: var(--panel); }
+    .panel-kick { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10.5px; font-weight: 700; letter-spacing: .12em; fill: var(--panel-kick); }
+    .p1 { fill: var(--panel-ink); font-size: 13px; }
+    .p1 tspan.b { font-weight: 700; }
+    .p2 { fill: var(--panel-sub); font-size: 12.5px; }
+    .lg { font-size: 11px; fill: var(--ink2); }
+    .chip rect { fill: color-mix(in srgb, var(--k) 10%, var(--card)); stroke: var(--k); stroke-width: 1; }
+    .chip text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10px; font-weight: 600; fill: var(--kl); }
+    .step circle { fill: var(--kd); } .step text { fill: var(--on); font-size: 11px; font-weight: 700; text-anchor: middle; }
+    /* Interaction, effective only when the SVG is opened directly. */
+    .n { cursor: pointer; }
+    .n:hover .box, a:focus-visible .box { stroke: var(--hi); stroke-width: 2.8; }
+    .d { display: none; pointer-events: none; }
+    .n:hover .d, a:focus-visible .d { display: inline; }
+    svg:has(.n:hover) .d0, svg:has(a:focus-visible) .d0 { display: none; }
+    svg:has(.n:hover) .edges .e { opacity: .14; }
+    .e.join path { marker-end: none; }
+    .band.inner { fill: none; stroke-dasharray: 3 4; }
+    .mono-name { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13.5px; }
+    svg:has(#full:hover) .edges :is(.f-full,.t-full) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#local:hover) .edges :is(.f-local,.t-local) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#lean:hover) .edges :is(.f-lean,.t-lean) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#client:hover) .edges :is(.f-client,.t-client) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#exit:hover) .edges :is(.f-exit,.t-exit) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#serve:hover) .edges :is(.f-serve,.t-serve) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#pg:hover) .edges :is(.f-pg,.t-pg) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#guard:hover) .edges :is(.f-guard,.t-guard) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#headless:hover) .edges :is(.f-headless,.t-headless) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#store:hover) .edges :is(.f-store,.t-store) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+  </style>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-main" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path class="ah-main" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-bad" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="ah-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="700"/>
+  <!-- Details panel: painted first so node details (.d) draw on top -->
+  <rect class="panel" x="16" y="604" width="968" height="80" rx="12"/>
+  <text class="panel-kick" x="36" y="628">DETAILS</text>
+  <g class="d0"><text class="p1" x="36" y="652">Hover a box for what it does; its connections light up. Click it to open its section.</text><text class="p2" x="36" y="672">Inside a rendered document this image is static. Click it to open the interactive SVG.</text></g>
+
+  <text class="kick" x="24" y="32">EXECUTION PATHS · CLI COMMAND TO RUNTIME</text>
+  <text class="title" x="24" y="58">CLI paths: connected and standalone</text>
+  <text class="lede" x="24" y="80">Connected is the default: the CLI is an HTTP client of a running server. Standalone runs the engine in-process, behind a /health probe.</text>
+
+  <g class="k-host"><rect class="band" x="250" y="96" width="734" height="206" rx="14"/><text class="kick" x="266" y="118">CONNECTED · DEFAULT FOR SERVER-BACKED AND MIXED COMMANDS</text></g>
+  <g class="k-sec"><rect class="band" x="250" y="318" width="734" height="226" rx="14"/><text class="kick" x="266" y="340">STANDALONE · --standalone, ALWAYS IN dartclaw-workflow</text></g>
+
+  <g class="edges">
+    <g class="e  f-full t-client"><path d="M224,164 H280"/><text class="el" x="252" y="156" text-anchor="middle">default</text></g>
+    <g class="e join f-full t-guard"><path d="M224,190 H238 V393"/></g>
+    <g class="e join f-lean t-guard"><path d="M224,470 H238 V393"/></g>
+    <g class="e main f-full f-lean t-guard"><path d="M238,393 H280"/></g>
+    <g class="e dash f-full t-local"><path d="M124,210 V234"/><text class="el" x="132" y="227" text-anchor="start">no server</text></g>
+    <g class="e main f-client t-serve"><path d="M522,160 H588"/><text class="el" x="555" y="152" text-anchor="middle">HTTP + SSE</text></g>
+    <g class="e bad f-client t-exit"><path d="M402,204 V220"/><text class="el" x="410" y="216" text-anchor="start">on failure</text></g>
+    <g class="e  f-serve t-pg"><path d="M883,200 V220"/><text class="el" x="891" y="214" text-anchor="start">state</text></g>
+    <g class="e dash f-guard t-serve"><path d="M500,352 V232 H640 V202"/><text class="el" x="508" y="246" text-anchor="start">probe: server up?</text></g>
+    <g class="e main f-guard t-headless"><path d="M522,400 H588"/><text class="el" x="555" y="392" text-anchor="middle">no server</text></g>
+    <g class="e  f-headless t-store"><path d="M783,448 V468"/><text class="el" x="791" y="462" text-anchor="start">checkpoint</text></g>
+  </g>
+
+  <a href="../cli-api-architecture.md#2-cli-structure"><g class="n tint k-host" id="full">
+    <rect class="box" x="24" y="130" width="200" height="80" rx="9"/>
+    <text class="name mono-name" x="36" y="153">dartclaw</text>
+    <text class="sub" x="36" y="171">full CLI</text>
+    <text class="sub" x="36" y="187">--config --server --token</text>
+    <g class="d"><text class="p1" x="36" y="652"><tspan class="b">dartclaw</tspan> · buildDartclawRunner: the full command tree</text><text class="p2" x="36" y="672">Server-backed commands are connected only; workflow run, status, pause, resume, cancel, retry and show are mixed and take --standalone.</text></g>
+  </g></a>
+  <a href="../cli-api-architecture.md#2-cli-structure"><g class="n ghost k-neu" id="local">
+    <rect class="box" x="24" y="236" width="200" height="82" rx="9"/>
+    <text class="name" x="36" y="259">local-only commands</text>
+    <text class="sub" x="36" y="277">serve, service, init,</text>
+    <text class="sub" x="36" y="293">doctor, token, secrets,</text>
+    <text class="sub" x="36" y="309">rebuild-index: no server</text>
+    <g class="d"><text class="p1" x="36" y="652"><tspan class="b">local-only commands</tspan> · serve, service, init, doctor, token, auth, secrets, google-auth, rebuild-index, workflow list and validate</text><text class="p2" x="36" y="672">They work with no server running: each touches the data directory or the installation, or reads definitions from disk.</text></g>
+  </g></a>
+  <a href="../cli-api-architecture.md#2-cli-structure"><g class="n tint k-host" id="lean">
+    <rect class="box" x="24" y="430" width="200" height="80" rx="9"/>
+    <text class="name mono-name" x="36" y="453">dartclaw-workflow</text>
+    <text class="sub" x="36" y="471">lean, always standalone</text>
+    <text class="sub" x="36" y="487">no --server, no --token</text>
+    <g class="d"><text class="p1" x="36" y="652"><tspan class="b">dartclaw-workflow</tspan> · buildDartclawWorkflowRunner: workflow verbs at the root, plus init and rebuild-index</text><text class="p2" x="36" y="672">It links neither the server nor the API client; a build test asserts they are absent from the lean artifact.</text></g>
+  </g></a>
+  <a href="../cli-api-architecture.md#4-api-client"><g class="n tint k-host" id="client">
+    <rect class="box" x="282" y="124" width="240" height="80" rx="9"/>
+    <text class="name mono-name" x="294" y="147">DartclawApiClient</text>
+    <g class="badge"><rect x="451" y="135" width="61" height="16" rx="8"/><text x="482" y="147">dart:io</text></g>
+    <text class="sub" x="294" y="165">Bearer auth, JSON helpers</text>
+    <text class="sub" x="294" y="181">SSE: up to 3 reconnects</text>
+    <g class="d"><text class="p1" x="36" y="652"><tspan class="b">DartclawApiClient</tspan> · address: --server, else http://localhost:&lt;server.port&gt;; token: --token, gateway.token or the gateway_token file</text><text class="p2" x="36" y="672">No token is sent when gateway.auth_mode is none. ConnectedCommand resolves a client per call; the client itself resolves nothing.</text></g>
+  </g></a>
+  <a href="../cli-api-architecture.md#connected-mode-default"><g class="n line k-sec" id="exit">
+    <rect class="box" x="282" y="222" width="200" height="66" rx="9"/>
+    <text class="name mono-name" x="294" y="245">connectedExitCode</text>
+    <text class="sub" x="294" y="263">transport 3, auth 4</text>
+    <text class="sub" x="294" y="279">4xx 5, 5xx 6, other 1</text>
+    <g class="d"><text class="p1" x="36" y="652"><tspan class="b">connectedExitCode</tspan> · API failures map to exit codes by failure class</text><text class="p2" x="36" y="672">Transport is 3 only when there is no HTTP status; 401 and 403 are 4, other 4xx 5, 5xx 6, anything else 1.</text></g>
+  </g></a>
+  <a href="../cli-api-architecture.md#5-server-route-families"><g class="n solid k-host" id="serve">
+    <rect class="box" x="590" y="118" width="386" height="82" rx="9"/>
+    <text class="name mono-name" x="602" y="141">dartclaw serve</text>
+    <g class="badge"><rect x="842" y="129" width="124" height="16" rx="8"/><text x="904" y="141">dartclaw_runtime</text></g>
+    <text class="sub" x="602" y="159">authMiddleware, /api/* routers, SSE</text>
+    <text class="sub" x="602" y="175">task, workflow, session, project services</text>
+    <g class="d"><text class="p1" x="36" y="652"><tspan class="b">dartclaw serve</tspan> · shelf routers behind authMiddleware; /health, /login, /webhook/* and /static/* are public</text><text class="p2" x="36" y="672">The CLI has no privileged route: it calls the same routes as the web UI, so guards, tracing and web visibility apply.</text></g>
+  </g></a>
+  <a href="../cli-api-architecture.md#connected-mode-default"><g class="n tint k-store" id="pg">
+    <rect class="box" x="790" y="222" width="186" height="62" rx="9"/>
+    <text class="name mono-name" x="802" y="245">PostgreSQL</text>
+    <text class="sub" x="802" y="263">server-side state only</text>
+    <g class="d"><text class="p1" x="36" y="652"><tspan class="b">PostgreSQL</tspan> · the server owns persistent state; a connected CLI never writes it directly</text><text class="p2" x="36" y="672">Standalone runs use none of it: no connection and no schema gate.</text></g>
+  </g></a>
+  <a href="../cli-api-architecture.md#standalone-mode"><g class="n tint k-sec" id="guard">
+    <rect class="box" x="282" y="352" width="240" height="82" rx="9"/>
+    <text class="name mono-name" x="294" y="375">GET /health</text>
+    <g class="badge"><rect x="465" y="363" width="47" height="16" rx="8"/><text x="488" y="375">PROBE</text></g>
+    <text class="sub" x="294" y="393">writer guard on write verbs</text>
+    <text class="sub" x="294" y="409">abort unless --force</text>
+    <g class="d"><text class="p1" x="36" y="652"><tspan class="b">GET /health</tspan> · server_reachability.dart: 200, 401 and 403 count as a running server; a 5 s timeout counts as none</text><text class="p2" x="36" y="672">Write verbs print the server origin and exit 1, so two writers never share project and workflow files; status only reads.</text></g>
+  </g></a>
+  <a href="../cli-api-architecture.md#standalone-mode"><g class="n solid k-host" id="headless">
+    <rect class="box" x="590" y="352" width="386" height="96" rx="9"/>
+    <text class="name mono-name" x="602" y="375">DartclawRuntime.stageHeadless</text>
+    <text class="sub" x="602" y="393">then completeForExecution: engine, task and session</text>
+    <text class="sub" x="602" y="409">services; no HTTP, web, MCP, channels, memory</text>
+    <g class="d"><text class="p1" x="36" y="652"><tspan class="b">DartclawRuntime.stageHeadless</tspan> · the serve composition root with headless: true; credential and provider-auth preflight run first</text><text class="p2" x="36" y="672">A lock file execution.owner.lock refuses a second standalone execution on one data directory; cancel and pause skip skill provisioning.</text></g>
+  </g></a>
+  <a href="../cli-api-architecture.md#standalone-mode"><g class="n tint k-store" id="store">
+    <rect class="box" x="590" y="470" width="386" height="62" rx="9"/>
+    <text class="name mono-name" x="602" y="493">&lt;data_dir&gt;/standalone/</text>
+    <text class="sub" x="602" y="511">execution.json, sessions/, turn_state.json, kv.json</text>
+    <g class="d"><text class="p1" x="36" y="652"><tspan class="b">&lt;data_dir&gt;/standalone/</tspan> · FileExecutionStore: one atomic checkpoint shared by the task and workflow repositories</text><text class="p2" x="36" y="672">Existing PostgreSQL run histories are not imported; status --standalone reads this checkpoint.</text></g>
+  </g></a>
+  <g transform="translate(24,578)">
+    <g class="solid k-host"><rect class="box" x="0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="22" y="10">DartClaw process</text>
+    <g class="tint k-sec"><rect class="box" x="143.2" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="165.2" y="10">guard</text>
+    <g class="tint k-store"><rect class="box" x="218.2" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="240.2" y="10">state</text>
+    <g class="ghost k-neu"><rect class="box" x="293.2" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="315.2" y="10">no server path</text>
+    <g class="e main"><path d="M424.0,6 H456.0"/></g><text class="lg" x="464.0" y="10">main path</text>
+    <g class="e "><path d="M541.8,6 H573.8"/></g><text class="lg" x="581.8" y="10">call or data</text>
+    <g class="e dash"><path d="M678.1999999999999,6 H710.1999999999999"/></g><text class="lg" x="718.1999999999999" y="10">probe, optional</text>
+  </g>
+</svg>

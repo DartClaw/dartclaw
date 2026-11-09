@@ -12,6 +12,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowDefinition,
         WorkflowPersistencePorts,
         WorkflowRun,
+        WorkflowRunOrigin,
         WorkflowRunRepository,
         WorkflowService,
         WorkflowStep,
@@ -21,7 +22,7 @@ import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
-WorkflowDefinition _makeDef({String name = 'story-and-implement', int steps = 3}) {
+WorkflowDefinition _makeDef({String name = 'implement-story', int steps = 3}) {
   return WorkflowDefinition(
     name: name,
     description: 'test',
@@ -133,7 +134,7 @@ void main() {
 
     test('activeWorkflows contains running workflow with step counts', () async {
       final def = _makeDef(steps: 4);
-      await workflows.start(def, const {});
+      await workflows.start(def, const {}, origin: WorkflowRunOrigin.unknown);
       final runs = await workflows.list();
       expect(runs, isNotEmpty);
 
@@ -145,7 +146,7 @@ void main() {
       expect(activeWorkflows, hasLength(1));
 
       final wf = activeWorkflows.first as Map<String, dynamic>;
-      expect(wf['definitionName'], 'story-and-implement');
+      expect(wf['definitionName'], 'implement-story');
       expect(wf['status'], 'running');
       expect(wf['totalSteps'], 4);
       expect(wf['completedSteps'], isA<int>());
@@ -188,7 +189,7 @@ void main() {
 
     test('sidebar-state endpoint includes activeWorkflows when workflows are configured', () async {
       final def = _makeDef(steps: 4);
-      await workflows.start(def, const {});
+      await workflows.start(def, const {}, origin: WorkflowRunOrigin.unknown);
 
       final handler = taskSseRoutes(tasks, eventBus, workflows: workflows).call;
       final response = await handler(Request('GET', Uri.parse('http://localhost/api/tasks/sidebar-state')));
@@ -199,7 +200,7 @@ void main() {
       final activeWorkflows = payload['activeWorkflows'] as List<dynamic>;
       expect(activeWorkflows, hasLength(1));
       final wf = activeWorkflows.first as Map<String, dynamic>;
-      expect(wf['definitionName'], 'story-and-implement');
+      expect(wf['definitionName'], 'implement-story');
       expect(wf['status'], 'running');
     });
   });
@@ -207,7 +208,7 @@ void main() {
   group('TaskStatusChangedEvent', () {
     test('includes activeWorkflows when WorkflowService is provided', () async {
       final def = _makeDef(steps: 3);
-      final run = await workflows.start(def, const {});
+      final run = await workflows.start(def, const {}, origin: WorkflowRunOrigin.unknown);
 
       await tasks.create(
         id: 'task-1',
@@ -241,13 +242,13 @@ void main() {
       expect(activeWorkflows, isNotEmpty);
       final wf = activeWorkflows.first as Map<String, dynamic>;
       expect(wf['id'], run.id);
-      expect(wf['definitionName'], 'story-and-implement');
+      expect(wf['definitionName'], 'implement-story');
     });
   });
 
   group('WorkflowRunStatusChangedEvent', () {
     test('triggers workflow_sidebar_update event', () async {
-      await workflows.start(_makeDef(), const {});
+      await workflows.start(_makeDef(), const {}, origin: WorkflowRunOrigin.unknown);
       final run = (await workflows.list()).first;
 
       final it = await connectSse(wf: workflows);
@@ -271,7 +272,7 @@ void main() {
     });
 
     test('notification: true when transitioning to completed', () async {
-      await workflows.start(_makeDef(), const {});
+      await workflows.start(_makeDef(), const {}, origin: WorkflowRunOrigin.unknown);
       final run = (await workflows.list()).first;
 
       final it = await connectSse(wf: workflows);
@@ -293,7 +294,7 @@ void main() {
     });
 
     test('notification: true when transitioning to failed', () async {
-      await workflows.start(_makeDef(), const {});
+      await workflows.start(_makeDef(), const {}, origin: WorkflowRunOrigin.unknown);
       final run = (await workflows.list()).first;
 
       final it = await connectSse(wf: workflows);
@@ -315,7 +316,7 @@ void main() {
     });
 
     test('notification: false for non-terminal transitions', () async {
-      await workflows.start(_makeDef(), const {});
+      await workflows.start(_makeDef(), const {}, origin: WorkflowRunOrigin.unknown);
       final run = (await workflows.list()).first;
 
       final it = await connectSse(wf: workflows);
@@ -339,7 +340,7 @@ void main() {
 
   group('WorkflowStepCompletedEvent', () {
     test('triggers workflow_sidebar_update event', () async {
-      await workflows.start(_makeDef(), const {});
+      await workflows.start(_makeDef(), const {}, origin: WorkflowRunOrigin.unknown);
       final run = (await workflows.list()).first;
 
       final it = await connectSse(wf: workflows);

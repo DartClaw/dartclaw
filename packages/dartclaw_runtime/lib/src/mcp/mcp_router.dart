@@ -1,12 +1,13 @@
 import 'dart:convert';
 
-import 'package:dartclaw_core/dartclaw_core.dart' show CanonicalTool, EventBus;
+import 'package:dartclaw_core/dartclaw_core.dart' show EventBus, maxWebhookPayloadBytes;
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:shelf/shelf.dart';
 
 import '../auth/auth_rate_limiter.dart';
 import '../auth/auth_utils.dart';
 import 'context_engine_profile.dart';
+import 'harness_mcp_bearers.dart';
 import 'mcp_server.dart';
 
 /// Creates a shelf [Handler] for the `/mcp` endpoint.
@@ -19,22 +20,24 @@ import 'mcp_server.dart';
 /// gateway auth middleware, because a client bearer is not the gateway token and
 /// the middleware knows only that one credential. When [gatewayToken] is
 /// non-null, `Authorization: Bearer <token>` is compared constant-time against
-/// it and then against every [clients] token: the gateway token reaches the
-/// unscoped [handler] as the deployment itself, a client token reaches a handler
-/// scoped to the context-engine profile and audited under that client's
-/// principal, and anything else is a `401` recorded on [rateLimiter] — the same
-/// failed-auth throttle that protects the gateway token elsewhere. Bearerless
-/// access requires an exact loopback request host.
+/// it and then against every [clients] token: the gateway token reaches the root
+/// [handler] as the deployment itself ([McpCaller.deployment]), a client token
+/// reaches a view narrowed to the context-engine profile and audited under that
+/// client's principal, and anything else is a `401` recorded on [rateLimiter] —
+/// the same failed-auth throttle that protects the gateway token elsewhere. A
+/// bearer minted for a host harness ([harnessBearers]) reaches a view serving that
+/// harness's caller, and is honored with or without a gateway token. Bearerless
+/// access requires an exact loopback request host and is the deployment too.
 Handler mcpRoute(
   McpProtocolHandler handler, {
   String? gatewayToken,
   bool requireLoopbackHost = false,
   List<McpClientConfig> clients = const [],
   GuardAuditLogger? auditLogger,
-  Map<String, CanonicalTool> toolCanonicals = const {},
   AuthRateLimiter? rateLimiter,
   EventBus? eventBus,
   List<String> trustedProxies = const [],
+  HarnessMcpBearers? harnessBearers,
 }) {
   if (gatewayToken == null && !requireLoopbackHost) {
     throw ArgumentError('Bearerless MCP requires loopback Host validation');
@@ -43,16 +46,8 @@ Handler mcpRoute(
     throw ArgumentError('MCP clients require gateway token authentication');
   }
 
-  final scopedHandlers = {
-    for (final client in clients)
-      client.token: handler.scopedTo(
-        ContextEngineCallerPolicy(principal: mcpClientPrincipal(client.name), auditLogger: auditLogger),
-        toolCanonicals: toolCanonicals,
-        callerIdentity: McpCallerIdentity(
-          authorityId: mcpClientPrincipal(client.name),
-          knowledgeScope: McpKnowledgeScope.sharedOnly,
-        ),
-      ),
+  final clientHandlers = {
+    for (final client in clients) client.token: handler.forCaller(_clientCaller(client.name, auditLogger)),
   };
 
   /// Resolves [bearer] without short-circuiting, so the number of comparisons
@@ -60,9 +55,11 @@ Handler mcpRoute(
   McpProtocolHandler? resolveCaller(String bearer) {
     McpProtocolHandler? resolved;
     if (constantTimeEquals(bearer, gatewayToken!)) resolved = handler;
-    for (final entry in scopedHandlers.entries) {
+    for (final entry in clientHandlers.entries) {
       if (constantTimeEquals(bearer, entry.key)) resolved ??= entry.value;
     }
+    final harness = harnessBearers?.resolve(bearer);
+    if (harness != null) resolved ??= handler.forCaller(harness);
     return resolved;
   }
 
@@ -78,32 +75,31 @@ Handler mcpRoute(
       return _mcpError(403, 'Forbidden — invalid Origin');
     }
 
-    // Auth check: Bearer token — the gateway token, or one configured client's.
+    // Auth check: Bearer token — the gateway token, one configured client's, or a host harness's own.
     var caller = handler;
-    if (gatewayToken != null) {
-      final authHeader = request.headers['authorization'];
-      final bearer = authHeader != null && authHeader.startsWith('Bearer ') ? authHeader.substring(7) : null;
+    final authHeader = request.headers['authorization'];
+    final bearer = authHeader != null && authHeader.startsWith('Bearer ') ? authHeader.substring(7) : null;
+    if (gatewayToken == null) {
+      final harness = bearer == null ? null : harnessBearers?.resolve(bearer);
+      if (harness != null) caller = handler.forCaller(harness);
+    } else {
       final resolved = bearer == null ? null : resolveCaller(bearer);
       final remoteKey = requestRemoteKey(request, trustedProxies: trustedProxies) ?? 'unknown';
       if (resolved == null) {
-        final limited = rateLimiter?.shouldLimit(remoteKey) ?? false;
-        if (!limited) rateLimiter?.recordFailure(remoteKey);
-        fireFailedAuthEvent(
-          eventBus,
+        final limited = recordFailedAuth(
           request,
           source: 'mcp',
           reason: bearer == null ? 'missing_credentials' : 'invalid_bearer',
-          limited: limited,
+          rateLimiter: rateLimiter,
+          eventBus: eventBus,
           trustedProxies: trustedProxies,
         );
-        if (limited) {
-          return _mcpError(429, 'Too many failed authentication attempts');
-        }
+        if (limited != null) return _mcpError(429, 'Too many failed authentication attempts');
         return _mcpError(401, 'Unauthorized');
       }
       // Only a gateway-token success clears the window. The limiter is shared
-      // with `authMiddleware` and keyed by remote alone, so letting a client
-      // token reset it would let the least-trusted credential the design admits
+      // with `authMiddleware` and keyed by remote alone, so letting a client or
+      // harness token reset it would let the least-trusted credential the design admits
       // disable the control protecting the gateway token, the REST API and the
       // web UI from that address — four guesses interleaved with one valid
       // client call, indefinitely.
@@ -140,6 +136,18 @@ Handler mcpRoute(
 
     return Response.ok(response, headers: {'content-type': 'application/json'});
   };
+}
+
+/// A named MCP client: shared knowledge only, through the context-engine profile, audited as `mcp-client:<name>`.
+McpCaller _clientCaller(String name, GuardAuditLogger? auditLogger) {
+  final identity = McpCallerIdentity(
+    authorityId: mcpClientPrincipal(name),
+    knowledgeScope: McpKnowledgeScope.sharedOnly,
+  );
+  return McpCaller(
+    identity: () => identity,
+    policy: ContextEngineCallerPolicy(principal: identity.authorityId, auditLogger: auditLogger),
+  );
 }
 
 bool _requestHasLoopbackHost(Request request) {

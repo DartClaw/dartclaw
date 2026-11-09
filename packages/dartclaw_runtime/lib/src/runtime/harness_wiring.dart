@@ -8,7 +8,9 @@ import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
 import '../concurrency/session_lock_manager.dart' show SessionLockNow, SessionLockTimerFactory;
-import '../mcp/mcp_server.dart' show McpCallerContext;
+import '../mcp/harness_mcp_bearers.dart';
+import '../mcp/mcp_server.dart'
+    show McpCaller, McpCallerContext, McpCallerIdentity, McpCallerPolicy, mcpStewardPrincipal;
 import 'model_catalogue_discovery.dart';
 import 'storage_wiring.dart';
 import 'security_wiring.dart';
@@ -36,6 +38,7 @@ class HarnessWiring {
   new({
     required this.config,
     required String dataDir,
+    required String runtimeCwd,
     required int port,
     required HarnessFactory harnessFactory,
     required ExitFn exitFn,
@@ -59,6 +62,7 @@ class HarnessWiring {
        _codexRefresh = codexRefresh,
        _subscriptionCredentials = subscriptionCredentials ?? _noSubscriptionCredentials,
        _dataDir = dataDir,
+       _runtimeCwd = runtimeCwd,
        _port = port,
        _harnessFactory = harnessFactory,
        _exitFn = exitFn,
@@ -75,6 +79,9 @@ class HarnessWiring {
 
   final DartclawConfig config;
   final String _dataDir;
+
+  /// The repository agents spawn in and whose `.dartclaw/` holds project behavior files.
+  final String _runtimeCwd;
   final int _port;
   final HarnessFactory _harnessFactory;
   final ExitFn _exitFn;
@@ -238,6 +245,76 @@ class HarnessWiring {
   final Map<TurnRunner, ContainerAuthorityLease> _workerContainers =
       Map<TurnRunner, ContainerAuthorityLease>.identity();
   ContainerAuthorityLease? _primaryContainer;
+
+  /// Bearers minted for the host harnesses; the `/mcp` route resolves each to its harness's [McpCaller].
+  final mcpBearers = HarnessMcpBearers();
+  final Map<AgentHarness, String> _mcpBearerByHarness = Map<AgentHarness, String>.identity();
+
+  /// Mints a host harness its own MCP bearer, valid until the harness is disposed.
+  ///
+  /// The harness does not exist when its launch options are built, so the bearer
+  /// resolves the turn through [bind], called once the harness has been created.
+  /// [logicalAgentId] is the agent the harness is leased for; null for the owner's primary harness and for a worker
+  /// that serves no logical agent. A logical agent's caller carries [_HostAgentToolPolicy], so `/mcp` neither lists
+  /// nor runs a DartClaw tool its policy refuses.
+  ({String bearer, void Function(AgentHarness harness) bind}) _mintMcpBearer({String? logicalAgentId}) {
+    AgentHarness? owner;
+    final bearer = mcpBearers.mint(
+      McpCaller(
+        identity: () => _mcpCallerOf(_activeTurnContextOf(owner), logicalAgentId),
+        turn: () => _activeTurnOf(owner),
+        policy: logicalAgentId == null ? null : _HostAgentToolPolicy(logicalAgentId, this),
+      ),
+    );
+    return (
+      bearer: bearer,
+      bind: (harness) {
+        owner = harness;
+        _mcpBearerByHarness[harness] = bearer;
+      },
+    );
+  }
+
+  static HarnessTurnContext? _activeTurnContextOf(AgentHarness? harness) =>
+      harness is HarnessTurnContextSink ? (harness as HarnessTurnContextSink).activeTurnContext : null;
+
+  static TurnProvenance? _activeTurnOf(AgentHarness? harness) => _activeTurnContextOf(harness)?.provenance;
+
+  /// Whom a host harness's MCP call serves: the session its running turn is bound to, as the host memory tools
+  /// read it from the same turn context, and the logical agent it was leased for.
+  ///
+  /// The agent comes from the lease rather than from the context's `agentName`, which also names non-agent turns
+  /// (`task`, `cron:<id>`) that [McpCallerIdentity.agentId] must not claim. The principal is the steward for the
+  /// owner's harness, as for the gateway token, and `agent:<id>` for an agent's, the form its memory principal takes.
+  static McpCallerIdentity? _mcpCallerOf(HarnessTurnContext? turn, String? logicalAgentId) => turn == null
+      ? null
+      : McpCallerIdentity(
+          authorityId: logicalAgentId == null ? mcpStewardPrincipal : 'agent:$logicalAgentId',
+          sessionId: turn.sessionId,
+          agentId: logicalAgentId,
+        );
+
+  /// Which memory an MCP caller reaches: the one rule the memory tools and `context_research` resolve through.
+  ///
+  /// [MemoryCallerKind] comes from host-set facts only: a scheduled turn's provenance, or the deployment caller's own
+  /// marker. Never from tool arguments.
+  Future<WorkspaceMemoryContext> memoryContextFor(McpCallerContext caller, {MemoryAccess access = MemoryAccess.read}) =>
+      _storage.memoryContextForCaller(
+        sessionId: caller.sessionId,
+        agentId: caller.agentId,
+        callerKind: caller.turn?.surface == 'cron'
+            ? MemoryCallerKind.scheduled
+            : caller.deployment
+            ? MemoryCallerKind.deployment
+            : MemoryCallerKind.ordinary,
+        access: access,
+      );
+
+  void _revokeMcpBearer(AgentHarness harness) {
+    final bearer = _mcpBearerByHarness.remove(harness);
+    if (bearer != null) mcpBearers.revoke(bearer);
+  }
+
   CredentialHealthMonitor? _credentialHealth;
 
   /// Binds the single credential-health writer, built several wiring steps
@@ -393,7 +470,7 @@ class HarnessWiring {
   Future<void> wire({required TurnManager? Function() turnManagerGetter}) async {
     _behavior = BehaviorFileService(
       workspaceDir: config.workspaceDir,
-      projectDir: p.join(Directory.current.path, '.dartclaw'),
+      projectDir: p.join(_runtimeCwd, '.dartclaw'),
       maxMemoryBytes: config.memory.maxBytes,
       memoryCorpus: _storage.personalMemoryCorpus,
       personalMemoryEnabled: !_headless,
@@ -438,22 +515,10 @@ class HarnessWiring {
     final memoryHandlers = _memoryHandlers;
     if (memoryHandlers != null) {
       semanticMcpTools.addAll([
-        MemoryApplyTool(
-          handler: memoryHandlers.onApply,
-          callerHandler: (args, caller) => _callScopedMemory('memory_apply', args, caller),
-        ),
-        MemoryObserveTool(
-          handler: memoryHandlers.onObserve,
-          callerHandler: (args, caller) => _callScopedMemory('memory_observe', args, caller),
-        ),
-        MemorySearchTool(
-          handler: memoryHandlers.onSearch,
-          callerHandler: (args, caller) => _callScopedMemory('memory_search', args, caller),
-        ),
-        MemoryReadTool(
-          handler: memoryHandlers.onRead,
-          callerHandler: (args, caller) => _callScopedMemory('memory_read', args, caller),
-        ),
+        MemoryApplyTool(handler: (args, caller) => _callScopedMemory('memory_apply', args, caller)),
+        MemoryObserveTool(handler: (args, caller) => _callScopedMemory('memory_observe', args, caller)),
+        MemorySearchTool(handler: (args, caller) => _callScopedMemory('memory_search', args, caller)),
+        MemoryReadTool(handler: (args, caller) => _callScopedMemory('memory_read', args, caller)),
       ]);
     }
     for (final entry in config.search.providers.entries) {
@@ -493,6 +558,10 @@ class HarnessWiring {
       'task_unbind': CanonicalTool.taskUnbind,
       'workflow_run': CanonicalTool.workflowRun,
       'workflow_list': CanonicalTool.workflowList,
+      'workflow_resume': CanonicalTool.workflowResume,
+      'workflow_cancel': CanonicalTool.workflowCancel,
+      'workflow_request_changes': CanonicalTool.workflowRequestChanges,
+      'workflow_status': CanonicalTool.workflowStatus,
       'schedule_upsert': CanonicalTool.scheduleUpsert,
       'schedule_list': CanonicalTool.scheduleList,
       'attach_media': CanonicalTool.attachMedia,
@@ -566,9 +635,6 @@ class HarnessWiring {
       for (final entry in _agentWorkerPrompts.entries)
         entry.key: (task: _snapshotBehavior(entry.value.task), restricted: _snapshotBehavior(entry.value.restricted)),
     };
-    // Bridged MCP authorization resolves registered tool names through the
-    // same canonical taxonomy the guard cascade uses.
-    _security.mcpToolCanonicals = _ownMcpToolCanonicals;
     _registrations = [for (final registrar in _harnessRegistrars) registrar.declare(config)];
     _policyResolver = ExecutionPolicyResolver(
       config: config,
@@ -585,8 +651,9 @@ class HarnessWiring {
       model: config.agent.model,
       effort: config.agent.effort,
       appendSystemPrompt: staticPrompt,
+      // No bearer here: each host spawn site mints its own, so one that forgets fails closed rather than presenting
+      // the shared gateway token.
       mcpServerUrl: mcpEnabled ? 'http://localhost:$_port/mcp' : null,
-      mcpGatewayToken: _resolvedGatewayToken,
     );
 
     _warnToolPolicyEnforcementBoundaries(defaultProviderId);
@@ -680,12 +747,16 @@ class HarnessWiring {
         // the MCP surface it will really have — a containerized primary that is
         // granted no bridged search keeps its native one instead of losing both.
         final primaryBridgedMcpTools = _primaryPolicy.isContainer ? _primaryBridgedMcpTools() : const <String>{};
+        final primaryBearer = _primaryPolicy.isContainer || _harnessConfig.mcpServerUrl == null
+            ? null
+            : _mintMcpBearer();
         final primaryHarnessConfig = _harnessConfig.copyWith(
           disallowedTools: workerDisallowedTools(
             containerProfile: _primaryPolicy.containerProfile,
             hostDisallowedTools: _harnessConfig.disallowedTools,
             userDisallowedTools: config.agent.disallowedTools,
           ),
+          mcpGatewayToken: primaryBearer?.bearer,
         );
         final primaryTarget = resolveProviderTarget(
           config,
@@ -713,6 +784,8 @@ class HarnessWiring {
           ),
         );
         _harness = primaryHarness;
+        primaryBearer?.bind(primaryHarness);
+        _primaryContainer?.bindActiveTurn(() => _activeTurnOf(primaryHarness));
         _wireCompactionCallbacks(primaryHarness);
       }
     } catch (e, st) {
@@ -789,7 +862,6 @@ class HarnessWiring {
         ? null
         : HealthService(
             worker: primaryHarness,
-            searchDbPath: config.searchDbPath,
             sessionsDir: _storage.sessions.baseDir,
             tasksDir: p.join(config.server.dataDir, 'tasks'),
             usageTracker: _usageTracker,
@@ -992,6 +1064,7 @@ class HarnessWiring {
             )
           : (request) => primaryRunner.admitTurn(request.sessionId, isHumanInput: request.isHumanInput),
       releaseAdmission: primaryRunner?.releaseAdmission ?? _lockManager.release,
+      whenAdmissionCapacityAvailable: _lockManager.whenCapacityAvailable,
       createWorker: (request) async {
         final entry = providerEntries[request.providerId];
         final allowedProfiles = providerProfiles[request.providerId];
@@ -1081,9 +1154,13 @@ class HarnessWiring {
           hostDisallowedTools: _harnessConfig.disallowedTools,
           userDisallowedTools: config.agent.disallowedTools,
         );
+        final workerBearer = request.policy.isContainer || _harnessConfig.mcpServerUrl == null
+            ? null
+            : _mintMcpBearer(logicalAgentId: request.logicalAgentId);
         final workerHarnessConfig = _harnessConfig.copyWith(
           appendSystemPrompt: workerPrompt,
           disallowedTools: disallowedTools,
+          mcpGatewayToken: workerBearer?.bearer,
         );
         try {
           final providerEnvironment = buildProviderSpawnEnvironment(
@@ -1147,8 +1224,11 @@ class HarnessWiring {
             behavior: workerBehavior,
           );
           if (lease != null) _workerContainers[runner] = lease;
+          workerBearer?.bind(workerHarness);
+          lease?.bindActiveTurn(() => _activeTurnOf(workerHarness));
           return runner;
         } catch (_) {
+          if (workerBearer != null) mcpBearers.revoke(workerBearer.bearer);
           await _releaseContainerQuietly(lease);
           rethrow;
         }
@@ -1156,6 +1236,7 @@ class HarnessWiring {
       destroyContainerAuthority: (context) async {
         await _workerContainers.remove(context.runner)?.release();
       },
+      onHarnessDisposed: _revokeMcpBearer,
     );
   }
 
@@ -1386,32 +1467,15 @@ class HarnessWiring {
     Map<String, String> containerEnvironment = const {},
     Future<String?> Function()? prepareSubscriptionHome,
   }) {
-    final memoryHandlers = _memoryHandlers;
     return HarnessFactoryConfig(
       declaredCanonicalTools: declaredCanonicalTools,
       declaredWritableRoots: declaredWritableRoots,
       skillWorkspaceDir: skillWorkspaceDir,
-      cwd: Directory.current.path,
+      cwd: _runtimeCwd,
       executable: executable,
       turnTimeout: config.governance.turnLimits.turnTimeout > Duration.zero
           ? config.governance.turnLimits.turnTimeout + const Duration(seconds: 60)
           : Duration.zero,
-      onMemoryApply: memoryHandlers?.onApply,
-      onMemoryObserve: memoryHandlers?.onObserve,
-      onContextualMemoryApply: memoryHandlers == null
-          ? null
-          : (arguments, context) => _callScopedHarnessMemory('memory_apply', arguments, context),
-      onContextualMemoryObserve: memoryHandlers == null
-          ? null
-          : (arguments, context) => _callScopedHarnessMemory('memory_observe', arguments, context),
-      onContextualMemorySearch: memoryHandlers == null
-          ? null
-          : (arguments, context) => _callScopedHarnessMemory('memory_search', arguments, context),
-      onContextualMemoryRead: memoryHandlers == null
-          ? null
-          : (arguments, context) => _callScopedHarnessMemory('memory_read', arguments, context),
-      onMemorySearch: memoryHandlers?.onSearch,
-      onMemoryRead: memoryHandlers?.onRead,
       onPermissionDenied: (toolName, reason) {
         _eventBus.fire(ToolPermissionDeniedEvent(toolName: toolName, reason: reason, timestamp: DateTime.now()));
       },
@@ -1490,4 +1554,28 @@ class HarnessWiring {
       '(see docs/guide/security.md § Hardening the primary agent for untrusted channels).',
     );
   }
+}
+
+/// What a logical agent's host harness may reach on `/mcp`: the DartClaw tools its tool policy allows.
+///
+/// The decision is `ToolPolicyGuard`'s own, asked with the canonical and raw names the Claude hook presents for the
+/// same call, so `tools/list` offers only what the hook admits and `tools/call` runs only that. Codex presents the raw
+/// name `mcp_tool_call`, so an entry spelled `mcp__dartclaw__<tool>` admits the call at Codex's hook and is refused
+/// here; every other spelling decides the same at both.
+final class _HostAgentToolPolicy implements McpCallerPolicy {
+  new(this._agentId, this._wiring);
+
+  final String _agentId;
+  final HarnessWiring _wiring;
+
+  @override
+  bool allows(String toolName) => _wiring._security.toolPolicyCascade.isAllowed(
+    _agentId,
+    (_wiring._ownMcpToolCanonicals[toolName] ?? CanonicalTool.mcpCall).stableName,
+    rawProviderToolName: 'mcp__${dartclawMcpServerName}__$toolName',
+  );
+
+  @override
+  void onDenied(String toolName) =>
+      HarnessWiring._log.warning('Agent "$_agentId" called DartClaw MCP tool "$toolName" outside its tool policy');
 }

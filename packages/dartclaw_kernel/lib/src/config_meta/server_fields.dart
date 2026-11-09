@@ -117,6 +117,38 @@ const Map<String, FieldMeta> _serverFields = {
     description: 'How far a run advances unattended: manual pauses on stalls and approval steps, auto-on-stall passes stalls only, auto passes both.',
     allowedValues: ['manual', 'auto-on-stall', 'auto'],
   ),
+  'workflow.chat_notifications.channel': FieldMeta(
+    yamlPath: 'workflow.chat_notifications.channel',
+    jsonKey: 'workflow.chatNotifications.channel',
+    type: ConfigFieldType.enum_,
+    mutability: ConfigMutability.restart,
+    description:
+        'Channel that receives the lifecycle of workflow runs started without a chat origin. Read at startup. '
+        'A run started from a chat thread posts into that thread instead and never also here. '
+        'Needs recipient; with neither set, such runs post nothing.',
+    allowedValues: ['whatsapp', 'signal', 'googlechat', 'slack'],
+    nullable: true,
+  ),
+  'workflow.chat_notifications.recipient': FieldMeta(
+    yamlPath: 'workflow.chat_notifications.recipient',
+    jsonKey: 'workflow.chatNotifications.recipient',
+    type: ConfigFieldType.string,
+    mutability: ConfigMutability.restart,
+    description:
+        'Conversation identifier on the notification channel, such as a Slack channel ID. '
+        'Each run opens one thread here where the channel threads. Needs channel.',
+    nullable: true,
+  ),
+  'workflow.chat_notifications.events': FieldMeta(
+    yamlPath: 'workflow.chat_notifications.events',
+    jsonKey: 'workflow.chatNotifications.events',
+    type: ConfigFieldType.stringList,
+    mutability: ConfigMutability.restart,
+    description:
+        'Run lifecycle events to post: started, awaiting_approval, finished, failed, step_completed. '
+        'Defaults to all but step_completed. Any unknown name ignores the whole chat_notifications block.',
+    nullable: true,
+  ),
   'workflow.defaults.workflow.provider': FieldMeta(
     yamlPath: 'workflow.defaults.workflow.provider',
     jsonKey: 'workflow.defaults.workflow.provider',

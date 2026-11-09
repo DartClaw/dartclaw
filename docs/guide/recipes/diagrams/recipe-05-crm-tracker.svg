@@ -1,0 +1,230 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 722" width="1000" height="722" role="img" aria-labelledby="title desc">
+  <title id="title">Contact CRM tracker: messages in, structured memory out</title>
+  <desc id="desc">A message from an allowlisted contact passes the DM access gate into that contact's session and one agent turn: guard chain, behavior files, extraction, then memory_apply into canonical memory, and a short reply on the same channel. Questions from the web UI reach the same kind of turn and read memory with memory_search; an optional daily job summarizes the day.</desc>
+  <style>
+
+    svg { --bg:#f6f7f9; --card:#ffffff; --ink:#1e2030; --ink2:#4c4f69; --ink3:#6c6f85; --rule:#ccd0da; --edge:#8c8fa1; --hi:#1e66f5; --on:#ffffff; --panel:#1e1e2e; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+      --host:#40a02b; --host-d:#1f5c2a; --host-l:#2d7a1f; --ext:#e07c4f; --ext-d:#a8481c; --ext-l:#b5531f; --store:#179299; --store-d:#0f5f63; --store-l:#0e7377;
+      --sec:#d20f39; --sec-d:#9b0c2c; --sec-l:#b80d33; --chan:#8839ef; --chan-d:#5d23a8; --chan-l:#7027d4; --neu:#7c7f93; --neu-d:#4c4f69; --neu-l:#5c5f77; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#181825; --card:#1e1e2e; --ink:#cdd6f4; --ink2:#bac2de; --ink3:#9399b2; --rule:#45475a; --edge:#7f849c; --hi:#89b4fa; --on:#f5f7ff; --panel:#11111b; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+        --host:#a6e3a1; --host-d:#2f6b3a; --host-l:#a6e3a1; --ext:#fab387; --ext-d:#8f4a24; --ext-l:#fab387; --store:#94e2d5; --store-d:#1f6460; --store-l:#94e2d5;
+        --sec:#f38ba8; --sec-d:#8a2c45; --sec-l:#f38ba8; --chan:#cba6f7; --chan-d:#5e3f94; --chan-l:#cba6f7; --neu:#9399b2; --neu-d:#45475a; --neu-l:#bac2de; }
+    }
+    text { fill: var(--ink); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .mono, .kick, .badge text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+    .bg { fill: var(--bg); }
+    .title { font-size: 21px; font-weight: 700; }
+    .lede { fill: var(--ink3); font-size: 13px; }
+    .kick { font-size: 10.5px; font-weight: 600; letter-spacing: .1em; fill: var(--kl, var(--ink3)); }
+    .k-host { --k:var(--host); --kd:var(--host-d); --kl:var(--host-l); }
+    .k-ext { --k:var(--ext); --kd:var(--ext-d); --kl:var(--ext-l); }
+    .k-store { --k:var(--store); --kd:var(--store-d); --kl:var(--store-l); }
+    .k-sec { --k:var(--sec); --kd:var(--sec-d); --kl:var(--sec-l); }
+    .k-chan { --k:var(--chan); --kd:var(--chan-d); --kl:var(--chan-l); }
+    .k-neu { --k:var(--neu); --kd:var(--neu-d); --kl:var(--neu-l); }
+    .band { fill: color-mix(in srgb, var(--k) 6%, var(--bg)); stroke: color-mix(in srgb, var(--k) 50%, var(--bg)); stroke-width: 1.4; stroke-dasharray: 7 5; }
+    .box { stroke-width: 1.5; }
+    .tint .box { fill: color-mix(in srgb, var(--k) 13%, var(--card)); stroke: var(--k); }
+    .line .box { fill: var(--card); stroke: var(--k); }
+    .ghost .box { fill: none; stroke: var(--k); stroke-dasharray: 5 4; }
+    .solid .box { fill: var(--kd); stroke: var(--kd); }
+    .name { font-size: 14.5px; font-weight: 700; }
+    .sub { font-size: 11.5px; fill: var(--ink2); }
+    .mono { font-size: 11.5px; fill: var(--ink2); }
+    .solid text { fill: var(--on); }
+    .solid .sub, .solid .mono { fill: var(--on); fill-opacity: .82; }
+    .badge rect { fill: none; stroke: var(--kl); stroke-width: 1.2; }
+    .badge text { font-size: 9.5px; font-weight: 700; letter-spacing: .06em; fill: var(--kl); text-anchor: middle; }
+    .solid .badge rect { stroke: var(--on); stroke-opacity: .7; }
+    .solid .badge text { fill: var(--on); }
+    .e path { fill: none; stroke: var(--ec, var(--edge)); stroke-width: var(--ew, 1.6px); marker-end: var(--em, url(#ah)); }
+    .e.main path { stroke: var(--ec, var(--host)); stroke-width: var(--ew, 2.4px); marker-end: var(--em, url(#ah-main)); }
+    .e.bad path { stroke: var(--ec, var(--sec)); marker-end: var(--em, url(#ah-bad)); }
+    .e.dash path { stroke-dasharray: 6 4; }
+    .el { font-size: 11px; fill: var(--ink2); paint-order: stroke; stroke: var(--halo, var(--bg)); stroke-width: 4px; stroke-linejoin: round; }
+    .in-host .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    .ah { fill: var(--edge); } .ah-main { fill: var(--host); } .ah-bad { fill: var(--sec); } .ah-hi { fill: var(--hi); }
+    .panel { fill: var(--panel); }
+    .panel-kick { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10.5px; font-weight: 700; letter-spacing: .12em; fill: var(--panel-kick); }
+    .p1 { fill: var(--panel-ink); font-size: 13px; }
+    .p1 tspan.b { font-weight: 700; }
+    .p2 { fill: var(--panel-sub); font-size: 12.5px; }
+    .lg { font-size: 11px; fill: var(--ink2); }
+    .chip rect { fill: color-mix(in srgb, var(--k) 10%, var(--card)); stroke: var(--k); stroke-width: 1; }
+    .chip text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10px; font-weight: 600; fill: var(--kl); }
+    .step circle { fill: var(--kd); } .step text { fill: var(--on); font-size: 11px; font-weight: 700; text-anchor: middle; }
+    /* Interaction, effective only when the SVG is opened directly. */
+    .n { cursor: pointer; }
+    .n:hover .box, a:focus-visible .box { stroke: var(--hi); stroke-width: 2.8; }
+    .d { display: none; pointer-events: none; }
+    .n:hover .d, a:focus-visible .d { display: inline; }
+    svg:has(.n:hover) .d0, svg:has(a:focus-visible) .d0 { display: none; }
+    svg:has(.n:hover) .edges .e { opacity: .14; }
+    .e.join path { marker-end: none; }
+    .band.inner { fill: none; stroke-dasharray: 3 4; }
+    .mono-name { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13.5px; }
+    .e.bi path { marker-start: var(--em, url(#ah)); }
+    .edges .el { --halo: color-mix(in srgb, var(--neu) 6%, var(--bg)); }
+    svg:has(#contacts:hover) .edges :is(.f-contacts,.t-contacts) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#gate:hover) .edges :is(.f-gate,.t-gate) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#session:hover) .edges :is(.f-session,.t-session) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#guards:hover) .edges :is(.f-guards,.t-guards) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#files:hover) .edges :is(.f-files,.t-files) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#extract:hover) .edges :is(.f-extract,.t-extract) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#apply:hover) .edges :is(.f-apply,.t-apply) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#reply:hover) .edges :is(.f-reply,.t-reply) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#web:hover) .edges :is(.f-web,.t-web) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#search:hover) .edges :is(.f-search,.t-search) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#memory:hover) .edges :is(.f-memory,.t-memory) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#summary:hover) .edges :is(.f-summary,.t-summary) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+  </style>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-main" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path class="ah-main" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-bad" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="ah-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="722"/>
+  <!-- Details panel: painted first so node details (.d) draw on top -->
+  <rect class="panel" x="16" y="626" width="968" height="80" rx="12"/>
+  <text class="panel-kick" x="36" y="650">DETAILS</text>
+  <g class="d0"><text class="p1" x="36" y="674">Hover a box for what happens there; its connections light up. Click it to open the recipe section.</text><text class="p2" x="36" y="694">Inside a rendered document this image is static. Click it to open the interactive SVG.</text></g>
+
+  <text class="kick" x="24" y="32">EVENT FLOW · CONTACT CRM TRACKER</text>
+  <text class="title" x="24" y="58">Contact CRM tracker: messages in, structured memory out</text>
+  <text class="lede" x="24" y="80">Event-driven: no cron job is required. The numbered steps are the recipe's Workflow list; the same turn answers web UI questions.</text>
+
+  <g class="k-host"><rect class="band" x="594" y="98" width="392" height="316" rx="14"/><text class="kick" x="610" y="120">ONE PRIMARY-LANE TURN</text></g>
+
+  <g class="edges">
+    <g class="e main f-contacts t-gate"><path d="M196,176 H217"/></g>
+    <g class="e main f-gate t-session"><path d="M391,176 H412"/></g>
+    <g class="e main f-session t-guards"><path d="M586,176 H607"/></g>
+    <g class="e main f-guards t-files"><path d="M781,176 H802"/></g>
+    <g class="e main f-files t-extract"><path d="M890,226 V298"/></g>
+    <g class="e main f-extract t-apply"><path d="M804,350 H783"/></g>
+    <g class="e main f-apply t-reply"><path d="M609,350 H198"/><text class="el" x="400" y="342" text-anchor="middle">confirmation</text></g>
+    <g class="e main f-reply t-contacts"><path d="M110,300 V228"/><text class="el" x="118" y="268" text-anchor="start">same channel</text></g>
+    <g class="e  f-apply t-memory"><path d="M695,400 V472"/><text class="el" x="703" y="442" text-anchor="start">writes</text></g>
+    <g class="e bi f-web t-search"><path d="M196,524 H412"/><text class="el" x="304" y="516" text-anchor="middle">question, answer</text></g>
+    <g class="e  f-search t-memory"><path d="M586,524 H607"/></g>
+    <g class="e dash f-summary t-memory"><path d="M804,524 H783"/></g>
+  </g>
+
+  <a href="../05-contact-crm-tracker.md#workflow"><g class="n tint k-chan" id="contacts">
+    <rect class="box" x="24" y="126" width="172" height="100" rx="9"/>
+    <g class="step"><circle cx="44" cy="148" r="10"/><text x="44" y="152">1</text></g>
+    <text class="name" x="62" y="149">contacts</text>
+    <text class="sub" x="62" y="167">Alice, Bob, Carol</text>
+    <text class="sub" x="62" y="183">WhatsApp, Signal,</text>
+    <text class="sub" x="62" y="199">Google Chat, Slack</text>
+    <g class="d"><text class="p1" x="36" y="674"><tspan class="b">contacts</tspan> · contacts listed in channels.&lt;type&gt;.dm_allowlist send a message to your DartClaw number or bot</text><text class="p2" x="36" y="694">The sample lists WhatsApp contacts; Signal, Google Chat and Slack work the same way and all write to the same memory.</text></g>
+  </g></a>
+  <a href="../05-contact-crm-tracker.md#configuration"><g class="n tint k-sec" id="gate">
+    <rect class="box" x="219" y="126" width="172" height="100" rx="9"/>
+    <g class="step"><circle cx="239" cy="148" r="10"/><text x="239" y="152">2</text></g>
+    <text class="name" x="257" y="149">DM access gate</text>
+    <text class="sub" x="257" y="167">dm_access: allowlist</text>
+    <text class="sub" x="257" y="183">listed senders only</text>
+    <text class="sub" x="257" y="199">others get no reply</text>
+    <g class="d"><text class="p1" x="36" y="674"><tspan class="b">DM access gate</tspan> · with dm_access: allowlist only senders in dm_allowlist are processed; an unlisted sender gets no response</text><text class="p2" x="36" y="694">Add or remove a contact without a restart through the allowlist API or the web UI at /settings/channels/&lt;type&gt;.</text></g>
+  </g></a>
+  <a href="../05-contact-crm-tracker.md#configuration"><g class="n tint k-host" id="session">
+    <rect class="box" x="414" y="126" width="172" height="100" rx="9"/>
+    <text class="name" x="426" y="149">contact session</text>
+    <text class="sub" x="426" y="167">dm_scope: per-contact</text>
+    <text class="sub" x="426" y="183">one turn per session</text>
+    <text class="sub" x="426" y="199">prune_after_days: 90</text>
+    <g class="d"><text class="p1" x="36" y="674"><tspan class="b">contact session</tspan> · dm_scope: per-contact gives each contact one session, shared across channels; the default keeps one per channel</text><text class="p2" x="36" y="694">Messages in quick succession join into one turn (channels.debounce_window_ms, default 1000); sessions.maintenance archives idle sessions.</text></g>
+  </g></a>
+  <a href="../05-contact-crm-tracker.md#workflow"><g class="n tint k-sec" id="guards">
+    <rect class="box" x="609" y="126" width="172" height="100" rx="9"/>
+    <g class="step"><circle cx="629" cy="148" r="10"/><text x="629" y="152">3</text></g>
+    <text class="name" x="647" y="149">guard chain</text>
+    <text class="sub" x="647" y="167">command, file,</text>
+    <text class="sub" x="647" y="183">network, tool policy</text>
+    <text class="sub" x="647" y="199">bound the turn</text>
+    <g class="d"><text class="p1" x="36" y="674"><tspan class="b">guard chain</tspan> · the guard chain bounds what the agent may do with the message: command, file, network and tool policy</text><text class="p2" x="36" y="694">guards.content also classifies agent-boundary and fetched content for safety.</text></g>
+  </g></a>
+  <a href="../05-contact-crm-tracker.md#behavior-files"><g class="n line k-store" id="files">
+    <rect class="box" x="804" y="126" width="172" height="100" rx="9"/>
+    <g class="step"><circle cx="824" cy="148" r="10"/><text x="824" y="152">4</text></g>
+    <text class="name" x="842" y="149">behavior files</text>
+    <text class="sub" x="842" y="167">SOUL.md: extraction</text>
+    <text class="sub" x="842" y="183">rules, storage</text>
+    <text class="sub" x="842" y="199">USER.md: contacts</text>
+    <g class="d"><text class="p1" x="36" y="674"><tspan class="b">behavior files</tspan> · SOUL.md carries the extraction rules and storage format, USER.md the contact directory</text><text class="p2" x="36" y="694">The agent reads them each turn, so editing a rule changes the next message without a restart.</text></g>
+  </g></a>
+  <a href="../05-contact-crm-tracker.md#workflow"><g class="n tint k-host" id="extract">
+    <rect class="box" x="804" y="300" width="172" height="100" rx="9"/>
+    <g class="step"><circle cx="824" cy="322" r="10"/><text x="824" y="326">5</text></g>
+    <text class="name" x="842" y="323">extract</text>
+    <text class="sub" x="842" y="341">action items,</text>
+    <text class="sub" x="842" y="357">deadlines, contact</text>
+    <text class="sub" x="842" y="373">info, a summary</text>
+    <g class="d"><text class="p1" x="36" y="674"><tspan class="b">extract</tspan> · the agent pulls action items, deadlines, commitments and contact details out of a casual message</text><text class="p2" x="36" y="694">It works from the sender in the message metadata and the rules in SOUL.md; the raw inbound text is processed as sent.</text></g>
+  </g></a>
+  <a href="../05-contact-crm-tracker.md#behavior-files"><g class="n solid k-host" id="apply">
+    <rect class="box" x="609" y="300" width="172" height="100" rx="9"/>
+    <g class="step"><circle cx="629" cy="322" r="10"/><text x="629" y="326">6</text></g>
+    <text class="name mono-name" x="647" y="323">memory_apply</text>
+    <text class="sub" x="647" y="341">topics: contacts,</text>
+    <text class="sub" x="647" y="357">action-items, notes</text>
+    <text class="sub" x="647" y="373">one atomic change</text>
+    <g class="d"><text class="p1" x="36" y="674"><tspan class="b">memory_apply</tspan> · reads the current collection and entry revisions, then submits one atomic change set per request</text><text class="p2" x="36" y="694">A stale revision is refused, so the agent re-reads and retries instead of overwriting; data is topic entries, not a database.</text></g>
+  </g></a>
+  <a href="../05-contact-crm-tracker.md#workflow"><g class="n tint k-chan" id="reply">
+    <rect class="box" x="24" y="300" width="172" height="100" rx="9"/>
+    <g class="step"><circle cx="44" cy="322" r="10"/><text x="44" y="326">7</text></g>
+    <text class="name" x="62" y="323">reply</text>
+    <text class="sub" x="62" y="341">short confirmation</text>
+    <text class="sub" x="62" y="357">of what was recorded</text>
+    <text class="sub" x="62" y="373">secrets redacted</text>
+    <g class="d"><text class="p1" x="36" y="674"><tspan class="b">reply</tspan> · a brief confirmation goes back to the sender on the same channel</text><text class="p2" x="36" y="694">Outbound redaction strips secrets from the reply; the raw inbound message was still seen by the agent.</text></g>
+  </g></a>
+  <a href="../05-contact-crm-tracker.md#workflow"><g class="n line k-chan" id="web">
+    <rect class="box" x="24" y="474" width="172" height="100" rx="9"/>
+    <g class="step"><circle cx="44" cy="496" r="10"/><text x="44" y="500">8</text></g>
+    <text class="name" x="62" y="497">web UI</text>
+    <text class="sub" x="62" y="515">'What action items</text>
+    <text class="sub" x="62" y="531">do I have with</text>
+    <text class="sub" x="62" y="547">Alice?'</text>
+    <g class="d"><text class="p1" x="36" y="674"><tspan class="b">web UI</tspan> · you ask later in the web UI, for example about action items or last week's conversations</text><text class="p2" x="36" y="694">A web chat turn skips the DM access gate: it is you, not a contact.</text></g>
+  </g></a>
+  <a href="../05-contact-crm-tracker.md#workflow"><g class="n tint k-host" id="search">
+    <rect class="box" x="414" y="474" width="172" height="100" rx="9"/>
+    <g class="step"><circle cx="434" cy="496" r="10"/><text x="434" y="500">9</text></g>
+    <text class="name mono-name" x="452" y="497">memory_search</text>
+    <text class="sub" x="452" y="515">same kind of turn,</text>
+    <text class="sub" x="452" y="531">no DM gate; reads</text>
+    <text class="sub" x="452" y="547">structured results</text>
+    <g class="d"><text class="p1" x="36" y="674"><tspan class="b">memory_search</tspan> · the agent searches memory and returns structured results to the web chat</text><text class="p2" x="36" y="694">Not a real CRM: complex queries such as all contacts in London with overdue tasks may come back approximate.</text></g>
+  </g></a>
+  <a href="../05-contact-crm-tracker.md#features-used"><g class="n solid k-store" id="memory">
+    <rect class="box" x="609" y="474" width="172" height="100" rx="9"/>
+    <text class="name" x="621" y="497">memory</text>
+    <text class="sub" x="621" y="515">canonical topic entries:</text>
+    <text class="sub" x="621" y="531">contacts, action-items,</text>
+    <text class="sub" x="621" y="547">notes, daily summary</text>
+    <g class="d"><text class="p1" x="36" y="674"><tspan class="b">memory</tspan> · canonical memory topic entries: contacts, action-items and notes, plus daily-crm-summary when the job runs</text><text class="p2" x="36" y="694">All channels write here, so contact history is unified; sessions are pruned, memory is not.</text></g>
+  </g></a>
+  <a href="../05-contact-crm-tracker.md#cron-prompts"><g class="n ghost k-host" id="summary">
+    <rect class="box" x="804" y="474" width="172" height="100" rx="9"/>
+    <text class="name" x="816" y="497">crm-daily-summary</text>
+    <text class="sub" x="816" y="515">Mon-Fri 18:00, optional</text>
+    <text class="sub" x="816" y="531">memory_search, then</text>
+    <text class="sub" x="816" y="547">memory_apply, announce</text>
+    <g class="d"><text class="p1" x="36" y="674"><tspan class="b">crm-daily-summary</tspan> · optional cron prompt: reviews the day's interactions and saves a summary under topic daily-crm-summary</text><text class="p2" x="36" y="694">delivery: announce sends it to active DM sessions and web clients; the recipe works without it.</text></g>
+  </g></a>
+  <g transform="translate(24,600)">
+    <g class="solid k-host"><rect class="box" x="0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="22" y="10">writes memory</text>
+    <g class="tint k-sec"><rect class="box" x="124.60000000000001" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="146.60000000000002" y="10">access or guard</text>
+    <g class="tint k-chan"><rect class="box" x="261.6" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="283.6" y="10">person or channel</text>
+    <g class="tint k-store"><rect class="box" x="411.0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="433.0" y="10">files</text>
+    <g class="ghost k-host"><rect class="box" x="486.0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="508.0" y="10">optional</text>
+    <g class="e main"><path d="M579.6,6 H611.6"/></g><text class="lg" x="619.6" y="10">message path</text>
+    <g class="e "><path d="M716.0,6 H748.0"/></g><text class="lg" x="756.0" y="10">read or write</text>
+  </g>
+</svg>

@@ -94,7 +94,15 @@ class BehaviorFileService {
   final String? identifierInstructions;
 
   /// Text standing in for the workspace `SOUL.md` body; null reads the file.
+  ///
+  /// Used for frozen snapshots of an already composed persona. A configured
+  /// agent's `prompt` never lands here; it is [agentPrompt].
   final String? soulOverride;
+
+  /// A logical agent's configured `prompt`: extra instructions appended after
+  /// the workspace files. The restricted scope omits those files, so there it
+  /// is the whole persona.
+  final String? agentPrompt;
   final String? promptSuffix;
 
   /// Tracks whether the project SOUL.md deprecation warning has been logged.
@@ -111,6 +119,7 @@ class BehaviorFileService {
     this.identifierPreservation = IdentifierPreservationMode.strict,
     this.identifierInstructions,
     this.soulOverride,
+    this.agentPrompt,
     this.promptSuffix,
     bool workspaceFilesEnabled = true,
     bool agentWorkspaceScoped = false,
@@ -142,17 +151,16 @@ class BehaviorFileService {
   BehaviorFileService forAgentDefinition(AgentDefinition definition, {AgentWorkspace? workspace}) {
     final schema = definition.outputSchema;
     return forAgentWorkspace(workspace ?? definition.workspace)
-        .withSoul(definition.prompt)
+        .withAgentPrompt(definition.prompt)
         .withPromptSuffix(schema == null ? '' : renderOutputSchemaContract(schema));
   }
 
-  /// A copy of this service whose SOUL position carries [soul] instead of the
-  /// workspace `SOUL.md`, sharing the workspace dir and every collaborator.
+  /// A copy that appends [prompt] after the workspace files, sharing the
+  /// workspace dir and every collaborator.
   ///
-  /// A blank [soul] yields no variant: this service is returned, so the
-  /// workspace `SOUL.md` is inherited.
-  BehaviorFileService withSoul(String soul) {
-    if (soul.trim().isEmpty) return this;
+  /// A blank [prompt] yields no variant: this service is returned unchanged.
+  BehaviorFileService withAgentPrompt(String prompt) {
+    if (prompt.trim().isEmpty) return this;
     return BehaviorFileService(
       workspaceDir: workspaceDir,
       projectDir: projectDir,
@@ -163,7 +171,8 @@ class BehaviorFileService {
       compactInstructions: compactInstructions,
       identifierPreservation: identifierPreservation,
       identifierInstructions: identifierInstructions,
-      soulOverride: soul,
+      soulOverride: soulOverride,
+      agentPrompt: prompt,
       promptSuffix: promptSuffix,
       workspaceFilesEnabled: _workspaceFilesEnabled,
       agentWorkspaceScoped: _agentWorkspaceScoped,
@@ -184,6 +193,7 @@ class BehaviorFileService {
       identifierPreservation: identifierPreservation,
       identifierInstructions: identifierInstructions,
       soulOverride: soulOverride,
+      agentPrompt: agentPrompt,
       promptSuffix: suffix,
       workspaceFilesEnabled: _workspaceFilesEnabled,
       agentWorkspaceScoped: _agentWorkspaceScoped,
@@ -194,8 +204,8 @@ class BehaviorFileService {
   ///
   /// Files included per scope:
   /// - [PromptScope.primary]: SOUL + USER + channel origin + TOOLS + errors + bounded memory + compact instructions
-  /// - [PromptScope.task]: SOUL (workspace or [soulOverride]) + agent USER + channel origin + TOOLS
-  /// - [PromptScope.restricted]: TOOLS only
+  /// - [PromptScope.task]: SOUL (workspace or [soulOverride]) + agent USER + channel origin + TOOLS + [agentPrompt]
+  /// - [PromptScope.restricted]: TOOLS only, or [agentPrompt] alone when the agent has one
   ///
   /// Errors and bounded memory are omitted when [personalMemoryEnabled] is false.
   Future<String> composeSystemPrompt({
@@ -211,13 +221,7 @@ class BehaviorFileService {
     }
 
     if (scope == PromptScope.restricted) {
-      final soul = soulOverride;
-      if (soul != null && soul.trim().isNotEmpty) parts.add(soul);
-      // Restricted: TOOLS.md only. Apply default prompt if nothing was loaded.
-      if (_workspaceFilesEnabled && soul == null) {
-        await _addSection(parts, 'TOOLS.md', '## Environment Notes');
-      }
-      if (promptSuffix case final suffix?) parts.add(suffix);
+      await _addRestrictedPersona(parts);
       if (parts.isEmpty) parts.add(defaultPrompt);
       return parts.join('\n\n');
     }
@@ -232,7 +236,7 @@ class BehaviorFileService {
     // TOOLS.md — workspace only (interactive and task scopes)
     await _addSection(parts, 'TOOLS.md', '## Environment Notes');
 
-    if (promptSuffix case final suffix?) parts.add(suffix);
+    _addAgentInstructions(parts);
     if (personalMemoryEnabled) parts.add(_memoryPublicationGuidance);
 
     if (scope == PromptScope.primary) {
@@ -261,8 +265,10 @@ class BehaviorFileService {
   ///
   /// Scope controls which workspace files are included at spawn time:
   /// - [PromptScope.primary]: SOUL + USER + channel origin + TOOLS + errors + AGENTS + bounded memory
-  /// - [PromptScope.task]: SOUL + agent USER + channel origin + TOOLS + AGENTS + memory hint
-  /// - [PromptScope.restricted]: TOOLS + memory hint
+  /// - [PromptScope.task]: SOUL + agent USER + channel origin + TOOLS + AGENTS + [agentPrompt] + memory hint
+  /// - [PromptScope.restricted]: TOOLS (or [agentPrompt] alone) + memory hint
+  ///
+  /// The output contract ([promptSuffix]) follows [agentPrompt] in every scope.
   ///
   /// Errors, bounded memory and memory hints are omitted when [personalMemoryEnabled] is false.
   Future<String> composeStaticPrompt({
@@ -273,12 +279,7 @@ class BehaviorFileService {
     final parts = <String>[];
 
     if (scope == PromptScope.restricted) {
-      final soul = soulOverride;
-      if (soul != null && soul.trim().isNotEmpty) parts.add(soul);
-      if (_workspaceFilesEnabled && soul == null) {
-        await _addSection(parts, 'TOOLS.md', '## Environment Notes');
-      }
-      if (promptSuffix case final suffix?) parts.add(suffix);
+      await _addRestrictedPersona(parts);
       if (parts.isEmpty) {
         parts.add(defaultPrompt);
       }
@@ -294,7 +295,6 @@ class BehaviorFileService {
       // TOOLS.md — workspace only (human-maintained environment notes)
       await _addSection(parts, 'TOOLS.md', '## Environment Notes');
 
-      if (promptSuffix case final suffix?) parts.add(suffix);
       if (personalMemoryEnabled) parts.add(_memoryPublicationGuidance);
 
       if (scope == PromptScope.primary && personalMemoryEnabled) {
@@ -309,6 +309,9 @@ class BehaviorFileService {
     if (agentsMd.isNotEmpty) {
       parts.add(agentsMd);
     }
+
+    // After AGENTS.md so the agent's own instructions and output contract close the persona.
+    if (scope != PromptScope.restricted) _addAgentInstructions(parts);
 
     if (scope == PromptScope.primary && personalMemoryEnabled) {
       parts.add((await promptMemoryProjection()).text);
@@ -379,7 +382,9 @@ class BehaviorFileService {
       '## Channel\n'
       '- Channel: ${origin.channel}\n'
       '- Conversation: ${origin.group ? 'group' : 'direct'}'
-      '${origin.contact == null ? '' : '\n- Contact: ${jsonEncode(origin.contact)}'}',
+      '${origin.contact == null ? '' : '\n- Contact: ${jsonEncode(origin.contact)}'}\n'
+      // Every channel converts standard Markdown to its own markup and escapes native markup it did not build.
+      '- Reply format: standard Markdown, links as [label](url); never the channel\'s own markup.',
     );
   }
 
@@ -395,7 +400,24 @@ class BehaviorFileService {
   Future<void> _addGlobalSoul(List<String> parts) async {
     _checkProjectSoulDeprecation();
     final soul = soulOverride ?? (_workspaceFilesEnabled ? await _readFile(p.join(workspaceDir, 'SOUL.md')) : null);
-    parts.add(soul ?? defaultPrompt);
+    // An agent without a SOUL.md but with a prompt has its persona; the generic default would only dilute it.
+    if (soul != null || agentPrompt == null) parts.add(soul ?? defaultPrompt);
+  }
+
+  /// The restricted scope omits workspace files: the agent prompt (or a frozen
+  /// persona) is the whole persona, and TOOLS.md applies only without one.
+  Future<void> _addRestrictedPersona(List<String> parts) async {
+    final soul = soulOverride;
+    if (soul != null && soul.trim().isNotEmpty) parts.add(soul);
+    if (_workspaceFilesEnabled && soul == null && agentPrompt == null) {
+      await _addSection(parts, 'TOOLS.md', '## Environment Notes');
+    }
+    _addAgentInstructions(parts);
+  }
+
+  void _addAgentInstructions(List<String> parts) {
+    if (agentPrompt case final prompt?) parts.add(prompt);
+    if (promptSuffix case final suffix?) parts.add(suffix);
   }
 
   Future<void> _addOnboardingSection(List<String> parts, {required bool include}) async {

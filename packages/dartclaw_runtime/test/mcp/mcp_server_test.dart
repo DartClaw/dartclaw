@@ -362,7 +362,10 @@ void main() {
       final payload = 'x' * (20 * 1024);
       final capped = McpProtocolHandler(resultTrimmer: configuredTrimmer())..registerTool(_BulkTool(payload));
 
-      final text = await callBulk(capped.scopedTo(_AllowAllPolicy()), id: 102);
+      final text = await callBulk(
+        capped.forCaller(McpCaller(identity: () => null, policy: _AllowAllPolicy(), guardsAsCaller: true)),
+        id: 102,
+      );
 
       expect(text, contains('...[trimmed '));
       expect(utf8.encode(text).length, lessThanOrEqualTo(cap));
@@ -390,7 +393,7 @@ void main() {
       final payload = 'x' * (20 * 1024);
       final trimmer = ResultTrimmer(maxBytes: 64 * 1024);
       final capped = McpProtocolHandler(resultTrimmer: trimmer)..registerTool(_BulkTool(payload));
-      final scoped = capped.scopedTo(_AllowAllPolicy());
+      final scoped = capped.forCaller(McpCaller(identity: () => null, policy: _AllowAllPolicy(), guardsAsCaller: true));
 
       expect(await callBulk(capped, id: 105), payload);
       expect(await callBulk(scoped, id: 106), payload);

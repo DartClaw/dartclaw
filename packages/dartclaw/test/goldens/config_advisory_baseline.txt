@@ -239,6 +239,40 @@
   [blocking] Invalid type for signal.require_mention: "String" — using default
 === channels.signal.response_prefix#type-nonstring ===
   (none)
+=== channels.slack#scalar ===
+  [blocking] Invalid channel config for "slack": "int" — skipping
+=== channels.slack.app_token_credential#type-nonstring ===
+  [blocking] Invalid type for slack.app_token_credential: "int" — using defaults
+=== channels.slack.bot_token_credential#type-nonstring ===
+  [blocking] Invalid type for slack.bot_token_credential: "int" — using defaults
+=== channels.slack.dm_access#non-member ===
+  [blocking] Invalid slack.dm_access: "__dartclaw_not_a_member__" — using default
+=== channels.slack.dm_access#type-nonstring ===
+  [blocking] Invalid type for slack.dm_access: "int" — using default
+=== channels.slack.dm_allowlist#type-nonlist ===
+  (none)
+=== channels.slack.enabled#type-nonbool ===
+  [blocking] Invalid type for slack.enabled: "String" — using default
+=== channels.slack.group_access#non-member ===
+  [blocking] Invalid slack.group_access: "__dartclaw_not_a_member__" — using default
+=== channels.slack.group_access#type-nonstring ===
+  [blocking] Invalid type for slack.group_access: "int" — using default
+=== channels.slack.group_allowlist#type-nonlist ===
+  (none)
+=== channels.slack.mention_patterns#type-nonlist ===
+  (none)
+=== channels.slack.mode#non-member ===
+  (none)
+=== channels.slack.mode#type-nonstring ===
+  [blocking] Invalid type for slack.mode: "int" — using default
+=== channels.slack.require_mention#type-nonbool ===
+  [blocking] Invalid type for slack.require_mention: "String" — using default
+=== channels.slack.signing_secret_credential#type-nonstring ===
+  [blocking] Invalid type for slack.signing_secret_credential: "int" — using defaults
+=== channels.slack.streaming#type-nonbool ===
+  [blocking] Invalid type for slack.streaming: "String" — using default
+=== channels.slack.webhook_path#type-nonstring ===
+  [blocking] Invalid type for slack.webhook_path: "int" — using default
 === channels.whatsapp#scalar ===
   [blocking] Invalid channel config for "whatsapp": "int" — skipping
 === channels.whatsapp.dm_access#non-member ===
@@ -929,6 +963,16 @@
   [blocking] Invalid value for workflow.approvals: "__dartclaw_not_a_member__" (allowed: manual, auto-on-stall, auto) – using default manual
 === workflow.approvals#type-nonstring ===
   [blocking] Invalid type for workflow.approvals: "int" – using default manual
+=== workflow.chat_notifications#scalar ===
+  [blocking] Invalid type for workflow.chat_notifications: "int" – ignoring workflow.chat_notifications
+=== workflow.chat_notifications.channel#non-member ===
+  [blocking] Invalid value for workflow.chat_notifications.channel: "__dartclaw_not_a_member__" (allowed: whatsapp, signal, googlechat, slack) – ignoring workflow.chat_notifications
+=== workflow.chat_notifications.channel#type-nonstring ===
+  [blocking] Invalid type for workflow.chat_notifications.channel: "int" – ignoring workflow.chat_notifications
+=== workflow.chat_notifications.events#type-nonlist ===
+  [blocking] Missing value for workflow.chat_notifications.channel (allowed: whatsapp, signal, googlechat, slack) – ignoring workflow.chat_notifications
+=== workflow.chat_notifications.recipient#type-nonstring ===
+  [blocking] Missing value for workflow.chat_notifications.channel (allowed: whatsapp, signal, googlechat, slack) – ignoring workflow.chat_notifications
 === workflow.cleanup#scalar ===
   [blocking] Invalid type for workflow.cleanup: "int" — using defaults
 === workflow.cleanup.delete_remote_branch_on_failure#type-nonbool ===

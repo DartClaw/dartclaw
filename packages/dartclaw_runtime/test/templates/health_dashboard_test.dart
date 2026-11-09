@@ -28,7 +28,6 @@ String _render({String status = 'healthy', Map<String, dynamic>? pubsubHealth}) 
   uptimeSeconds: 3600,
   workerState: 'idle',
   sessionCount: 5,
-  dbSizeBytes: 1024,
   totalArtifactDiskBytes: 0,
   version: '0.11.0',
   sidebarData: _emptySidebar(),
@@ -77,7 +76,7 @@ void main() {
         expect(html, contains(dot));
         expect(html, contains('content-area'));
         expect(html, contains('content-inner'));
-        expect(RegExp('class="card card-metric').allMatches(html), hasLength(4));
+        expect(RegExp('class="card card-metric').allMatches(html), hasLength(3));
         expect(html, isNot(contains('status-hero')));
         expect(html, isNot(contains('status-indicator')));
         expect(html, isNot(contains('status-label')));
@@ -215,7 +214,7 @@ void main() {
       final html = _render();
 
       final inner = html.indexOf('class="content-inner content-inner--wide"');
-      final metrics = html.indexOf('class="metrics-grid metrics-grid-4"', inner);
+      final metrics = html.indexOf('class="metrics-grid metrics-grid-3"', inner);
       final hero = html.indexOf('card-featured-accent', inner);
       final services = html.indexOf('<h2 class="section-title">Services</h2>', inner);
 
@@ -237,13 +236,12 @@ void main() {
 
     test('each measured fact appears exactly once', () {
       // Distinct fixture values so a bare substring cannot match a different
-      // fact's digits: uptime 2h 3m, 7 sessions, 4 KB db, 9 KB artifacts.
+      // fact's digits: uptime 2h 3m, 7 sessions, 9 KB artifacts.
       final html = healthDashboardTemplate(
         status: 'healthy',
         uptimeSeconds: 7380,
         workerState: 'idle',
         sessionCount: 7,
-        dbSizeBytes: 4096,
         totalArtifactDiskBytes: 9216,
         version: '0.11.0',
         sidebarData: _emptySidebar(),
@@ -253,7 +251,7 @@ void main() {
 
       // Each fact is counted inside its own tile, so the assertion cannot pass
       // by matching a digit that belongs to another fact.
-      for (final (label, value) in [('Uptime', '2h 3m'), ('Sessions', '7'), ('DB Size', '4 KB')]) {
+      for (final (label, value) in [('Uptime', '2h 3m'), ('Sessions', '7'), ('Task Artifacts', '9 KB')]) {
         final tiles = RegExp(
           '<div class="metric-value t-metric"[^>]*>([^<]*)</div>\\s*<div class="metric-label"[^>]*>$label</div>',
         ).allMatches(html).toList();
@@ -286,7 +284,6 @@ void main() {
           uptimeSeconds: 60,
           workerState: state,
           sessionCount: 1,
-          dbSizeBytes: 10,
           totalArtifactDiskBytes: 0,
           version: '0.1.0',
           sidebarData: _emptySidebar(),
@@ -302,7 +299,6 @@ void main() {
         uptimeSeconds: 60,
         workerState: '',
         sessionCount: 1,
-        dbSizeBytes: 10,
         totalArtifactDiskBytes: 0,
         version: '0.1.0',
         sidebarData: _emptySidebar(),

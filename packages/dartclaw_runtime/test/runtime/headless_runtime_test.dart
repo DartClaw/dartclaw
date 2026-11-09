@@ -15,7 +15,15 @@ import 'package:dartclaw_runtime/dartclaw_runtime.dart'
         restoreCheckoutBeforeWorkflowBranchDeletion;
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show OutputConfig, OutputFormat, WorkflowDefinition, WorkflowStep, WorkflowVariable;
+    show
+        OutputConfig,
+        OutputFormat,
+        WorkflowDefinition,
+        WorkflowGitStrategy,
+        WorkflowStep,
+        WorkflowVariable,
+        WorkflowRun,
+        WorkflowRunOrigin;
 import 'package:dartclaw_workflow/testing.dart';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
@@ -26,7 +34,7 @@ import 'memory_wiring_test_support.dart';
 
 void expectNoPersonalMemoryArtifacts(DartclawConfig config) {
   for (final path in [
-    config.searchDbPath,
+    p.join(config.server.dataDir, 'search.db'),
     p.join(config.workspaceDir, '.dartclaw-memory-index.json'),
     p.join(config.workspaceDir, '.dartclaw-memory-corpus.json'),
     p.join(config.workspaceDir, '.dartclaw-memory-transaction.json'),
@@ -195,6 +203,7 @@ steps:
         ],
       ),
       const {},
+      origin: WorkflowRunOrigin.unknown,
     );
     final taskDeadline = DateTime.now().add(const Duration(seconds: 5));
     while ((await runtime.taskService.list()).every((task) => task.workflowRunId != run.id) &&
@@ -213,12 +222,6 @@ steps:
     expect(worker.lastSystemPrompt, isNot(contains('Memory retrieval')));
     expect(worker.lastSystemPrompt, isNot(contains('memory_read')));
     expect(worker.lastDirectory, workflowWorkspace.path);
-    expect(factoryConfig.onMemoryApply, isNull);
-    expect(factoryConfig.onMemoryObserve, isNull);
-    expect(factoryConfig.onContextualMemoryApply, isNull);
-    expect(factoryConfig.onContextualMemoryObserve, isNull);
-    expect(factoryConfig.onMemorySearch, isNull);
-    expect(factoryConfig.onMemoryRead, isNull);
     expect(factoryConfig.ownMcpToolCanonicals.keys.where((name) => name.startsWith('memory_')), isEmpty);
     expect(runtime.selfImprovement, isNull);
 
@@ -300,7 +303,7 @@ steps:
         });
     addTearDown(sub.cancel);
 
-    final run = await wired.workflowService.start(definition!, const {});
+    final run = await wired.workflowService.start(definition!, const {}, origin: WorkflowRunOrigin.unknown);
     final event = await failed.future.timeout(const Duration(seconds: 5));
 
     expect(event.runId, run.id);
@@ -421,7 +424,10 @@ steps:
     final definition = branchGuardDefinition();
 
     await expectLater(
-      () => wired.workflowService.start(definition, const {'PROJECT': 'alpha', 'BRANCH': 'feature/local'}),
+      () => wired.workflowService.start(definition, const {
+        'PROJECT': 'alpha',
+        'BRANCH': 'feature/local',
+      }, origin: WorkflowRunOrigin.unknown),
       throwsA(
         isA<WorkflowStartPreconditionException>().having(
           (error) => error.message,
@@ -446,7 +452,10 @@ steps:
     final definition = branchGuardDefinition();
 
     await expectLater(
-      () => wired.workflowService.start(definition, const {'PROJECT': 'alpha', 'BRANCH': '--upload-pack=/tmp/pwn'}),
+      () => wired.workflowService.start(definition, const {
+        'PROJECT': 'alpha',
+        'BRANCH': '--upload-pack=/tmp/pwn',
+      }, origin: WorkflowRunOrigin.unknown),
       throwsFormatException,
     );
   });
@@ -465,7 +474,9 @@ steps:
 
     final definition = branchGuardDefinition();
 
-    final run = await wired.workflowService.start(definition, const {'PROJECT': 'alpha'});
+    final run = await wired.workflowService.start(definition, const {
+      'PROJECT': 'alpha',
+    }, origin: WorkflowRunOrigin.unknown);
     expect(run.variablesJson['BRANCH'], 'feature/local');
   });
 
@@ -504,7 +515,7 @@ steps:
           createdTask = await wired.taskService.get(event.taskId);
         });
 
-    final run = await wired.workflowService.start(definition, const {});
+    final run = await wired.workflowService.start(definition, const {}, origin: WorkflowRunOrigin.unknown);
     await waitFor(() => createdTask != null);
     await sub.cancel();
 
@@ -629,7 +640,7 @@ steps:
     );
     expect(unexpectedDataDirSkillEntries(tempDir.path), isEmpty);
     final registeredNames = wired.workflowRegistry.listAll().map((workflow) => workflow.name).toSet();
-    expect(registeredNames, containsAll(['plan-and-implement', 'story-and-implement', 'code-review']));
+    expect(registeredNames, containsAll(['implement-prd', 'implement-story', 'code-review']));
     expect(runner.calls.where((call) => call.executable.endsWith('install-skills.sh')), isEmpty);
   });
 
@@ -785,8 +796,58 @@ steps:
         final run = await runtime.workflowService.start(definition, const {
           'PROJECT': '_local',
           'BRANCH': 'runtime-feature',
-        });
+        }, origin: WorkflowRunOrigin.unknown);
         expect(run.variablesJson['BRANCH'], 'runtime-feature');
+        expect(Directory.current.path, isNot(runtimeCwd.path));
+        expect(runtime.projectService.localProject.localPath, runtimeCwd.path);
+      },
+    );
+  });
+
+  test('an omitted optional PROJECT binds the local repository so workflow git runs', () async {
+    final runtimeCwd = fixture.seedGitRepo('omitted-project-repo');
+
+    await fixture.withWiredRuntime(
+      fixture.config(),
+      runtimeCwd: runtimeCwd.path,
+      body: (runtime) async {
+        const definition = WorkflowDefinition(
+          name: 'omitted-project',
+          description: 'Integration-branch workflow started without PROJECT',
+          variables: {'PROJECT': WorkflowVariable(required: false, description: 'Target project')},
+          project: '{{PROJECT}}',
+          gitStrategy: WorkflowGitStrategy(integrationBranch: true, promotion: 'none', publish: false),
+          steps: [
+            WorkflowStep(id: 'noop', name: 'Noop', taskType: WorkflowTaskType.bash, prompts: ['true']),
+          ],
+        );
+
+        final run = await runtime.workflowService.start(definition, const {}, origin: WorkflowRunOrigin.unknown);
+        expect(run.variablesJson['PROJECT'], '_local');
+
+        WorkflowRun? settled;
+        await waitFor(() {
+          unawaited(runtime.workflowService.get(run.id).then((current) => settled = current));
+          return settled?.status == WorkflowRunStatus.completed;
+        });
+        final data = settled!.contextJson['data'] as Map<String, dynamic>;
+        expect(
+          data['_workflow.git.integration_branch'],
+          startsWith('dartclaw/workflow/'),
+          reason: 'workflow git setup ran against the local repository',
+        );
+      },
+    );
+  });
+
+  test('relative runtime cwd is resolved once to an absolute directory', () async {
+    final runtimeCwd = fixture.seedGitRepo('relative-runtime-repo', readme: 'runtime\n');
+
+    await fixture.withWiredRuntime(
+      fixture.config(),
+      runtimeCwd: p.relative(runtimeCwd.path),
+      body: (runtime) async {
+        expect(runtime.projectService.localProject.localPath, runtimeCwd.path);
       },
     );
   });
@@ -879,7 +940,7 @@ steps:
             await wired.taskService.transition(event.taskId, TaskStatus.accepted);
           });
       addTearDown(sub.cancel);
-      final run = await wired.workflowService.start(definition, const {});
+      final run = await wired.workflowService.start(definition, const {}, origin: WorkflowRunOrigin.unknown);
       runId = run.id;
       final current = await wired.workflowService.get(run.id);
       if (current?.status == WorkflowRunStatus.completed && !completion.isCompleted) {
@@ -970,7 +1031,10 @@ steps:
           ],
         );
 
-        final run = await runtime.workflowService.start(definition, const {'PROJECT': 'alpha', 'BRANCH': 'main'});
+        final run = await runtime.workflowService.start(definition, const {
+          'PROJECT': 'alpha',
+          'BRANCH': 'main',
+        }, origin: WorkflowRunOrigin.unknown);
         final deadline = DateTime.now().add(const Duration(seconds: 5));
         while (DateTime.now().isBefore(deadline)) {
           final updated = await runtime.workflowService.get(run.id);
@@ -1061,7 +1125,7 @@ steps:
           WorkflowStep(id: 'gate', name: 'Gate', taskType: WorkflowTaskType.approval, prompts: ['Approve?']),
         ],
       );
-      final run = await wired.workflowService.start(definition, const {});
+      final run = await wired.workflowService.start(definition, const {}, origin: WorkflowRunOrigin.unknown);
       final deadline = DateTime.now().add(const Duration(seconds: 5));
       while (DateTime.now().isBefore(deadline)) {
         final updated = await wired.workflowService.get(run.id);

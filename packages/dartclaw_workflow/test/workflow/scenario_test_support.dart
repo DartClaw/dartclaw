@@ -131,6 +131,7 @@ final class ScenarioTaskHarness {
         projectService: projectService,
       ),
       runners: TaskExecutorRunners(turns: turns),
+      currentDirectory: tempDir.path,
       onAutoAccept: onAutoAccept,
       pollInterval: pollInterval,
     );
@@ -391,7 +392,7 @@ final class ScenarioTaskHarness {
 }
 
 final class StaticPathWorktreeManager extends WorktreeManager {
-  new(this.path) : super(dataDir: '/tmp', processRunner: RecordingGitRunner().run);
+  new(this.path) : super(dataDir: '/tmp', projectDir: '/tmp', processRunner: RecordingGitRunner().run);
 
   final String path;
 

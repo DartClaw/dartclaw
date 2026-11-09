@@ -101,6 +101,9 @@ class TurnContext {
   /// Channel this turn arrived on, composed into a primary-scope prompt.
   final TurnOrigin? origin;
 
+  /// Host-built record of where this turn came from, for MCP tools that opt in to it.
+  final TurnProvenance? provenance;
+
   new({
     required this.turnId,
     required this.sessionId,
@@ -122,7 +125,14 @@ class TurnContext {
     this.allowedTools,
     this.readOnly = false,
     this.origin,
+    this.provenance,
   });
+}
+
+/// Thrown instead of reserving a turn once [TurnManager.closeAdmission] has run.
+final class TurnAdmissionClosedException implements Exception {
+  @override
+  String toString() => 'TurnAdmissionClosedException: the server is shutting down';
 }
 
 // ---------------------------------------------------------------------------
@@ -144,6 +154,7 @@ class TurnManager implements core.TurnManager {
   final Map<String, TurnRunner> _reservedTurnRunners = {};
   final Map<String, ExecutionLease> _reservedTurnLeases = {};
   final Map<String, String> _contextProviderOverrides = {};
+  bool _admissionClosed = false;
 
   // Same-session reservations run one at a time in arrival order: every await
   // before the session lock (session read, governance checks, rate-limit wait)
@@ -224,6 +235,17 @@ class TurnManager implements core.TurnManager {
   // ---------------------------------------------------------------------------
 
   ExecutionCoordinator get executions => _executions;
+
+  /// Refuses every later reservation and turn start with a [TurnAdmissionClosedException].
+  ///
+  /// A turn reserved before this call stays in [activeSessionIds], so one sweep over them after this call misses
+  /// nothing. Work leased through [ExecutionCoordinator] directly (task and workflow steps) is not gated here; the
+  /// task runtime's own shutdown owns it.
+  void closeAdmission() => _admissionClosed = true;
+
+  void _requireAdmissionOpen() {
+    if (_admissionClosed) throw TurnAdmissionClosedException();
+  }
 
   void setContextTelemetryObserver(RuntimeContextTelemetryObserved? observer) {
     _executions.setContextTelemetryObserver(observer);
@@ -354,6 +376,7 @@ class TurnManager implements core.TurnManager {
     List<String>? allowedTools,
     bool readOnly = false,
     TurnOrigin? origin,
+    TurnProvenance? provenance,
   }) => _reserveTurn(
     sessionId,
     providerOverride: _contextProviderOverrides[sessionId],
@@ -376,6 +399,7 @@ class TurnManager implements core.TurnManager {
     allowedTools: allowedTools,
     readOnly: readOnly,
     origin: origin,
+    provenance: provenance,
   );
 
   /// Reserves an ordinary conversation turn against its admitted provider snapshot.
@@ -387,6 +411,7 @@ class TurnManager implements core.TurnManager {
     String? effort,
     required PromptScope promptScope,
     required TurnOrigin origin,
+    required TurnProvenance provenance,
   }) async {
     _contextProviderOverrides[sessionId] = provider;
     try {
@@ -398,6 +423,7 @@ class TurnManager implements core.TurnManager {
         isHumanInput: true,
         promptScope: promptScope,
         origin: origin,
+        provenance: provenance,
       );
     } finally {
       _contextProviderOverrides.remove(sessionId);
@@ -426,6 +452,7 @@ class TurnManager implements core.TurnManager {
     List<String>? allowedTools,
     bool readOnly = false,
     TurnOrigin? origin,
+    TurnProvenance? provenance,
   }) async {
     final reservation = await _sessionReservations.run(
       sessionId,
@@ -444,6 +471,9 @@ class TurnManager implements core.TurnManager {
     final runner = lease.runner;
     final effectiveAgentName = reservation.agentName;
     try {
+      // Re-checked after the lease wait, with no await before the runner records the turn: admission closing during
+      // the wait must not produce a turn the closer's sweep has already passed.
+      _requireAdmissionOpen();
       final turnId = await runner.reserveAdmittedTurn(
         sessionId,
         agentName: effectiveAgentName,
@@ -464,6 +494,7 @@ class TurnManager implements core.TurnManager {
         allowedTools: allowedTools,
         readOnly: readOnly,
         origin: origin,
+        provenance: provenance,
       );
       _reservedTurnRunners[turnId] = runner;
       _reservedTurnLeases[turnId] = lease;
@@ -526,6 +557,12 @@ class TurnManager implements core.TurnManager {
     await _executions.resetSessionContinuity(sessionId, workersOnly: true);
   }
 
+  /// Completes when the global turn cap has room for another session.
+  ///
+  /// Reserves nothing: a caller deferred by a global-cap [BusyTurnException]
+  /// re-attempts admission and may have to wait again.
+  Future<void> whenAdmissionCapacityAvailable() => _executions.whenAdmissionCapacityAvailable();
+
   /// Releases the idle provider authority retained for a temporary session.
   Future<void> releaseTemporarySession(String sessionId) async {
     if (isActive(sessionId)) {
@@ -560,6 +597,7 @@ class TurnManager implements core.TurnManager {
     bool readOnly = false,
     PromptScope? promptScope,
     TurnOrigin? origin,
+    TurnProvenance? provenance,
   }) async {
     final turnId = await reserveTurn(
       sessionId,
@@ -579,6 +617,7 @@ class TurnManager implements core.TurnManager {
       readOnly: readOnly,
       promptScope: promptScope,
       origin: origin,
+      provenance: provenance,
     );
     try {
       executeTurn(sessionId, turnId, messages, source: source, agentName: agentName);
@@ -718,6 +757,7 @@ class TurnManager implements core.TurnManager {
     List<String>? allowedTools,
     String? providerOverride,
   }) async {
+    _requireAdmissionOpen();
     final session = await _sessions?.getSession(sessionId);
     final provider = providerOverride ?? session?.provider ?? _primary.providerId;
     final policy = workerPolicy ?? await _sessionExecutionPolicy(session);
@@ -870,6 +910,7 @@ ExecutionCoordinator _singleHarnessCoordinator({
     allowPrimaryBackgroundFallback: true,
     admitExecution: (request) => primary.admitTurn(request.sessionId, isHumanInput: request.isHumanInput),
     releaseAdmission: primary.releaseAdmission,
+    whenAdmissionCapacityAvailable: primary.whenAdmissionCapacityAvailable,
     outcomeTtl: outcomeTtl,
   );
 }

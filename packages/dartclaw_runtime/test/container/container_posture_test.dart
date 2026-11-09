@@ -82,6 +82,7 @@ void main() {
         profileId: 'restricted',
         workspaceMounts: const [],
         generatedStateDir: '/tmp/dartclaw-test',
+        buildContextDir: '/tmp/dartclaw-test',
         runCommand: _probe({'podman'}, seen: calls),
       );
 

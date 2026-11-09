@@ -92,7 +92,7 @@ void main() {
       expect(content, contains('regardless of FIS-like headings'));
       expect(content, contains('both `**Plan**:` and `**Story-ID**:`'));
       expect(content, contains('`**TI01**` tasks'));
-      expect(content, contains('Written requirements belong in plan-and-implement'));
+      expect(content, contains('Written requirements belong in implement-prd'));
       expect(content, contains('filename alone never qualifies'));
       // Stale retired markers must not return as classification signals.
       expect(content, isNot(contains('## Acceptance Criteria')));

@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:fake_async/fake_async.dart';
+import 'package:logging/logging.dart';
 import 'package:test/test.dart';
 
 // ---------------------------------------------------------------------------
@@ -18,6 +19,11 @@ class FakeChannel extends Channel {
   final List<(String, ChannelResponse)> sent = [];
   final List<String> typingEvents = [];
   bool failSend = false;
+
+  /// Fails this many sends, then succeeds.
+  int failNextSends = 0;
+  int sendAttempts = 0;
+  List<ChannelResponse> Function(String text)? formatter;
   bool failTyping = false;
   Completer<void>? startTypingGate;
   Completer<void>? stopTypingGate;
@@ -33,10 +39,18 @@ class FakeChannel extends Channel {
 
   @override
   Future<void> sendMessage(String recipientJid, ChannelResponse response) async {
+    sendAttempts++;
     if (failSend) throw Exception('send failed');
+    if (failNextSends > 0) {
+      failNextSends--;
+      throw Exception('send failed');
+    }
     typingEvents.add('send:$recipientJid');
     sent.add((recipientJid, response));
   }
+
+  @override
+  List<ChannelResponse> formatResponse(String text) => formatter?.call(text) ?? super.formatResponse(text);
 
   @override
   Future<void> startTyping(String recipientJid) async {
@@ -93,9 +107,30 @@ class _FakeGoogleChatChannel extends Channel {
   }
 }
 
-ChannelMessage _msg({String sender = 'user@test', String text = 'hello', String? groupJid}) {
-  return ChannelMessage(channelType: ChannelType.whatsapp, senderJid: sender, text: text, groupJid: groupJid);
+class _Exhausted implements BudgetExhaustedError, Exception {
+  @override
+  final int tokensUsed = 100;
+
+  @override
+  final int budget = 100;
 }
+
+ChannelMessage _msg({
+  String sender = 'user@test',
+  String text = 'hello',
+  String? groupJid,
+  List<ChannelAttachment> attachments = const [],
+}) {
+  return ChannelMessage(
+    channelType: ChannelType.whatsapp,
+    senderJid: sender,
+    text: text,
+    groupJid: groupJid,
+    attachments: attachments,
+  );
+}
+
+ChannelAttachment _file(String name) => ChannelAttachment(filename: name, mediaType: 'text/plain', bytes: [1, 2, 3]);
 
 void main() {
   group('MessageQueue', () {
@@ -103,6 +138,7 @@ void main() {
     late List<(String, String)> dispatched;
     late List<String?> dispatchedSenders;
     late List<({ChannelType channelType, String? groupJid})> dispatchedOrigins;
+    late List<List<String>> dispatchedAttachmentNames;
     late Completer<void>? dispatchGate;
     late Completer<void>? dispatchStarted;
 
@@ -111,6 +147,7 @@ void main() {
       dispatched = [];
       dispatchedSenders = [];
       dispatchedOrigins = [];
+      dispatchedAttachmentNames = [];
       dispatchGate = null;
       dispatchStarted = null;
     });
@@ -148,6 +185,9 @@ void main() {
               String? senderJid,
               String? senderDisplayName,
               String? groupJid,
+              String? recipientId,
+              String? threadId,
+              List<ChannelAttachment> attachments = const [],
             }) async {
               if (dispatchStarted != null && !dispatchStarted!.isCompleted) {
                 dispatchStarted!.complete();
@@ -157,10 +197,36 @@ void main() {
               dispatched.add((sessionKey, message));
               dispatchedSenders.add(senderJid);
               dispatchedOrigins.add((channelType: channelType, groupJid: groupJid));
+              dispatchedAttachmentNames.add([for (final file in attachments) file.filename]);
               return response;
             },
       );
     }
+
+    test('debounce hands every coalesced message\'s attachments to the dispatcher in arrival order', () async {
+      // A file on the first of two coalesced messages must not be dropped when the buffer is rebuilt.
+      final queue = makeQueue();
+      addTearDown(queue.dispose);
+
+      queue.enqueue(_msg(text: 'look', attachments: [_file('a.txt'), _file('b.txt')]), channel, 'session-1');
+      queue.enqueue(_msg(text: 'and this', attachments: [_file('c.txt')]), channel, 'session-1');
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+
+      expect(dispatched, hasLength(1));
+      expect(dispatchedAttachmentNames, [
+        ['a.txt', 'b.txt', 'c.txt'],
+      ]);
+    });
+
+    test('a message without attachments is dispatched with none', () async {
+      final queue = makeQueue();
+      addTearDown(queue.dispose);
+
+      queue.enqueue(_msg(text: 'plain'), channel, 'session-1');
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+
+      expect(dispatchedAttachmentNames, [<String>[]]);
+    });
 
     test('dispatcher receives the source channel type and group JID', () async {
       // The channel a turn arrives on is what the prompt names, so the queue
@@ -261,6 +327,9 @@ void main() {
               String? senderJid,
               String? senderDisplayName,
               String? groupJid,
+              String? recipientId,
+              String? threadId,
+              List<ChannelAttachment> attachments = const [],
             }) async {
               activeCount++;
               if (activeCount > maxActive) maxActive = activeCount;
@@ -290,12 +359,12 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 200));
     });
 
-    test('retry on dispatch failure', () async {
-      var failCount = 2;
+    test('dispatch failure sends one apology and never re-runs the turn', () async {
+      var dispatchCalls = 0;
       final queue = MessageQueue(
-        debounceWindow: const Duration(milliseconds: 10),
+        debounceWindow: Duration.zero,
         maxConcurrentTurns: 3,
-        defaultRetryPolicy: const RetryPolicy(maxAttempts: 3, baseDelay: Duration(milliseconds: 10)),
+        defaultRetryPolicy: const RetryPolicy(maxAttempts: 3, baseDelay: Duration.zero),
         random: Random(42),
         dispatcher:
             (
@@ -305,51 +374,147 @@ void main() {
               String? senderJid,
               String? senderDisplayName,
               String? groupJid,
+              String? recipientId,
+              String? threadId,
+              List<ChannelAttachment> attachments = const [],
             }) async {
-              if (failCount > 0) {
-                failCount--;
-                throw Exception('transient');
-              }
-              dispatched.add((sessionKey, message));
-              return 'ok';
-            },
-      );
-      addTearDown(queue.dispose);
-
-      queue.enqueue(_msg(text: 'retry-me'), channel, 'session-1');
-      await Future<void>.delayed(const Duration(milliseconds: 500));
-
-      expect(dispatched, hasLength(1));
-      expect(dispatched.first.$2, 'retry-me');
-    });
-
-    test('dead-letter after max retries', () async {
-      final queue = MessageQueue(
-        debounceWindow: const Duration(milliseconds: 10),
-        maxConcurrentTurns: 3,
-        defaultRetryPolicy: const RetryPolicy(maxAttempts: 2, baseDelay: Duration(milliseconds: 10)),
-        random: Random(42),
-        dispatcher:
-            (
-              sessionKey,
-              message, {
-              required ChannelType channelType,
-              String? senderJid,
-              String? senderDisplayName,
-              String? groupJid,
-            }) async {
+              dispatchCalls++;
               throw Exception('permanent');
             },
       );
       addTearDown(queue.dispose);
 
       queue.enqueue(_msg(text: 'doomed'), channel, 'session-1');
-      await Future<void>.delayed(const Duration(milliseconds: 500));
+      await pumpEventQueue(times: 100);
 
-      expect(dispatched, isEmpty);
-      // Channel should have received a dead-letter notification
-      expect(channel.sent, isNotEmpty);
-      expect(channel.sent.last.$2.text, contains('unable to process'));
+      expect(dispatchCalls, 1);
+      expect(channel.sendAttempts, 1);
+      expect(channel.sent.single.$2.text, contains('unable to process'));
+    });
+
+    test('a failed reply send is retried per policy without re-running the turn', () async {
+      channel.failNextSends = 2;
+      var dispatchCalls = 0;
+      final queue = MessageQueue(
+        debounceWindow: Duration.zero,
+        defaultRetryPolicy: const RetryPolicy(maxAttempts: 3, baseDelay: Duration.zero),
+        random: Random(42),
+        dispatcher:
+            (
+              sessionKey,
+              message, {
+              required ChannelType channelType,
+              String? senderJid,
+              String? senderDisplayName,
+              String? groupJid,
+              String? recipientId,
+              String? threadId,
+              List<ChannelAttachment> attachments = const [],
+            }) async {
+              dispatchCalls++;
+              return 'the answer';
+            },
+      );
+      addTearDown(queue.dispose);
+
+      queue.enqueue(_msg(), channel, 'session-1');
+      await pumpEventQueue(times: 100);
+
+      expect(dispatchCalls, 1);
+      expect(channel.sendAttempts, 3);
+      expect(channel.sent.single.$2.text, 'the answer');
+    });
+
+    test('a reply that exhausts the policy is dead-lettered without re-running the turn or apologizing', () async {
+      channel.failSend = true;
+      final severe = <LogRecord>[];
+      final sub = Logger('MessageQueue').onRecord.where((r) => r.level >= Level.SEVERE).listen(severe.add);
+      addTearDown(sub.cancel);
+      final queue = makeQueue(debounce: Duration.zero, maxRetries: 2, retryDelay: Duration.zero);
+      addTearDown(queue.dispose);
+
+      queue.enqueue(_msg(text: 'q'), channel, 'session-1');
+      await pumpEventQueue(times: 100);
+
+      expect(dispatched, hasLength(1));
+      expect(channel.sendAttempts, 2);
+      expect(channel.sent, isEmpty);
+      expect(severe, hasLength(1));
+      expect(severe.single.message, contains('Dead-letter'));
+    });
+
+    test('a dead-lettered reply stops its remaining chunks and frees the session for the next message', () async {
+      channel.formatter = (text) => [ChannelResponse(text: '$text-1'), ChannelResponse(text: '$text-2')];
+      channel.failNextSends = 2;
+      final queue = makeQueue(debounce: Duration.zero, maxRetries: 2, retryDelay: Duration.zero);
+      addTearDown(queue.dispose);
+
+      queue.enqueue(_msg(text: 'first'), channel, 'session-1');
+      await pumpEventQueue(times: 100);
+
+      expect(channel.sendAttempts, 2, reason: 'chunk 1 exhausted its attempts; chunk 2 was never tried');
+      expect(channel.sent, isEmpty);
+
+      queue.enqueue(_msg(text: 'second'), channel, 'session-1');
+      await pumpEventQueue(times: 100);
+
+      expect(dispatched.map((d) => d.$2), ['first', 'second']);
+      expect(channel.sent.map((s) => s.$2.text), ['response-1', 'response-2']);
+    });
+
+    test('the slot stays held while a reply send is backing off', () {
+      fakeAsync((async) {
+        channel.failNextSends = 1;
+        final started = <String>[];
+        final queue = MessageQueue(
+          debounceWindow: Duration.zero,
+          maxConcurrentTurns: 1,
+          defaultRetryPolicy: const RetryPolicy(maxAttempts: 2, baseDelay: Duration(seconds: 10), jitterFactor: 0),
+          random: Random(42),
+          dispatcher:
+              (
+                sessionKey,
+                message, {
+                required ChannelType channelType,
+                String? senderJid,
+                String? senderDisplayName,
+                String? groupJid,
+                String? recipientId,
+                String? threadId,
+                List<ChannelAttachment> attachments = const [],
+              }) async {
+                started.add(message);
+                return 'ok';
+              },
+        );
+
+        queue.enqueue(_msg(text: 'a'), channel, 'session-a');
+        queue.enqueue(_msg(text: 'b'), channel, 'session-b');
+        async.elapse(const Duration(seconds: 5));
+        expect(started, ['a'], reason: 'a is backing off its first failed send and still holds the only slot');
+
+        async.elapse(const Duration(seconds: 10));
+        expect(started, ['a', 'b']);
+        expect(channel.sent.map((s) => s.$2.text), ['ok', 'ok']);
+        queue.dispose();
+      });
+    });
+
+    test('dispose during a reply-send backoff stops quietly', () {
+      fakeAsync((async) {
+        channel.failSend = true;
+        final queue = makeQueue(debounce: Duration.zero, maxRetries: 3, retryDelay: const Duration(seconds: 10));
+
+        queue.enqueue(_msg(), channel, 'session-1');
+        async.elapse(const Duration(seconds: 5));
+        expect(channel.sendAttempts, 1);
+
+        queue.dispose();
+        async.elapse(const Duration(minutes: 5));
+
+        expect(channel.sendAttempts, 1);
+        expect(dispatched, hasLength(1));
+      });
     });
 
     test('queue full sends busy response', () async {
@@ -368,6 +533,9 @@ void main() {
               String? senderJid,
               String? senderDisplayName,
               String? groupJid,
+              String? recipientId,
+              String? threadId,
+              List<ChannelAttachment> attachments = const [],
             }) async {
               await dispatchGate!.future; // block processing
               dispatched.add((sessionKey, message));
@@ -589,28 +757,17 @@ void main() {
       expect(channel.typingEvents, ['start:user@test', 'stop:user@test', 'send:user@test']);
     });
 
-    test('each retry attempt brackets dispatch with typing cleanup', () async {
-      var attempts = 0;
-      final queue = makeQueue(
-        debounce: Duration.zero,
-        maxRetries: 2,
-        retryDelay: Duration.zero,
-        shouldFail: () => attempts++ == 0,
-      );
+    test('a reply-send retry does not restart typing', () async {
+      channel.failNextSends = 1;
+      final queue = makeQueue(debounce: Duration.zero, maxRetries: 2, retryDelay: Duration.zero);
       addTearDown(queue.dispose);
 
       queue.enqueue(_msg(), channel, 'session-1');
-      await pumpEventQueue();
+      await pumpEventQueue(times: 100);
 
-      expect(attempts, 2);
+      expect(dispatched, hasLength(1));
       expect(channel.sent.single.$2.text, 'response');
-      expect(channel.typingEvents, [
-        'start:user@test',
-        'stop:user@test',
-        'start:user@test',
-        'stop:user@test',
-        'send:user@test',
-      ]);
+      expect(channel.typingEvents, ['start:user@test', 'stop:user@test', 'send:user@test']);
     });
 
     test('a stalled typing start cannot block dispatch', () {
@@ -733,6 +890,239 @@ void main() {
 
       expect(googleChatChannel.sentMessages, hasLength(1));
       expect(googleChatChannel.sentMessages.single.$2, startsWith('*@Alice Smith* – '));
+    });
+
+    group('thread metadata on replies', () {
+      ChannelMessage threaded({String text = 'hi'}) => ChannelMessage(
+        channelType: ChannelType.whatsapp,
+        senderJid: 'user@test',
+        text: text,
+        metadata: const {threadIdMetadataKey: 't1'},
+      );
+
+      MessageQueue queueWith(Future<String> Function() turn, {int maxDepth = 100}) {
+        final queue = MessageQueue(
+          debounceWindow: Duration.zero,
+          maxQueueDepth: maxDepth,
+          defaultRetryPolicy: const RetryPolicy(maxAttempts: 1),
+          random: Random(42),
+          dispatcher: (
+            sessionKey,
+            message, {
+            required ChannelType channelType,
+            String? senderJid,
+            String? senderDisplayName,
+            String? groupJid,
+            String? recipientId,
+            String? threadId,
+            List<ChannelAttachment> attachments = const [],
+          }) => turn(),
+        );
+        addTearDown(queue.dispose);
+        return queue;
+      }
+
+      test('the answer carries the thread beside the source message id, and only when the message had one', () async {
+        final queue = queueWith(() async => 'answer');
+
+        final withThread = threaded();
+        queue.enqueue(withThread, channel, 'session-1');
+        queue.enqueue(_msg(sender: 'other@test'), channel, 'session-2');
+        await pumpEventQueue(times: 100);
+
+        final replies = {
+          for (final (_, response) in channel.sent) response.metadata[sourceMessageIdMetadataKey]: response,
+        };
+        expect(replies[withThread.id]!.metadata[threadIdMetadataKey], 't1');
+        final unthreaded = replies.entries.singleWhere((entry) => entry.key != withThread.id).value;
+        expect(unthreaded.metadata, isNot(contains(threadIdMetadataKey)));
+      });
+
+      test('the apology after a failed turn carries the thread', () async {
+        final queue = queueWith(() async => throw Exception('boom'));
+
+        queue.enqueue(threaded(), channel, 'session-1');
+        await pumpEventQueue(times: 100);
+
+        expect(channel.sent.single.$2.text, contains('unable to process'));
+        expect(channel.sent.single.$2.metadata[threadIdMetadataKey], 't1');
+      });
+
+      test('the budget rejection carries the thread', () async {
+        final queue = queueWith(() async => throw _Exhausted());
+
+        queue.enqueue(threaded(), channel, 'session-1');
+        await pumpEventQueue(times: 100);
+
+        expect(channel.sent.single.$2.text, contains('budget exhausted'));
+        expect(channel.sent.single.$2.metadata[threadIdMetadataKey], 't1');
+      });
+
+      test('the busy reply carries the thread', () async {
+        final gate = Completer<String>();
+        final queue = queueWith(() => gate.future, maxDepth: 1);
+        addTearDown(() {
+          if (!gate.isCompleted) gate.complete('');
+        });
+
+        queue.enqueue(threaded(text: '1'), channel, 'session-1');
+        await pumpEventQueue(times: 50);
+        queue.enqueue(threaded(text: '2'), channel, 'session-1');
+        await pumpEventQueue(times: 50);
+        queue.enqueue(threaded(text: '3'), channel, 'session-1');
+        await pumpEventQueue(times: 50);
+
+        final busy = channel.sent.where((sent) => sent.$2.text.contains('busy')).single.$2;
+        expect(busy.metadata[threadIdMetadataKey], 't1');
+      });
+    });
+  });
+
+  group('MessageQueue concurrency slots', () {
+    late FakeChannel channel;
+    late Map<String, Completer<void>> gates;
+    late List<String> started;
+    var inFlight = 0;
+    var peakInFlight = 0;
+
+    setUp(() {
+      channel = FakeChannel();
+      gates = {};
+      started = [];
+      inFlight = 0;
+      peakInFlight = 0;
+    });
+
+    MessageQueue makeGatedQueue({required int maxConcurrent}) {
+      return MessageQueue(
+        debounceWindow: Duration.zero,
+        maxConcurrentTurns: maxConcurrent,
+        defaultRetryPolicy: const RetryPolicy(maxAttempts: 1),
+        random: Random(42),
+        dispatcher:
+            (
+              sessionKey,
+              message, {
+              required ChannelType channelType,
+              String? senderJid,
+              String? senderDisplayName,
+              String? groupJid,
+              String? recipientId,
+              String? threadId,
+              List<ChannelAttachment> attachments = const [],
+            }) async {
+              started.add(message);
+              inFlight++;
+              peakInFlight = max(peakInFlight, inFlight);
+              try {
+                await (gates[message] = Completer<void>()).future;
+              } finally {
+                inFlight--;
+              }
+              return 'ok';
+            },
+      );
+    }
+
+    void settle(FakeAsync async) {
+      async.elapse(Duration.zero);
+      async.flushMicrotasks();
+    }
+
+    void finish(FakeAsync async, String message) {
+      gates[message]!.complete();
+      settle(async);
+    }
+
+    test('a freed slot goes to the waiting session, not to the releasing session\'s next message', () {
+      // The releasing session loops straight into its next queued message; the
+      // slot has to be committed to the waiter at release or both run at once.
+      fakeAsync((async) {
+        final queue = makeGatedQueue(maxConcurrent: 1);
+        queue.enqueue(_msg(text: 'a1'), channel, 'session-a');
+        settle(async);
+        queue.enqueue(_msg(text: 'b1'), channel, 'session-b');
+        settle(async);
+        queue.enqueue(_msg(text: 'a2'), channel, 'session-a');
+        settle(async);
+        expect(started, ['a1']);
+
+        finish(async, 'a1');
+
+        expect(started, ['a1', 'b1']);
+        expect(peakInFlight, 1);
+
+        finish(async, 'b1');
+
+        expect(started, ['a1', 'b1', 'a2']);
+        expect(peakInFlight, 1);
+        queue.dispose();
+      });
+    });
+
+    test('disposing while a session waits for a slot raises no uncaught error and never runs it', () {
+      fakeAsync((async) {
+        final queue = makeGatedQueue(maxConcurrent: 1);
+        queue.enqueue(_msg(text: 'a'), channel, 'session-a');
+        settle(async);
+        queue.enqueue(_msg(text: 'b'), channel, 'session-b');
+        settle(async);
+        expect(started, ['a']);
+
+        queue.dispose();
+        async.flushMicrotasks();
+
+        finish(async, 'a');
+        expect(started, ['a']);
+      });
+    });
+
+    test('raising the cap admits waiting sessions immediately, up to the new cap', () {
+      fakeAsync((async) {
+        final queue = makeGatedQueue(maxConcurrent: 1);
+        for (final name in ['a', 'b', 'c']) {
+          queue.enqueue(_msg(text: name), channel, 'session-$name');
+          settle(async);
+        }
+        expect(started, ['a']);
+
+        queue.maxConcurrentTurns = 2;
+        async.flushMicrotasks();
+
+        expect(started, ['a', 'b']);
+
+        queue.maxConcurrentTurns = 3;
+        async.flushMicrotasks();
+
+        expect(started, ['a', 'b', 'c']);
+        expect(peakInFlight, 3);
+        queue.dispose();
+      });
+    });
+
+    test('lowering the cap admits nothing new until in-flight turns drop below it', () {
+      fakeAsync((async) {
+        final queue = makeGatedQueue(maxConcurrent: 3);
+        for (final name in ['a', 'b', 'c', 'd']) {
+          queue.enqueue(_msg(text: name), channel, 'session-$name');
+          settle(async);
+        }
+        expect(started, ['a', 'b', 'c']);
+
+        queue.maxConcurrentTurns = 1;
+        async.flushMicrotasks();
+        expect(started, ['a', 'b', 'c']);
+
+        finish(async, 'a');
+        expect(started, ['a', 'b', 'c']);
+
+        finish(async, 'b');
+        expect(started, ['a', 'b', 'c']);
+
+        finish(async, 'c');
+        expect(started, ['a', 'b', 'c', 'd']);
+        queue.dispose();
+      });
     });
   });
 }

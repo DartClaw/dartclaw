@@ -1,3 +1,6 @@
+import 'package:collection/collection.dart' show SetEquality;
+
+import 'channel_type.dart';
 import 'config_constraints.dart';
 import 'config_load_warnings.dart';
 import 'config_meta.dart';
@@ -30,6 +33,78 @@ enum WorkflowApprovalPolicy {
     }
     return null;
   }
+}
+
+/// Lifecycle moments of a workflow run that can be posted to the configured
+/// notification conversation.
+enum WorkflowChatNotificationEvent {
+  /// The run started.
+  started('started'),
+
+  /// The run paused for an approval or stalled input.
+  awaitingApproval('awaiting_approval'),
+
+  /// The run completed.
+  finished('finished'),
+
+  /// The run failed.
+  failed('failed'),
+
+  /// A step of the run completed.
+  stepCompleted('step_completed');
+
+  new(this.yamlValue);
+
+  /// Serialized config value.
+  final String yamlValue;
+
+  /// Returns the event named [value], or `null` when unsupported.
+  static WorkflowChatNotificationEvent? fromYaml(String value) {
+    final normalized = value.trim();
+    for (final event in values) {
+      if (event.yamlValue == normalized) return event;
+    }
+    return null;
+  }
+}
+
+/// Where a workflow run with no chat origin posts its lifecycle.
+class WorkflowChatNotificationsConfig {
+  /// Events posted when `events` is not configured.
+  static const defaultEvents = <WorkflowChatNotificationEvent>{
+    WorkflowChatNotificationEvent.started,
+    WorkflowChatNotificationEvent.awaitingApproval,
+    WorkflowChatNotificationEvent.finished,
+    WorkflowChatNotificationEvent.failed,
+  };
+
+  /// Channel the notifications are posted through.
+  final ChannelType channel;
+
+  /// Channel-specific conversation identifier.
+  final String recipient;
+
+  /// Lifecycle events that are posted.
+  final Set<WorkflowChatNotificationEvent> events;
+
+  /// Creates a [WorkflowChatNotificationsConfig] value.
+  const new({required this.channel, required this.recipient, this.events = defaultEvents});
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is WorkflowChatNotificationsConfig &&
+          channel == other.channel &&
+          recipient == other.recipient &&
+          const SetEquality<WorkflowChatNotificationEvent>().equals(events, other.events);
+
+  @override
+  int get hashCode => Object.hash(channel, recipient, const SetEquality<WorkflowChatNotificationEvent>().hash(events));
+
+  @override
+  String toString() =>
+      'WorkflowChatNotificationsConfig(channel: $channel, recipient: $recipient, '
+      'events: ${events.map((event) => event.yamlValue).join(', ')})';
 }
 
 /// Provider/model selection for a workflow execution role.
@@ -184,6 +259,10 @@ class WorkflowConfig {
   /// Opt-in age-based retention for runtime-artifacts directories.
   final WorkflowRuntimeArtifactsRetentionConfig runtimeArtifactsRetention;
 
+  /// Conversation that receives the lifecycle of runs started without a chat
+  /// origin; `null` when the block is absent or invalid.
+  final WorkflowChatNotificationsConfig? chatNotifications;
+
   /// Creates a [WorkflowConfig] value.
   const new({
     this.workspaceDir,
@@ -191,6 +270,7 @@ class WorkflowConfig {
     this.cleanup = const WorkflowCleanupConfig.defaults(),
     this.approvals = WorkflowApprovalPolicy.manual,
     this.runtimeArtifactsRetention = const WorkflowRuntimeArtifactsRetentionConfig.defaults(),
+    this.chatNotifications,
   });
 
   /// Default configuration with no custom workflow workspace override.
@@ -204,15 +284,18 @@ class WorkflowConfig {
           defaults == other.defaults &&
           cleanup == other.cleanup &&
           approvals == other.approvals &&
-          runtimeArtifactsRetention == other.runtimeArtifactsRetention;
+          runtimeArtifactsRetention == other.runtimeArtifactsRetention &&
+          chatNotifications == other.chatNotifications;
 
   @override
-  int get hashCode => Object.hash(workspaceDir, defaults, cleanup, approvals, runtimeArtifactsRetention);
+  int get hashCode =>
+      Object.hash(workspaceDir, defaults, cleanup, approvals, runtimeArtifactsRetention, chatNotifications);
 
   @override
   String toString() =>
       'WorkflowConfig(workspaceDir: $workspaceDir, defaults: $defaults, cleanup: $cleanup, '
-      'approvals: $approvals, runtimeArtifactsRetention: $runtimeArtifactsRetention)';
+      'approvals: $approvals, runtimeArtifactsRetention: $runtimeArtifactsRetention, '
+      'chatNotifications: $chatNotifications)';
 }
 
 /// Parses the `workflow:` YAML section into a [WorkflowConfig].
@@ -247,7 +330,74 @@ WorkflowConfig parseWorkflowConfig(Map<String, dynamic>? workflowMap, List<Strin
       workflowMap['runtime_artifacts_retention'],
       warns,
     ),
+    chatNotifications: _parseWorkflowChatNotifications(workflowMap['chat_notifications'], warns),
   );
+}
+
+WorkflowChatNotificationsConfig? _parseWorkflowChatNotifications(Object? raw, List<String> warns) {
+  if (raw == null) return null;
+  const block = 'workflow.chat_notifications';
+  const ignoring = '– ignoring $block';
+  if (raw is! Map) {
+    warns.add('Invalid type for $block: "${raw.runtimeType}" $ignoring');
+    return null;
+  }
+
+  final field = ConfigMeta.fields['workflow.chat_notifications.channel']!;
+  final channelRaw = raw['channel'];
+  if (channelRaw is! String || FieldConstraints.evaluate(field, channelRaw.trim()) != null) {
+    final allowed = field.allowedValues!.join(', ');
+    warns.add(switch (channelRaw) {
+      null => 'Missing value for $block.channel (allowed: $allowed) $ignoring',
+      String() => 'Invalid value for $block.channel: "$channelRaw" (allowed: $allowed) $ignoring',
+      _ => 'Invalid type for $block.channel: "${channelRaw.runtimeType}" $ignoring',
+    });
+    return null;
+  }
+
+  final recipientRaw = raw['recipient'];
+  if (recipientRaw is! String || recipientRaw.trim().isEmpty) {
+    warns.add(
+      recipientRaw == null || recipientRaw is String
+          ? 'Missing value for $block.recipient (expected a non-empty conversation identifier) $ignoring'
+          : 'Invalid type for $block.recipient: "${recipientRaw.runtimeType}" $ignoring',
+    );
+    return null;
+  }
+
+  final events = _parseChatNotificationEvents(raw['events'], warns);
+  if (events == null) return null;
+
+  return WorkflowChatNotificationsConfig(
+    channel: ChannelType.values.byName(channelRaw.trim()),
+    recipient: recipientRaw.trim(),
+    events: events,
+  );
+}
+
+Set<WorkflowChatNotificationEvent>? _parseChatNotificationEvents(Object? raw, List<String> warns) {
+  if (raw == null) return WorkflowChatNotificationsConfig.defaultEvents;
+  const key = 'workflow.chat_notifications.events';
+  const ignoring = '– ignoring workflow.chat_notifications';
+  final allowed = WorkflowChatNotificationEvent.values.map((event) => event.yamlValue).join(', ');
+  if (raw is! List || raw.isEmpty) {
+    warns.add(
+      raw is List
+          ? 'Invalid value for $key: empty list (allowed: $allowed) $ignoring'
+          : 'Invalid type for $key: "${raw.runtimeType}" (expected a list of: $allowed) $ignoring',
+    );
+    return null;
+  }
+  final events = <WorkflowChatNotificationEvent>{};
+  for (final item in raw) {
+    final event = item is String ? WorkflowChatNotificationEvent.fromYaml(item) : null;
+    if (event == null) {
+      warns.add('Invalid value for $key: "$item" (allowed: $allowed) $ignoring');
+      return null;
+    }
+    events.add(event);
+  }
+  return events;
 }
 
 WorkflowRuntimeArtifactsRetentionConfig _parseWorkflowRuntimeArtifactsRetention(Object? raw, List<String> warns) {

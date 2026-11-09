@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart' show PubSubHealthReporter;
+import 'package:dartclaw_slack/dartclaw_slack.dart' show SlackHealthReporter;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
@@ -27,34 +28,31 @@ const _badgeVariants = {'healthy': 'success', 'degraded': 'warning', 'unhealthy'
 /// no consumer here produced is not evidence of health.
 String healthStatusBadgeVariant(String status) => _badgeVariants[status] ?? 'error';
 
-/// Collects runtime health metrics: uptime, worker state, session count, DB size.
+/// Collects runtime health metrics: uptime, worker state, session count, artifact disk usage.
 class HealthService {
   static final _log = Logger('HealthService');
   static const _cacheTtl = Duration(seconds: 60);
 
   final AgentHarness _worker;
-  final String _searchDbPath;
   final String _sessionsDir;
   final String _tasksDir;
   final UsageTracker? _usageTracker;
   PubSubHealthReporter? _pubsubReporter;
+  SlackHealthReporter? _slackReporter;
   final DateTime _startedAt;
 
   int _cachedSessionCount = 0;
-  int _cachedDbSizeBytes = 0;
   int _cachedArtifactDiskBytes = 0;
   DateTime _cacheExpiry = DateTime.fromMillisecondsSinceEpoch(0);
 
   new({
     required AgentHarness worker,
-    required String searchDbPath,
     required String sessionsDir,
     String? tasksDir,
     UsageTracker? usageTracker,
     PubSubHealthReporter? pubsubReporter,
     DateTime? startedAt,
   }) : _worker = worker,
-       _searchDbPath = searchDbPath,
        _sessionsDir = sessionsDir,
        _tasksDir = tasksDir ?? p.join(p.dirname(sessionsDir), 'tasks'),
        _usageTracker = usageTracker,
@@ -63,6 +61,9 @@ class HealthService {
 
   /// Sets the Pub/Sub health reporter (late injection for wiring order).
   set pubsubReporter(PubSubHealthReporter? reporter) => _pubsubReporter = reporter;
+
+  /// Sets the Slack health reporter (late injection for wiring order).
+  set slackReporter(SlackHealthReporter? reporter) => _slackReporter = reporter;
 
   /// Returns the current Pub/Sub health status, or null if not configured.
   Map<String, dynamic>? get pubsubHealth => _pubsubReporter?.status;
@@ -77,7 +78,6 @@ class HealthService {
       'uptime_s': DateTime.now().difference(_startedAt).inSeconds,
       'worker_state': _worker.state.name,
       'session_count': _cachedSessionCount,
-      'db_size_bytes': _cachedDbSizeBytes,
       'artifact_disk_bytes': _cachedArtifactDiskBytes,
       'version': dartclawVersion,
     };
@@ -97,6 +97,11 @@ class HealthService {
       result['pubsub'] = pubsubReporter.status;
     }
 
+    final slackReporter = _slackReporter;
+    if (slackReporter != null) {
+      result['slack'] = slackReporter.status;
+    }
+
     return result;
   }
 
@@ -105,7 +110,6 @@ class HealthService {
     if (now.isBefore(_cacheExpiry)) return;
 
     _cachedSessionCount = _countSessions();
-    _cachedDbSizeBytes = _dbSize();
     _cachedArtifactDiskBytes = _artifactDiskBytes();
     _cacheExpiry = now.add(_cacheTtl);
   }
@@ -115,15 +119,6 @@ class HealthService {
       return Directory(_sessionsDir).listSync().whereType<Directory>().length;
     } catch (e) {
       _log.fine('Failed to count sessions: $e');
-      return 0;
-    }
-  }
-
-  int _dbSize() {
-    try {
-      return File(_searchDbPath).lengthSync();
-    } catch (e) {
-      _log.fine('Failed to get db size: $e');
       return 0;
     }
   }

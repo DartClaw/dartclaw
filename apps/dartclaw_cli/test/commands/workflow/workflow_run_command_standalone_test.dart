@@ -93,10 +93,11 @@ WorkflowRunCommand _standaloneCommand({
   Map<String, String>? environment,
   FakeProviderAuthPreflight? providerAuthPreflight,
   FakeSkillIntrospector? skillIntrospector,
+  InMemoryWorkflowRunRepository? runs,
   bool runWorkflowSkillsBootstrap = false,
 }) {
   final tasks = InMemoryTaskRepository();
-  final runs = InMemoryWorkflowRunRepository();
+  runs ??= InMemoryWorkflowRunRepository();
   final agentExecutions = InMemoryAgentExecutionRepository();
   final stepExecutions = InMemoryWorkflowStepExecutionRepository();
   return WorkflowRunCommand(
@@ -107,7 +108,7 @@ WorkflowRunCommand _standaloneCommand({
     taskBackendFactory: (_) async => openPreparedTaskBackend(),
     taskBackendIsPrepared: true,
     taskRepositoryFactory: (_) => tasks,
-    workflowRunRepositoryFactory: (_) => runs,
+    workflowRunRepositoryFactory: (_) => runs!,
     agentExecutionRepositoryFactory: (_) => agentExecutions,
     workflowStepExecutionRepositoryFactory: (_) => stepExecutions,
     executionRepositoryTransactorFactory: (_) => const InMemoryExecutionRepositoryTransactor(),
@@ -431,6 +432,27 @@ steps:
       expect(gitStrategy['integrationBranch'], isTrue);
       expect(gitStrategy['worktree'], equals('shared'));
       expect(errors, isEmpty);
+    });
+
+    test('run origin: a standalone run stores surface cli with no channel fields', () async {
+      final runs = InMemoryWorkflowRunRepository();
+      final command = _standaloneCommand(config: config, runs: runs);
+      final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
+
+      await expectLater(
+        () => runner.run(['run', 'ci-demo', '--standalone', '--json']),
+        throwsA(isA<FakeExit>().having((e) => e.code, 'code', 0)),
+      );
+
+      final stored = await runs.list();
+      expect(stored.single.origin.toJson(), {
+        'surface': 'cli',
+        'channelType': null,
+        'recipientId': null,
+        'threadId': null,
+        'sessionKey': null,
+        'senderId': null,
+      });
     });
 
     test('standalone run with no config exits with init workflow guidance', () async {

@@ -87,6 +87,7 @@ Future<({Handler handler, List<LogRecord> logs})> _startUntilBindFailure(
   late Handler handler;
   final command = ServeCommand(
     config: config,
+    environment: {'DARTCLAW_HOME': config.server.dataDir},
     taskBackendFactory: (_) async => openPreparedTaskBackend(),
     taskBackendIsPrepared: true,
     searchIndexFactory: _inMemorySearchIndex,
@@ -159,7 +160,7 @@ void main() {
     expect(response.statusCode, 200);
     expect(response.headers['content-type'], startsWith('text/css'));
     expect(started.logs.any((record) => record.message == 'Assets: embedded'), isTrue);
-    for (final name in ['code-review.yaml', 'plan-and-implement.yaml', 'story-and-implement.yaml']) {
+    for (final name in ['code-review.yaml', 'implement-prd.yaml', 'implement-story.yaml']) {
       expect(File(p.join(dataDir, 'workflows', 'built-in', name)).existsSync(), isTrue, reason: name);
     }
     expect(File(p.join(dataDir, '.agents', 'skills', 'dartclaw-validate-workflow', 'SKILL.md')).existsSync(), isTrue);
@@ -213,6 +214,7 @@ void main() {
         templatesDir: p.join(tempDir.path, 'missing-templates'),
         staticDir: staticAssets.path,
       ),
+      environment: {'DARTCLAW_HOME': tempDir.path},
       stderrLine: stderrLines.add,
       exitFn: (code) => throw _ExitIntercept(code),
       runWorkflowSkillsBootstrap: false,

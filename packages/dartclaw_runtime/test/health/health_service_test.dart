@@ -1,9 +1,12 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_runtime/src/health/health_route.dart';
 import 'package:dartclaw_runtime/src/health/health_service.dart';
+import 'package:dartclaw_slack/dartclaw_slack.dart';
+import 'package:dartclaw_slack/testing.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeAgentHarness;
 import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart';
@@ -31,7 +34,6 @@ void main() {
     test('returns healthy status when worker is idle', () async {
       final service = HealthService(
         worker: harness,
-        searchDbPath: '/nonexistent/search.db',
         sessionsDir: sessionsDir,
         startedAt: DateTime.now().subtract(const Duration(seconds: 60)),
       );
@@ -47,7 +49,7 @@ void main() {
 
     test('returns unhealthy when worker is stopped', () async {
       harness.setState(WorkerState.stopped);
-      final service = HealthService(worker: harness, searchDbPath: '/nonexistent/search.db', sessionsDir: sessionsDir);
+      final service = HealthService(worker: harness, sessionsDir: sessionsDir);
 
       final status = await service.getStatus();
       expect(status['status'], 'unhealthy');
@@ -55,10 +57,38 @@ void main() {
 
     test('returns degraded when worker is crashed', () async {
       harness.setState(WorkerState.crashed);
-      final service = HealthService(worker: harness, searchDbPath: '/nonexistent/search.db', sessionsDir: sessionsDir);
+      final service = HealthService(worker: harness, sessionsDir: sessionsDir);
 
       final status = await service.getStatus();
       expect(status['status'], 'degraded');
+    });
+
+    group('Slack transport state', () {
+      HealthService serviceWith(SlackHealthReporter? reporter) =>
+          HealthService(worker: harness, sessionsDir: sessionsDir)..slackReporter = reporter;
+
+      test('has no slack key while Slack is not enabled', () async {
+        expect(await serviceWith(null).getStatus(), isNot(contains('slack')));
+      });
+
+      test('carries the reporter map under slack, with no secret, ID or content', () async {
+        const secret = 'plain-signing-secret-7c1e';
+        final events = SlackEventsHandler(signingSecret: secret, dispatch: SlackEnvelopeDispatch());
+        final body = Uint8List.fromList(
+          utf8.encode('{"type":"event_callback","event":{"user":"U0SENDER","text":"private"}}'),
+        );
+        await events.handle(body, signedSlackHeaders('another-secret', body));
+
+        final status = await serviceWith(SlackHealthReporter(events: events)).getStatus();
+
+        final slack = status['slack'] as Map<String, dynamic>;
+        expect(slack, containsPair('mode', 'events'));
+        expect(slack, containsPair('last_failure_reason', 'invalid_slack_signature'));
+        final wire = jsonEncode(status);
+        for (final leak in [secret, 'another-secret', 'U0SENDER', 'private']) {
+          expect(wire, isNot(contains(leak)));
+        }
+      });
     });
 
     test('counts session directories', () async {
@@ -67,27 +97,10 @@ void main() {
       // File should not be counted
       File('$sessionsDir/not-a-session.json').writeAsStringSync('{}');
 
-      final service = HealthService(worker: harness, searchDbPath: '/nonexistent/search.db', sessionsDir: sessionsDir);
+      final service = HealthService(worker: harness, sessionsDir: sessionsDir);
 
       final status = await service.getStatus();
       expect(status['session_count'], 2);
-    });
-
-    test('reports DB file size', () async {
-      final dbFile = File('${tempDir.path}/search.db');
-      dbFile.writeAsStringSync('x' * 1024);
-
-      final service = HealthService(worker: harness, searchDbPath: dbFile.path, sessionsDir: sessionsDir);
-
-      final status = await service.getStatus();
-      expect(status['db_size_bytes'], 1024);
-    });
-
-    test('returns 0 for missing DB file', () async {
-      final service = HealthService(worker: harness, searchDbPath: '/nonexistent/search.db', sessionsDir: sessionsDir);
-
-      final status = await service.getStatus();
-      expect(status['db_size_bytes'], 0);
     });
 
     test('reports aggregate artifact disk usage', () async {
@@ -98,7 +111,7 @@ void main() {
       File(p.join(taskTwoArtifacts.path, 'data.json')).writeAsStringSync('1234567');
       File(p.join(tasksDir, 'task-1', 'outside.txt')).writeAsStringSync('ignored');
 
-      final service = HealthService(worker: harness, searchDbPath: '/nonexistent/search.db', sessionsDir: sessionsDir);
+      final service = HealthService(worker: harness, sessionsDir: sessionsDir);
       final status = await service.getStatus();
 
       expect(status['artifact_disk_bytes'], 12);
@@ -108,7 +121,7 @@ void main() {
       final taskArtifacts = Directory(p.join(tasksDir, 'task-1', 'artifacts'))..createSync(recursive: true);
       File(p.join(taskArtifacts.path, 'report.txt')).writeAsStringSync('hello');
 
-      final service = HealthService(worker: harness, searchDbPath: '/nonexistent/search.db', sessionsDir: sessionsDir);
+      final service = HealthService(worker: harness, sessionsDir: sessionsDir);
 
       final firstStatus = await service.getStatus();
       File(p.join(taskArtifacts.path, 'later.txt')).writeAsStringSync('1234567');
@@ -119,7 +132,7 @@ void main() {
     });
 
     test('version is present', () async {
-      final service = HealthService(worker: harness, searchDbPath: '/nonexistent/search.db', sessionsDir: sessionsDir);
+      final service = HealthService(worker: harness, sessionsDir: sessionsDir);
 
       final status = await service.getStatus();
       expect(status['version'], isA<String>());
@@ -154,7 +167,7 @@ void main() {
 
   group('healthHandler', () {
     test('GET /health returns JSON 200 with expected fields', () async {
-      final service = HealthService(worker: harness, searchDbPath: '/nonexistent/search.db', sessionsDir: sessionsDir);
+      final service = HealthService(worker: harness, sessionsDir: sessionsDir);
 
       final handler = healthHandler(service);
       final request = Request('GET', Uri.parse('http://localhost/health'));
@@ -168,9 +181,13 @@ void main() {
       expect(body['uptime_s'], isA<int>());
       expect(body['worker_state'], 'idle');
       expect(body['session_count'], isA<int>());
-      expect(body['db_size_bytes'], isA<int>());
       expect(body['artifact_disk_bytes'], isA<int>());
       expect(body['version'], isA<String>());
+      // The route is an unauthenticated public surface: pin its exact field set.
+      expect(
+        body.keys,
+        unorderedEquals(['status', 'uptime_s', 'worker_state', 'session_count', 'artifact_disk_bytes', 'version']),
+      );
     });
   });
 }

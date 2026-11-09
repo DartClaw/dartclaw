@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash -lc 'cd \"$CLAUDE_PROJECT_DIR\" && dart format --line-length=120 . >/dev/null && printf \"{}\"'",
+            "command": "bash -lc 'cd \"$CLAUDE_PROJECT_DIR\" && bash dev/tools/format_changed.sh >/dev/null 2>&1; printf \"{}\"'",
             "timeout": 120
           }
         ]

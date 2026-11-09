@@ -19,8 +19,8 @@ final class ChannelAgentBinding {
   final ExecutionPolicy policy;
 
   /// The behavior composed from this agent's pinned workspace. An absent
-  /// workspace reads no owner files; an explicit prompt occupies the SOUL
-  /// position for every profile.
+  /// workspace reads no owner files; an explicit prompt is appended after the
+  /// workspace files, and is the whole persona under the restricted profile.
   final BehaviorFileService behavior;
 
   PromptScope get promptScope =>

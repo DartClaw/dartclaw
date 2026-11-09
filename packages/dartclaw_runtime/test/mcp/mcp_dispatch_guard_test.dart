@@ -252,12 +252,12 @@ void main() {
         chain: GuardChain(guards: [guard]),
         sink: audit,
       );
-      final scoped = unscoped.scopedTo(
-        _AllowListPolicy({'probe_write'}),
-        callerIdentity: const McpCallerIdentity(
-          authorityId: 'authority-42',
-          sessionId: 'session-9',
-          agentId: 'agent-3',
+      final scoped = unscoped.forCaller(
+        McpCaller(
+          identity: () =>
+              const McpCallerIdentity(authorityId: 'authority-42', sessionId: 'session-9', agentId: 'agent-3'),
+          policy: _AllowListPolicy({'probe_write'}),
+          guardsAsCaller: true,
         ),
       );
 
@@ -284,7 +284,7 @@ void main() {
         chain: GuardChain(guards: [_StubGuard(GuardVerdict.block('blocked'))]),
         sink: audit,
       );
-      final scoped = blocked.scopedTo(_AllowListPolicy({'probe_write'}));
+      final scoped = blocked.forCaller(McpCaller(identity: () => null, policy: _AllowListPolicy({'probe_write'})));
 
       final result = _result(await _call(scoped, 'probe_write'));
 
@@ -364,11 +364,14 @@ void main() {
           ],
         ),
         auditLogger: audit,
-      )..registerTool(search);
-      final scoped = handler.scopedTo(
-        _AllowListPolicy({'brave_search'}),
         toolCanonicals: const {'brave_search': CanonicalTool.webSearch},
-        callerIdentity: const McpCallerIdentity(authorityId: 'authority-42', agentId: 'search'),
+      )..registerTool(search);
+      final scoped = handler.forCaller(
+        McpCaller(
+          identity: () => const McpCallerIdentity(authorityId: 'authority-42', agentId: 'search'),
+          policy: _AllowListPolicy({'brave_search'}),
+          guardsAsCaller: true,
+        ),
       );
 
       final result = _result(await _call(scoped, 'brave_search'));
@@ -395,11 +398,14 @@ void main() {
           ],
         ),
         auditLogger: audit,
-      )..registerTool(search);
-      final scoped = handler.scopedTo(
-        _AllowListPolicy({'brave_search'}),
         toolCanonicals: const {'brave_search': CanonicalTool.webSearch},
-        callerIdentity: const McpCallerIdentity(authorityId: 'authority-42', agentId: 'writer'),
+      )..registerTool(search);
+      final scoped = handler.forCaller(
+        McpCaller(
+          identity: () => const McpCallerIdentity(authorityId: 'authority-42', agentId: 'writer'),
+          policy: _AllowListPolicy({'brave_search'}),
+          guardsAsCaller: true,
+        ),
       );
 
       final result = _result(await _call(scoped, 'brave_search'));
@@ -432,7 +438,7 @@ void main() {
             ..registerTool(writeTool)
             ..registerTool(strict);
       final policy = _AllowListPolicy({'probe_strict'});
-      final scoped = handler.scopedTo(policy);
+      final scoped = handler.forCaller(McpCaller(identity: () => null, policy: policy));
 
       final denied = await _call(scoped, 'probe_write');
       final unknown = await _call(scoped, 'no_such_tool');
@@ -458,7 +464,7 @@ void main() {
         guardChain: GuardChain(guards: [_StubGuard(GuardVerdict.pass())]),
         auditLogger: audit,
       )..registerTool(_ContextualProbe());
-      final scoped = handler.scopedTo(_AllowListPolicy({'probe_contextual'}));
+      final scoped = handler.forCaller(McpCaller(identity: () => null, policy: _AllowListPolicy({'probe_contextual'})));
 
       final result = _result(await _call(scoped, 'probe_contextual'));
 
@@ -468,7 +474,7 @@ void main() {
   });
 }
 
-class _ContextualProbe implements ContextualMcpTool {
+class _ContextualProbe extends ContextualMcpTool {
   @override
   String get name => 'probe_contextual';
 
@@ -480,9 +486,6 @@ class _ContextualProbe implements ContextualMcpTool {
 
   @override
   McpToolAccess get access => McpToolAccess.write;
-
-  @override
-  Future<ToolResult> call(Map<String, dynamic> args) async => fail('unauthenticated contextual tool must not run');
 
   @override
   Future<ToolResult> callWithContext(Map<String, dynamic> args, McpCallerContext context) async =>

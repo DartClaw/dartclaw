@@ -84,7 +84,7 @@ logging:
 
 governance:
   budget:
-    daily_tokens: 5000000   # 5M — enough for multi-step plan-and-implement
+    daily_tokens: 5000000   # 5M — enough for multi-step implement-prd
   loop_detection:
     enabled: true
 

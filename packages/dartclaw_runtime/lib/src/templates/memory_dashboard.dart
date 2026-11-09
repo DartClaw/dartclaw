@@ -255,7 +255,6 @@ Map<String, dynamic> _buildContext(
     'searchBackendAbsent': absentValue(search['backend']).isAbsent,
     'searchDepth': '${search['depth'] ?? 0}',
     'searchIndexTotal': _known(index['derivedChunkCount']),
-    'searchDbSize': search['dbSizeBytes'] == null ? 'unknown' : formatBytes(search['dbSizeBytes'] as int),
     'memoryMdOldest': _formatTimestamp(memoryMd['oldestEntry'] as String?),
     'memoryMdOldestIso': isoTitle(memoryMd['oldestEntry'] as String?),
     'memoryMdNewest': _formatTimestamp(memoryMd['newestEntry'] as String?),

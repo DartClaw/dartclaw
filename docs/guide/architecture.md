@@ -37,7 +37,7 @@ The Dart host is the control plane. It is an AOT-compiled Shelf HTTP server with
 
 - **Stores state** — sessions/messages/canonical memory in files, relational/search data in PostgreSQL, instance-local recovery in files, and config in YAML
 - **Serves the web UI** — Trellis HTML templates, HTMX + SSE streaming, CSS design tokens
-- **Orchestrates turns** — receives messages (from web, WhatsApp, Signal, Google Chat), composes system prompts, dispatches to agent harnesses, streams results back
+- **Orchestrates turns** — receives messages (from web, WhatsApp, Signal, Google Chat, Slack), composes system prompts, dispatches to agent harnesses, streams results back
 - **Enforces security** — guard chain (command/file/network/tool guards, content classification), credential isolation, container management, audit logging
 - **Runs background work** — cron scheduling, session maintenance, memory pruning, task queue processing
 
@@ -74,7 +74,7 @@ Dart Host                              Agent CLI Binary
     │                                       │
     │──── spawn with args + env ───────────>│
     │                                       │
-    │──── initialize (hooks, MCP, prompt) ─>│
+    │──── initialize (hooks) ──────────────>│
     │<──── init response ──────────────────│
     │                                       │
     │──── user message / turn request ────>│
@@ -92,7 +92,6 @@ The protocol supports:
 
 - **Streaming events** — text deltas, tool use, tool results, all parsed via a sealed class hierarchy
 - **Hook callbacks** — the binary asks the Dart host for permission or lifecycle coordination before key operations (`PreToolUse`, `PostToolUse`, `PermissionDenied`, `PreCompact`), enabling guard enforcement, audit logging, and compaction observability
-- **In-process MCP** — MCP tool calls (memory search, web fetch, etc.) are proxied through the control protocol as JSONRPC messages, handled by the Dart host
 - **Control messages** — interrupt, model switching, permission mode changes
 - **ACP reverse-calls** – verified direct ACP agents route `fs/read_text_file` and `fs/write_text_file` through DartClaw's guard chain within the active task session and workspace
 
@@ -105,7 +104,7 @@ The protocol supports:
 
 ## Package Structure
 
-DartClaw's public package tree contains thirteen packages under `packages/` plus a CLI app. The repo-wide Dart workspace
+DartClaw's public package tree contains fourteen packages under `packages/` plus a CLI app. The repo-wide Dart workspace
 also includes the development-only `dev/fitness` package. Each public package has a focused role:
 
 ```
@@ -128,6 +127,8 @@ packages/
   dartclaw_signal/       Signal integration and config registration.
 
   dartclaw_google_chat/  Google Chat integration and config registration.
+
+  dartclaw_slack/        Slack integration over Socket Mode and config registration.
 
   dartclaw_workflow/     Unified workflow parsing, validation, registry, and
                          execution support for DartClaw.
@@ -279,16 +280,19 @@ All channels flow through the same `ChannelManager`, which handles session key r
 
 Each channel normalizes inbound messages, formats outbound responses, and may provide best-effort typing feedback; unsupported channels use no-op hooks.
 
-For Google Chat thread binding, task notifications can create a dedicated Chat thread and DartClaw persists a
-`ThreadBinding` that maps that thread back to the correct task session. Replies in that thread reuse the bound route
-context, keeping task discussion scoped to the task instead of falling back to the shared room session. Review decisions
-are made through the task UI, API, or the agent's `task_review` tool.
+A channel that threads (Google Chat and Slack) declares one capability for it, and that declaration is the only thing
+DartClaw consults: WhatsApp and Signal declare none and receive plain messages. With thread binding on, task
+notifications on such a channel create a dedicated thread and DartClaw persists a `ThreadBinding` that maps that thread
+back to the correct task session. Replies in that thread reuse the bound route context, keeping task discussion scoped
+to the task instead of falling back to the shared room session. Review decisions are made through the task UI, API, or
+the agent's `task_review` tool. Workflow runs post their started, awaiting-approval and finished or failed messages the
+same way, into the thread that started the run or into one thread per run in the `workflow.chat_notifications` channel.
 
 Google Chat also carries reply metadata through the shared queue. Inbound `messageName` and `messageCreateTime` survive queued delivery, so enabling `channels.google_chat.quote_reply: true` lets outbound replies render as native quoted replies for both webhook-originated messages and Space Events messages. Optional `channels.google_chat.feedback.*` settings let long-running turns update a placeholder message or emoji reaction while work is in progress; defaults remain off, so existing deployments keep the old behavior until the feature is enabled.
 
 Runtime governance also applies at the channel boundary. Per-sender rate limits, deployment-wide token budgets, and facilitator-only emergency controls (`/stop`, `/pause`, `/resume`) are enforced before normal inbound processing continues.
 
-The shared channel abstractions and routing live in `dartclaw_core`; the WhatsApp, Signal, and Google Chat integrations live in their own packages.
+The shared channel abstractions and routing live in `dartclaw_core`; the WhatsApp, Signal, Google Chat, and Slack integrations live in their own packages.
 
 For channel setup, see the [WhatsApp](whatsapp.md), [Signal](signal.md), and [Configuration](configuration.md) guides.
 
@@ -410,7 +414,7 @@ Events are fire-and-forget notifications. If no listener is subscribed, the even
 
 ## MCP Server
 
-DartClaw exposes an internal MCP (Model Context Protocol) server that provides custom tools to the agent. Tool calls are proxied through the active provider protocol — Claude JSONL, Codex JSON-RPC JSONL, or guarded ACP host calls where applicable — with no external MCP server process needed.
+DartClaw exposes an internal MCP (Model Context Protocol) server that provides custom tools to the agent. Harnesses call it over HTTP at the running server's `/mcp` endpoint with a bearer minted per harness (Claude through a generated `--mcp-config`, Codex through its generated config, a container harness through its own bridge), so no external MCP server process is needed.
 
 Built-in MCP tools:
 

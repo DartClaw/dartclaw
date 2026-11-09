@@ -18,14 +18,17 @@ import 'package:dartclaw_runtime/dartclaw_runtime.dart'
         dartclawVersion,
         defaultProviderExecutable,
         formatUptime,
+        resolveChannelConfig,
         resolveDatabaseDsn,
         resolveProviderTarget;
+import 'package:dartclaw_slack/dartclaw_slack.dart' show SlackConfig, SlackWebApiClient;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show selectBashShell;
 
 import '../connected_command_support.dart';
 import '../secrets/credential_inventory.dart';
 
 import '../config_loader.dart';
+import 'slack_checks.dart';
 
 typedef _ProviderTarget = ({String providerId, String providerBinary});
 typedef _LocalVerificationCheck = ({List<DiagnosticRow> rows, List<_ProviderTarget> providerTargets});
@@ -158,7 +161,7 @@ class SetupVerificationResult {
 /// [verify] projects its shared rows into the existing setup outcomes.
 class SetupChecks {
   final Future<BinaryProbe> Function(String executable) _probeBinary;
-  final Future<bool> Function(int port) _portFree;
+  final Future<bool> Function(String host, int port) _portFree;
   final void Function(Directory probeDir) _writeProbeFile;
   final DartclawConfig Function(String configPath) _loadConfig;
   final Future<bool> Function(String configPath) _configParseable;
@@ -166,10 +169,11 @@ class SetupChecks {
   final RunCommand _runCommand;
   final Future<Map<String, dynamic>?> Function(DartclawConfig config, String? serverOverride)? _serverHealth;
   final DatabaseReadinessCheck _databaseReadiness;
+  final SlackClientFactory _slackClientFactory;
 
   new({
     Future<BinaryProbe> Function(String executable)? probeBinary,
-    Future<bool> Function(int port)? portFree,
+    Future<bool> Function(String host, int port)? portFree,
     void Function(Directory probeDir)? writeProbeFile,
     DartclawConfig Function(String configPath)? loadConfig,
     Future<bool> Function(String configPath)? configParseable,
@@ -177,6 +181,7 @@ class SetupChecks {
     RunCommand? runCommand,
     Future<Map<String, dynamic>?> Function(DartclawConfig config, String? serverOverride)? serverHealth,
     DatabaseReadinessCheck? databaseReadiness,
+    SlackClientFactory? slackClientFactory,
   }) : _probeBinary = probeBinary ?? _defaultProbeBinary,
        _portFree = portFree ?? _defaultPortFree,
        _writeProbeFile = writeProbeFile ?? _defaultWriteProbeFile,
@@ -185,14 +190,16 @@ class SetupChecks {
        _providerVerified = providerVerified,
        _runCommand = runCommand ?? Process.run,
        _serverHealth = serverHealth,
-       _databaseReadiness = databaseReadiness ?? _defaultDatabaseReadiness;
+       _databaseReadiness = databaseReadiness ?? _defaultDatabaseReadiness,
+       _slackClientFactory = slackClientFactory ?? ((botToken) => SlackWebApiClient(botToken: botToken));
 
   /// Whether [port] can be bound, using the same probe [preflight] and
   /// [diagnose] run.
   ///
   /// `init`'s port prompt asks before preflight does, and the two must not be
-  /// able to disagree — including under an injected `portFree`.
-  Future<bool> portAvailable(int port) => _portFree(port);
+  /// able to disagree — including under an injected `portFree`. Init always
+  /// writes the default host, so that is the address probed before a config exists.
+  Future<bool> portAvailable(int port) => _portFree(const ServerConfig().host, port);
 
   /// Runs the pre-write checks for [providers] on [port] with [instanceDir].
   ///
@@ -221,7 +228,7 @@ class SetupChecks {
       }
     }
 
-    if (!workflowTrack && !await _portFree(port)) {
+    if (!workflowTrack && !await portAvailable(port)) {
       errors.add(
         'Port $port is already in use. '
         'Choose a different port with --port or stop the existing process.',
@@ -263,6 +270,7 @@ class SetupChecks {
       configPath: configPath,
       providerIds: providerIds,
       instanceDir: instanceDir,
+      host: config.server.host,
       port: port,
       skipPortCheck: skipPortCheck,
       loadedConfig: config,
@@ -366,6 +374,7 @@ class SetupChecks {
       configPath: configPath,
       providerIds: providers,
       instanceDir: config.server.dataDir,
+      host: config.server.host,
       port: config.server.port,
       skipPortCheck: serverOverride != null,
       loadedConfig: config,
@@ -489,6 +498,16 @@ class SetupChecks {
       );
     }
     rows.addAll(await _containerRows(config, capabilities, serverRunning: server != null));
+    final slack = resolveChannelConfig<SlackConfig>(config, ChannelType.slack);
+    if (slack.enabled) {
+      var credentials = config.credentials;
+      try {
+        credentials = _declaredAndStoredCredentials(config, env);
+      } on Object {
+        /* An unusable store degrades to the declared view; `secrets.*` rows report the store. */
+      }
+      rows.addAll(await slackRows(slack, credentials: credentials, server: server, clientFactory: _slackClientFactory));
+    }
     if (!capabilities.posixSignalsAvailable) rows.addAll(await _windowsRows(config, capabilities));
     return DiagnosticReport(rows, server: server, missingDirectories: missingDirectories);
   }
@@ -678,6 +697,15 @@ class SetupChecks {
     }
   }
 
+  /// The config's declared credentials overlaid with the named store's, which wins a shadowed name.
+  static CredentialsConfig _declaredAndStoredCredentials(DartclawConfig config, Map<String, String> environment) {
+    final stored = NamedCredentialStore.readOnly(
+      credentialsDir: config.credentialsDir,
+      environment: environment,
+    ).readAll();
+    return CredentialsConfig(entries: {...config.credentials.entries, ...stored});
+  }
+
   static Future<List<DiagnosticRow>> _defaultDatabaseReadiness(
     DartclawConfig config, {
     required bool bootstrap,
@@ -707,11 +735,7 @@ class SetupChecks {
 
     DatabaseBackend? backend;
     try {
-      final stored = NamedCredentialStore.readOnly(
-        credentialsDir: config.credentialsDir,
-        environment: environment,
-      ).readAll();
-      final credentials = CredentialsConfig(entries: {...config.credentials.entries, ...stored});
+      final credentials = _declaredAndStoredCredentials(config, environment);
       final factory = postgresBackendFactory(
         database,
         resolveDsn: (value) => resolveDatabaseDsn(value, credentials: CredentialRegistry(credentials: credentials)),
@@ -840,6 +864,7 @@ class SetupChecks {
     required String configPath,
     required List<String> providerIds,
     required String instanceDir,
+    required String host,
     required int port,
     required bool skipPortCheck,
     DartclawConfig? loadedConfig,
@@ -878,7 +903,7 @@ class SetupChecks {
       ),
     );
     if (!skipPortCheck) {
-      final free = await _portFree(port);
+      final free = await _portFree(host, port);
       rows.add(
         DiagnosticRow(
           id: 'server.port',
@@ -985,10 +1010,13 @@ class SetupChecks {
     }
   }
 
-  static Future<bool> _defaultPortFree(int port) async {
+  // Binds the host string exactly as `serve` does: `localhost` resolves to
+  // `::1` first on macOS, so a fixed IPv4 probe reported a running server's
+  // port as free and the doctor never asked that server for its state.
+  static Future<bool> _defaultPortFree(String host, int port) async {
     ServerSocket? s;
     try {
-      s = await ServerSocket.bind(InternetAddress.loopbackIPv4, port);
+      s = await ServerSocket.bind(host, port);
       return true;
     } on SocketException {
       return false;

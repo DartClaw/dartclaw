@@ -168,6 +168,7 @@ class PauseController {
             timestamp: representative.timestamp,
             mentionedJids: representative.mentionedJids,
             metadata: representative.metadata,
+            attachments: [for (final entry in messages) ...entry.message.attachments],
           ),
         ),
       );

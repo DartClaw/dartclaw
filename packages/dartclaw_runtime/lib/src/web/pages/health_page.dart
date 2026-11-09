@@ -53,7 +53,6 @@ class HealthDashboardPage extends DashboardPage {
       uptimeSeconds: status['uptime_s'] as int? ?? 0,
       workerState: status['worker_state'] as String? ?? '',
       sessionCount: status['session_count'] as int? ?? 0,
-      dbSizeBytes: status['db_size_bytes'] as int? ?? 0,
       totalArtifactDiskBytes: totalArtifactDiskBytes,
       version: status['version'] as String? ?? '',
       sidebarData: sidebarData,

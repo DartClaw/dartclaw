@@ -1,0 +1,232 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 788" width="1000" height="788" role="img" aria-labelledby="title desc">
+  <title id="title">Task execution pipeline</title>
+  <desc id="desc">Every surface but a workflow step ends in TaskService.create, which writes a queued row. TaskExecutor polls queued rows every two seconds: it prepares the project and session, resolves provider and policy, acquires an execution lease, and checks the task out to running. The work then runs unawaited as _executeCore, settles, and releases the lease in a finally block; every failure goes through TaskFailureHandler.</desc>
+  <style>
+
+    svg { --bg:#f6f7f9; --card:#ffffff; --ink:#1e2030; --ink2:#4c4f69; --ink3:#6c6f85; --rule:#ccd0da; --edge:#8c8fa1; --hi:#1e66f5; --on:#ffffff; --panel:#1e1e2e; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+      --host:#40a02b; --host-d:#1f5c2a; --host-l:#2d7a1f; --ext:#e07c4f; --ext-d:#a8481c; --ext-l:#b5531f; --store:#179299; --store-d:#0f5f63; --store-l:#0e7377;
+      --sec:#d20f39; --sec-d:#9b0c2c; --sec-l:#b80d33; --chan:#8839ef; --chan-d:#5d23a8; --chan-l:#7027d4; --neu:#7c7f93; --neu-d:#4c4f69; --neu-l:#5c5f77; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#181825; --card:#1e1e2e; --ink:#cdd6f4; --ink2:#bac2de; --ink3:#9399b2; --rule:#45475a; --edge:#7f849c; --hi:#89b4fa; --on:#f5f7ff; --panel:#11111b; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+        --host:#a6e3a1; --host-d:#2f6b3a; --host-l:#a6e3a1; --ext:#fab387; --ext-d:#8f4a24; --ext-l:#fab387; --store:#94e2d5; --store-d:#1f6460; --store-l:#94e2d5;
+        --sec:#f38ba8; --sec-d:#8a2c45; --sec-l:#f38ba8; --chan:#cba6f7; --chan-d:#5e3f94; --chan-l:#cba6f7; --neu:#9399b2; --neu-d:#45475a; --neu-l:#bac2de; }
+    }
+    text { fill: var(--ink); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .mono, .kick, .badge text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+    .bg { fill: var(--bg); }
+    .title { font-size: 21px; font-weight: 700; }
+    .lede { fill: var(--ink3); font-size: 13px; }
+    .kick { font-size: 10.5px; font-weight: 600; letter-spacing: .1em; fill: var(--kl, var(--ink3)); }
+    .k-host { --k:var(--host); --kd:var(--host-d); --kl:var(--host-l); }
+    .k-ext { --k:var(--ext); --kd:var(--ext-d); --kl:var(--ext-l); }
+    .k-store { --k:var(--store); --kd:var(--store-d); --kl:var(--store-l); }
+    .k-sec { --k:var(--sec); --kd:var(--sec-d); --kl:var(--sec-l); }
+    .k-chan { --k:var(--chan); --kd:var(--chan-d); --kl:var(--chan-l); }
+    .k-neu { --k:var(--neu); --kd:var(--neu-d); --kl:var(--neu-l); }
+    .band { fill: color-mix(in srgb, var(--k) 6%, var(--bg)); stroke: color-mix(in srgb, var(--k) 50%, var(--bg)); stroke-width: 1.4; stroke-dasharray: 7 5; }
+    .box { stroke-width: 1.5; }
+    .tint .box { fill: color-mix(in srgb, var(--k) 13%, var(--card)); stroke: var(--k); }
+    .line .box { fill: var(--card); stroke: var(--k); }
+    .ghost .box { fill: none; stroke: var(--k); stroke-dasharray: 5 4; }
+    .solid .box { fill: var(--kd); stroke: var(--kd); }
+    .name { font-size: 14.5px; font-weight: 700; }
+    .sub { font-size: 11.5px; fill: var(--ink2); }
+    .mono { font-size: 11.5px; fill: var(--ink2); }
+    .solid text { fill: var(--on); }
+    .solid .sub, .solid .mono { fill: var(--on); fill-opacity: .82; }
+    .badge rect { fill: none; stroke: var(--kl); stroke-width: 1.2; }
+    .badge text { font-size: 9.5px; font-weight: 700; letter-spacing: .06em; fill: var(--kl); text-anchor: middle; }
+    .solid .badge rect { stroke: var(--on); stroke-opacity: .7; }
+    .solid .badge text { fill: var(--on); }
+    .e path { fill: none; stroke: var(--ec, var(--edge)); stroke-width: var(--ew, 1.6px); marker-end: var(--em, url(#ah)); }
+    .e.main path { stroke: var(--ec, var(--host)); stroke-width: var(--ew, 2.4px); marker-end: var(--em, url(#ah-main)); }
+    .e.bad path { stroke: var(--ec, var(--sec)); marker-end: var(--em, url(#ah-bad)); }
+    .e.dash path { stroke-dasharray: 6 4; }
+    .el { font-size: 11px; fill: var(--ink2); paint-order: stroke; stroke: var(--halo, var(--bg)); stroke-width: 4px; stroke-linejoin: round; }
+    .in-host .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    .ah { fill: var(--edge); } .ah-main { fill: var(--host); } .ah-bad { fill: var(--sec); } .ah-hi { fill: var(--hi); }
+    .panel { fill: var(--panel); }
+    .panel-kick { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10.5px; font-weight: 700; letter-spacing: .12em; fill: var(--panel-kick); }
+    .p1 { fill: var(--panel-ink); font-size: 13px; }
+    .p1 tspan.b { font-weight: 700; }
+    .p2 { fill: var(--panel-sub); font-size: 12.5px; }
+    .lg { font-size: 11px; fill: var(--ink2); }
+    .chip rect { fill: color-mix(in srgb, var(--k) 10%, var(--card)); stroke: var(--k); stroke-width: 1; }
+    .chip text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10px; font-weight: 600; fill: var(--kl); }
+    .step circle { fill: var(--kd); } .step text { fill: var(--on); font-size: 11px; font-weight: 700; text-anchor: middle; }
+    /* Interaction, effective only when the SVG is opened directly. */
+    .n { cursor: pointer; }
+    .n:hover .box, a:focus-visible .box { stroke: var(--hi); stroke-width: 2.8; }
+    .d { display: none; pointer-events: none; }
+    .n:hover .d, a:focus-visible .d { display: inline; }
+    svg:has(.n:hover) .d0, svg:has(a:focus-visible) .d0 { display: none; }
+    svg:has(.n:hover) .edges .e { opacity: .14; }
+    .e.join path { marker-end: none; }
+    .band.inner { fill: none; stroke-dasharray: 3 4; }
+    .mono-name { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13.5px; }
+    .edges .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    svg:has(#surf:hover) .edges :is(.f-surf,.t-surf) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#create:hover) .edges :is(.f-create,.t-create) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#table:hover) .edges :is(.f-table,.t-table) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#s1:hover) .edges :is(.f-s1,.t-s1) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#s2:hover) .edges :is(.f-s2,.t-s2) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#s3:hover) .edges :is(.f-s3,.t-s3) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#s4:hover) .edges :is(.f-s4,.t-s4) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#s5:hover) .edges :is(.f-s5,.t-s5) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#s6:hover) .edges :is(.f-s6,.t-s6) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#s7:hover) .edges :is(.f-s7,.t-s7) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#s8:hover) .edges :is(.f-s8,.t-s8) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#fail:hover) .edges :is(.f-fail,.t-fail) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+  </style>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-main" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path class="ah-main" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-bad" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="ah-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="788"/>
+  <!-- Details panel: painted first so node details (.d) draw on top -->
+  <rect class="panel" x="16" y="692" width="968" height="80" rx="12"/>
+  <text class="panel-kick" x="36" y="716">DETAILS</text>
+  <g class="d0"><text class="p1" x="36" y="740">Hover a box for what it does and how it fails; its connections light up. Click it to open its section.</text><text class="p2" x="36" y="760">Inside a rendered document this image is static. Click it to open the interactive SVG.</text></g>
+
+  <text class="kick" x="24" y="32">PIPELINE · TaskExecutor._pollOnceInner</text>
+  <text class="title" x="24" y="58">Task execution pipeline</text>
+  <text class="lede" x="24" y="80">Creation never executes inline. One poll dispatches each queued task onto a lease; the work then runs unawaited.</text>
+
+  <g class="k-host"><rect class="band" x="16" y="204" width="968" height="154" rx="14"/></g>
+  <g class="k-host"><text class="kick" x="968" y="226" text-anchor="end">POLL · EVERY 2 s · QUEUED TASKS, OLDEST FIRST</text></g>
+  <g class="k-host"><rect class="band" x="16" y="392" width="968" height="250" rx="14"/></g>
+  <g class="k-host"><text class="kick" x="968" y="414" text-anchor="end">RUN · UNAWAITED, TRACKED IN _activeExecutionTasks</text></g>
+
+  <g class="edges">
+    <g class="e  f-surf t-create"><path d="M294,133 H334"/><text class="el" x="314" y="126" text-anchor="middle">create</text></g>
+    <g class="e  f-create t-table"><path d="M626,133 H666"/><text class="el" x="646" y="126" text-anchor="middle">insert</text></g>
+    <g class="e main f-s1 t-s2"><path d="M203,290 H219"/></g>
+    <g class="e main f-s2 t-s3"><path d="M395,290 H411"/></g>
+    <g class="e main f-s3 t-s4"><path d="M587,290 H603"/></g>
+    <g class="e main f-s4 t-s5"><path d="M779,290 H795"/></g>
+    <g class="e  f-table t-s1"><path d="M822,168 V186 H116 V236"/><text class="el" x="470" y="180" text-anchor="middle">polls status = queued</text></g>
+    <g class="e dash f-s5 t-s6"><path d="M884,342 V424"/><text class="el" x="892" y="380" text-anchor="start">unawaited</text></g>
+    <g class="e main f-s6 t-s7"><path d="M638,478 H587"/><text class="el" x="612" y="470" text-anchor="middle">outcome</text></g>
+    <g class="e  f-s7 t-s8"><path d="M343,478 H301"/><text class="el" x="322" y="470" text-anchor="middle">finally</text></g>
+    <g class="e bad f-s7 t-fail"><path d="M465,530 V554"/><text class="el" x="473" y="546" text-anchor="start">failure</text></g>
+  </g>
+
+  <a href="../task-execution-architecture.md#32-entry-points"><g class="n tint k-chan" id="surf">
+    <rect class="box" x="24" y="100" width="270" height="66" rx="9"/>
+    <text class="name" x="36" y="123">Creation surfaces</text>
+    <text class="sub" x="36" y="141">Web UI, HTTP API, task_create tool,</text>
+    <text class="sub" x="36" y="157">channel message, schedule</text>
+    <g class="d"><text class="p1" x="36" y="740"><tspan class="b">Creation surfaces</tspan> · the UI and API validate the body through TaskCreationService before TaskService.create; schedules call it directly</text><text class="p2" x="36" y="760">A workflow step bypasses TaskService: workflow_task_factory inserts execution, task and step rows in one transaction (ADR-023).</text></g>
+  </g></a>
+  <a href="../task-execution-architecture.md#32-entry-points"><g class="n tint k-host" id="create">
+    <rect class="box" x="336" y="100" width="290" height="66" rx="9"/>
+    <text class="name mono-name" x="348" y="123">TaskService.create</text>
+    <text class="sub" x="348" y="141">row + AgentExecution in one transaction</text>
+    <text class="sub" x="348" y="157">autoStart: draft to queued</text>
+    <g class="d"><text class="p1" x="36" y="740"><tspan class="b">TaskService.create</tspan> · creates or links the AgentExecution in the same transaction as the task row, then records the statusChanged event</text><text class="p2" x="36" y="760">A nested transaction is rejected with NestedTransactionError; TaskStatusChangedEvent fires only after the event insert succeeded.</text></g>
+  </g></a>
+  <a href="../task-execution-architecture.md#26-optimistic-locking"><g class="n tint k-store" id="table">
+    <rect class="box" x="668" y="100" width="308" height="66" rx="9"/>
+    <text class="name" x="680" y="123">tasks table</text>
+    <text class="sub" x="680" y="141">PostgreSQL (server) or FileExecutionStore</text>
+    <text class="sub" x="680" y="157">(standalone); the row waits as status = queued</text>
+    <g class="d"><text class="p1" x="36" y="740"><tspan class="b">tasks table</tspan> · persistent task rows behind TaskRepository; the executor is the only reader that turns queued rows into work</text><text class="p2" x="36" y="760">Every update is a compare-and-set on status and version, so two actors cannot both move the same row.</text></g>
+  </g></a>
+  <a href="../task-execution-architecture.md#33-taskexecutor"><g class="n tint k-host" id="s1">
+    <rect class="box" x="29" y="238" width="174" height="104" rx="9"/>
+    <g class="step"><circle cx="49" cy="260" r="10"/><text x="49" y="264">1</text></g>
+    <text class="name" x="67" y="261">poll</text>
+    <text class="sub" x="67" y="279">one pass over queued</text>
+    <text class="sub" x="67" y="295">rows, oldest first</text>
+    <g class="chip k-sec"><rect x="67" y="318" width="64" height="16" rx="8"/><text x="74" y="330">→ failed</text></g>
+    <g class="d"><text class="p1" x="36" y="740"><tspan class="b">poll</tspan> · one pass of _pollOnceInner: rows from retired task types (research, coding without a worktree declaration) fail here, non-retryably</text><text class="p2" x="36" y="760">workflowOnly (zero-server runs) polls workflow-owned tasks only; stop() cancels the timer and active tasks, then drains.</text></g>
+  </g></a>
+  <a href="../task-execution-architecture.md#33-taskexecutor"><g class="n tint k-host" id="s2">
+    <rect class="box" x="221" y="238" width="174" height="104" rx="9"/>
+    <g class="step"><circle cx="241" cy="260" r="10"/><text x="241" y="264">2</text></g>
+    <text class="name" x="259" y="261">prepare</text>
+    <text class="sub" x="259" y="279">cloning: stays queued</text>
+    <text class="sub" x="259" y="295">error: task fails</text>
+    <text class="sub" x="259" y="311">session: new or kept</text>
+    <g class="chip k-sec"><rect x="259" y="318" width="64" height="16" rx="8"/><text x="266" y="330">→ failed</text></g>
+    <g class="d"><text class="p1" x="36" y="740"><tspan class="b">prepare</tspan> · _prepareQueuedTask then _prepareExecutionSession: an unknown or error project fails the task, a cloning project leaves it queued</text><text class="p2" x="36" y="760">The session is SessionKey.taskSession(taskId:) or _continueSessionId; a missing or archived continued session fails the task, non-retryably.</text></g>
+  </g></a>
+  <a href="../task-execution-architecture.md#33-taskexecutor"><g class="n tint k-host" id="s3">
+    <rect class="box" x="413" y="238" width="174" height="104" rx="9"/>
+    <g class="step"><circle cx="433" cy="260" r="10"/><text x="433" y="264">3</text></g>
+    <text class="name" x="451" y="261">resolve</text>
+    <text class="sub" x="451" y="279">provider: task, agent</text>
+    <text class="sub" x="451" y="295">then primary runner</text>
+    <text class="sub" x="451" y="311">policy from profile</text>
+    <g class="chip k-sec"><rect x="451" y="318" width="64" height="16" rx="8"/><text x="458" y="330">→ failed</text></g>
+    <g class="d"><text class="p1" x="36" y="740"><tspan class="b">resolve</tspan> · provider: the task's, else agent.provider, else the primary runner's; resolveForTask picks location and profile</text><text class="p2" x="36" y="760">A policy refusal fails the task, non-retryably; no provider leaves it queued and records one taskError event.</text></g>
+  </g></a>
+  <a href="../task-execution-architecture.md#33-taskexecutor"><g class="n solid k-host" id="s4">
+    <rect class="box" x="605" y="238" width="174" height="104" rx="9"/>
+    <g class="step"><circle cx="625" cy="260" r="10"/><text x="625" y="264">4</text></g>
+    <text class="name" x="643" y="261">acquire</text>
+    <text class="sub" x="643" y="279">ExecutionCoordinator</text>
+    <text class="sub" x="643" y="295">failFast: capacity,</text>
+    <text class="sub" x="643" y="311">then admission</text>
+    <g class="chip k-neu"><rect x="643" y="318" width="107" height="16" rx="8"/><text x="650" y="330">no lease: waits</text></g>
+    <g class="d"><text class="p1" x="36" y="740"><tspan class="b">acquire</tspan> · acquire takes a worker-lane permit first, then admits: daily budget, session lock, loop pre-check, rate window</text><text class="p2" x="36" y="760">null lease: stays queued. BusyTurnException: later tasks skip acquire this pass. LoopDetected and BudgetExhausted: non-retryable failure.</text></g>
+  </g></a>
+  <a href="../task-execution-architecture.md#33-taskexecutor"><g class="n tint k-host" id="s5">
+    <rect class="box" x="797" y="238" width="174" height="104" rx="9"/>
+    <g class="step"><circle cx="817" cy="260" r="10"/><text x="817" y="264">5</text></g>
+    <text class="name" x="835" y="261">checkout</text>
+    <text class="sub" x="835" y="279">queued → running</text>
+    <text class="sub" x="835" y="295">lost race: lease</text>
+    <text class="sub" x="835" y="311">released, skipped</text>
+    <g class="d"><text class="p1" x="36" y="740"><tspan class="b">checkout</tspan> · TaskService.transition(running, trigger: system), a compare-and-set on status and version</text><text class="p2" x="36" y="760">A StateError means another actor moved the task first: the lease is released and the task is skipped for this pass.</text></g>
+  </g></a>
+  <a href="../task-execution-architecture.md#34-execution-core"><g class="n solid k-host" id="s6">
+    <rect class="box" x="640" y="426" width="331" height="104" rx="9"/>
+    <g class="step"><circle cx="660" cy="448" r="10"/><text x="660" y="452">6</text></g>
+    <text class="name mono-name" x="678" y="449">_executeCore</text>
+    <text class="sub" x="678" y="467">project, worktree, budget check,</text>
+    <text class="sub" x="678" y="483">prompt, then one turn on the</text>
+    <text class="sub" x="678" y="499">leased TurnRunner</text>
+    <g class="chip k-neu"><rect x="678" y="506" width="126" height="16" rx="8"/><text x="685" y="518">ordinary: one turn</text></g>
+    <g class="chip k-host"><rect x="810" y="506" width="163" height="16" rx="8"/><text x="817" y="518">workflow: one-shot chain</text></g>
+    <g class="d"><text class="p1" x="36" y="740"><tspan class="b">_executeCore</tspan> · project and base ref, worktree, execution directory, preconditions, pre-turn budget check, prompt, then the turn</text><text class="p2" x="36" y="760">Workflow-owned tasks run WorkflowOneShotRunner on the same lease and record no tokenUpdate or toolCalled events and no trace.</text></g>
+  </g></a>
+  <a href="../task-execution-architecture.md#34-execution-core"><g class="n tint k-host" id="s7">
+    <rect class="box" x="345" y="426" width="240" height="104" rx="9"/>
+    <g class="step"><circle cx="365" cy="448" r="10"/><text x="365" y="452">7</text></g>
+    <text class="name" x="383" y="449">settle</text>
+    <text class="sub" x="383" y="467">completed: artifacts, then</text>
+    <text class="sub" x="383" y="483">review or accepted</text>
+    <text class="sub" x="383" y="499">failed: markFailedOrRetry</text>
+    <g class="d"><text class="p1" x="36" y="740"><tspan class="b">settle</tspan> · a completed turn collects artifacts, checks the post-turn token budget, transitions per reviewMode, and may call onAutoAccept</text><text class="p2" x="36" y="760">A read-only task that mutated its checkout fails here, non-retryably; a cancelled task is skipped.</text></g>
+  </g></a>
+  <a href="../task-execution-architecture.md#33-taskexecutor"><g class="n tint k-host" id="s8">
+    <rect class="box" x="29" y="426" width="270" height="104" rx="9"/>
+    <g class="step"><circle cx="49" cy="448" r="10"/><text x="49" y="452">8</text></g>
+    <text class="name mono-name" x="67" y="449">lease.release()</text>
+    <text class="sub" x="67" y="467">finally of _runLeasedTask:</text>
+    <text class="sub" x="67" y="483">coordinator caches, disposes</text>
+    <text class="sub" x="67" y="499">or quarantines the worker</text>
+    <g class="d"><text class="p1" x="36" y="740"><tspan class="b">lease.release()</tspan> · ExecutionLease.release is idempotent and runs on every path, including a lost checkout race</text><text class="p2" x="36" y="760">Reuse, disposal and quarantine are the coordinator's decision; task code never touches the worker cache.</text></g>
+  </g></a>
+  <a href="../task-execution-architecture.md#35-failure-and-retry"><g class="n tint k-sec" id="fail">
+    <rect class="box" x="345" y="556" width="240" height="70" rx="9"/>
+    <text class="name mono-name" x="357" y="579">TaskFailureHandler</text>
+    <text class="sub" x="357" y="597">markFailedOrRetry: one failure path</text>
+    <g class="chip k-host"><rect x="357" y="602" width="113" height="16" rx="8"/><text x="364" y="614">→ queued · retry</text></g>
+    <g class="chip k-sec"><rect x="476" y="602" width="64" height="16" rx="8"/><text x="483" y="614">→ failed</text></g>
+    <g class="d"><text class="p1" x="36" y="740"><tspan class="b">TaskFailureHandler</tspan> · a retryable failure re-queues the task (running → failed → queued); the next poll restarts at step 1</text><text class="p2" x="36" y="760">A repeated failure kind, an exhausted retryCount or a non-retryable site fails it permanently with errorSummary and a taskError event.</text></g>
+  </g></a>
+  <g transform="translate(24,666)">
+    <g class="tint k-chan"><rect class="box" x="0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="22" y="10">entry surface</text>
+    <g class="tint k-host"><rect class="box" x="124.60000000000001" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="146.60000000000002" y="10">DartClaw component</text>
+    <g class="tint k-store"><rect class="box" x="280.20000000000005" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="302.20000000000005" y="10">store</text>
+    <g class="tint k-sec"><rect class="box" x="355.20000000000005" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="377.20000000000005" y="10">failure path</text>
+    <g class="e main"><path d="M473.6,6 H505.6"/></g><text class="lg" x="513.6" y="10">dispatch</text>
+    <g class="e dash"><path d="M585.2,6 H617.2"/></g><text class="lg" x="625.2" y="10">unawaited</text>
+    <g class="e bad"><path d="M703.0,6 H735.0"/></g><text class="lg" x="743.0" y="10">failure</text>
+  </g>
+</svg>

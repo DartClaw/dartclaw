@@ -1,0 +1,24 @@
+<div tl:fragment="sourceView" class="source-view">
+  <header class="topbar source-bar">
+    <span class="source-brand" tl:text="${appName}">DartClaw</span>
+    <span class="source-bar-note">Read-only source from the knowledge base</span>
+  </header>
+  <main id="main-content" tabindex="-1" class="source-main print-in">
+    <article class="source-doc">
+      <header class="source-head">
+        <p class="t-caption tracking-caps source-kind" tl:text="${kind}">Wiki page</p>
+        <h1 class="t-display" tl:text="${title}">Title</h1>
+        <tl:block tl:if="${metaHtml}" tl:utext="${metaHtml}"></tl:block>
+      </header>
+      <div tl:if="${markdown}" class="msg-content source-body" data-markdown="" tl:text="${markdown}">document content</div>
+      <p tl:unless="${markdown}" class="source-fact"><span tl:text="${fact.predicate}">predicate</span> <strong tl:text="${fact.value}">value</strong></p>
+    </article>
+  </main>
+</div>
+
+<dl tl:fragment="sourceMeta" class="source-meta t-caption">
+  <div tl:each="item : ${metadata}" class="source-meta-item">
+    <dt tl:text="${item.label}">Confidence</dt>
+    <dd tl:text="${item.value}">medium</dd>
+  </div>
+</dl>

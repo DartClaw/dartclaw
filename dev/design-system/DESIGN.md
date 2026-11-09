@@ -1390,6 +1390,10 @@ card card-tint-error     ← failed task (red hover)
 card card-tint-warning   ← queued task (amber hover)
 ```
 
+### Standalone source page
+
+The page behind a source link, for a reader with no session and no shell. Canon `.topbar` carries the app wordmark (JetBrains Mono) and the note "Read-only source from the knowledge base"; below it one column of `46rem` on the page ground, no card. The head is an eyebrow naming the kind (`.t-caption.tracking-caps`), the page's own title as the single `<h1 class="t-display">`, a quiet `dl` metadata line (`.source-meta`, caption tier, label `fg-sub0`, value `fg-sub1`) and a `border` rule; the body is `.msg-content` at the canonical measure. No claw moment, no progress bar, no glow. The `.source-*` rules are app-owned in `app.css`; the authenticated wiki view reuses `.source-meta` above its card.
+
 ### Agent detail card
 
 ```html

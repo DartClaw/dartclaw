@@ -427,8 +427,8 @@ void main() {
     test('maintained inline verification commands pass the substituted artifacts path as one argument', () async {
       final customDir = findAncestorDir(['.dartclaw/workflows/custom']);
       for (final file in const [
-        'story-and-implement-inline.yaml',
-        'plan-and-implement-inline.yaml',
+        'implement-story-inline.yaml',
+        'implement-prd-inline.yaml',
         'review-and-remediate-inline.yaml',
       ]) {
         final definition = WorkflowDefinitionParser().parse(File(p.join(customDir, file)).readAsStringSync());
@@ -531,6 +531,32 @@ void main() {
       expect(outcome.success, isFalse);
       expect(outcome.outputs['bash1.error'], contains('process execution failed'));
       expect(outcome.outputs['bash1.error'], isNot(contains('bash steps require Git Bash')));
+    });
+
+    test('refuses a context without a data directory', () async {
+      const step = WorkflowStep(id: 'bash1', name: 'Bash 1', taskType: WorkflowTaskType.bash, prompts: ['echo hello']);
+      final definition = h.makeDefinition(steps: [step]);
+      final executionContext = StepExecutionContext(
+        taskService: h.taskService,
+        eventBus: h.eventBus,
+        kvService: h.kvService,
+        repository: h.repository,
+        gateEvaluator: GateEvaluator(),
+        contextExtractor: ContextExtractor(
+          taskService: h.taskService,
+          messageService: h.messageService,
+          dataDir: h.tempDir.path,
+          workflowStepExecutionRepository: h.workflowStepExecutionRepository,
+        ),
+        run: h.makeRun(definition),
+        definition: definition,
+        workflowContext: WorkflowContext(),
+      );
+
+      await expectLater(
+        bashStepRun(const ActionNode(stepId: 'bash1'), executionContext),
+        throwsA(isA<StateError>().having((e) => e.message, 'message', contains('dataDir'))),
+      );
     });
 
     test('executor resolves Git Bash through the injected Windows capabilities', () async {

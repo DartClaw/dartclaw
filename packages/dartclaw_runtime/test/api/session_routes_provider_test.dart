@@ -107,6 +107,16 @@ void main() {
     expect(await _errorCode(response), 'AGENT_BUSY_PROVIDER');
   });
 
+  test('POST /api/sessions/<id>/send answers SERVER_STOPPING once turn admission has closed', () async {
+    final session = await sessions.createSession(type: SessionType.logicalAgent, provider: 'codex');
+    turns.closeAdmission();
+
+    final response = await handler(_formRequest('POST', '/api/sessions/${session.id}/send', {'message': 'Hello'}));
+
+    expect(response.statusCode, 503);
+    expect(await _errorCode(response), 'SERVER_STOPPING');
+  });
+
   test('POST /api/sessions/<id>/send rejects persisted unavailable providers explicitly', () async {
     final session = await sessions.createSession(type: SessionType.logicalAgent, provider: 'bogus');
 

@@ -162,6 +162,8 @@ abstract final class WorkflowDslRules {
       ignoredValues: [false, null],
     ),
     WorkflowFieldRule(['entryGate'], [WorkflowValueKind.string]),
+    WorkflowFieldRule(['revise'], [WorkflowValueKind.string], applicableTypes: [WorkflowTaskType.approval]),
+    WorkflowFieldRule(['maxRevisions'], [WorkflowValueKind.integer], applicableTypes: [WorkflowTaskType.approval]),
     WorkflowFieldRule(['inputs'], [WorkflowValueKind.stringList]),
     WorkflowFieldRule(['outputs'], [WorkflowValueKind.mapping]),
     WorkflowFieldRule(['maxRetries'], [WorkflowValueKind.integer]),

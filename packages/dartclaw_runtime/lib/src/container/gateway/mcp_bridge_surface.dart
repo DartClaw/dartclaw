@@ -1,7 +1,7 @@
 import 'dart:convert';
 
 import 'package:dartclaw_bridge/dartclaw_bridge.dart';
-import 'package:dartclaw_core/dartclaw_core.dart' show CanonicalTool;
+import 'package:dartclaw_core/dartclaw_core.dart' show CanonicalTool, TurnProvenance;
 
 import '../../mcp/mcp_server.dart';
 import 'gateway_models.dart';
@@ -19,46 +19,52 @@ final class McpBridgeSurface implements GatewaySurfaceHandler {
     required McpProtocolHandler Function() handler,
     required this.principal,
     required Set<String> allowedCanonicalTools,
-    required Map<String, CanonicalTool> toolCanonicals,
     void Function(GatewayPrincipal principal, String toolName)? onDenied,
+    TurnProvenance? Function()? activeTurn,
     this.maxRequestBytes = 1024 * 1024,
   }) : _handler = handler,
-       _toolCanonicals = toolCanonicals,
-       _policy = _BridgeToolPolicy(
-         principal: principal,
-         allowedCanonicalTools: allowedCanonicalTools,
-         toolCanonicals: toolCanonicals,
-         onDenied: onDenied,
-       );
+       allowedCanonicalTools = Set.unmodifiable(allowedCanonicalTools),
+       _activeTurn = activeTurn,
+       _onDenied = onDenied;
 
   final GatewayPrincipal principal;
   final int maxRequestBytes;
 
+  /// Canonical tool names this authority may reach. Empty means no MCP access.
+  final Set<String> allowedCanonicalTools;
+
   final McpProtocolHandler Function() _handler;
-  final Map<String, CanonicalTool> _toolCanonicals;
-  final _BridgeToolPolicy _policy;
+  final TurnProvenance? Function()? _activeTurn;
+  final void Function(GatewayPrincipal principal, String toolName)? _onDenied;
 
-  late final McpProtocolHandler _scoped = _scopedHandler();
+  late final McpProtocolHandler _scoped = _callerHandler();
 
-  McpProtocolHandler _scopedHandler() {
+  McpProtocolHandler _callerHandler() {
+    final root = _handler();
     final authorityId = principal.sessionId.trim();
     final sourceSessionId = principal.sourceSessionId?.trim();
-    return _handler().scopedTo(
-      _policy,
-      toolCanonicals: _toolCanonicals,
-      callerIdentity: authorityId.isEmpty
-          ? null
-          : McpCallerIdentity(
-              authorityId: authorityId,
-              sessionId: sourceSessionId == null || sourceSessionId.isEmpty ? null : sourceSessionId,
-              taskId: principal.taskId?.trim().isEmpty ?? true ? null : principal.taskId!.trim(),
-              agentId: principal.logicalAgentId?.trim().isEmpty ?? true ? null : principal.logicalAgentId!.trim(),
-            ),
+    final identity = authorityId.isEmpty
+        ? null
+        : McpCallerIdentity(
+            authorityId: authorityId,
+            sessionId: sourceSessionId == null || sourceSessionId.isEmpty ? null : sourceSessionId,
+            taskId: principal.taskId?.trim().isEmpty ?? true ? null : principal.taskId!.trim(),
+            agentId: principal.logicalAgentId?.trim().isEmpty ?? true ? null : principal.logicalAgentId!.trim(),
+          );
+    return root.forCaller(
+      McpCaller(
+        identity: () => identity,
+        turn: () => _activeTurn?.call(),
+        policy: _BridgeToolPolicy(
+          principal: principal,
+          allowedCanonicalTools: allowedCanonicalTools,
+          toolCanonicals: root.toolCanonicals,
+          onDenied: _onDenied,
+        ),
+        guardsAsCaller: true,
+      ),
     );
   }
-
-  /// Canonical tool names this authority may reach. Empty means no MCP access.
-  Set<String> get allowedCanonicalTools => _policy.allowedCanonicalTools;
 
   @override
   BridgeSurface get surface => BridgeSurface.mcp;
@@ -93,11 +99,10 @@ final class McpBridgeSurface implements GatewaySurfaceHandler {
 final class _BridgeToolPolicy implements McpCallerPolicy {
   new({
     required this.principal,
-    required Set<String> allowedCanonicalTools,
+    required this.allowedCanonicalTools,
     required Map<String, CanonicalTool> toolCanonicals,
     void Function(GatewayPrincipal principal, String toolName)? onDenied,
-  }) : allowedCanonicalTools = Set.unmodifiable(allowedCanonicalTools),
-       _toolCanonicals = Map.unmodifiable(toolCanonicals),
+  }) : _toolCanonicals = toolCanonicals,
        _onDenied = onDenied;
 
   final GatewayPrincipal principal;

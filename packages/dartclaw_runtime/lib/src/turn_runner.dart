@@ -316,6 +316,7 @@ class TurnRunner implements core.TurnRunner {
     bool readOnly = false,
     PromptScope? promptScope,
     TurnOrigin? origin,
+    TurnProvenance? provenance,
   }) async {
     await admitTurn(sessionId, isHumanInput: isHumanInput);
     try {
@@ -339,6 +340,7 @@ class TurnRunner implements core.TurnRunner {
         readOnly: readOnly,
         promptScope: promptScope,
         origin: origin,
+        provenance: provenance,
         externallyAdmitted: false,
       );
     } catch (_) {
@@ -348,10 +350,12 @@ class TurnRunner implements core.TurnRunner {
   }
 
   /// Applies deployment governance and session admission before execution allocation.
+  ///
+  /// The session lock is taken before the loop-chain and rate-limit checks:
+  /// both record state, so an attempt the global cap rejects must not have
+  /// counted. Only the read-only budget check precedes the lock.
   Future<void> admitTurn(String sessionId, {required bool isHumanInput}) async {
     await _governanceEnforcer.checkBudget(sessionId);
-    await _governanceEnforcer.checkLoopPreTurn(sessionId, isHumanInput: isHumanInput);
-    await _governanceEnforcer.awaitRateLimitWindow();
 
     await _lockManager.acquire(
       sessionId,
@@ -360,6 +364,13 @@ class TurnRunner implements core.TurnRunner {
       onWaiting: () => _emitWaitState(sessionId, TurnWaitState.waiting),
       onStuck: () => _emitWaitState(sessionId, TurnWaitState.stuck),
     );
+    try {
+      await _governanceEnforcer.checkLoopPreTurn(sessionId, isHumanInput: isHumanInput);
+      await _governanceEnforcer.awaitRateLimitWindow();
+    } catch (_) {
+      _lockManager.release(sessionId);
+      rethrow;
+    }
   }
 
   /// Reserves turn-local state after the coordinator has admitted the session.
@@ -387,6 +398,7 @@ class TurnRunner implements core.TurnRunner {
     bool readOnly = false,
     PromptScope? promptScope,
     TurnOrigin? origin,
+    TurnProvenance? provenance,
   }) async => _reserveTurnState(
     sessionId,
     agentName: agentName,
@@ -407,6 +419,7 @@ class TurnRunner implements core.TurnRunner {
     readOnly: readOnly,
     promptScope: promptScope,
     origin: origin,
+    provenance: provenance,
     externallyAdmitted: true,
   );
 
@@ -446,6 +459,7 @@ class TurnRunner implements core.TurnRunner {
     required bool readOnly,
     required PromptScope? promptScope,
     required TurnOrigin? origin,
+    required TurnProvenance? provenance,
     required bool externallyAdmitted,
   }) {
     // One turn per worker at a time. A provider process — Claude Code's
@@ -490,6 +504,7 @@ class TurnRunner implements core.TurnRunner {
       readOnly: readOnly,
       promptScope: promptScope,
       origin: origin,
+      provenance: provenance,
     );
     if (externallyAdmitted) _externallyAdmittedTurns.add(turnId);
     _outcomePending[turnId] = Completer<TurnOutcome>();
@@ -512,6 +527,8 @@ class TurnRunner implements core.TurnRunner {
   }
 
   void releaseAdmission(String sessionId) => _lockManager.release(sessionId);
+
+  Future<void> whenAdmissionCapacityAvailable() => _lockManager.whenCapacityAvailable();
 
   /// Launches async execution for a previously [reserveTurn]'d turn.
   @override
@@ -571,6 +588,7 @@ class TurnRunner implements core.TurnRunner {
     bool readOnly = false,
     PromptScope? promptScope,
     TurnOrigin? origin,
+    TurnProvenance? provenance,
   }) async {
     final turnId = await reserveTurn(
       sessionId,
@@ -586,6 +604,7 @@ class TurnRunner implements core.TurnRunner {
       readOnly: readOnly,
       promptScope: promptScope,
       origin: origin,
+      provenance: provenance,
     );
     executeTurn(sessionId, turnId, messages, source: source, agentName: agentName);
     return turnId;

@@ -41,21 +41,18 @@ class HarnessLaunchOptions {
   /// (memory, sessions, web_fetch, search, custom) via the standard
   /// MCP `tools/list` protocol — no manual configuration needed.
   ///
-  /// When null, the harness falls back to `sdkMcpServers` in the
-  /// initialize handshake for memory tools (chat mode without MCP server).
-  ///
   /// **Security**: Never write MCP credentials to persistent files in the
   /// workspace directory — bearer tokens would be exposed in potentially
   /// version-controlled directories.
   final String? mcpServerUrl;
 
-  /// Optional gateway token used for MCP bearer auth.
+  /// Optional bearer used for MCP auth: the bearer the host minted for this
+  /// harness alone, or a token an embedder supplies.
   ///
   /// Written into the ephemeral `--mcp-config` temp file as
   /// `Authorization: Bearer <token>`. Only used when [mcpServerUrl] is
-  /// non-null. The same token authenticates both the web UI and MCP
-  /// endpoint via the gateway middleware. Null omits the header for an
-  /// authentication-disabled loopback gateway.
+  /// non-null. Null omits the header for an authentication-disabled loopback
+  /// gateway.
   final String? mcpGatewayToken;
 
   const new({

@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:dartclaw_bridge/dartclaw_bridge.dart';
-import 'package:dartclaw_core/dartclaw_core.dart' show CanonicalTool;
+import 'package:dartclaw_core/dartclaw_core.dart' show TurnProvenance;
 import 'package:logging/logging.dart';
 
 import '../../mcp/mcp_server.dart';
@@ -50,6 +50,10 @@ final class GatewayAuthority {
   final Map<BridgeSurface, GatewayPipe> _pipes = {};
   bool _revoked = false;
 
+  /// The turn the harness bound to this authority is executing, or null between turns. Bound after the harness
+  /// exists, because the authority is acquired first.
+  TurnProvenance? Function()? activeTurn;
+
   bool get isRevoked => _revoked;
 
   /// Completes once every required surface has handshaked and is listening.
@@ -71,14 +75,12 @@ final class HostGateway {
   new({
     required Map<String, ProviderMediator> providerAdapters,
     McpProtocolHandler Function()? mcpHandler,
-    Map<String, CanonicalTool> Function()? mcpToolCanonicals,
     GatewayDenialSink? onDenied,
     CredentialRefusalSink? onCredentialRefused,
     GatewayAuthorityTeardown? onCredentialUnusable,
     this.limits = BridgeLimits.defaults,
   }) : _providerAdapters = Map.unmodifiable(providerAdapters),
        _mcpHandler = mcpHandler,
-       _mcpToolCanonicals = mcpToolCanonicals,
        _onDenied = onDenied,
        _onCredentialRefused = onCredentialRefused,
        _onCredentialUnusable = onCredentialUnusable;
@@ -92,7 +94,6 @@ final class HostGateway {
   /// Resolved lazily: the MCP registry is built after this gateway, while
   /// authorities are created later still.
   final McpProtocolHandler Function()? _mcpHandler;
-  final Map<String, CanonicalTool> Function()? _mcpToolCanonicals;
   final GatewayDenialSink? _onDenied;
   final CredentialRefusalSink? _onCredentialRefused;
   final GatewayAuthorityTeardown? _onCredentialUnusable;
@@ -223,7 +224,7 @@ final class HostGateway {
       handler: _mcpHandler!,
       principal: authority.principal,
       allowedCanonicalTools: authority.allowedMcpTools,
-      toolCanonicals: _mcpToolCanonicals?.call() ?? const {},
+      activeTurn: () => authority.activeTurn?.call(),
       onDenied: (principal, toolName) => _onDenied?.call(principal, 'mcp: tool "$toolName" is not authorized'),
     ),
   };

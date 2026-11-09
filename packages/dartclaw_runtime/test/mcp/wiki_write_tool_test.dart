@@ -5,7 +5,8 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
-import 'package:dartclaw_runtime/src/mcp/mcp_server.dart' show McpCallerContext, McpCallerIdentity, McpCallerPolicy;
+import 'package:dartclaw_runtime/src/mcp/mcp_server.dart'
+    show McpCaller, McpCallerContext, McpCallerIdentity, McpCallerPolicy;
 import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeGuard;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -228,12 +229,12 @@ void main() {
             ? const ToolResult.error('Temporary conversations cannot write durable knowledge')
             : null,
       );
-      final handler = base.scopedTo(
-        const _AllowWikiWrite(),
-        callerIdentity: const McpCallerIdentity(
-          authorityId: 'agent:main',
-          sessionId: 'temporary-session',
-          agentId: 'main',
+      final handler = base.forCaller(
+        McpCaller(
+          identity: () =>
+              const McpCallerIdentity(authorityId: 'agent:main', sessionId: 'temporary-session', agentId: 'main'),
+          policy: const _AllowWikiWrite(),
+          guardsAsCaller: true,
         ),
       );
 

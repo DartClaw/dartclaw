@@ -531,7 +531,7 @@ const Map<String, FieldMeta> _agentFields = {
         ),
         'prompt': EntryFieldMeta(
           type: ConfigFieldType.string,
-          description: 'Explicit SOUL prompt for this agent. Empty reads SOUL.md from its managed workspace.',
+          description: 'Extra instruction appended after the workspace behavior files of this agent; does not replace SOUL.md. Under the restricted profile it is the whole persona.',
         ),
         'provider': EntryFieldMeta(
           type: ConfigFieldType.string,

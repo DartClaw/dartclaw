@@ -49,8 +49,8 @@ void main() {
   void expectRenderedDocument(String body) {
     expect(body, contains('<div class="shell"'));
     expect(body, contains('data-markdown'));
-    expect(body, contains('# Wiki'));
-    expect(body, contains('README.md'));
+    expect(body, contains('A `rendered` document.'));
+    expect(body, contains('>Wiki<'));
   }
 
   test('the manifest registers wiki_document exactly once', () {

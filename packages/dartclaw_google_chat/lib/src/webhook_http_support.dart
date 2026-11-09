@@ -1,12 +1,10 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:shelf/shelf.dart';
 
 // These shelf-typed helpers cannot live in the lower tiers without adding an HTTP framework dependency there.
-const maxWebhookPayloadBytes = 1024 * 1024;
 const defaultMaxJsonBodyBytes = 256 * 1024;
 
 Response jsonResponse(int status, Object body) {
@@ -25,20 +23,13 @@ Future<({Map<String, dynamic>? value, Response? error})> readJsonObject(
   String? invalidMessage,
 }) async {
   Response reject(String message) => errorResponse(400, 'INVALID_INPUT', invalidMessage ?? message);
-  final contentLength = request.contentLength;
-  if (contentLength != null && contentLength > maxBytes) {
+  final bytes = await readBoundedBytes(request.read(), contentLength: request.contentLength, limit: maxBytes);
+  if (bytes == null) {
     return (value: null, error: errorResponse(413, 'REQUEST_TOO_LARGE', 'request body is too large'));
-  }
-  final bytes = BytesBuilder(copy: false);
-  await for (final chunk in request.read()) {
-    if (bytes.length + chunk.length > maxBytes) {
-      return (value: null, error: errorResponse(413, 'REQUEST_TOO_LARGE', 'request body is too large'));
-    }
-    bytes.add(chunk);
   }
   final String body;
   try {
-    body = utf8.decode(bytes.takeBytes());
+    body = utf8.decode(bytes);
   } on FormatException {
     return (value: null, error: errorResponse(400, 'INVALID_INPUT', 'request body must be valid UTF-8'));
   }
@@ -54,32 +45,8 @@ Future<({Map<String, dynamic>? value, Response? error})> readJsonObject(
 }
 
 Future<String?> readBounded(Request request, int limit) async {
-  final contentLength = request.contentLength;
-  if (contentLength != null && contentLength > limit) return null;
-
-  final bytes = <int>[];
-  await for (final chunk in request.read()) {
-    bytes.addAll(chunk);
-    if (bytes.length > limit) return null;
-  }
-  return utf8.decode(bytes);
-}
-
-String? requestRemoteKey(Request request, {List<String> trustedProxies = const []}) {
-  final connectionInfo = request.context['shelf.io.connection_info'];
-  if (connectionInfo is HttpConnectionInfo) {
-    final socketAddress = connectionInfo.remoteAddress.address;
-    if (trustedProxies.isNotEmpty && trustedProxies.contains(socketAddress)) {
-      final forwardedFor = request.headers['x-forwarded-for'];
-      final forwardedClient = forwardedFor?.split(',').first.trim();
-      if (forwardedClient != null && forwardedClient.isNotEmpty) {
-        return forwardedClient;
-      }
-    }
-    return socketAddress;
-  }
-
-  return null;
+  final bytes = await readBoundedBytes(request.read(), contentLength: request.contentLength, limit: limit);
+  return bytes == null ? null : utf8.decode(bytes);
 }
 
 void fireFailedAuthEvent(
@@ -90,14 +57,17 @@ void fireFailedAuthEvent(
   bool limited = false,
   List<String> trustedProxies = const [],
 }) {
-  eventBus?.fire(
-    FailedAuthEvent(
-      source: source,
-      path: '/${request.url.path}',
-      reason: reason,
-      remoteKey: requestRemoteKey(request, trustedProxies: trustedProxies),
-      limited: limited,
-      timestamp: DateTime.now(),
+  final connectionInfo = request.context['shelf.io.connection_info'];
+  publishFailedAuthEvent(
+    eventBus,
+    source: source,
+    path: '/${request.url.path}',
+    reason: reason,
+    remoteKey: resolveRemoteKey(
+      peerAddress: connectionInfo is HttpConnectionInfo ? connectionInfo.remoteAddress.address : null,
+      forwardedFor: request.headers['x-forwarded-for'],
+      trustedProxies: trustedProxies,
     ),
+    limited: limited,
   );
 }

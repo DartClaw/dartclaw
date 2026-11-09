@@ -13,7 +13,7 @@ import 'package:dartclaw_runtime/src/runtime/standalone_execution_lease.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' show HarnessFactory, WorkflowRunStatusChangedEvent;
 import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show WorkflowDefinition, WorkflowRun, WorkflowStep, WorkflowTaskType, skillProvisionerMarkerFile;
+    show WorkflowDefinition, WorkflowRun, WorkflowRunOrigin, WorkflowStep, WorkflowTaskType, skillProvisionerMarkerFile;
 import 'package:dartclaw_workflow/testing.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -581,7 +581,7 @@ Future<String> runToAwaitingApproval(DartclawConfig config, WorkflowDefinition d
         .listen((_) {
           if (!settled.isCompleted) settled.complete();
         });
-    final run = await wiring.workflowService.start(definition, const {});
+    final run = await wiring.workflowService.start(definition, const {}, origin: WorkflowRunOrigin.unknown);
     await settled.future.timeout(const Duration(seconds: 10));
     await sub.cancel();
     return run.id;

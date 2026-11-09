@@ -96,6 +96,7 @@ Exit code is `1` if any row fails, otherwise `0`.
 | `database.connection`, `database.schema`, `database.vector` | PostgreSQL reference/reachability/TLS/auth/version/role readiness, current or empty schema state, and pgvector readiness only when hybrid is explicit |
 | `server.port` or `server.health` | Free port, or a running server's version and uptime; mismatched CLI/server versions warn |
 | `secrets.literals`, `secrets.unresolvable`, `secrets.shadowed`, `secrets.orphans`, `secrets.permissions` | The same value-free findings as [`secrets audit`](#secrets-audit) |
+| `slack.credentials`, `slack.auth`, `slack.scopes`, `slack.transport` | Only while `channels.slack.enabled` is true. Credential references resolve to entries (declared or stored), the bot token passes Slack's `auth.test` (an unreachable Slack warns), the token's scopes match the shipped manifests', and the transport state from a running server's `/health` (skipped without one). No row prints a token or the signing secret; see [Slack](slack.md#doctor) |
 | `container.runtime`, `container.image`, `container.engine` | Runtime, existing image and supported engine architecture; unavailable checks warn for inferred isolation and fail when explicitly enabled |
 | `container.orphans` | Leftover owned containers, reclaimed at the next `dartclaw serve` start; skipped for a running server, absent without a runtime |
 | `windows.reload_mode`, `windows.git_bash` | Windows-only checks for reload mode and Git Bash; POSIX permission checks are skipped there |
@@ -597,10 +598,10 @@ dartclaw workflow show <name> --standalone          # load from the local regist
 ### `workflow run`
 
 ```bash
-dartclaw workflow run story-and-implement --var FEATURE="Add search"
-dartclaw workflow run story-and-implement --json
-dartclaw workflow run story-and-implement --standalone --force --var FEATURE="Local run"
-dartclaw workflow run story-and-implement --standalone --json --var FEATURE="CI run"
+dartclaw workflow run implement-story --var FEATURE="Add search"
+dartclaw workflow run implement-story --json
+dartclaw workflow run implement-story --standalone --force --var FEATURE="Local run"
+dartclaw workflow run implement-story --standalone --json --var FEATURE="CI run"
 dartclaw workflow run code-review --approvals=auto-on-stall --var TARGET=HEAD
 ```
 

@@ -2,6 +2,70 @@ part of 'service_wiring.dart';
 
 final _notificationsLog = Logger('DartclawRuntime');
 
+/// Starts the subscriber that posts workflow run lifecycle to chat, or returns `null` without a channel manager.
+///
+/// It runs after the channels register, so `workflow.chat_notifications` can be checked against them: a
+/// channel that is not registered, or a recipient it does not own, warns here and leaves runs started outside
+/// chat with nowhere to post.
+@visibleForTesting
+WorkflowRunNotificationSubscriber? wireRunNotifications({
+  required DartclawConfig config,
+  required EventBus eventBus,
+  required Future<WorkflowRun?> Function(String runId) lookupRun,
+  required ChannelManager? channelManager,
+  required ThreadBindingStore? threadBindings,
+  IssueApprovalInteraction? issueInteraction,
+  BindApprovalPost? bindPost,
+}) {
+  if (channelManager == null) return null;
+
+  var configured = config.workflow.chatNotifications;
+  if (configured != null) {
+    final target = channelManager.channels.where((channel) => channel.type == configured!.channel).firstOrNull;
+    if (target == null) {
+      _notificationsLog.warning(
+        'workflow.chat_notifications.channel "${configured.channel.name}" has no registered channel; '
+        'runs started outside chat will post nothing',
+      );
+      configured = null;
+    } else if (!target.ownsJid(configured.recipient)) {
+      _notificationsLog.warning(
+        'workflow.chat_notifications.recipient "${configured.recipient}" is not a ${configured.channel.name} '
+        'conversation; runs started outside chat will post nothing',
+      );
+      configured = null;
+    }
+  }
+
+  return WorkflowRunNotificationSubscriber(
+    lookupRun: lookupRun,
+    channelManager: channelManager,
+    configured: configured,
+    threadBindings: threadBindings,
+    baseUrl: config.server.baseUrl,
+    issueInteraction: issueInteraction,
+    bindPost: bindPost,
+  )..subscribe(eventBus);
+}
+
+/// Drops the bindings left behind by a stopped server and returns how many were dropped.
+///
+/// A binding survives only while the task or run it names is still active, so a task binding whose task
+/// finished and a run binding whose run finished or no longer exists go, and an active run's thread stays.
+@visibleForTesting
+Future<int> reconcileThreadBindings(
+  ThreadBindingStore store, {
+  required TaskService tasks,
+  required WorkflowService workflows,
+}) async {
+  final activeTasks = (await tasks.list()).where((task) => !task.status.terminal);
+  final activeRuns = (await workflows.list()).where((run) => !run.status.terminal);
+  return store.reconcile(
+    activeTaskIds: {for (final task in activeTasks) task.id},
+    activeRunIds: {for (final run in activeRuns) run.id},
+  );
+}
+
 void _configureBudgetWarningNotifiers({
   required ExecutionCoordinator executions,
   required SessionService sessions,
@@ -37,7 +101,7 @@ Future<void> _notifyChannelBudgetWarning({
   final suffix = blocking ? ' New turns will be blocked until the budget resets.' : '';
   final text =
       'Warning: daily token budget is at ${result.percentage}% (${result.tokensUsed}/${result.limit} tokens).$suffix';
-  await _sendNotificationToOriginChannel(
+  await sendNotificationToOriginChannel(
     sessionId: sessionId,
     text: text,
     label: 'budget warning',
@@ -49,9 +113,10 @@ Future<void> _notifyChannelBudgetWarning({
 
 /// Sends a best-effort notification to the channel that originated [sessionId].
 ///
-/// Resolves the originating channel via task origin or session key fallback.
-/// Failures are logged and swallowed — notifications are non-critical.
-Future<void> _sendNotificationToOriginChannel({
+/// Resolves the originating channel via task origin or session key fallback, and a session whose key names a
+/// thread is answered inside that thread. Failures are logged and swallowed — notifications are non-critical.
+@visibleForTesting
+Future<void> sendNotificationToOriginChannel({
   required String sessionId,
   required String text,
   required String label,
@@ -72,7 +137,10 @@ Future<void> _sendNotificationToOriginChannel({
   if (targetChannel == null) return;
 
   try {
-    await targetChannel.sendMessage(route.recipientId, ChannelResponse(text: text));
+    await targetChannel.sendMessage(
+      route.recipientId,
+      ChannelResponse(text: text, metadata: {threadIdMetadataKey: ?route.threadId}),
+    );
   } catch (error, stackTrace) {
     _notificationsLog.warning(
       'Failed to send $label notification to ${route.channelType.name}:${route.recipientId}',
@@ -82,7 +150,7 @@ Future<void> _sendNotificationToOriginChannel({
   }
 }
 
-Future<({ChannelType channelType, String recipientId})?> _resolveChannelRoute({
+Future<({ChannelType channelType, String recipientId, String? threadId})?> _resolveChannelRoute({
   required String sessionId,
   required SessionService sessions,
   required TaskService taskService,
@@ -96,7 +164,7 @@ Future<({ChannelType channelType, String recipientId})?> _resolveChannelRoute({
 
     final channelType = ChannelType.values.asNameMap()[origin.channelType];
     if (channelType != null) {
-      return (channelType: channelType, recipientId: origin.recipientId);
+      return (channelType: channelType, recipientId: origin.recipientId, threadId: null);
     }
   }
 
@@ -105,22 +173,10 @@ Future<({ChannelType channelType, String recipientId})?> _resolveChannelRoute({
   if (channelKey == null || channelKey.isEmpty) return null;
 
   try {
-    final parsed = SessionKey.parse(channelKey);
-    final parts = parsed.identifiers.split(':');
-    if (parts.isEmpty) return null;
-
-    final channelTypeName = Uri.decodeComponent(parts.first);
-    final channelType = ChannelType.values.asNameMap()[channelTypeName];
-    if (channelType == null) return null;
-
-    return switch (parsed.scope) {
-      'dm' when parts.length == 2 && parts.first != 'contact' => (
-        channelType: channelType,
-        recipientId: Uri.decodeComponent(parts[1]),
-      ),
-      'group' when parts.length >= 2 => (channelType: channelType, recipientId: Uri.decodeComponent(parts[1])),
-      _ => null,
-    };
+    final route = SessionKey.parse(channelKey).channelRoute;
+    final channelType = ChannelType.values.asNameMap()[route?.channelType];
+    if (route == null || channelType == null) return null;
+    return (channelType: channelType, recipientId: route.recipientId, threadId: route.threadId);
   } on FormatException catch (error, stackTrace) {
     _notificationsLog.warning('Failed to parse session key for channel route: $channelKey', error, stackTrace);
     return null;
@@ -171,7 +227,7 @@ Future<void> _notifyChannelLoopDetection({
 }) async {
   final suffix = action == 'abort' ? ' The task has been cancelled.' : '';
   final text = 'Loop detected: ${detection.message}. Action: $action.$suffix';
-  await _sendNotificationToOriginChannel(
+  await sendNotificationToOriginChannel(
     sessionId: sessionId,
     text: text,
     label: 'loop detection',

@@ -57,6 +57,12 @@ class AuditEntry {
   /// Credential reference name, never the resolved credential value.
   final String? credentialRef;
 
+  /// Workflow run the audited decision concerns, if any.
+  final String? runId;
+
+  /// Workflow step the audited decision concerns, if any.
+  final String? stepId;
+
   /// Creates a structured audit entry.
   const new({
     required this.timestamp,
@@ -74,6 +80,8 @@ class AuditEntry {
     this.decision,
     this.principal,
     this.credentialRef,
+    this.runId,
+    this.stepId,
   });
 
   /// Deserializes an [AuditEntry] from a JSON map (NDJSON line).
@@ -94,6 +102,8 @@ class AuditEntry {
       decision: json['decision'] as String?,
       principal: json['principal'] as String?,
       credentialRef: json['credentialRef'] as String?,
+      runId: json['runId'] as String?,
+      stepId: json['stepId'] as String?,
     );
   }
 
@@ -114,6 +124,8 @@ class AuditEntry {
     if (decision != null) 'decision': decision,
     if (principal != null) 'principal': principal,
     if (credentialRef != null) 'credentialRef': credentialRef,
+    if (runId != null) 'runId': runId,
+    if (stepId != null) 'stepId': stepId,
   };
 }
 

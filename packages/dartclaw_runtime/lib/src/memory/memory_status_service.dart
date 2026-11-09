@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
@@ -414,7 +413,6 @@ class MemoryStatusService {
         ? null
         : counts.whereType<int>().fold<int>(0, (sum, count) => sum + count);
     final indexArchived = await _countSearchEntries('archive');
-    final dbSizeBytes = _getSearchDbSize();
     final memoryUnembeddedCount = await _readMissingVectorCount(memoryMissingVectorCount);
     final conversationUnembeddedCount = await _readMissingVectorCount(conversationMissingVectorCount);
 
@@ -436,7 +434,6 @@ class MemoryStatusService {
       'indexArchived': indexArchived,
       'memoryUnembeddedCount': memoryUnembeddedCount,
       'conversationUnembeddedCount': conversationUnembeddedCount,
-      'dbSizeBytes': dbSizeBytes,
     };
   }
 
@@ -457,17 +454,6 @@ class MemoryStatusService {
       return await counter(role);
     } catch (e) {
       _log.fine('Search index count failed: $e');
-      return null;
-    }
-  }
-
-  int? _getSearchDbSize() {
-    try {
-      final file = File(config.searchDbPath);
-      if (!file.existsSync()) return null;
-      return file.lengthSync();
-    } catch (e) {
-      _log.fine('Failed to get search db size: $e');
       return null;
     }
   }

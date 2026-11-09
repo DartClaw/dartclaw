@@ -1,0 +1,202 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 796" width="1000" height="796" role="img" aria-labelledby="title desc">
+  <title id="title">Derived search projections</title>
+  <desc id="desc">Two corpora are projected into PostgreSQL: the memory corpus of each principal and the transcripts of durable chat-facing sessions. Each is projected by a projection class into a lexical chunk table; in hybrid mode a VectorSynchronizer embeds the chunks into a vector table. Live writes, startup reconciliation and dartclaw rebuild-index keep the rows current; none of them changes the canonical files.</desc>
+  <style>
+
+    svg { --bg:#f6f7f9; --card:#ffffff; --ink:#1e2030; --ink2:#4c4f69; --ink3:#6c6f85; --rule:#ccd0da; --edge:#8c8fa1; --hi:#1e66f5; --on:#ffffff; --panel:#1e1e2e; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+      --host:#40a02b; --host-d:#1f5c2a; --host-l:#2d7a1f; --ext:#e07c4f; --ext-d:#a8481c; --ext-l:#b5531f; --store:#179299; --store-d:#0f5f63; --store-l:#0e7377;
+      --sec:#d20f39; --sec-d:#9b0c2c; --sec-l:#b80d33; --chan:#8839ef; --chan-d:#5d23a8; --chan-l:#7027d4; --neu:#7c7f93; --neu-d:#4c4f69; --neu-l:#5c5f77; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#181825; --card:#1e1e2e; --ink:#cdd6f4; --ink2:#bac2de; --ink3:#9399b2; --rule:#45475a; --edge:#7f849c; --hi:#89b4fa; --on:#f5f7ff; --panel:#11111b; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+        --host:#a6e3a1; --host-d:#2f6b3a; --host-l:#a6e3a1; --ext:#fab387; --ext-d:#8f4a24; --ext-l:#fab387; --store:#94e2d5; --store-d:#1f6460; --store-l:#94e2d5;
+        --sec:#f38ba8; --sec-d:#8a2c45; --sec-l:#f38ba8; --chan:#cba6f7; --chan-d:#5e3f94; --chan-l:#cba6f7; --neu:#9399b2; --neu-d:#45475a; --neu-l:#bac2de; }
+    }
+    text { fill: var(--ink); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .mono, .kick, .badge text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+    .bg { fill: var(--bg); }
+    .title { font-size: 21px; font-weight: 700; }
+    .lede { fill: var(--ink3); font-size: 13px; }
+    .kick { font-size: 10.5px; font-weight: 600; letter-spacing: .1em; fill: var(--kl, var(--ink3)); }
+    .k-host { --k:var(--host); --kd:var(--host-d); --kl:var(--host-l); }
+    .k-ext { --k:var(--ext); --kd:var(--ext-d); --kl:var(--ext-l); }
+    .k-store { --k:var(--store); --kd:var(--store-d); --kl:var(--store-l); }
+    .k-sec { --k:var(--sec); --kd:var(--sec-d); --kl:var(--sec-l); }
+    .k-chan { --k:var(--chan); --kd:var(--chan-d); --kl:var(--chan-l); }
+    .k-neu { --k:var(--neu); --kd:var(--neu-d); --kl:var(--neu-l); }
+    .band { fill: color-mix(in srgb, var(--k) 6%, var(--bg)); stroke: color-mix(in srgb, var(--k) 50%, var(--bg)); stroke-width: 1.4; stroke-dasharray: 7 5; }
+    .box { stroke-width: 1.5; }
+    .tint .box { fill: color-mix(in srgb, var(--k) 13%, var(--card)); stroke: var(--k); }
+    .line .box { fill: var(--card); stroke: var(--k); }
+    .ghost .box { fill: none; stroke: var(--k); stroke-dasharray: 5 4; }
+    .solid .box { fill: var(--kd); stroke: var(--kd); }
+    .name { font-size: 14.5px; font-weight: 700; }
+    .sub { font-size: 11.5px; fill: var(--ink2); }
+    .mono { font-size: 11.5px; fill: var(--ink2); }
+    .solid text { fill: var(--on); }
+    .solid .sub, .solid .mono { fill: var(--on); fill-opacity: .82; }
+    .badge rect { fill: none; stroke: var(--kl); stroke-width: 1.2; }
+    .badge text { font-size: 9.5px; font-weight: 700; letter-spacing: .06em; fill: var(--kl); text-anchor: middle; }
+    .solid .badge rect { stroke: var(--on); stroke-opacity: .7; }
+    .solid .badge text { fill: var(--on); }
+    .e path { fill: none; stroke: var(--ec, var(--edge)); stroke-width: var(--ew, 1.6px); marker-end: var(--em, url(#ah)); }
+    .e.main path { stroke: var(--ec, var(--host)); stroke-width: var(--ew, 2.4px); marker-end: var(--em, url(#ah-main)); }
+    .e.bad path { stroke: var(--ec, var(--sec)); marker-end: var(--em, url(#ah-bad)); }
+    .e.dash path { stroke-dasharray: 6 4; }
+    .el { font-size: 11px; fill: var(--ink2); paint-order: stroke; stroke: var(--halo, var(--bg)); stroke-width: 4px; stroke-linejoin: round; }
+    .in-host .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    .ah { fill: var(--edge); } .ah-main { fill: var(--host); } .ah-bad { fill: var(--sec); } .ah-hi { fill: var(--hi); }
+    .panel { fill: var(--panel); }
+    .panel-kick { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10.5px; font-weight: 700; letter-spacing: .12em; fill: var(--panel-kick); }
+    .p1 { fill: var(--panel-ink); font-size: 13px; }
+    .p1 tspan.b { font-weight: 700; }
+    .p2 { fill: var(--panel-sub); font-size: 12.5px; }
+    .lg { font-size: 11px; fill: var(--ink2); }
+    .chip rect { fill: color-mix(in srgb, var(--k) 10%, var(--card)); stroke: var(--k); stroke-width: 1; }
+    .chip text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10px; font-weight: 600; fill: var(--kl); }
+    .step circle { fill: var(--kd); } .step text { fill: var(--on); font-size: 11px; font-weight: 700; text-anchor: middle; }
+    /* Interaction, effective only when the SVG is opened directly. */
+    .n { cursor: pointer; }
+    .n:hover .box, a:focus-visible .box { stroke: var(--hi); stroke-width: 2.8; }
+    .d { display: none; pointer-events: none; }
+    .n:hover .d, a:focus-visible .d { display: inline; }
+    svg:has(.n:hover) .d0, svg:has(a:focus-visible) .d0 { display: none; }
+    svg:has(.n:hover) .edges .e { opacity: .14; }
+    .e.join path { marker-end: none; }
+    .band.inner { fill: none; stroke-dasharray: 3 4; }
+    .mono-name { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13.5px; }
+    .edges .el { --halo: color-mix(in srgb, var(--store) 6%, var(--bg)); }
+    svg:has(#mcorpus:hover) .edges :is(.f-mcorpus,.t-mcorpus) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#mproj:hover) .edges :is(.f-mproj,.t-mproj) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#mchunks:hover) .edges :is(.f-mchunks,.t-mchunks) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#mvec:hover) .edges :is(.f-mvec,.t-mvec) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#cmsgs:hover) .edges :is(.f-cmsgs,.t-cmsgs) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#cproj:hover) .edges :is(.f-cproj,.t-cproj) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#cchunks:hover) .edges :is(.f-cchunks,.t-cchunks) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#cvec:hover) .edges :is(.f-cvec,.t-cvec) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#live:hover) .edges :is(.f-live,.t-live) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#startup:hover) .edges :is(.f-startup,.t-startup) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#rebuild:hover) .edges :is(.f-rebuild,.t-rebuild) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+  </style>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-main" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path class="ah-main" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-bad" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="ah-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="796"/>
+  <!-- Details panel: painted first so node details (.d) draw on top -->
+  <rect class="panel" x="16" y="700" width="968" height="80" rx="12"/>
+  <text class="panel-kick" x="36" y="724">DETAILS</text>
+  <g class="d0"><text class="p1" x="36" y="748">Hover a stage for what it projects and how it recovers; its connections light up. Click it to open its section.</text><text class="p2" x="36" y="768">Inside a rendered document this image is static. Click it to open the interactive SVG.</text></g>
+
+  <text class="kick" x="24" y="32">DATA FLOW · CANONICAL FILES TO SEARCH ROWS</text>
+  <text class="title" x="24" y="58">Derived search projections</text>
+  <text class="lede" x="24" y="80">Search rows are projections of canonical files. They are rebuilt from the sources, never the other way round.</text>
+
+  <g class="k-store"><rect class="band" x="16" y="104" width="476" height="422" rx="14"/><text class="kick" x="32" y="126">MEMORY · PER PRINCIPAL: owner, agent:&lt;id&gt;</text></g>
+  <g class="k-store"><rect class="band" x="508" y="104" width="476" height="422" rx="14"/><text class="kick" x="524" y="126">CONVERSATION · DURABLE CHAT-FACING SESSIONS</text></g>
+  <g class="k-host"><rect class="band" x="16" y="542" width="968" height="116" rx="14"/><text class="kick" x="32" y="564">WHAT KEEPS THE ROWS CURRENT</text></g>
+
+  <g class="edges">
+    <g class="e  f-mcorpus t-mproj"><path d="M202,200 V238"/><text class="el" x="210" y="225" text-anchor="start">validated entries</text></g>
+    <g class="e  f-mproj t-mchunks"><path d="M202,304 V342"/><text class="el" x="210" y="329" text-anchor="start">SearchDocument chunks</text></g>
+    <g class="e dash f-mchunks t-mvec"><path d="M202,408 V446"/><text class="el" x="210" y="430" text-anchor="start">VectorSynchronizer: embeds missing chunks</text></g>
+    <g class="e  f-cmsgs t-cproj"><path d="M694,200 V238"/><text class="el" x="702" y="225" text-anchor="start">user and assistant messages</text></g>
+    <g class="e  f-cproj t-cchunks"><path d="M694,304 V342"/><text class="el" x="702" y="329" text-anchor="start">one chunk per message</text></g>
+    <g class="e dash f-cchunks t-cvec"><path d="M694,408 V446"/><text class="el" x="702" y="430" text-anchor="start">VectorSynchronizer: embeds missing chunks</text></g>
+  </g>
+
+  <a href="../data-model.md#memory-corpus"><g class="n tint k-store" id="mcorpus">
+    <rect class="box" x="32" y="136" width="360" height="64" rx="9"/>
+    <text class="name" x="44" y="159">canonical memory corpus</text>
+    <g class="badge"><rect x="293" y="147" width="89" height="16" rx="8"/><text x="338" y="159">FILE BACKUP</text></g>
+    <text class="sub" x="44" y="177">validated Markdown corpus of one workspace</text>
+    <text class="sub" x="44" y="193">only topic, archive, observation, learning</text>
+    <g class="d"><text class="p1" x="36" y="748"><tspan class="b">canonical memory corpus</tspan> · validated canonical memory of one principal; only topic, archive, observation and learning entries are projected</text><text class="p2" x="36" y="768">MEMORY.md, errors.md and MEMORY.audit.md are never indexed, and wiki/ is read in place, so it has no PostgreSQL projection.</text></g>
+  </g></a>
+  <a href="../data-model.md#derived-search-indexes"><g class="n tint k-host" id="mproj">
+    <rect class="box" x="32" y="240" width="360" height="64" rx="9"/>
+    <text class="name mono-name" x="44" y="263">MemoryIndexProjection</text>
+    <text class="sub" x="44" y="281">document id = entry locator</text>
+    <text class="sub" x="44" y="297">role, provenance, entry revision</text>
+    <g class="d"><text class="p1" x="36" y="748"><tspan class="b">MemoryIndexProjection</tspan> · documents(corpus) makes one chunked SearchDocument per entry, with role, provenance, entry_id and entry_revision</text><text class="p2" x="36" y="768">packages/dartclaw_core/lib/src/memory/memory_index_projection.dart. Live writes call it from a post-commit hook registered on the corpus.</text></g>
+  </g></a>
+  <a href="../data-model.md#derived-search-indexes"><g class="n line k-store" id="mchunks">
+    <rect class="box" x="32" y="344" width="360" height="64" rx="9"/>
+    <text class="name mono-name" x="44" y="367">memory_chunks</text>
+    <g class="badge"><rect x="321" y="355" width="61" height="16" rx="8"/><text x="352" y="367">REBUILD</text></g>
+    <text class="sub" x="44" y="385">content_tsv + GIN index</text>
+    <text class="sub" x="44" y="401">rows scoped by user_id = principal</text>
+    <g class="d"><text class="p1" x="36" y="748"><tspan class="b">memory_chunks</tspan> · PostgresFtsIndex over memory_chunks; the text-search configuration is database.fts_language</text><text class="p2" x="36" y="768">Rows are scoped by user_id (owner or agent:&lt;id&gt;). After a language change, restart and run dartclaw rebuild-index.</text></g>
+  </g></a>
+  <a href="../data-model.md#derived-search-indexes"><g class="n ghost k-store" id="mvec">
+    <rect class="box" x="32" y="448" width="360" height="64" rx="9"/>
+    <text class="name mono-name" x="44" y="471">memory_vectors</text>
+    <g class="badge"><rect x="328" y="459" width="54" height="16" rx="8"/><text x="355" y="471">HYBRID</text></g>
+    <text class="sub" x="44" y="489">embedding public.vector</text>
+    <text class="sub" x="44" y="505">fingerprint, dimension</text>
+    <g class="d"><text class="p1" x="36" y="748"><tspan class="b">memory_vectors</tspan> · PostgresVectorIndex: transactional mutations; ranking scoped by user_id and filtered to the query fingerprint and dimension</text><text class="p2" x="36" y="768">VectorSynchronizer reuses a vector only if content hash and provider fingerprint match, and refuses a late result whose source changed.</text></g>
+  </g></a>
+  <a href="../data-model.md#sessions-and-messages"><g class="n tint k-store" id="cmsgs">
+    <rect class="box" x="524" y="136" width="360" height="64" rx="9"/>
+    <text class="name mono-name" x="536" y="159">messages.ndjson</text>
+    <g class="badge"><rect x="785" y="147" width="89" height="16" rx="8"/><text x="830" y="159">FILE BACKUP</text></g>
+    <text class="sub" x="536" y="177">durable chat-facing sessions</text>
+    <text class="sub" x="536" y="193">types user, main, channel, archive</text>
+    <g class="d"><text class="p1" x="36" y="748"><tspan class="b">messages.ndjson</tspan> · transcripts of durable user, main, channel and archive sessions; temporary conversations are never indexed</text><text class="p2" x="36" y="768">Only user and assistant messages the ConversationState shows are projected; queued, held or removed input is excluded.</text></g>
+  </g></a>
+  <a href="../data-model.md#derived-search-indexes"><g class="n tint k-host" id="cproj">
+    <rect class="box" x="524" y="240" width="360" height="64" rx="9"/>
+    <text class="name mono-name" x="536" y="263">ConversationIndexProjection</text>
+    <text class="sub" x="536" y="281">document id = message UUID</text>
+    <text class="sub" x="536" y="297">one chunk per message</text>
+    <g class="d"><text class="p1" x="36" y="748"><tspan class="b">ConversationIndexProjection</tspan> · one document and one chunk per user or assistant message that ConversationState.includesMessage shows</text><text class="p2" x="36" y="768">ConversationIndexer, an observer of MessageService and SessionService, keeps it current on one serialized chain; archival keeps the rows.</text></g>
+  </g></a>
+  <a href="../data-model.md#derived-search-indexes"><g class="n line k-store" id="cchunks">
+    <rect class="box" x="524" y="344" width="360" height="64" rx="9"/>
+    <text class="name mono-name" x="536" y="367">conversation_chunks</text>
+    <g class="badge"><rect x="813" y="355" width="61" height="16" rx="8"/><text x="844" y="367">REBUILD</text></g>
+    <text class="sub" x="536" y="385">content_tsv + GIN index</text>
+    <text class="sub" x="536" y="401">user_id = pinned workspace principal or owner</text>
+    <g class="d"><text class="p1" x="36" y="748"><tspan class="b">conversation_chunks</tspan> · PostgresFtsIndex over conversation_chunks; rows use the principal pinned on the session, or owner when it has none</text><text class="p2" x="36" y="768">A session that crosses the chat-facing boundary gains or loses its rows; deleting or clearing a session removes them.</text></g>
+  </g></a>
+  <a href="../data-model.md#derived-search-indexes"><g class="n ghost k-store" id="cvec">
+    <rect class="box" x="524" y="448" width="360" height="64" rx="9"/>
+    <text class="name mono-name" x="536" y="471">conversation_vectors</text>
+    <g class="badge"><rect x="820" y="459" width="54" height="16" rx="8"/><text x="847" y="471">HYBRID</text></g>
+    <text class="sub" x="536" y="489">embedding public.vector</text>
+    <text class="sub" x="536" y="505">fingerprint, dimension</text>
+    <g class="d"><text class="p1" x="36" y="748"><tspan class="b">conversation_vectors</tspan> · PostgresVectorIndex over conversation_vectors, fed by its own VectorSynchronizer</text><text class="p2" x="36" y="768">An embedding failure leaves the lexical index current; a changed provider or model makes earlier vectors ineligible until reconciled.</text></g>
+  </g></a>
+  <a href="../data-model.md#derived-search-indexes"><g class="n tint k-host" id="live">
+    <rect class="box" x="32" y="576" width="296" height="70" rx="9"/>
+    <text class="name mono-name" x="44" y="599">live writes</text>
+    <text class="sub" x="44" y="617">memory: post-commit hook on the corpus</text>
+    <text class="sub" x="44" y="633">chat: ConversationIndexer, one queue</text>
+    <g class="d"><text class="p1" x="36" y="748"><tspan class="b">live writes</tspan> · memory writes re-project through a post-commit hook; conversation rows follow MessageService and SessionService</text><text class="p2" x="36" y="768">A failed projection marks the index degraded or is logged; it never fails the write or message persistence. Later rebuilds reconcile missed work.</text></g>
+  </g></a>
+  <a href="../data-model.md#derived-search-indexes"><g class="n tint k-host" id="startup">
+    <rect class="box" x="352" y="576" width="296" height="70" rx="9"/>
+    <text class="name mono-name" x="364" y="599">startup reconcile</text>
+    <text class="sub" x="364" y="617">health evidence current: validate rows</text>
+    <text class="sub" x="364" y="633">stale or degraded: rebuild that principal</text>
+    <g class="d"><text class="p1" x="36" y="748"><tspan class="b">startup reconcile</tspan> · ensureCurrentBatched compares the canonical revision and fingerprint with .dartclaw-memory-index.json</text><text class="p2" x="36" y="768">Health is healthy, degraded, rebuilding or unknown; an interrupted rebuilding reads as degraded. Conversation follows a memory rebuild.</text></g>
+  </g></a>
+  <a href="../data-model.md#derived-search-indexes"><g class="n tint k-host" id="rebuild">
+    <rect class="box" x="672" y="576" width="296" height="70" rx="9"/>
+    <text class="name mono-name" x="684" y="599">dartclaw rebuild-index</text>
+    <g class="badge"><rect x="897" y="587" width="61" height="16" rx="8"/><text x="928" y="599">STOPPED</text></g>
+    <text class="sub" x="684" y="617">memory: one transaction per principal</text>
+    <text class="sub" x="684" y="633">conversation: clear, then repopulate</text>
+    <g class="d"><text class="p1" x="36" y="748"><tspan class="b">dartclaw rebuild-index</tspan> · run with DartClaw stopped: each principal's memory rows are populated, validated and swapped in one transaction</text><text class="p2" x="36" y="768">Conversation rows are cleared, then repopulated, so a crash can leave them partial until rerun. NDJSON, wiki pages and KG facts are never changed.</text></g>
+  </g></a>
+  <g transform="translate(24,674)">
+    <g class="tint k-store"><rect class="box" x="0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="22" y="10">canonical source</text>
+    <g class="tint k-host"><rect class="box" x="143.2" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="165.2" y="10">projection or maintenance code</text>
+    <g class="line k-store"><rect class="box" x="373.2" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="395.2" y="10">derived rows</text>
+    <g class="ghost k-store"><rect class="box" x="491.6" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="513.6" y="10">hybrid mode only</text>
+    <g class="e "><path d="M634.8,6 H666.8"/></g><text class="lg" x="674.8" y="10">projected into</text>
+    <g class="e dash"><path d="M783.5999999999999,6 H815.5999999999999"/></g><text class="lg" x="823.5999999999999" y="10">embedded</text>
+  </g>
+</svg>

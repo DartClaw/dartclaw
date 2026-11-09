@@ -38,8 +38,14 @@ class WikiSearchSource {
     return (await searchScan(query)).results;
   }
 
+  /// Rune bound of a search result's excerpt.
+  static const searchSnippetRunes = 240;
+
   /// Searches the bounded wiki scan and reports incomplete coverage.
-  Future<WikiSearchScan> searchScan(String query) async {
+  ///
+  /// Each result's text is an excerpt of at most [excerptRunes] runes, windowed
+  /// on the first and last query match; a page within that bound is returned whole.
+  Future<WikiSearchScan> searchScan(String query, {int excerptRunes = searchSnippetRunes}) async {
     final wikiDir = Directory(p.join(workspaceDir, 'wiki'));
     if (!wikiDir.existsSync()) return const WikiSearchScan(results: []);
 
@@ -112,7 +118,7 @@ class WikiSearchSource {
       final isSourceBacked = provenance == 'llm-authored' && _hasSourceFrontmatter(raw);
       results.add(
         MemorySearchResult(
-          text: _snippet(body, terms),
+          text: _snippet(body, terms, excerptRunes),
           source: source,
           category: isTrusted ? 'synthesized knowledge' : 'untrusted synthesized knowledge',
           score: (isTrusted || isSourceBacked ? -1000.0 : 1000.0) - matches,
@@ -209,7 +215,7 @@ class WikiSearchSource {
       final source = locator;
       results.add(
         MemorySearchResult(
-          text: _snippet(body, const []),
+          text: _snippet(body, const [], searchSnippetRunes),
           source: source,
           category: 'synthesized knowledge',
           score: 0,
@@ -327,26 +333,28 @@ class WikiSearchSource {
   /// everything appended since; when the last match falls outside the window at
   /// the first, the budget is split between a window at each so the newest
   /// matching content is visible from the search result itself.
-  static String _snippet(String text, List<String> terms) {
+  static String _snippet(String text, List<String> terms, int width) {
     final compact = text.replaceAll(RegExp(r'\s+'), ' ').trim();
     final runes = compact.runes.toList(growable: false);
-    if (runes.length <= 240) return compact;
+    if (runes.length <= width) return compact;
     final lower = compact.toLowerCase();
     final first = terms.map(lower.indexOf).where((index) => index >= 0).fold<int?>(null, (best, index) {
       if (best == null || index < best) return index;
       return best;
     });
     final firstRune = first == null ? 0 : compact.substring(0, first).runes.length;
-    final start = (firstRune - 80).clamp(0, runes.length);
+    final start = (firstRune - width ~/ 3).clamp(0, runes.length);
     final last = terms.map(lower.lastIndexOf).fold(-1, (best, index) => index > best ? index : best);
     final lastRune = last < 0 ? 0 : compact.substring(0, last).runes.length;
-    if (lastRune < start + 240) {
-      return String.fromCharCodes(runes.sublist(start, (start + 240).clamp(0, runes.length)));
+    if (lastRune < start + width) {
+      return String.fromCharCodes(runes.sublist(start, (start + width).clamp(0, runes.length)));
     }
-    final headStart = (firstRune - 40).clamp(0, runes.length);
-    final tailStart = (lastRune - 40).clamp(0, runes.length);
-    final head = runes.sublist(headStart, (headStart + 118).clamp(0, runes.length));
-    final tail = runes.sublist(tailStart, (tailStart + 118).clamp(0, runes.length));
+    // Two windows plus the ' … ' separator fit the width.
+    final half = (width - 4) ~/ 2;
+    final headStart = (firstRune - width ~/ 6).clamp(0, runes.length);
+    final tailStart = (lastRune - width ~/ 6).clamp(0, runes.length);
+    final head = runes.sublist(headStart, (headStart + half).clamp(0, runes.length));
+    final tail = runes.sublist(tailStart, (tailStart + half).clamp(0, runes.length));
     return '${String.fromCharCodes(head)} … ${String.fromCharCodes(tail)}';
   }
 }

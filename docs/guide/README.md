@@ -43,6 +43,7 @@ An experimental, security-conscious AI agent runtime built with Dart. This guide
 | [WhatsApp](whatsapp.md) | GOWA sidecar setup, QR pairing, DM/group access control |
 | [Signal](signal.md) | signal-cli setup, registration, sealed-sender, voice verification |
 | [Google Chat](google-chat.md) | GCP service account, JWT verification, Cards v2, slash commands |
+| [Slack](slack.md) | App manifests, Socket Mode or signed Events API, credentials, doctor checks, threads and slash commands |
 
 ## Recipes
 

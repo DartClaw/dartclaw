@@ -6,7 +6,6 @@ import 'package:dartclaw_google_chat/testing.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
-import 'package:dartclaw_runtime/src/auth/auth_utils.dart';
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 

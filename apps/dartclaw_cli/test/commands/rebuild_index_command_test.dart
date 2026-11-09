@@ -57,7 +57,7 @@ void main() {
     expect(code, 1);
     expect(output.last, contains('database.url'));
     expect(output.last, contains('database.credential'));
-    expect(File(config.searchDbPath).existsSync(), isFalse);
+    expect(File(p.join(config.server.dataDir, 'search.db')).existsSync(), isFalse);
     expect(File(IndexHealthStore(workspaceDir: config.workspaceDir).path).existsSync(), isFalse);
   });
 
@@ -92,7 +92,7 @@ void main() {
     expect(backend.queries, hasLength(1));
     expect(backend.queries.single.sql, contains('pg_catalog.pg_extension'));
     expect(providerConstructed, isFalse);
-    expect(File(config.searchDbPath).existsSync(), isFalse);
+    expect(File(p.join(config.server.dataDir, 'search.db')).existsSync(), isFalse);
     expect(File(config.vectorsDbPath).existsSync(), isFalse);
   });
 

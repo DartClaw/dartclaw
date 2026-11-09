@@ -71,7 +71,7 @@ void main() {
       expect(otherVerdict.isPass, isTrue);
     });
 
-    test('strict empty policy admits only exact Claude StructuredOutput while a schema is active', () async {
+    test('an empty or no-tools policy admits only exact Claude StructuredOutput while a schema is active', () async {
       final strictGuard = TaskToolFilterGuard(denyEmptyAllowlist: true)..allowedTools = const [];
       strictGuard.setSessionToolFilter('schema-session', const [], allowClaudeStructuredOutput: true);
 
@@ -108,7 +108,7 @@ void main() {
         ),
       );
       strictGuard.setSessionToolFilter('inbox-session', const [
-        '__knowledge_inbox_no_tools__',
+        TaskToolFilterGuard.noToolsPolicy,
       ], allowClaudeStructuredOutput: true);
       final toollessTurn = await strictGuard.evaluate(
         _ctx(
@@ -118,12 +118,31 @@ void main() {
           sessionId: 'inbox-session',
         ),
       );
+      strictGuard.setSessionToolFilter('toolless-no-schema', const [TaskToolFilterGuard.noToolsPolicy]);
+      final toollessWithoutSchema = await strictGuard.evaluate(
+        _ctx(
+          hookPoint: 'beforeToolCall',
+          toolName: 'claude:StructuredOutput',
+          rawProviderToolName: 'StructuredOutput',
+          sessionId: 'toolless-no-schema',
+        ),
+      );
+      final toollessWorkTool = await strictGuard.evaluate(
+        _ctx(
+          hookPoint: 'beforeToolCall',
+          toolName: 'file_read',
+          rawProviderToolName: 'Read',
+          sessionId: 'inbox-session',
+        ),
+      );
 
       expect(structuredOutput.isPass, isTrue);
       expect(noSchema.isBlock, isTrue);
       expect(wrongCanonicalIdentity.isBlock, isTrue);
       expect(wrongRawIdentity.isBlock, isTrue);
-      expect(toollessTurn.isBlock, isTrue);
+      expect(toollessTurn.isPass, isTrue);
+      expect(toollessWithoutSchema.isBlock, isTrue);
+      expect(toollessWorkTool.isBlock, isTrue);
     });
 
     test('tool in allowedTools — pass', () async {
@@ -199,7 +218,7 @@ void main() {
     });
 
     test('Claude control helpers remain blocked for a toolless policy', () async {
-      guard.allowedTools = ['__knowledge_inbox_no_tools__'];
+      guard.allowedTools = [TaskToolFilterGuard.noToolsPolicy];
 
       final discoveryVerdict = await guard.evaluate(
         _ctx(hookPoint: 'beforeToolCall', toolName: 'claude:ToolSearch', rawProviderToolName: 'ToolSearch'),
@@ -213,7 +232,7 @@ void main() {
     });
 
     test('sentinel allowlist blocks read and network tools for toolless turns', () async {
-      guard.allowedTools = ['__knowledge_inbox_no_tools__'];
+      guard.allowedTools = [TaskToolFilterGuard.noToolsPolicy];
 
       final fileVerdict = await guard.evaluate(_ctx(hookPoint: 'beforeToolCall', toolName: 'file_read'));
       final networkVerdict = await guard.evaluate(_ctx(hookPoint: 'beforeToolCall', toolName: 'web_fetch'));
@@ -223,7 +242,7 @@ void main() {
     });
 
     test('toolless sentinel dominates a mixed global allowlist', () async {
-      guard.allowedTools = ['__knowledge_inbox_no_tools__', 'file_read'];
+      guard.allowedTools = [TaskToolFilterGuard.noToolsPolicy, 'file_read'];
 
       final fileVerdict = await guard.evaluate(_ctx(hookPoint: 'beforeToolCall', toolName: 'file_read'));
       final discoveryVerdict = await guard.evaluate(
@@ -263,7 +282,7 @@ void main() {
     });
 
     test('session tool filters only affect the matching active session', () async {
-      guard.setSessionToolFilter('inbox-session', ['__knowledge_inbox_no_tools__']);
+      guard.setSessionToolFilter('inbox-session', [TaskToolFilterGuard.noToolsPolicy]);
 
       final inboxVerdict = await guard.evaluate(
         _ctx(hookPoint: 'beforeToolCall', toolName: 'web_fetch', sessionId: 'inbox-session'),
@@ -284,7 +303,7 @@ void main() {
     });
 
     test('toolless sentinel dominates a mixed session allowlist', () async {
-      guard.setSessionToolFilter('inbox-session', ['__knowledge_inbox_no_tools__', 'file_read']);
+      guard.setSessionToolFilter('inbox-session', [TaskToolFilterGuard.noToolsPolicy, 'file_read']);
 
       final fileVerdict = await guard.evaluate(
         _ctx(hookPoint: 'beforeToolCall', toolName: 'file_read', sessionId: 'inbox-session'),

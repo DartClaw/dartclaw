@@ -34,7 +34,7 @@ Map<String, dynamic> sampleStatus({
     'archiveMd': {'entryCount': archivedCount, 'sizeBytes': 1024},
     'errorsMd': {'entryCount': errorsCount, 'cap': errorsCap, 'sizeBytes': 512},
     'learningsMd': {'entryCount': learningsCount, 'cap': learningsCap, 'sizeBytes': 256},
-    'search': {'backend': 'postgresql', 'depth': 10, 'indexEntries': 20, 'indexArchived': 5, 'dbSizeBytes': 4096},
+    'search': {'backend': 'postgresql', 'depth': 10, 'indexEntries': 20, 'indexArchived': 5},
     'pruner': {
       'status': prunerStatus,
       'schedule': '0 3 * * *',
@@ -606,13 +606,7 @@ void main() {
 
     test('Search card never republishes stale derived rows as active', () {
       final status = sampleStatus()
-        ..['search'] = {
-          'backend': 'postgresql',
-          'depth': 10,
-          'indexEntries': 987,
-          'indexArchived': 654,
-          'dbSizeBytes': null,
-        }
+        ..['search'] = {'backend': 'postgresql', 'depth': 10, 'indexEntries': 987, 'indexArchived': 654}
         ..['index'] = {'state': 'rebuilding', 'derivedChunkCount': null};
 
       final html = memoryDashboardTemplate(
@@ -627,7 +621,11 @@ void main() {
       expect(searchCard, contains('>unknown</span>'));
       expect(searchCard, isNot(contains('>Active</span>')));
       expect(searchCard, isNot(anyOf(contains('987'), contains('654'), contains('1641'))));
-      expect(searchCard, isNot(contains('>0 B</span>')));
+      final rowLabels = RegExp(r'card-row-label">([^<]+)<')
+          .allMatches(searchCard)
+          .map((match) => match.group(1))
+          .toList();
+      expect(rowLabels, ['Backend', 'Search depth', 'Index entries']);
     });
 
     // S06: the retired lifecycle must leave no card an operator could still act on.

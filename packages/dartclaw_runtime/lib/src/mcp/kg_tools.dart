@@ -17,7 +17,7 @@ typedef KgPrincipalProvider = String Function();
 const systemKgPrincipal = 'system';
 
 /// MCP tool for adding source-linked temporal facts.
-class KgAddTool implements ContextualMcpTool {
+class KgAddTool extends ContextualMcpTool {
   final TemporalKnowledgeGraphService kg;
   final GuardAuditLogger? auditLogger;
   final KgPrincipalProvider principalProvider;
@@ -47,9 +47,6 @@ class KgAddTool implements ContextualMcpTool {
 
   @override
   McpToolAccess get access => McpToolAccess.write;
-
-  @override
-  Future<ToolResult> call(Map<String, dynamic> args) => _add(args);
 
   @override
   Future<ToolResult> callWithContext(Map<String, dynamic> args, McpCallerContext context) async {
@@ -171,7 +168,7 @@ class KgTimelineTool implements McpTool {
 }
 
 /// MCP tool for invalidating a fact while preserving history.
-class KgInvalidateTool implements ContextualMcpTool {
+class KgInvalidateTool extends ContextualMcpTool {
   final TemporalKnowledgeGraphService kg;
   final GuardAuditLogger? auditLogger;
   final KgPrincipalProvider principalProvider;
@@ -204,9 +201,6 @@ class KgInvalidateTool implements ContextualMcpTool {
 
   @override
   McpToolAccess get access => McpToolAccess.write;
-
-  @override
-  Future<ToolResult> call(Map<String, dynamic> args) => _invalidate(args);
 
   @override
   Future<ToolResult> callWithContext(Map<String, dynamic> args, McpCallerContext context) async {

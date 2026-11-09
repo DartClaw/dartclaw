@@ -11,6 +11,7 @@ abstract final class PostgresSchemaGate {
     )
   ''';
   static const _markerRowSql = 'INSERT INTO dartclaw_schema (id, epoch) VALUES (1, 1)';
+  static const _missingOriginColumn = 'missing column workflow_runs.origin_json';
   static final _memoryTable = SchemaTable('memory_chunks', [
     ...SchemaIdentity.search.tables.firstWhere((table) => table.name == 'memory_chunks').columns,
     const SchemaColumn('content_tsv', 'TSVECTOR', notNull: true),
@@ -114,7 +115,11 @@ abstract final class PostgresSchemaGate {
     if (differences.isNotEmpty) throw _vectorProjectionRefusal(databaseIdentity, differences);
   }
 
-  /// Creates an empty schema or validates an exact current schema.
+  /// Creates an empty schema, validates an exact current schema, or applies the one admitted transition.
+  ///
+  /// The transition adds `workflow_runs.origin_json` to the exact released 0.27 shape (epoch 1 marker, that column
+  /// the only difference) inside one transaction that re-validates the full identity before committing. Every other
+  /// shape refuses without mutation.
   static Future<void> prepare(DatabaseBackend backend, {required String databaseIdentity}) async {
     final found = await _relations(backend);
     if (found.isEmpty) {
@@ -122,24 +127,44 @@ abstract final class PostgresSchemaGate {
       return;
     }
 
-    await _validate(backend, found, databaseIdentity);
+    await _validate(backend, found, databaseIdentity, admitLegacyOrigin: true);
   }
 
-  /// Validates an exact current schema without bootstrapping an empty namespace.
+  /// Validates an exact current schema without bootstrapping an empty namespace or applying the transition.
   static Future<void> validateCurrent(DatabaseBackend backend, {required String databaseIdentity}) async {
-    await _validate(backend, await _relations(backend), databaseIdentity);
+    await _validate(backend, await _relations(backend), databaseIdentity, admitLegacyOrigin: false);
   }
 
-  static Future<void> _validate(DatabaseBackend backend, Set<String> found, String databaseIdentity) async {
+  static Future<void> _validate(
+    DatabaseBackend backend,
+    Set<String> found,
+    String databaseIdentity, {
+    required bool admitLegacyOrigin,
+  }) async {
     final differences = await _differences(backend, found);
     final epoch = await _epoch(backend, found);
     if (epoch.isCurrent && differences.isEmpty) return;
+    final legacyOrigin = epoch.isCurrent && differences.length == 1 && differences.single == _missingOriginColumn;
+    if (legacyOrigin && admitLegacyOrigin) {
+      await _addOriginColumn(backend, databaseIdentity);
+      return;
+    }
     throw SchemaIncompatibleException(
       storeName: databaseIdentity,
       foundEpoch: epoch.found,
       differences: [...differences, ...epoch.differences],
-      action: 'Back up $databaseIdentity, then reset/recreate it for this release or restore a compatible database.',
+      action: legacyOrigin
+          ? 'Start `dartclaw serve` against $databaseIdentity to apply the one supported schema transition from '
+                'the released 0.27 shape.'
+          : 'Back up $databaseIdentity, then reset/recreate it for this release or restore a compatible database.',
     );
+  }
+
+  static Future<void> _addOriginColumn(DatabaseBackend backend, String databaseIdentity) {
+    return backend.transaction((tx) async {
+      await tx.execute('ALTER TABLE workflow_runs ADD COLUMN origin_json TEXT');
+      await _validate(tx, await _relations(tx), databaseIdentity, admitLegacyOrigin: false);
+    });
   }
 
   static Future<Set<String>> _relations(DatabaseBackend backend) async {

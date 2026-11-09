@@ -19,7 +19,7 @@ import 'workflow_test_support.dart';
 // Helpers
 // ──────────────────────────────────────────────────────────────────────────────
 
-WorkflowDefinition _makeDefinition({String name = 'story-and-implement'}) {
+WorkflowDefinition _makeDefinition({String name = 'implement-story'}) {
   return WorkflowDefinition(
     name: name,
     description: 'test',
@@ -180,7 +180,13 @@ void main() {
     workflows.getResult = _makeRun();
 
     definitions = InMemoryDefinitionSource([_makeDefinition()]);
-    handler = workflowRoutes(workflows, tasks, definitions, eventBus: eventBus).call;
+    handler = workflowRoutes(
+      workflows,
+      tasks,
+      definitions,
+      runControl: testRunControl(workflows),
+      eventBus: eventBus,
+    ).call;
   });
 
   tearDown(() async {
@@ -198,7 +204,12 @@ void main() {
     });
 
     test('returns 503 when eventBus not configured', () async {
-      final handlerNoEventBus = workflowRoutes(workflows, tasks, definitions).call;
+      final handlerNoEventBus = workflowRoutes(
+        workflows,
+        tasks,
+        definitions,
+        runControl: testRunControl(workflows),
+      ).call;
       final response = await handlerNoEventBus(
         Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001/events')),
       );
@@ -297,7 +308,7 @@ void main() {
       eventBus.fire(
         WorkflowRunStatusChangedEvent(
           runId: 'run-001',
-          definitionName: 'story-and-implement',
+          definitionName: 'implement-story',
           oldStatus: WorkflowRunStatus.running,
           newStatus: WorkflowRunStatus.awaitingApproval,
           timestamp: DateTime.now(),
@@ -342,7 +353,7 @@ void main() {
           eventBus.fire(
             WorkflowRunStatusChangedEvent(
               runId: 'run-001',
-              definitionName: 'story-and-implement',
+              definitionName: 'implement-story',
               oldStatus: WorkflowRunStatus.running,
               newStatus: WorkflowRunStatus.paused,
               errorMessage: 'Step failed',
@@ -367,7 +378,7 @@ void main() {
           eventBus.fire(
             WorkflowRunStatusChangedEvent(
               runId: 'run-001',
-              definitionName: 'story-and-implement',
+              definitionName: 'implement-story',
               oldStatus: WorkflowRunStatus.failed,
               newStatus: WorkflowRunStatus.running,
               timestamp: DateTime.now(),

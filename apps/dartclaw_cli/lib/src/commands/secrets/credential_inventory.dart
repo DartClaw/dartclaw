@@ -2,6 +2,8 @@ import 'dart:io';
 
 import 'package:dartclaw_acp/dartclaw_acp.dart' show acpConfigFor;
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
+import 'package:dartclaw_runtime/dartclaw_runtime.dart' show resolveChannelConfig;
+import 'package:dartclaw_slack/dartclaw_slack.dart' show SlackConfig;
 
 /// Where a resolved credential's value actually comes from.
 enum CredentialProvenance {
@@ -148,8 +150,12 @@ class _SecretAudit {
   /// never orphans.
   static List<SecretFinding> _orphans(DartclawConfig config, Map<String, dynamic> yaml) {
     const providerNames = {'anthropic', 'openai'};
+    final slack = resolveChannelConfig<SlackConfig>(config, ChannelType.slack);
     final consumed = {
       ...providerNames,
+      ?slack.botTokenCredential,
+      ?slack.appTokenCredential,
+      ?slack.signingSecretCredential,
       for (final server in config.mcpServers.entries.values) ?server.credential,
       for (final agent in acpConfigFor(config).agents.values) ?agent.credential,
       for (final project in config.projects.definitions.values) ?project.credentials,

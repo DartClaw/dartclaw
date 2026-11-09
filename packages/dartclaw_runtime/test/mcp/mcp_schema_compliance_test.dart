@@ -115,7 +115,17 @@ void main() {
           delivery: DeliveryService(
             channelManager: ChannelManager(
               queue: MessageQueue(
-                dispatcher: (key, message, {required channelType, senderJid, senderDisplayName, groupJid}) async => '',
+                dispatcher: (
+                  key,
+                  message, {
+                  required channelType,
+                  senderJid,
+                  senderDisplayName,
+                  groupJid,
+                  recipientId,
+                  threadId,
+                  attachments = const [],
+                }) async => '',
               ),
               config: const ChannelConfig.defaults(),
             ),
@@ -132,11 +142,14 @@ void main() {
       addTearDown(tasks.dispose);
       return [
         TaskCreateTool(tasks: tasks),
-        TaskReviewTool(reviews: TaskReviewService(tasks: tasks)),
+        TaskReviewTool(
+          reviews: TaskReviewService(tasks: tasks),
+          isAdmin: (_) => true,
+        ),
         TaskListTool(tasks: tasks),
         ReviewListTool(tasks: tasks),
-        TaskBindTool(tasks: tasks, bindings: null),
-        TaskUnbindTool(bindings: null),
+        TaskBindTool(tasks: tasks, bindings: null, channels: null, isAdmin: (_) => true),
+        TaskUnbindTool(bindings: null, isAdmin: (_) => true),
       ];
     }
 
@@ -178,9 +191,9 @@ void main() {
 
     test('all registered object-type tools have additionalProperties: false (regression guard)', () {
       final tools = <McpTool>[
-        MemoryApplyTool(handler: (args) async => {}),
-        MemorySearchTool(handler: (args) async => {}),
-        MemoryReadTool(handler: (args) async => {}),
+        MemoryApplyTool(handler: (args, _) async => {}),
+        MemorySearchTool(handler: (args, _) async => {}),
+        MemoryReadTool(handler: (args, _) async => {}),
         OnboardingCompleteTool(workspaceDir: '/tmp'),
         WebFetchTool(),
         BraveSearchTool(provider: _StubSearchProvider()),

@@ -199,7 +199,7 @@ Use **Slash command** entries for all DartClaw commands. Do not replace these wi
 
 The numeric IDs must match DartClaw's default `SlashCommandParser` mapping. DartClaw accepts both Google Chat slash-command event shapes: `MESSAGE + message.slashCommand` and `APP_COMMAND + appCommandMetadata`.
 
-Slash commands run the same inbound access checks as ordinary messages: a sender `dm_access` denies, a sender still awaiting pairing approval, or a space `group_access` blocks gets no command execution and no reply. `require_mention` is the one check they skip. `/stop`, `/pause` and `/resume` additionally require an admin sender (`governance.admins`); `/new`, `/reset` and `/status` act within what the sender's own session already grants, so passing the inbound checks is enough for them.
+Slash commands run the same inbound access checks as ordinary messages: a sender `dm_access` denies, a sender still awaiting pairing approval, or a space `group_access` blocks gets no command execution and no reply. `require_mention` is the one check they skip. `/stop`, `/pause` and `/resume` additionally require an admin sender (`governance.admin_senders`); `/new`, `/reset` and `/status` act within what the sender's own session already grants, so passing the inbound checks is enough for them.
 
 This guide documents the supported Console-based setup flow for slash commands. If you automate Chat app configuration by API or Terraform, keep the command IDs aligned with the mapping above.
 
@@ -211,9 +211,43 @@ agent's own `task_bind` tool carries no channel context and has to be told which
 (`task_id`, `channel_type`, `thread_id`) — see [Tasks](tasks.md#agent-tool-surface). Use `/bind` for "this thread",
 and `task_bind` when the thread is already known by name.
 
-Binding is thread-scoped and Google Chat only. Google Chat is the one channel that stamps a per-message thread
-identity, which is what a binding is keyed by, so a message with no thread — a WhatsApp or Signal group among them —
-answers `Cannot bind — this message is not in a thread.` rather than binding the group.
+Binding is thread-scoped and opt-in through `features.thread_binding.enabled`. It works on every channel that carries a
+per-message thread identity, which is what a binding is keyed by: Google Chat (the thread resource name, such as
+`spaces/AAAA/threads/CCCC`) and Slack. A message with no thread, or on a channel with none (WhatsApp and Signal),
+answers `Cannot bind — this message is not in a thread.` rather than binding the group. Slack registers no `/bind` or
+`/unbind`, because its slash payload carries no thread. A thread that a workflow run posts into cannot be bound to a
+task; the reply names the run.
+
+With the flag on, the first notification of a task started from a Google Chat space (queued to running) opens a thread
+in that space and binds it, so later status changes and review requests post into the same thread and replies there
+reach the task's agent. With it off, Google Chat still shows task notifications as cards, but each one is a separate
+message. The card layout is the same either way.
+
+Workflow runs post to Google Chat too: a run started from a Chat thread posts its started, awaiting-approval and
+finished or failed messages into that thread. A run started elsewhere can post to a Chat space through
+`workflow.chat_notifications` (one thread per run); see
+[Workflow run notifications](configuration.md#workflow-run-notifications).
+
+A task's review card has **Accept** and **Reject** buttons, and a click is accepted only from a sender in
+`governance.admin_senders` (the `users/<id>` form). Anyone else is answered in the click response and the task stays in
+review. Every click, allowed or refused, is written to the audit log (guard `TaskReviewGate`, with the sender and task).
+An empty list makes every member of the space an admin, as for run approvals. A task started from a Chat message by
+the agent's `task_create` tool posts its review card back into that space, so list your reviewers before relying on
+the card in a shared space. The agent's `task_review` tool applies the same rule to a chat turn, so asking the agent to
+accept a task does not get around the card.
+
+The awaiting-approval card has **Approve** and **Reject** buttons. A click is accepted only from a sender listed in
+`governance.admin_senders` (the sender ID is the `users/<id>` form), and an empty list makes every member of the space an
+admin, so list your approvers before using buttons in a shared space. A refused click is answered in the click response;
+whether Google Chat shows that text only to the person who clicked is not yet confirmed, so treat it as visible to the
+space. After a resolution the card is edited to say who resolved it and loses its buttons. See
+[Approving from chat](workflows.md#approving-from-chat).
+
+When the gate names a revise step, the card also has a **Request changes** button. It opens a dialog with a feedback
+field, and submitting it sends the run back to that step with the text. The same senders as Approve and Reject may use
+it. Anyone else who clicks gets a dialog holding only the refusal, with no form, and only they see it. A refused
+submission (blank feedback, a gate already resolved, no revisions left) keeps the dialog open with the reason shown
+under it; whether Google Chat keeps the dialog open on that error has not yet been confirmed in a live space.
 
 ## Message Formatting
 

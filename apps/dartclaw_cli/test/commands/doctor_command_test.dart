@@ -55,7 +55,7 @@ void main() {
           setupChecks: SetupChecks(
             databaseReadiness: databaseReadiness ?? _databaseReady,
             probeBinary: (_) async => (outcome: BinaryProbeOutcome.responded, version: '2.1.80'),
-            portFree: (_) async => true,
+            portFree: (_, _) async => true,
             providerVerified: realCredentials ? null : (_, _, _) async => true,
             runCommand: (_, _) async => ProcessResult(0, 1, '', ''),
           ),

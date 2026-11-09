@@ -37,6 +37,7 @@ class GoogleChatWebhookHandler {
   final List<String> trustedProxies;
   final Duration responseTimeout;
   final ChannelReviewHandler? _reviewHandler;
+  final ChannelRunApprovalHandler? _runApprovalHandler;
   final ChatCardBuilder _cardBuilder;
   final SlashCommandParser? _slashCommandParser;
   final SlashCommandExecutor? _slashCommandHandler;
@@ -55,12 +56,14 @@ class GoogleChatWebhookHandler {
     this.trustedProxies = const [],
     this.responseTimeout = const Duration(seconds: 25),
     ChannelReviewHandler? reviewHandler,
+    ChannelRunApprovalHandler? runApprovalHandler,
     ChatCardBuilder? cardBuilder,
     SlashCommandParser? slashCommandParser,
     SlashCommandExecutor? slashCommandHandler,
     MessageDeduplicator? deduplicator,
     WorkspaceEventsManager? subscriptionManager,
   }) : _reviewHandler = reviewHandler,
+       _runApprovalHandler = runApprovalHandler,
        _cardBuilder = cardBuilder ?? const ChatCardBuilder(),
        _slashCommandParser = slashCommandParser,
        _slashCommandHandler = slashCommandHandler,
@@ -331,6 +334,11 @@ class GoogleChatWebhookHandler {
       return _jsonResponse(const {});
     }
 
+    final runAction = ChannelRunApprovalAction.fromActionId(invokedFunction);
+    if (runAction != null) {
+      return _handleRunApprovalClick(runAction, payload);
+    }
+
     final action = switch (invokedFunction) {
       'task_accept' => 'accept',
       'task_reject' => 'reject',
@@ -353,7 +361,12 @@ class GoogleChatWebhookHandler {
       return _jsonResponse({'text': 'Invalid button action: missing task ID.'});
     }
 
-    final result = await reviewHandler(taskId, action);
+    final result = await reviewHandler(
+      taskId,
+      action,
+      channelType: ChannelType.googlechat.name,
+      senderId: asMap(payload['user'])?['name'] as String?,
+    );
     return switch (result) {
       ChannelReviewSuccess(:final taskTitle, :final action) => () {
         final completedAction = action == 'accept' ? 'accepted' : 'rejected';
@@ -373,6 +386,103 @@ class GoogleChatWebhookHandler {
       ),
       ChannelReviewError(:final message) => _jsonResponse({'text': message}),
     };
+  }
+
+  Future<Response> _handleRunApprovalClick(ChannelRunApprovalAction action, Map<String, dynamic> payload) async {
+    final handler = _runApprovalHandler;
+    if (handler == null) {
+      _log.warning('CARD_CLICKED ${action.actionId} received but no run approval handler configured');
+      return _runApprovalRefusal(action, 'Run approvals are not available.');
+    }
+
+    final expectedDialogEvent = switch (action) {
+      ChannelRunApprovalAction.checkRequestChanges => 'REQUEST_DIALOG',
+      ChannelRunApprovalAction.requestChanges => 'SUBMIT_DIALOG',
+      ChannelRunApprovalAction.approve || ChannelRunApprovalAction.reject => null,
+    };
+    if (expectedDialogEvent != null &&
+        (payload['isDialogEvent'] != true || payload['dialogEventType'] != expectedDialogEvent)) {
+      _log.warning('CARD_CLICKED ${action.actionId} is not a $expectedDialogEvent dialog event');
+      return _jsonResponse(const {});
+    }
+
+    final common = asMap(payload['common']);
+    final parameters = _extractFlatParameters(common?['parameters']);
+    final user = asMap(payload['user']);
+    final runId = parameters[runActionRunIdKey];
+    final stepId = parameters[runActionStepIdKey];
+    final nonce = parameters[runActionNonceKey];
+    final senderId = user?['name'] as String?;
+    final postMessageId = (asMap(payload['message'])?['name'] ?? parameters[requestChangesPostParameter]) as String?;
+    if (runId == null ||
+        stepId == null ||
+        nonce == null ||
+        senderId == null ||
+        senderId.isEmpty ||
+        postMessageId == null ||
+        postMessageId.isEmpty) {
+      _log.warning('CARD_CLICKED ${action.actionId} missing run, step, nonce, sender or message');
+      return _runApprovalRefusal(action, 'Invalid button action: missing run approval details.');
+    }
+
+    final result = await handler(
+      ChannelRunApprovalRequest(
+        action: action,
+        runId: runId,
+        stepId: stepId,
+        nonce: nonce,
+        senderId: senderId,
+        senderDisplayName: user?['displayName'] as String?,
+        channelType: ChannelType.googlechat.name,
+        postMessageId: postMessageId,
+        feedback: action == ChannelRunApprovalAction.requestChanges ? _feedbackInput(common) : null,
+      ),
+    );
+    return switch (result) {
+      ChannelRunApprovalResolved() when action == ChannelRunApprovalAction.requestChanges => _dialogResponse(const {
+        'actionStatus': {'statusCode': 'OK'},
+      }),
+      ChannelRunApprovalPermitted() when action == ChannelRunApprovalAction.checkRequestChanges => _dialogResponse({
+        'dialog': {
+          'body': _cardBuilder.requestChangesDialog(
+            runId: runId,
+            stepId: stepId,
+            nonce: nonce,
+            postMessageId: postMessageId,
+          ),
+        },
+      }),
+      ChannelRunApprovalResolved() || ChannelRunApprovalPermitted() => _jsonResponse(const {}),
+      ChannelRunApprovalRefused(:final message) ||
+      ChannelRunApprovalFailed(:final message) => _runApprovalRefusal(action, message),
+    };
+  }
+
+  /// Answers only the clicker: a dialog holds the text, so a sender refused at the button never gets the form.
+  Response _runApprovalRefusal(ChannelRunApprovalAction action, String message) {
+    // Whether the plain text of a button click reaches only the clicker (privateMessageViewer) or the
+    // whole space, as task-card errors do, is unconfirmed until live qualification.
+    return switch (action) {
+      ChannelRunApprovalAction.checkRequestChanges => _dialogResponse({
+        'dialog': {'body': _cardBuilder.messageDialog(message)},
+      }),
+      ChannelRunApprovalAction.requestChanges => _dialogResponse({
+        'actionStatus': {'statusCode': 'INVALID_ARGUMENT', 'userFacingMessage': message},
+      }),
+      ChannelRunApprovalAction.approve || ChannelRunApprovalAction.reject => _jsonResponse({'text': message}),
+    };
+  }
+
+  Response _dialogResponse(Map<String, dynamic> dialogAction) {
+    return _jsonResponse({
+      'actionResponse': {'type': 'DIALOG', 'dialogAction': dialogAction},
+    });
+  }
+
+  String? _feedbackInput(Map<String, dynamic>? common) {
+    final input = asMap(asMap(common?['formInputs'])?[requestChangesFeedbackInputName]);
+    final values = asMap(input?['stringInputs'])?['value'];
+    return values is List && values.isNotEmpty && values.first is String ? values.first as String : null;
   }
 
   Future<Response> _handleAppCommand(Map<String, dynamic> payload) async {
@@ -550,6 +660,8 @@ class GoogleChatWebhookHandler {
         'space': bp?['space'] ?? asMap(chat['space']),
         'message': bp?['message'],
         'user': user,
+        'isDialogEvent': ?bp?['isDialogEvent'],
+        'dialogEventType': ?bp?['dialogEventType'],
         'common': ?common,
         'eventTime': ?eventTime,
       };

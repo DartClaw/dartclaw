@@ -77,7 +77,7 @@ void main() {
 
       final joined = output.join('\n');
       expect(joined, contains('VARIABLES'));
-      // plan-and-implement declares FEATURE as required.
+      // implement-prd declares FEATURE as required.
       expect(joined, contains('FEATURE'));
     });
 
@@ -88,7 +88,7 @@ void main() {
       expect(output.first, isNot(contains('VARIABLES')));
       final decoded = jsonDecode(output.first) as List<dynamic>;
       final planEntry = decoded.cast<Map<String, dynamic>>().firstWhere(
-        (e) => e['name'] == 'plan-and-implement',
+        (e) => e['name'] == 'implement-prd',
         orElse: () => <String, dynamic>{},
       );
       expect((planEntry['variables'] as Map?)?.containsKey('FEATURE'), isTrue);

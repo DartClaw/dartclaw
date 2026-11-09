@@ -214,8 +214,8 @@ Commands:
 ```bash
 bash dev/testing/profiles/workflow-contract/run.sh
 bash dev/testing/profiles/workflow-live/run.sh --canary step-isolation
-bash dev/testing/profiles/workflow-live/run.sh --canary story-and-implement
-bash dev/testing/profiles/workflow-live/run.sh --canary plan-and-implement
+bash dev/testing/profiles/workflow-live/run.sh --canary implement-story
+bash dev/testing/profiles/workflow-live/run.sh --canary implement-prd
 bash dev/testing/profiles/workflow-live/run.sh --canary merge-resolve
 bash dev/testing/profiles/workflow-live/run.sh --full
 ```
@@ -526,7 +526,7 @@ dart test --reporter=failures-only packages/dartclaw_runtime
 dart test --reporter=failures-only apps/dartclaw_cli
 ```
 
-That holds only while every such test isolates what it touches. `dart test` runs suites as isolates inside **one OS process**, so ports, the filesystem, and the working directory are shared. A test that binds a fixed port, writes outside a temp dir, or assigns `Directory.current` will corrupt whichever suite happens to be running beside it — intermittently, and usually in a different file. Bind port `0`, use per-test temp roots, and inject the working directory (see `WorktreeManager(currentDirectory:)`) instead of reaching for `-j 1`.
+That holds only while every such test isolates what it touches. `dart test` runs suites as isolates inside **one OS process**, so ports, the filesystem, and the working directory are shared. A test that binds a fixed port, writes outside a temp dir, or assigns `Directory.current` will corrupt whichever suite happens to be running beside it — intermittently, and usually in a different file. Bind port `0`, use per-test temp roots, and inject the working directory (see `WorktreeManager(projectDir:)`) instead of reaching for `-j 1`.
 
 ### All Packages
 

@@ -258,4 +258,32 @@ export default class DcWorkflowsController extends Stimulus.Controller {
   retryStepDetail(event) {
     _retryStepDetail(event.currentTarget);
   }
+
+  async requestChanges(event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const button = form.querySelector('button[type="submit"]');
+    if (button?.disabled) return;
+    if (button) button.disabled = true;
+    const qs = dartclaw.shell && typeof dartclaw.shell.apiQs === 'function' ? dartclaw.shell.apiQs() : '';
+    try {
+      const response = await fetch(
+        '/api/workflows/runs/' + encodeURIComponent(form.dataset.runId) + '/request-changes' + qs,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ feedback: form.elements.feedback.value }),
+        },
+      );
+      if (response.ok) return;
+      let message = 'Request changes failed';
+      try {
+        message = (await response.json()).error?.message || message;
+      } catch (_) {}
+      ui.showToast('error', message);
+    } catch (_) {
+      ui.showToast('error', 'Request changes failed');
+    }
+    if (button) button.disabled = false;
+  }
 }

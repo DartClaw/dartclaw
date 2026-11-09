@@ -21,7 +21,7 @@ void main() {
       DateTime? lastActivity,
     }) {
       final now = lastActivity ?? DateTime.now();
-      return ThreadBinding(
+      return ThreadBinding.task(
         channelType: channelType,
         threadId: threadId,
         taskId: taskId,
@@ -64,6 +64,37 @@ void main() {
 
         expect(store.lookupByTask('task-abc'), isEmpty);
         await manager.dispose();
+      });
+
+      test('a terminal task event unbinds tasks only, leaving a run binding that shares the ID', () async {
+        final now = DateTime.now();
+        await store.create(makeBinding(taskId: 'shared-id'));
+        await store.create(
+          ThreadBinding.run(
+            channelType: 'slack',
+            threadId: 'C1:1.5',
+            runId: 'shared-id',
+            createdAt: now,
+            lastActivity: now,
+          ),
+        );
+        final manager = ThreadBindingLifecycleManager(store: store, eventBus: eventBus);
+        manager.start();
+
+        eventBus.fire(
+          TaskStatusChangedEvent(
+            taskId: 'shared-id',
+            oldStatus: TaskStatus.running,
+            newStatus: TaskStatus.failed,
+            trigger: 'test',
+            timestamp: now,
+          ),
+        );
+        await Future<void>.delayed(Duration.zero);
+        await manager.dispose();
+
+        expect(store.lookupByTask('shared-id'), isEmpty);
+        expect(store.lookupByRun('shared-id'), hasLength(1));
       });
 
       test('removes binding when task transitions to rejected', () async {
@@ -265,7 +296,7 @@ void main() {
         );
         await store.create(makeBinding(taskId: 'boundary', threadId: 'boundary', lastActivity: cutoff));
         final removed = await store.removeExpiredBindings(cutoff);
-        expect(removed.map((binding) => binding.taskId), ['stale']);
+        expect(removed.map((binding) => binding.targetId), ['stale']);
         final reloaded = ThreadBindingStore(tempFile);
         await reloaded.load();
         expect(reloaded.lookupByTask('stale'), isEmpty);

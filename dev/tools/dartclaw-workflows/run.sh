@@ -7,8 +7,8 @@
 # `bash examples/run.sh` instead.
 #
 #   bash dev/tools/dartclaw-workflows/run.sh workflow list
-#   bash dev/tools/dartclaw-workflows/run.sh workflow run story-and-implement -v 'FEATURE=...'
-#   bash dev/tools/dartclaw-workflows/run.sh workflow run plan-and-implement -v 'FEATURE=...'
+#   bash dev/tools/dartclaw-workflows/run.sh workflow run implement-story -v 'FEATURE=...'
+#   bash dev/tools/dartclaw-workflows/run.sh workflow run implement-prd -v 'FEATURE=...'
 #
 # The story.sh / plan.sh / review.sh wrappers run the inline variants
 # (--standalone --allow-dirty-localpath) against the current branch.

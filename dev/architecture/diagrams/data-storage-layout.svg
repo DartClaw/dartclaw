@@ -1,0 +1,206 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 828" width="1000" height="828" role="img" aria-labelledby="title desc">
+  <title id="title">Storage authorities and data directory</title>
+  <desc id="desc">Files under the data directory are canonical for sessions, memory workspaces and small stores; PostgreSQL holds authoritative task, workflow and knowledge records plus derived search tables that dartclaw rebuild-index regenerates. A standalone workflow run uses no database: execution.json stands in for the authoritative tables. Each store carries the badge of its recovery path.</desc>
+  <style>
+
+    svg { --bg:#f6f7f9; --card:#ffffff; --ink:#1e2030; --ink2:#4c4f69; --ink3:#6c6f85; --rule:#ccd0da; --edge:#8c8fa1; --hi:#1e66f5; --on:#ffffff; --panel:#1e1e2e; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+      --host:#40a02b; --host-d:#1f5c2a; --host-l:#2d7a1f; --ext:#e07c4f; --ext-d:#a8481c; --ext-l:#b5531f; --store:#179299; --store-d:#0f5f63; --store-l:#0e7377;
+      --sec:#d20f39; --sec-d:#9b0c2c; --sec-l:#b80d33; --chan:#8839ef; --chan-d:#5d23a8; --chan-l:#7027d4; --neu:#7c7f93; --neu-d:#4c4f69; --neu-l:#5c5f77; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#181825; --card:#1e1e2e; --ink:#cdd6f4; --ink2:#bac2de; --ink3:#9399b2; --rule:#45475a; --edge:#7f849c; --hi:#89b4fa; --on:#f5f7ff; --panel:#11111b; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+        --host:#a6e3a1; --host-d:#2f6b3a; --host-l:#a6e3a1; --ext:#fab387; --ext-d:#8f4a24; --ext-l:#fab387; --store:#94e2d5; --store-d:#1f6460; --store-l:#94e2d5;
+        --sec:#f38ba8; --sec-d:#8a2c45; --sec-l:#f38ba8; --chan:#cba6f7; --chan-d:#5e3f94; --chan-l:#cba6f7; --neu:#9399b2; --neu-d:#45475a; --neu-l:#bac2de; }
+    }
+    text { fill: var(--ink); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .mono, .kick, .badge text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+    .bg { fill: var(--bg); }
+    .title { font-size: 21px; font-weight: 700; }
+    .lede { fill: var(--ink3); font-size: 13px; }
+    .kick { font-size: 10.5px; font-weight: 600; letter-spacing: .1em; fill: var(--kl, var(--ink3)); }
+    .k-host { --k:var(--host); --kd:var(--host-d); --kl:var(--host-l); }
+    .k-ext { --k:var(--ext); --kd:var(--ext-d); --kl:var(--ext-l); }
+    .k-store { --k:var(--store); --kd:var(--store-d); --kl:var(--store-l); }
+    .k-sec { --k:var(--sec); --kd:var(--sec-d); --kl:var(--sec-l); }
+    .k-chan { --k:var(--chan); --kd:var(--chan-d); --kl:var(--chan-l); }
+    .k-neu { --k:var(--neu); --kd:var(--neu-d); --kl:var(--neu-l); }
+    .band { fill: color-mix(in srgb, var(--k) 6%, var(--bg)); stroke: color-mix(in srgb, var(--k) 50%, var(--bg)); stroke-width: 1.4; stroke-dasharray: 7 5; }
+    .box { stroke-width: 1.5; }
+    .tint .box { fill: color-mix(in srgb, var(--k) 13%, var(--card)); stroke: var(--k); }
+    .line .box { fill: var(--card); stroke: var(--k); }
+    .ghost .box { fill: none; stroke: var(--k); stroke-dasharray: 5 4; }
+    .solid .box { fill: var(--kd); stroke: var(--kd); }
+    .name { font-size: 14.5px; font-weight: 700; }
+    .sub { font-size: 11.5px; fill: var(--ink2); }
+    .mono { font-size: 11.5px; fill: var(--ink2); }
+    .solid text { fill: var(--on); }
+    .solid .sub, .solid .mono { fill: var(--on); fill-opacity: .82; }
+    .badge rect { fill: none; stroke: var(--kl); stroke-width: 1.2; }
+    .badge text { font-size: 9.5px; font-weight: 700; letter-spacing: .06em; fill: var(--kl); text-anchor: middle; }
+    .solid .badge rect { stroke: var(--on); stroke-opacity: .7; }
+    .solid .badge text { fill: var(--on); }
+    .e path { fill: none; stroke: var(--ec, var(--edge)); stroke-width: var(--ew, 1.6px); marker-end: var(--em, url(#ah)); }
+    .e.main path { stroke: var(--ec, var(--host)); stroke-width: var(--ew, 2.4px); marker-end: var(--em, url(#ah-main)); }
+    .e.bad path { stroke: var(--ec, var(--sec)); marker-end: var(--em, url(#ah-bad)); }
+    .e.dash path { stroke-dasharray: 6 4; }
+    .el { font-size: 11px; fill: var(--ink2); paint-order: stroke; stroke: var(--halo, var(--bg)); stroke-width: 4px; stroke-linejoin: round; }
+    .in-host .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    .ah { fill: var(--edge); } .ah-main { fill: var(--host); } .ah-bad { fill: var(--sec); } .ah-hi { fill: var(--hi); }
+    .panel { fill: var(--panel); }
+    .panel-kick { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10.5px; font-weight: 700; letter-spacing: .12em; fill: var(--panel-kick); }
+    .p1 { fill: var(--panel-ink); font-size: 13px; }
+    .p1 tspan.b { font-weight: 700; }
+    .p2 { fill: var(--panel-sub); font-size: 12.5px; }
+    .lg { font-size: 11px; fill: var(--ink2); }
+    .chip rect { fill: color-mix(in srgb, var(--k) 10%, var(--card)); stroke: var(--k); stroke-width: 1; }
+    .chip text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10px; font-weight: 600; fill: var(--kl); }
+    .step circle { fill: var(--kd); } .step text { fill: var(--on); font-size: 11px; font-weight: 700; text-anchor: middle; }
+    /* Interaction, effective only when the SVG is opened directly. */
+    .n { cursor: pointer; }
+    .n:hover .box, a:focus-visible .box { stroke: var(--hi); stroke-width: 2.8; }
+    .d { display: none; pointer-events: none; }
+    .n:hover .d, a:focus-visible .d { display: inline; }
+    svg:has(.n:hover) .d0, svg:has(a:focus-visible) .d0 { display: none; }
+    svg:has(.n:hover) .edges .e { opacity: .14; }
+    .e.join path { marker-end: none; }
+    .band.inner { fill: none; stroke-dasharray: 3 4; }
+    .mono-name { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13.5px; }
+    .edges .el { --halo: color-mix(in srgb, var(--neu) 6%, var(--bg)); }
+    svg:has(#sessions:hover) .edges :is(.f-sessions,.t-sessions) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#workspace:hover) .edges :is(.f-workspace,.t-workspace) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#small:hover) .edges :is(.f-small,.t-small) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#local:hover) .edges :is(.f-local,.t-local) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#repro:hover) .edges :is(.f-repro,.t-repro) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#lexical:hover) .edges :is(.f-lexical,.t-lexical) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#vectors:hover) .edges :is(.f-vectors,.t-vectors) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#auth:hover) .edges :is(.f-auth,.t-auth) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#execjson:hover) .edges :is(.f-execjson,.t-execjson) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#iso:hover) .edges :is(.f-iso,.t-iso) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#lock:hover) .edges :is(.f-lock,.t-lock) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+  </style>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-main" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path class="ah-main" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-bad" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="ah-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="828"/>
+  <!-- Details panel: painted first so node details (.d) draw on top -->
+  <rect class="panel" x="16" y="732" width="968" height="80" rx="12"/>
+  <text class="panel-kick" x="36" y="756">DETAILS</text>
+  <g class="d0"><text class="p1" x="36" y="780">Hover a store for what it holds and how it recovers; its connections light up. Click it to open its section.</text><text class="p2" x="36" y="800">Inside a rendered document this image is static. Click it to open the interactive SVG.</text></g>
+
+  <text class="kick" x="24" y="32">STORAGE MAP · AUTHORITY AND RECOVERY</text>
+  <text class="title" x="24" y="58">Storage authorities and data directory</text>
+  <text class="lede" x="24" y="80">Files hold canonical documents; PostgreSQL holds server records and rebuildable search projections.</text>
+
+  <g class="k-neu"><rect class="band" x="16" y="104" width="440" height="440" rx="14"/><text class="kick" x="32" y="126">FILES · UNDER &lt;data_dir&gt;</text></g>
+  <g class="k-neu"><rect class="band" x="544" y="104" width="440" height="440" rx="14"/><text class="kick" x="560" y="126">POSTGRESQL · ONE DATABASE, ONE POOL</text></g>
+  <g class="k-neu"><rect class="band" x="16" y="566" width="968" height="124" rx="14"/><text class="kick" x="32" y="588">STANDALONE · dartclaw workflow run --standalone · NO DATABASE</text></g>
+
+  <g class="edges">
+    <g class="e  f-sessions t-lexical"><path d="M440,173 H558"/><text class="el" x="499" y="165" text-anchor="middle">conversation rows</text></g>
+    <g class="e  f-workspace t-lexical"><path d="M440,253 H558"/><text class="el" x="499" y="245" text-anchor="middle">memory rows</text></g>
+    <g class="e dash f-lexical t-vectors"><path d="M764,288 V320"/><text class="el" x="774" y="309" text-anchor="start">VectorSynchronizer</text></g>
+    <g class="e dash join f-execjson t-auth"><path d="M764,598 V530"/><text class="el" x="774" y="560" text-anchor="start">same repository contracts</text></g>
+  </g>
+
+  <a href="../data-model.md#sessions-and-messages"><g class="n solid k-store" id="sessions">
+    <rect class="box" x="32" y="138" width="408" height="70" rx="9"/>
+    <text class="name mono-name" x="44" y="161">sessions/</text>
+    <g class="badge"><rect x="341" y="149" width="89" height="16" rx="8"/><text x="386" y="161">FILE BACKUP</text></g>
+    <text class="sub" x="44" y="179">meta.json · messages.ndjson · conversation/ · attachments/</text>
+    <text class="sub" x="44" y="195">one directory per session, rewritten atomically</text>
+    <g class="d"><text class="p1" x="36" y="780"><tspan class="b">sessions/</tspan> · session record with nested conversationState, NDJSON transcript and attachments</text><text class="p2" x="36" y="800">meta.json is rewritten atomically under a per-file RepoLock; a deleted directory loses the session and leaves execution rows dangling.</text></g>
+  </g></a>
+  <a href="../data-model.md#memory-corpus"><g class="n tint k-store" id="workspace">
+    <rect class="box" x="32" y="218" width="408" height="70" rx="9"/>
+    <text class="name mono-name" x="44" y="241">workspace/</text>
+    <g class="badge"><rect x="327" y="229" width="103" height="16" rx="8"/><text x="378" y="241">GIT OR BACKUP</text></g>
+    <text class="sub" x="44" y="259">and agents/&lt;id&gt;/workspace/: one principal each</text>
+    <text class="sub" x="44" y="275">memory corpus · wiki · behavior files · .git/</text>
+    <g class="d"><text class="p1" x="36" y="780"><tspan class="b">workspace/</tspan> · memory corpus, wiki and behavior files per principal: owner, or agent:&lt;id&gt;</text><text class="p2" x="36" y="800">Only the Markdown corpus feeds memory_chunks; the wiki is read in place. Restore from the workspace .git or a file backup.</text></g>
+  </g></a>
+  <a href="../data-model.md#2-data-directory-layout"><g class="n tint k-store" id="small">
+    <rect class="box" x="32" y="298" width="408" height="70" rx="9"/>
+    <text class="name" x="44" y="321">config, credentials, small stores</text>
+    <g class="badge"><rect x="341" y="309" width="89" height="16" rx="8"/><text x="386" y="321">FILE BACKUP</text></g>
+    <text class="sub" x="44" y="339">dartclaw.yaml · credentials/ · projects.json · kv.json</text>
+    <text class="sub" x="44" y="355">usage.jsonl · audit-*.ndjson · tasks/&lt;id&gt;/artifacts/</text>
+    <g class="d"><text class="p1" x="36" y="780"><tspan class="b">config, credentials, small stores</tspan> · config, credentials, usage and audit logs, runtime-created projects, task artifact files</text><text class="p2" x="36" y="800">dartclaw.yaml is copied to .bak before each write; losing kv.json costs usage aggregates, usage.jsonl keeps the raw events.</text></g>
+  </g></a>
+  <a href="../data-model.md#instance-local-and-small-stores"><g class="n tint k-neu" id="local">
+    <rect class="box" x="32" y="378" width="408" height="70" rx="9"/>
+    <text class="name" x="44" y="401">instance-local state</text>
+    <g class="badge"><rect x="334" y="389" width="96" height="16" rx="8"/><text x="382" y="401">STARTS EMPTY</text></g>
+    <text class="sub" x="44" y="419">turn_state.json · webhook_deliveries/ · thread-bindings.json</text>
+    <text class="sub" x="44" y="435">pending-schedule-changes.json · channel state · feeds/ · logs/</text>
+    <g class="d"><text class="p1" x="36" y="780"><tspan class="b">instance-local state</tspan> · active-turn recovery, webhook dedup, thread bindings, parked schedule changes, channel state</text><text class="p2" x="36" y="800">Missing or corrupt files start empty: turn_state.json is quarantined at open, bindings reconcile against active tasks and runs.</text></g>
+  </g></a>
+  <a href="../data-model.md#2-data-directory-layout"><g class="n ghost k-neu" id="repro">
+    <rect class="box" x="32" y="458" width="408" height="70" rx="9"/>
+    <text class="name" x="44" y="481">reproducible</text>
+    <g class="badge"><rect x="355" y="469" width="75" height="16" rx="8"/><text x="392" y="481">RE-CREATE</text></g>
+    <text class="sub" x="44" y="499">projects/&lt;id&gt;/ clones · worktrees/ · workflows/built-in/</text>
+    <text class="sub" x="44" y="515">containers/ · bridge/ · models/ · .claude/ .codex/ .agents/</text>
+    <g class="d"><text class="p1" x="36" y="780"><tspan class="b">reproducible</tspan> · git clones, task worktrees, shipped workflow definitions, container state, bridge binary, embedding model</text><text class="p2" x="36" y="800">Re-cloned, re-materialized or re-downloaded; built-in workflow definitions carry .dartclaw-managed.json fingerprints.</text></g>
+  </g></a>
+  <a href="../data-model.md#derived-search-indexes"><g class="n line k-store" id="lexical">
+    <rect class="box" x="560" y="138" width="408" height="150" rx="9"/>
+    <text class="name mono-name" x="572" y="161">memory_chunks · conversation_chunks</text>
+    <g class="badge"><rect x="897" y="149" width="61" height="16" rx="8"/><text x="928" y="161">REBUILD</text></g>
+    <text class="sub" x="572" y="179">text + content_tsv tsvector, GIN index</text>
+    <text class="sub" x="572" y="195">one row per chunk, scoped by user_id</text>
+    <text class="sub" x="572" y="211">principal: owner or agent:&lt;id&gt;</text>
+    <text class="sub" x="572" y="227">language: database.fts_language</text>
+    <g class="d"><text class="p1" x="36" y="780"><tspan class="b">memory_chunks · conversation_chunks</tspan> · lexical search projections: text plus content_tsv with a GIN index, one row per chunk</text><text class="p2" x="36" y="800">After changing database.fts_language, restart and run dartclaw rebuild-index; stored rows keep the previous language until then.</text></g>
+  </g></a>
+  <a href="../data-model.md#derived-search-indexes"><g class="n ghost k-store" id="vectors">
+    <rect class="box" x="560" y="322" width="408" height="76" rx="9"/>
+    <text class="name mono-name" x="572" y="345">memory_vectors · conversation_vectors</text>
+    <g class="badge"><rect x="904" y="333" width="54" height="16" rx="8"/><text x="931" y="345">HYBRID</text></g>
+    <text class="sub" x="572" y="363">embedding public.vector · fingerprint, dimension</text>
+    <text class="sub" x="572" y="379">pgvector, created only in hybrid mode</text>
+    <g class="d"><text class="p1" x="36" y="780"><tspan class="b">memory_vectors · conversation_vectors</tspan> · pgvector rows keyed (user_id, document_id, chunk_index), ranked within one fingerprint and dimension</text><text class="p2" x="36" y="800">Created only after preflightVectorExtension proves pgvector; a partial projection refuses startup with reset-and-rebuild guidance.</text></g>
+  </g></a>
+  <a href="../data-model.md#34-tables"><g class="n solid k-store" id="auth">
+    <rect class="box" x="560" y="416" width="408" height="112" rx="9"/>
+    <text class="name" x="572" y="439">authoritative tables</text>
+    <g class="badge"><rect x="897" y="427" width="61" height="16" rx="8"/><text x="928" y="439">PG_DUMP</text></g>
+    <text class="sub" x="572" y="457">no other copy; the schema gate validates them required-only</text>
+    <text class="mono" x="572" y="473">tasks · agent_executions · workflow_step_executions</text>
+    <text class="mono" x="572" y="489">task_artifacts · goals · task_events · turns</text>
+    <text class="mono" x="572" y="505">workflow_runs · kg_facts · dartclaw_schema</text>
+    <g class="d"><text class="p1" x="36" y="780"><tspan class="b">authoritative tables</tspan> · tasks, executions, artifacts, goals, events, traces, runs, knowledge facts and the epoch marker; no other copy exists</text><text class="p2" x="36" y="800">PostgresSchemaGate refuses a mismatch with back-up-then-recreate guidance; no migration runner (workflow_run_migrations is inert).</text></g>
+  </g></a>
+  <a href="../data-model.md#4-standalone-execution-checkpoint"><g class="n tint k-store" id="execjson">
+    <rect class="box" x="560" y="600" width="408" height="76" rx="9"/>
+    <text class="name mono-name" x="572" y="623">execution.json</text>
+    <g class="badge"><rect x="869" y="611" width="89" height="16" rx="8"/><text x="914" y="623">FILE BACKUP</text></g>
+    <text class="sub" x="572" y="641">schemaVersion 1 · tasks, agentExecutions, workflowSteps,</text>
+    <text class="sub" x="572" y="657">workflowRuns, artifacts, goals, events, traces</text>
+    <g class="d"><text class="p1" x="36" y="780"><tspan class="b">execution.json</tspan> · versioned checkpoint of standalone tasks, executions, runs, traces and events behind the same repository contracts</text><text class="p2" x="36" y="800">Published whole through atomicWriteJson under a RepoLock plus the OS lock; a malformed file refuses to load and is never reset.</text></g>
+  </g></a>
+  <a href="../data-model.md#4-standalone-execution-checkpoint"><g class="n tint k-store" id="iso">
+    <rect class="box" x="32" y="600" width="260" height="76" rx="9"/>
+    <text class="name" x="44" y="623">isolated stores</text>
+    <text class="sub" x="44" y="641">sessions/ · kv.json · turn_state.json</text>
+    <text class="sub" x="44" y="657">copies of the server-side stores</text>
+    <g class="d"><text class="p1" x="36" y="780"><tspan class="b">isolated stores</tspan> · sessions/, kv.json and turn_state.json under standalone/, separate from the server copies</text><text class="p2" x="36" y="800">A standalone run composes no knowledge graph and no search service; database histories are never copied in or out.</text></g>
+  </g></a>
+  <a href="../data-model.md#4-standalone-execution-checkpoint"><g class="n tint k-neu" id="lock">
+    <rect class="box" x="304" y="600" width="240" height="76" rx="9"/>
+    <text class="name mono-name" x="316" y="623">execution.owner.lock</text>
+    <text class="sub" x="316" y="641">one executing process per data dir</text>
+    <text class="sub" x="316" y="657">execution.json.lock: OS file lock</text>
+    <g class="d"><text class="p1" x="36" y="780"><tspan class="b">execution.owner.lock</tspan> · StandaloneExecutionLease holds it for the life of the process</text><text class="p2" x="36" y="800">Protects the per-process caches of the standalone session and KV services; status, pause and cancel skip the lease and use only the file lock.</text></g>
+  </g></a>
+  <g transform="translate(24,706)">
+    <g class="tint k-store"><rect class="box" x="0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="22" y="10">canonical or authoritative</text>
+    <g class="line k-store"><rect class="box" x="205.20000000000002" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="227.20000000000002" y="10">derived</text>
+    <g class="tint k-neu"><rect class="box" x="292.6" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="314.6" y="10">instance-local</text>
+    <g class="ghost k-neu"><rect class="box" x="423.40000000000003" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="445.40000000000003" y="10">reproducible</text>
+    <g class="e "><path d="M541.8000000000001,6 H573.8000000000001"/></g><text class="lg" x="581.8000000000001" y="10">projected into</text>
+    <g class="e dash join"><path d="M690.6000000000001,6 H722.6000000000001"/></g><text class="lg" x="730.6000000000001" y="10">same contracts</text>
+  </g>
+</svg>

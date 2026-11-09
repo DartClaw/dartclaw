@@ -196,7 +196,7 @@ selection; unavailable approvals stay actionable; recovery duplicates work; cont
 
 **Pass:**
 - Status hero: status icon + uptime + version
-- KPI row: UPTIME, SESSIONS, DB SIZE, TASK ARTIFACTS
+- KPI row: UPTIME, SESSIONS, TASK ARTIFACTS
 - Status panel includes Worker state; the Storage service card reports Database and Sessions storage, with optional Pub/Sub status when configured
 - Audit table renders (rows or "no events"); expandable rows for entries with detail
 - SYSTEM nav: **Health (active)** highlighted

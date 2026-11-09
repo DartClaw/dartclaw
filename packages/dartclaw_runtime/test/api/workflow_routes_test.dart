@@ -11,10 +11,18 @@ import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnMa
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' show InMemoryTaskRepository;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show WorkflowDefinition, WorkflowLoop, WorkflowRun, WorkflowStep, WorkflowVariable;
+    show
+        WorkflowApprovalRefusal,
+        WorkflowDefinition,
+        WorkflowLoop,
+        WorkflowRun,
+        WorkflowRunOrigin,
+        WorkflowStep,
+        WorkflowVariable;
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
+import '../guard_audit_test_support.dart';
 import 'api_test_helpers.dart';
 import 'workflow_test_support.dart';
 
@@ -23,7 +31,7 @@ import 'workflow_test_support.dart';
 // ──────────────────────────────────────────────────────────────────────────────
 
 WorkflowDefinition _makeDefinition({
-  String name = 'story-and-implement',
+  String name = 'implement-story',
   Map<String, WorkflowVariable>? variables,
   List<WorkflowStep>? steps,
 }) {
@@ -48,11 +56,12 @@ WorkflowDefinition _makeDefinition({
 
 WorkflowRun _makeRun({
   String id = 'run-001',
-  String definitionName = 'story-and-implement',
+  String definitionName = 'implement-story',
   WorkflowRunStatus status = WorkflowRunStatus.running,
   int currentStepIndex = 0,
   Map<String, dynamic>? definitionJson,
   Map<String, dynamic>? contextJson,
+  WorkflowRunOrigin origin = WorkflowRunOrigin.unknown,
 }) {
   final now = DateTime.parse('2026-03-24T10:00:00Z');
   return WorkflowRun(
@@ -65,6 +74,7 @@ WorkflowRun _makeRun({
     definitionJson: definitionJson ?? _makeDefinition().toJson(),
     currentStepIndex: currentStepIndex,
     contextJson: contextJson ?? const {},
+    origin: origin,
   );
 }
 
@@ -112,7 +122,7 @@ void main() {
     workflows.pauseResult = _makeRun(status: WorkflowRunStatus.paused);
     workflows.resumeResult = _makeRun(status: WorkflowRunStatus.running);
 
-    handler = workflowRoutes(workflows, tasks, definitions).call;
+    handler = workflowRoutes(workflows, tasks, definitions, runControl: testRunControl(workflows)).call;
     api = ApiRouteTestClient(handler);
   });
 
@@ -134,7 +144,7 @@ void main() {
         'POST',
         '/api/workflows/run',
         json: {
-          'definition': 'story-and-implement',
+          'definition': 'implement-story',
           'variables': {'FEATURE': 'User pagination'},
         },
         status: 201,
@@ -142,7 +152,7 @@ void main() {
 
       expect(body['id'], 'run-001');
       expect(body['status'], 'running');
-      expect(workflows.calls, contains('start:story-and-implement'));
+      expect(workflows.calls, contains('start:implement-story'));
     });
 
     test('returns 400 for missing definition field', () async {
@@ -173,7 +183,7 @@ void main() {
       final body = await api.expectJsonObject(
         'POST',
         '/api/workflows/run',
-        json: {'definition': 'story-and-implement', 'variables': {}},
+        json: {'definition': 'implement-story', 'variables': {}},
         status: 400,
       );
 
@@ -198,7 +208,7 @@ void main() {
       final body = await api.expectJsonObject(
         'POST',
         '/api/workflows/run',
-        json: {'definition': 'story-and-implement', 'variables': 'not-a-map'},
+        json: {'definition': 'implement-story', 'variables': 'not-a-map'},
         status: 400,
       );
 
@@ -212,7 +222,7 @@ void main() {
         'POST',
         '/api/workflows/run',
         json: {
-          'definition': 'story-and-implement',
+          'definition': 'implement-story',
           'variables': {'FEATURE': 'Pagination'},
           'project': 'my-project',
         },
@@ -227,7 +237,7 @@ void main() {
         'POST',
         '/api/workflows/run',
         json: {
-          'definition': 'story-and-implement',
+          'definition': 'implement-story',
           'variables': {'FEATURE': 'Pagination'},
           'allowDirtyLocalPath': true,
         },
@@ -242,7 +252,7 @@ void main() {
         'POST',
         '/api/workflows/run',
         json: {
-          'definition': 'story-and-implement',
+          'definition': 'implement-story',
           'variables': {'FEATURE': 'Pagination'},
           'inline': true,
         },
@@ -257,7 +267,7 @@ void main() {
         'POST',
         '/api/workflows/run',
         json: {
-          'definition': 'story-and-implement',
+          'definition': 'implement-story',
           'variables': {'FEATURE': 'Pagination'},
         },
         status: 201,
@@ -271,7 +281,7 @@ void main() {
         'POST',
         '/api/workflows/run',
         json: {
-          'definition': 'story-and-implement',
+          'definition': 'implement-story',
           'variables': {'FEATURE': 'Pagination'},
           'approvals': 'auto',
         },
@@ -286,7 +296,7 @@ void main() {
         'POST',
         '/api/workflows/run',
         json: {
-          'definition': 'story-and-implement',
+          'definition': 'implement-story',
           'variables': {'FEATURE': 'Pagination'},
           'approvals': 'bogus',
         },
@@ -307,7 +317,7 @@ void main() {
         'POST',
         '/api/workflows/run',
         json: {
-          'definition': 'story-and-implement',
+          'definition': 'implement-story',
           'variables': {'FEATURE': 'Pagination'},
         },
         status: 409,
@@ -323,7 +333,7 @@ void main() {
         'POST',
         '/api/workflows/run',
         json: {
-          'definition': 'story-and-implement',
+          'definition': 'implement-story',
           'variables': {'FEATURE': 'Pagination'},
         },
         status: 500,
@@ -338,7 +348,7 @@ void main() {
         'POST',
         '/api/workflows/run',
         json: {
-          'definition': 'story-and-implement',
+          'definition': 'implement-story',
           'variables': {'FEATURE': 'Pagination'},
         },
         status: 201,
@@ -358,7 +368,7 @@ void main() {
         ],
       );
       final src = InMemoryDefinitionSource([defWithDefault]);
-      final h = workflowRoutes(workflows, tasks, src).call;
+      final h = workflowRoutes(workflows, tasks, src, runControl: testRunControl(workflows)).call;
       final localApi = ApiRouteTestClient(h);
 
       await localApi.expectResponse(
@@ -402,11 +412,11 @@ void main() {
       workflows.listResult = [];
 
       final response = await handler(
-        Request('GET', Uri.parse('http://localhost/api/workflows/runs?definition=story-and-implement')),
+        Request('GET', Uri.parse('http://localhost/api/workflows/runs?definition=implement-story')),
       );
 
       expect(response.statusCode, 200);
-      expect(workflows.calls, contains('list:null:story-and-implement'));
+      expect(workflows.calls, contains('list:null:implement-story'));
     });
 
     test('returns empty array when no runs', () async {
@@ -433,6 +443,56 @@ void main() {
   // ──────────────────────────────────────────────────────────────────────────
   // GET /api/workflows/runs/<id>
   // ──────────────────────────────────────────────────────────────────────────
+
+  group('run origin', () {
+    test('run detail and the run list carry the stored origin', () async {
+      const origin = WorkflowRunOrigin(
+        surface: 'googlechat',
+        channelType: 'googlechat',
+        recipientId: 'spaces/AAA',
+        threadId: 'spaces/AAA/threads/T1',
+        sessionKey: 'agent:main:group:googlechat:spaces%2FAAA',
+        senderId: 'users/42',
+      );
+      workflows.getResult = _makeRun(origin: origin);
+      workflows.listResult = [_makeRun(origin: origin)];
+
+      final detail = decodeObject(
+        await (await handler(Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001')))).readAsString(),
+      );
+      final list = jsonDecode(
+        await (await handler(Request('GET', Uri.parse('http://localhost/api/workflows/runs')))).readAsString(),
+      ) as List;
+
+      const expected = {
+        'surface': 'googlechat',
+        'channelType': 'googlechat',
+        'recipientId': 'spaces/AAA',
+        'threadId': 'spaces/AAA/threads/T1',
+        'sessionKey': 'agent:main:group:googlechat:spaces%2FAAA',
+        'senderId': 'users/42',
+      };
+      expect(detail['origin'], expected);
+      expect((list.single as Map)['origin'], expected);
+    });
+
+    test('a run retained from before origin existed reads as surface unknown with every other field null', () async {
+      workflows.getResult = _makeRun();
+
+      final detail = decodeObject(
+        await (await handler(Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001')))).readAsString(),
+      );
+
+      expect(detail['origin'], {
+        'surface': 'unknown',
+        'channelType': null,
+        'recipientId': null,
+        'threadId': null,
+        'sessionKey': null,
+        'senderId': null,
+      });
+    });
+  });
 
   group('GET /api/workflows/runs/<id>', () {
     test('returns enriched run detail with steps', () async {
@@ -542,7 +602,13 @@ void main() {
     test(
       'accounting stop and error pause keep their persisted cause and nullable usage in status and events',
       () async {
-        handler = workflowRoutes(workflows, tasks, definitions, eventBus: eventBus).call;
+        handler = workflowRoutes(
+          workflows,
+          tasks,
+          definitions,
+          runControl: testRunControl(workflows),
+          eventBus: eventBus,
+        ).call;
         for (final status in [WorkflowRunStatus.failed, WorkflowRunStatus.paused]) {
           final run = WorkflowRun.fromJson(
             _makeRun(
@@ -720,7 +786,7 @@ void main() {
       final body = decodeList(await response.readAsString());
       expect(body, hasLength(1));
       final def = body.first as Map<String, dynamic>;
-      expect(def['name'], 'story-and-implement');
+      expect(def['name'], 'implement-story');
       expect(def['description'], isNotEmpty);
       expect(def['stepCount'], 3);
       expect(def['hasLoops'], false);
@@ -737,7 +803,12 @@ void main() {
     });
 
     test('returns empty array when no definitions', () async {
-      final h = workflowRoutes(workflows, tasks, InMemoryDefinitionSource([])).call;
+      final h = workflowRoutes(
+        workflows,
+        tasks,
+        InMemoryDefinitionSource([]),
+        runControl: testRunControl(workflows),
+      ).call;
 
       final response = await h(Request('GET', Uri.parse('http://localhost/api/workflows/definitions')));
 
@@ -758,7 +829,7 @@ void main() {
         ],
       );
       final src = InMemoryDefinitionSource([defWithLoop]);
-      final h = workflowRoutes(workflows, tasks, src).call;
+      final h = workflowRoutes(workflows, tasks, src, runControl: testRunControl(workflows)).call;
 
       final response = await h(Request('GET', Uri.parse('http://localhost/api/workflows/definitions')));
 
@@ -775,20 +846,20 @@ void main() {
   group('GET /api/workflows/definitions/<name>', () {
     test('returns authored YAML for known name', () async {
       final response = await handler(
-        Request('GET', Uri.parse('http://localhost/api/workflows/definitions/story-and-implement')),
+        Request('GET', Uri.parse('http://localhost/api/workflows/definitions/implement-story')),
       );
 
       expect(response.statusCode, 200);
       expect(response.headers['content-type'], contains('application/yaml'));
       final body = await response.readAsString();
-      expect(body, startsWith('name: story-and-implement'));
+      expect(body, startsWith('name: implement-story'));
       expect(body, contains('description:'));
       expect(body, contains('steps:'));
     });
 
     test('authored YAML includes variables and step prompts', () async {
       final response = await handler(
-        Request('GET', Uri.parse('http://localhost/api/workflows/definitions/story-and-implement')),
+        Request('GET', Uri.parse('http://localhost/api/workflows/definitions/implement-story')),
       );
 
       expect(response.statusCode, 200);
@@ -810,7 +881,7 @@ void main() {
     test('summary listing stays JSON while detail returns YAML', () async {
       final summaryResponse = await handler(Request('GET', Uri.parse('http://localhost/api/workflows/definitions')));
       final detailResponse = await handler(
-        Request('GET', Uri.parse('http://localhost/api/workflows/definitions/story-and-implement')),
+        Request('GET', Uri.parse('http://localhost/api/workflows/definitions/implement-story')),
       );
 
       expect(summaryResponse.statusCode, 200);
@@ -821,7 +892,7 @@ void main() {
       expect(summaryEntry.containsKey('steps'), isFalse);
 
       final detail = await detailResponse.readAsString();
-      expect(detail, startsWith('name: story-and-implement'));
+      expect(detail, startsWith('name: implement-story'));
     });
   });
 
@@ -845,7 +916,13 @@ void main() {
     }
 
     test('emits map_iteration_completed and map_step_completed payloads for run', () async {
-      handler = workflowRoutes(workflows, tasks, definitions, eventBus: eventBus).call;
+      handler = workflowRoutes(
+        workflows,
+        tasks,
+        definitions,
+        runControl: testRunControl(workflows),
+        eventBus: eventBus,
+      ).call;
       workflows.getResult = _makeRun(id: 'run-001');
       await tasks.create(
         id: 'task-map-step',
@@ -1047,6 +1124,21 @@ void main() {
       expect(body['pendingApprovalStepId'], isNull);
     });
 
+    test('GET run detail carries followUpTaskId only for a run that recorded a follow-up draft', () async {
+      workflows.getResult = _makeRun(
+        status: WorkflowRunStatus.completed,
+        contextJson: {
+          '_followUp': {'taskId': 'followup-run-001', 'count': 2},
+        },
+      );
+      var response = await handler(Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001')));
+      expect(decodeObject(await response.readAsString())['followUpTaskId'], 'followup-run-001');
+
+      workflows.getResult = _makeRun(status: WorkflowRunStatus.completed);
+      response = await handler(Request('GET', Uri.parse('http://localhost/api/workflows/runs/run-001')));
+      expect(decodeObject(await response.readAsString())['followUpTaskId'], isNull);
+    });
+
     test('POST cancel with JSON feedback body passes feedback to service', () async {
       workflows.getResult = makeApprovalPausedRun();
 
@@ -1070,6 +1162,110 @@ void main() {
 
       expect(response.statusCode, 204);
       expect(workflows.lastCancelFeedback, isNull);
+    });
+  });
+
+  group('POST /api/workflows/runs/<id>/request-changes', () {
+    late RecordingGuardAuditLogger audit;
+
+    Handler routesWithAudit() {
+      audit = RecordingGuardAuditLogger();
+      return workflowRoutes(
+        workflows,
+        tasks,
+        definitions,
+        runControl: testRunControl(workflows, isAdmin: (_) => false, auditLogger: audit),
+      ).call;
+    }
+
+    FutureOr<Response> post(Handler routes, String id, Object? body) => routes(
+      Request(
+        'POST',
+        Uri.parse('http://localhost/api/workflows/runs/$id/request-changes'),
+        headers: {'content-type': 'application/json'},
+        body: body is String ? body : jsonEncode(body),
+      ),
+    );
+
+    setUp(() {
+      workflows.getResult = _makeRun(status: WorkflowRunStatus.awaitingApproval);
+      workflows.requestChangesResult = _makeRun(status: WorkflowRunStatus.running);
+    });
+
+    test('answers 200 with the run, passes the feedback to the owner and audits one web allow', () async {
+      final routes = routesWithAudit();
+
+      final response = await post(routes, 'run-001', {'feedback': 'split story 3'});
+
+      expect(response.statusCode, 200);
+      expect(decodeObject(await response.readAsString())['status'], 'running');
+      expect(workflows.lastFeedback, 'split story 3');
+      expect(workflows.lastResolver?.source.name, 'web');
+      final entry = audit.entries.single;
+      expect((entry.hook, entry.decision, entry.tool, entry.runId), ('web', 'allow', 'requestChanges', 'run-001'));
+      expect(entry.toJson().toString(), isNot(contains('split story 3')), reason: 'the audit never holds the text');
+    });
+
+    test('is not admin-gated: an authenticated web caller needs no admin sender', () async {
+      final routes = routesWithAudit();
+
+      final response = await post(routes, 'run-001', {'feedback': 'x'});
+
+      expect(response.statusCode, 200, reason: 'isAdmin is false for every sender in this fixture');
+    });
+
+    test('blank or missing feedback is 400 INVALID_INPUT and one deny entry each', () async {
+      final routes = routesWithAudit();
+      workflows.requestChangesRefusal = WorkflowApprovalRefusal.feedbackRequired;
+
+      for (final body in [
+        {'feedback': '   '},
+        <String, Object?>{},
+        {'feedback': 3},
+      ]) {
+        final response = await post(routes, 'run-001', body);
+        expect(response.statusCode, 400, reason: '$body');
+        expect(await errorCode(response), 'INVALID_INPUT');
+      }
+      expect(audit.entries.map((e) => (e.hook, e.decision)), everyElement(('web', 'deny')));
+      expect(audit.entries, hasLength(3));
+    });
+
+    test('an unknown run is 404 and audited', () async {
+      final routes = routesWithAudit();
+      workflows.getResult = null;
+
+      final response = await post(routes, 'no-such', {'feedback': 'x'});
+
+      expect(response.statusCode, 404);
+      expect(await errorCode(response), 'WORKFLOW_RUN_NOT_FOUND');
+      expect(audit.entries.single.decision, 'deny');
+    });
+
+    test('a run not pending, a gate without revise and the bound are each 409 INVALID_TRANSITION', () async {
+      final routes = routesWithAudit();
+
+      for (final reason in [
+        WorkflowApprovalRefusal.notPending,
+        WorkflowApprovalRefusal.changesNotOffered,
+        WorkflowApprovalRefusal.limitReached,
+      ]) {
+        workflows.requestChangesRefusal = reason;
+        final response = await post(routes, 'run-001', {'feedback': 'x'});
+        expect(response.statusCode, 409, reason: reason.name);
+        expect(await errorCode(response), 'INVALID_TRANSITION');
+      }
+      expect(audit.entries.map((e) => e.decision), everyElement('deny'));
+      expect(audit.entries, hasLength(3));
+    });
+
+    test('resume and cancel still answer as before beside it', () async {
+      final routes = routesWithAudit();
+
+      final resume = await routes(Request('POST', Uri.parse('http://localhost/api/workflows/runs/run-001/resume')));
+      final cancel = await routes(Request('POST', Uri.parse('http://localhost/api/workflows/runs/run-001/cancel')));
+
+      expect([resume.statusCode, cancel.statusCode], [200, 204]);
     });
   });
 }

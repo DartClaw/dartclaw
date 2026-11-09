@@ -239,10 +239,8 @@ void main() {
     // unconditionally.
     //
     // Asserted against the exact call `_openSubscriptionStore` makes rather
-    // than through a full `wire()`: `ProjectWiring` reads `Directory.current`,
-    // and this package's cwd-mutating suites delete theirs concurrently, so a
-    // second full-wiring reader here would make a documented flake likelier
-    // (see the package `CLAUDE.md` note on process-wide `Directory.current`).
+    // than through a full `wire()`, which would compose projects, harnesses and
+    // the rest to check a store that only `_openSubscriptionStore` creates.
     // The refusal path above still runs through real `wire()` — it exits before
     // projects are wired.
     final operatorHome = Directory(p.join(tempDir.path, 'operator'))..createSync(recursive: true);

@@ -1,6 +1,7 @@
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
 import 'package:dartclaw_signal/dartclaw_signal.dart';
+import 'package:dartclaw_slack/dartclaw_slack.dart';
 import 'package:dartclaw_whatsapp/dartclaw_whatsapp.dart';
 
 /// Typed channel configs parsed off a given [DartclawConfig], keyed by instance.
@@ -41,6 +42,7 @@ Object _parseChannelConfig(DartclawConfig config, ChannelType channelType) {
     (warns) => switch (channelType) {
       ChannelType.googlechat => GoogleChatConfig.fromYaml(section('google_chat'), warns),
       ChannelType.signal => SignalConfig.fromYaml(section('signal'), warns),
+      ChannelType.slack => SlackConfig.fromYaml(section('slack'), warns),
       ChannelType.whatsapp => WhatsAppConfig.fromYaml(section('whatsapp'), warns),
       ChannelType.web => throw ArgumentError('No channel config is defined for ${channelType.name}.'),
     },
@@ -55,6 +57,7 @@ bool anyChannelEnabled(DartclawConfig config) => channelConfigTypes.any(
   (channelType) => switch (channelType) {
     ChannelType.googlechat => resolveChannelConfig<GoogleChatConfig>(config, channelType).enabled,
     ChannelType.signal => resolveChannelConfig<SignalConfig>(config, channelType).enabled,
+    ChannelType.slack => resolveChannelConfig<SlackConfig>(config, channelType).enabled,
     ChannelType.whatsapp => resolveChannelConfig<WhatsAppConfig>(config, channelType).enabled,
     ChannelType.web => false,
   },

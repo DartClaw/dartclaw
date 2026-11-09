@@ -1,0 +1,246 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 686" width="1000" height="686" role="img" aria-labelledby="title desc">
+  <title id="title">Guard chain and audit</title>
+  <desc id="desc">Tool calls intercepted from claude, codex, ACP agents and inbound /mcp run through one layered GuardChain per runner: four base guards read live, then the per-execution TaskToolFilterGuard. The first block wins and the call is denied; warn and block verdicts flow through onVerdict to the daily NDJSON audit log.</desc>
+  <style>
+
+    svg { --bg:#f6f7f9; --card:#ffffff; --ink:#1e2030; --ink2:#4c4f69; --ink3:#6c6f85; --rule:#ccd0da; --edge:#8c8fa1; --hi:#1e66f5; --on:#ffffff; --panel:#1e1e2e; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+      --host:#40a02b; --host-d:#1f5c2a; --host-l:#2d7a1f; --ext:#e07c4f; --ext-d:#a8481c; --ext-l:#b5531f; --store:#179299; --store-d:#0f5f63; --store-l:#0e7377;
+      --sec:#d20f39; --sec-d:#9b0c2c; --sec-l:#b80d33; --chan:#8839ef; --chan-d:#5d23a8; --chan-l:#7027d4; --neu:#7c7f93; --neu-d:#4c4f69; --neu-l:#5c5f77; }
+    @media (prefers-color-scheme: dark) {
+      svg { --bg:#181825; --card:#1e1e2e; --ink:#cdd6f4; --ink2:#bac2de; --ink3:#9399b2; --rule:#45475a; --edge:#7f849c; --hi:#89b4fa; --on:#f5f7ff; --panel:#11111b; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
+        --host:#a6e3a1; --host-d:#2f6b3a; --host-l:#a6e3a1; --ext:#fab387; --ext-d:#8f4a24; --ext-l:#fab387; --store:#94e2d5; --store-d:#1f6460; --store-l:#94e2d5;
+        --sec:#f38ba8; --sec-d:#8a2c45; --sec-l:#f38ba8; --chan:#cba6f7; --chan-d:#5e3f94; --chan-l:#cba6f7; --neu:#9399b2; --neu-d:#45475a; --neu-l:#bac2de; }
+    }
+    text { fill: var(--ink); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 12px; }
+    .mono, .kick, .badge text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; }
+    .bg { fill: var(--bg); }
+    .title { font-size: 21px; font-weight: 700; }
+    .lede { fill: var(--ink3); font-size: 13px; }
+    .kick { font-size: 10.5px; font-weight: 600; letter-spacing: .1em; fill: var(--kl, var(--ink3)); }
+    .k-host { --k:var(--host); --kd:var(--host-d); --kl:var(--host-l); }
+    .k-ext { --k:var(--ext); --kd:var(--ext-d); --kl:var(--ext-l); }
+    .k-store { --k:var(--store); --kd:var(--store-d); --kl:var(--store-l); }
+    .k-sec { --k:var(--sec); --kd:var(--sec-d); --kl:var(--sec-l); }
+    .k-chan { --k:var(--chan); --kd:var(--chan-d); --kl:var(--chan-l); }
+    .k-neu { --k:var(--neu); --kd:var(--neu-d); --kl:var(--neu-l); }
+    .band { fill: color-mix(in srgb, var(--k) 6%, var(--bg)); stroke: color-mix(in srgb, var(--k) 50%, var(--bg)); stroke-width: 1.4; stroke-dasharray: 7 5; }
+    .box { stroke-width: 1.5; }
+    .tint .box { fill: color-mix(in srgb, var(--k) 13%, var(--card)); stroke: var(--k); }
+    .line .box { fill: var(--card); stroke: var(--k); }
+    .ghost .box { fill: none; stroke: var(--k); stroke-dasharray: 5 4; }
+    .solid .box { fill: var(--kd); stroke: var(--kd); }
+    .name { font-size: 14.5px; font-weight: 700; }
+    .sub { font-size: 11.5px; fill: var(--ink2); }
+    .mono { font-size: 11.5px; fill: var(--ink2); }
+    .solid text { fill: var(--on); }
+    .solid .sub, .solid .mono { fill: var(--on); fill-opacity: .82; }
+    .badge rect { fill: none; stroke: var(--kl); stroke-width: 1.2; }
+    .badge text { font-size: 9.5px; font-weight: 700; letter-spacing: .06em; fill: var(--kl); text-anchor: middle; }
+    .solid .badge rect { stroke: var(--on); stroke-opacity: .7; }
+    .solid .badge text { fill: var(--on); }
+    .e path { fill: none; stroke: var(--ec, var(--edge)); stroke-width: var(--ew, 1.6px); marker-end: var(--em, url(#ah)); }
+    .e.main path { stroke: var(--ec, var(--host)); stroke-width: var(--ew, 2.4px); marker-end: var(--em, url(#ah-main)); }
+    .e.bad path { stroke: var(--ec, var(--sec)); marker-end: var(--em, url(#ah-bad)); }
+    .e.dash path { stroke-dasharray: 6 4; }
+    .el { font-size: 11px; fill: var(--ink2); paint-order: stroke; stroke: var(--halo, var(--bg)); stroke-width: 4px; stroke-linejoin: round; }
+    .in-host .el { --halo: color-mix(in srgb, var(--host) 6%, var(--bg)); }
+    .ah { fill: var(--edge); } .ah-main { fill: var(--host); } .ah-bad { fill: var(--sec); } .ah-hi { fill: var(--hi); }
+    .panel { fill: var(--panel); }
+    .panel-kick { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10.5px; font-weight: 700; letter-spacing: .12em; fill: var(--panel-kick); }
+    .p1 { fill: var(--panel-ink); font-size: 13px; }
+    .p1 tspan.b { font-weight: 700; }
+    .p2 { fill: var(--panel-sub); font-size: 12.5px; }
+    .lg { font-size: 11px; fill: var(--ink2); }
+    .chip rect { fill: color-mix(in srgb, var(--k) 10%, var(--card)); stroke: var(--k); stroke-width: 1; }
+    .chip text { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 10px; font-weight: 600; fill: var(--kl); }
+    .step circle { fill: var(--kd); } .step text { fill: var(--on); font-size: 11px; font-weight: 700; text-anchor: middle; }
+    /* Interaction, effective only when the SVG is opened directly. */
+    .n { cursor: pointer; }
+    .n:hover .box, a:focus-visible .box { stroke: var(--hi); stroke-width: 2.8; }
+    .d { display: none; pointer-events: none; }
+    .n:hover .d, a:focus-visible .d { display: inline; }
+    svg:has(.n:hover) .d0, svg:has(a:focus-visible) .d0 { display: none; }
+    svg:has(.n:hover) .edges .e { opacity: .14; }
+    .e.join path { marker-end: none; }
+    .band.inner { fill: none; stroke-dasharray: 3 4; }
+    .mono-name { font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace; font-size: 13.5px; }
+    .edges .el { --halo: color-mix(in srgb, var(--sec) 6%, var(--bg)); }
+    svg:has(#claude:hover) .edges :is(.f-claude,.t-claude) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#codex:hover) .edges :is(.f-codex,.t-codex) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#acp:hover) .edges :is(.f-acp,.t-acp) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#mcp:hover) .edges :is(.f-mcp,.t-mcp) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#g1:hover) .edges :is(.f-g1,.t-g1) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#g2:hover) .edges :is(.f-g2,.t-g2) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#g3:hover) .edges :is(.f-g3,.t-g3) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#g4:hover) .edges :is(.f-g4,.t-g4) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#g5:hover) .edges :is(.f-g5,.t-g5) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#rail:hover) .edges :is(.f-rail,.t-rail) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#pass:hover) .edges :is(.f-pass,.t-pass) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#evt:hover) .edges :is(.f-evt,.t-evt) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#sub:hover) .edges :is(.f-sub,.t-sub) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#logger:hover) .edges :is(.f-logger,.t-logger) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#explicit:hover) .edges :is(.f-explicit,.t-explicit) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#ndjson:hover) .edges :is(.f-ndjson,.t-ndjson) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+  </style>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-main" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5.5" markerHeight="5.5" orient="auto-start-reverse"><path class="ah-main" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah-bad" d="M0,0 L10,5 L0,10 z"/></marker>
+    <marker id="ah-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="ah-hi" d="M0,0 L10,5 L0,10 z"/></marker>
+  </defs>
+
+  <rect class="bg" width="1000" height="686"/>
+  <!-- Details panel: painted first so node details (.d) draw on top -->
+  <rect class="panel" x="16" y="590" width="968" height="80" rx="12"/>
+  <text class="panel-kick" x="36" y="614">DETAILS</text>
+  <g class="d0"><text class="p1" x="36" y="638">Hover a box for what it checks or records; its connections light up. Click it to open its section.</text><text class="p2" x="36" y="658">Inside a rendered document this image is static. Click it to open the interactive SVG.</text></g>
+
+  <text class="kick" x="24" y="32">PIPELINE · GuardChain.evaluate</text>
+  <text class="title" x="24" y="58">Guard chain and audit</text>
+  <text class="lede" x="24" y="80">First block wins. A guard that throws or times out blocks, or warns when guards.fail_open is set.</text>
+
+  <text class="kick" x="24" y="140" text-anchor="start">INTERCEPTION</text>
+  <text class="kick" x="24" y="154" text-anchor="start">beforeToolCall</text>
+  <g class="k-sec"><rect class="band" x="240" y="100" width="506" height="388" rx="14"/><text class="kick" x="256" y="122">GuardChain.layered · ONE PER RUNNER</text></g>
+  <g class="k-sec"><rect class="band inner" x="252" y="134" width="340" height="262" rx="10"/><text class="kick" x="268" y="156">BASE CHAIN · READ LIVE</text></g>
+  <g class="k-sec"><rect class="band inner" x="252" y="404" width="340" height="76" rx="10"/><text class="kick" x="268" y="426">PER-RUNNER LAYER</text></g>
+  <text class="kick" x="770" y="152" text-anchor="start">AUDIT TRAIL</text>
+
+  <g class="edges">
+    <g class="e join f-claude t-g1"><path d="M204,188 H222"/></g>
+    <g class="e join f-codex t-g1"><path d="M204,246 H222"/></g>
+    <g class="e join f-acp t-g1"><path d="M204,304 H222"/></g>
+    <g class="e join f-mcp t-g1"><path d="M204,362 H222"/></g>
+    <g class="e join f-claude f-codex f-acp f-mcp t-g1"><path d="M222,188 V362"/></g>
+    <g class="e main f-claude f-codex f-acp f-mcp t-g1"><path d="M222,188 H298"/></g>
+    <g class="e main f-g1 t-g2"><path d="M435,210 V222"/></g>
+    <g class="e main f-g2 t-g3"><path d="M435,268 V280"/></g>
+    <g class="e main f-g3 t-g4"><path d="M435,326 V338"/></g>
+    <g class="e main f-g4 t-g5"><path d="M435,384 V426"/></g>
+    <g class="e main f-g5 t-pass"><path d="M435,472 V504"/></g>
+    <g class="e bad f-g1 t-rail"><path d="M570,188 H608"/></g>
+    <g class="e bad f-g2 t-rail"><path d="M570,246 H608"/></g>
+    <g class="e bad f-g3 t-rail"><path d="M570,304 H608"/></g>
+    <g class="e bad f-g4 t-rail"><path d="M570,362 H608"/></g>
+    <g class="e bad f-g5 t-rail"><path d="M570,450 H608"/></g>
+    <g class="e  f-rail f-pass t-evt"><path d="M740,128 H880 V164"/><text class="el" x="752" y="121" text-anchor="start">onVerdict: warn and block</text></g>
+    <g class="e  f-evt t-sub"><path d="M875,210 V230"/></g>
+    <g class="e  f-sub t-logger"><path d="M875,276 V296"/></g>
+    <g class="e  f-logger t-ndjson"><path d="M800,342 V434"/><text class="el" x="808" y="392" text-anchor="start">append</text></g>
+    <g class="e  f-explicit t-logger"><path d="M920,364 V344"/></g>
+  </g>
+
+  <a href="../security-architecture.md#interception-per-provider"><g class="n tint k-ext" id="claude">
+    <rect class="box" x="24" y="166" width="180" height="44" rx="9"/>
+    <text class="name mono-name" x="36" y="185">claude</text>
+    <text class="sub" x="36" y="201">PreToolUse hook</text>
+    <g class="d"><text class="p1" x="36" y="638"><tspan class="b">claude</tspan> · Claude Code calls the registered PreToolUse hook (no matcher) before every tool</text><text class="p2" x="36" y="658">The callback evaluates the chain and answers deny on block; a hook exception also denies.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#interception-per-provider"><g class="n tint k-ext" id="codex">
+    <rect class="box" x="24" y="224" width="180" height="44" rx="9"/>
+    <text class="name mono-name" x="36" y="243">codex</text>
+    <text class="sub" x="36" y="259">approval requests</text>
+    <g class="d"><text class="p1" x="36" y="638"><tspan class="b">codex</tspan> · command, file-change and MCP approval requests are the only interception point</text><text class="p2" x="36" y="658">Under approval policy never, codex emits no requests and the chain is not consulted at all.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#interception-per-provider"><g class="n tint k-ext" id="acp">
+    <rect class="box" x="24" y="282" width="180" height="44" rx="9"/>
+    <text class="name mono-name" x="36" y="301">ACP agent</text>
+    <text class="sub" x="36" y="317">fs/* reverse calls</text>
+    <g class="d"><text class="p1" x="36" y="638"><tspan class="b">ACP agent</tspan> · host-advertised fs reverse calls map to file_read and file_write, bound to the active turn</text><text class="p2" x="36" y="658">Terminal reverse calls are not advertised, so an ACP agent cannot run shell commands through the host.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#interception-per-provider"><g class="n tint k-host" id="mcp">
+    <rect class="box" x="24" y="340" width="180" height="44" rx="9"/>
+    <text class="name mono-name" x="36" y="359">/mcp tools/call</text>
+    <text class="sub" x="36" y="375">inbound, base chain only</text>
+    <g class="d"><text class="p1" x="36" y="638"><tspan class="b">/mcp tools/call</tspan> · inbound MCP dispatch evaluates the base chain only</text><text class="p2" x="36" y="658">No runner, so no TaskToolFilterGuard; one AuditEntry is written per dispatch.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#commandguard"><g class="n tint k-sec" id="g1">
+    <rect class="box" x="300" y="166" width="270" height="44" rx="9"/>
+    <g class="step"><circle cx="320" cy="188.0" r="10"/><text x="320" y="192.0">1</text></g>
+    <text class="name mono-name" x="338" y="185">CommandGuard</text>
+    <text class="sub" x="338" y="201">shell: destructive, force, escapes</text>
+    <g class="d"><text class="p1" x="36" y="638"><tspan class="b">CommandGuard</tspan> · canonical shell calls</text><text class="p2" x="36" y="658">Blocks destructive, force, fork-bomb, interpreter-escape and blocked pipe-target patterns.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#fileguard"><g class="n tint k-sec" id="g2">
+    <rect class="box" x="300" y="224" width="270" height="44" rx="9"/>
+    <g class="step"><circle cx="320" cy="246.0" r="10"/><text x="320" y="250.0">2</text></g>
+    <text class="name mono-name" x="338" y="243">FileGuard</text>
+    <text class="sub" x="338" y="259">shell paths, file tools: glob levels</text>
+    <g class="d"><text class="p1" x="36" y="638"><tspan class="b">FileGuard</tspan> · glob rules with no_access, read_only and no_delete levels over resolved paths</text><text class="p2" x="36" y="658">The most restrictive matching rule wins; Claude Grep and Glob search roots are checked too.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#networkguard"><g class="n tint k-sec" id="g3">
+    <rect class="box" x="300" y="282" width="270" height="44" rx="9"/>
+    <g class="step"><circle cx="320" cy="304.0" r="10"/><text x="320" y="308.0">3</text></g>
+    <text class="name mono-name" x="338" y="301">NetworkGuard</text>
+    <text class="sub" x="338" y="317">shell URLs, web_fetch: allowlist</text>
+    <g class="d"><text class="p1" x="36" y="638"><tspan class="b">NetworkGuard</tspan> · domain allowlist; blocks literal IP hosts and exfiltration patterns</text><text class="p2" x="36" y="658">agent_overrides add domains per logical agent.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#toolpolicyguard"><g class="n tint k-sec" id="g4">
+    <rect class="box" x="300" y="340" width="270" height="44" rx="9"/>
+    <g class="step"><circle cx="320" cy="362.0" r="10"/><text x="320" y="366.0">4</text></g>
+    <text class="name mono-name" x="338" y="359">ToolPolicyGuard</text>
+    <text class="sub" x="338" y="375">global and per-agent deny, allow</text>
+    <g class="d"><text class="p1" x="36" y="638"><tspan class="b">ToolPolicyGuard</tspan> · ToolPolicyCascade over canonical tool names</text><text class="p2" x="36" y="658">Global deny binds every agent including main; agent deny and a non-empty agent allow bind logical agents.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#tasktoolfilterguard"><g class="n tint k-sec" id="g5">
+    <rect class="box" x="300" y="428" width="270" height="44" rx="9"/>
+    <g class="step"><circle cx="320" cy="450.0" r="10"/><text x="320" y="454.0">5</text></g>
+    <text class="name mono-name" x="338" y="447">TaskToolFilterGuard</text>
+    <text class="sub" x="338" y="463">per-execution allowlist, read-only</text>
+    <g class="d"><text class="p1" x="36" y="638"><tspan class="b">TaskToolFilterGuard</tspan> · rebound each turn from the active lease</text><text class="p2" x="36" y="658">A null allowlist is unrestricted; an empty one closes only under denyEmptyAllowlist. Read-only mode admits only read-only shell.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#chain-execution-and-composition"><g class="n solid k-sec" id="rail">
+    <rect class="box" x="610" y="166" width="120" height="306" rx="9"/>
+    <text class="name" x="622" y="189">block</text>
+    <text class="sub" x="622" y="207">first block wins:</text>
+    <text class="sub" x="622" y="223">the chain returns</text>
+    <text class="sub" x="622" y="239">and the adapter</text>
+    <text class="sub" x="622" y="255">denies the call</text>
+    <g class="d"><text class="p1" x="36" y="638"><tspan class="b">block</tspan> · the first block short-circuits the chain</text><text class="p2" x="36" y="658">A guard that throws or exceeds its evaluation budget yields a failure verdict: block, or warn when guards.fail_open is set.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#chain-execution-and-composition"><g class="n tint k-host" id="pass">
+    <rect class="box" x="300" y="506" width="270" height="44" rx="9"/>
+    <text class="name" x="312" y="525">pass or warn</text>
+    <text class="sub" x="312" y="541">the tool runs; the first warn is returned</text>
+    <g class="d"><text class="p1" x="36" y="638"><tspan class="b">pass or warn</tspan> · no guard blocked</text><text class="p2" x="36" y="658">Each warn is reported through onVerdict; the chain returns the first warn, else pass. Pass is never audited.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#audit-chain"><g class="n tint k-host" id="evt">
+    <rect class="box" x="770" y="166" width="210" height="44" rx="9"/>
+    <text class="name mono-name" x="782" y="185">GuardBlockEvent</text>
+    <text class="sub" x="782" y="201">on the EventBus</text>
+    <g class="d"><text class="p1" x="36" y="638"><tspan class="b">GuardBlockEvent</tspan> · carries guard, hook, canonical tool, raw provider tool, agent, session and peer</text><text class="p2" x="36" y="658">EventBus.fire swallows subscriber exceptions, so a broken subscriber cannot fail a tool call.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#audit-chain"><g class="n tint k-host" id="sub">
+    <rect class="box" x="770" y="232" width="210" height="44" rx="9"/>
+    <text class="name mono-name" x="782" y="251">GuardAuditSubscriber</text>
+    <text class="sub" x="782" y="267">+ ToolPermissionDeniedEvent</text>
+    <g class="d"><text class="p1" x="36" y="638"><tspan class="b">GuardAuditSubscriber</tspan> · bridges the event bus to the audit logger</text><text class="p2" x="36" y="658">Pass verdicts are never recorded by the chain.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#audit-chain"><g class="n tint k-host" id="logger">
+    <rect class="box" x="770" y="298" width="210" height="44" rx="9"/>
+    <text class="name mono-name" x="782" y="317">GuardAuditLogger</text>
+    <text class="sub" x="782" y="333">logVerdict: fire-and-forget</text>
+    <g class="d"><text class="p1" x="36" y="638"><tspan class="b">GuardAuditLogger</tspan> · logs at INFO, WARNING or SEVERE and appends to the day partition</text><text class="p2" x="36" y="658">Writes chain through one future, so verdict latency never waits on disk.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#audit-chain"><g class="n line k-neu" id="explicit">
+    <rect class="box" x="860" y="364" width="120" height="50" rx="9"/>
+    <text class="name" x="872" y="383">decision sites</text>
+    <text class="sub" x="872" y="399">writeEntry, awaited</text>
+    <g class="d"><text class="p1" x="36" y="638"><tspan class="b">decision sites</tspan> · egress, /mcp dispatch, run, task and knowledge gates, DB egress, Slack signatures</text><text class="p2" x="36" y="658">These call writeEntry and await it, so the caller can fail closed and refuse the action.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#audit-chain"><g class="n tint k-store" id="ndjson">
+    <rect class="box" x="770" y="436" width="210" height="44" rx="9"/>
+    <text class="name mono-name" x="782" y="455">audit-YYYY-MM-DD.ndjson</text>
+    <text class="sub" x="782" y="471">guard_audit.max_retention_days</text>
+    <g class="d"><text class="p1" x="36" y="638"><tspan class="b">audit-YYYY-MM-DD.ndjson</tspan> · AuditEntry lines in the data directory, one file per day</text><text class="p2" x="36" y="658">Retention defaults to 30 days, 0 keeps all. Entries are not hash-chained or signed.</text></g>
+  </g></a>
+  <g transform="translate(24,564)">
+    <g class="tint k-ext"><rect class="box" x="0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="22" y="10">provider binary</text>
+    <g class="tint k-sec"><rect class="box" x="137.0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="159.0" y="10">guard</text>
+    <g class="tint k-host"><rect class="box" x="212.0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="234.0" y="10">DartClaw component</text>
+    <g class="tint k-store"><rect class="box" x="367.6" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="389.6" y="10">file</text>
+    <g class="e main"><path d="M436.40000000000003,6 H468.40000000000003"/></g><text class="lg" x="476.40000000000003" y="10">verdict pass, next guard</text>
+    <g class="e bad"><path d="M647.2,6 H679.2"/></g><text class="lg" x="687.2" y="10">verdict block</text>
+    <g class="e "><path d="M789.8000000000001,6 H821.8000000000001"/></g><text class="lg" x="829.8000000000001" y="10">event or write</text>
+  </g>
+</svg>

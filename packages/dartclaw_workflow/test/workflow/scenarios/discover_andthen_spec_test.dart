@@ -39,7 +39,7 @@ void main() {
       expect(skill, contains('## Implementation Plan'));
       expect(skill, contains('regardless of FIS-like headings'));
       expect(skill, contains('both `**Plan**:` and `**Story-ID**:`'));
-      expect(skill, contains('Written requirements belong in plan-and-implement'));
+      expect(skill, contains('Written requirements belong in implement-prd'));
       expect(skill, contains('Do not invoke `andthen:plan` on this input'));
       expect(skill, contains('existing'));
       expect(skill, contains('synthesized'));

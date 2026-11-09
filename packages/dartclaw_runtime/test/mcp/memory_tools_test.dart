@@ -3,10 +3,12 @@ import 'package:dartclaw_runtime/src/mcp/mcp_server.dart' show McpCallerContext;
 import 'package:dartclaw_runtime/src/mcp/memory_tools.dart';
 import 'package:test/test.dart';
 
+const _context = McpCallerContext(authorityId: 'system', sourceEvent: 'tool-call:0');
+
 void main() {
   group('MemoryObserveTool', () {
     test('exposes only text and the closed capture role', () {
-      final tool = MemoryObserveTool(handler: (args) async => {});
+      final tool = MemoryObserveTool(handler: (args, _) async => {});
       final schema = tool.inputSchema;
       final properties = schema['properties'] as Map<String, dynamic>;
 
@@ -20,7 +22,7 @@ void main() {
 
   group('MemoryApplyTool', () {
     test('exposes a closed atomic operation schema', () {
-      final tool = MemoryApplyTool(handler: (args) async => {});
+      final tool = MemoryApplyTool(handler: (args, _) async => {});
       expect(tool.name, 'memory_apply');
       expect(tool.inputSchema['type'], 'object');
       final required = tool.inputSchema['required'] as List;
@@ -37,14 +39,14 @@ void main() {
 
     test('invokes handler and returns extracted text', () async {
       final tool = MemoryApplyTool(
-        handler: (args) async => {
+        handler: (args, _) async => {
           'content': [
             {'type': 'text', 'text': '{"canonicalOutcome":"committed"}'},
           ],
         },
       );
 
-      final result = await tool.call({'expectedRevision': 1, 'operations': []});
+      final result = await tool.callWithContext({'expectedRevision': 1, 'operations': []}, _context);
       expect(result, isA<ToolResultText>());
       expect((result as ToolResultText).content, contains('committed'));
     });
@@ -52,7 +54,7 @@ void main() {
 
   group('MemorySearchTool', () {
     test('has correct name and schema', () {
-      final tool = MemorySearchTool(handler: (args) async => {});
+      final tool = MemorySearchTool(handler: (args, _) async => {});
       expect(tool.name, 'memory_search');
       final required = tool.inputSchema['required'] as List;
       expect(required, contains('query'));
@@ -64,14 +66,14 @@ void main() {
 
     test('invokes handler and returns extracted text', () async {
       final tool = MemorySearchTool(
-        handler: (args) async => {
+        handler: (args, _) async => {
           'content': [
             {'type': 'text', 'text': '- [general] Some result (score: 1.00)'},
           ],
         },
       );
 
-      final result = await tool.call({'query': 'test'});
+      final result = await tool.callWithContext({'query': 'test'}, _context);
       expect(result, isA<ToolResultText>());
       expect((result as ToolResultText).content, contains('Some result'));
     });
@@ -79,8 +81,7 @@ void main() {
     test('requires and forwards authenticated caller context', () async {
       McpCallerContext? received;
       final tool = MemorySearchTool(
-        handler: (_) async => throw StateError('owner handler must not run'),
-        callerHandler: (args, context) async {
+        handler: (args, context) async {
           received = context;
           return {
             'content': [
@@ -100,16 +101,13 @@ void main() {
 
       expect((result as ToolResultText).content, 'agent result');
       expect(received, same(context));
-      expect(
-        await MemorySearchTool(handler: (_) async => {}).callWithContext({'query': 'agent'}, context),
-        isA<ToolResultError>(),
-      );
+      expect(await tool.call({'query': 'agent'}), isA<ToolResultError>());
     });
   });
 
   group('MemoryReadTool', () {
     test('has correct name and schema', () {
-      final tool = MemoryReadTool(handler: (args) async => {});
+      final tool = MemoryReadTool(handler: (args, _) async => {});
       expect(tool.name, 'memory_read');
       expect(tool.description, isNotEmpty);
       final schema = tool.inputSchema;
@@ -121,14 +119,14 @@ void main() {
 
     test('invokes handler and returns extracted text', () async {
       final tool = MemoryReadTool(
-        handler: (args) async => {
+        handler: (args, _) async => {
           'content': [
             {'type': 'text', 'text': '## general\n- Some memory entry'},
           ],
         },
       );
 
-      final result = await tool.call({'locator': 'entry-id'});
+      final result = await tool.callWithContext({'locator': 'entry-id'}, _context);
       expect(result, isA<ToolResultText>());
       expect((result as ToolResultText).content, contains('Some memory entry'));
     });
@@ -136,8 +134,7 @@ void main() {
     test('requires and forwards authenticated caller context', () async {
       McpCallerContext? received;
       final tool = MemoryReadTool(
-        handler: (_) async => throw StateError('owner handler must not run'),
-        callerHandler: (args, context) async {
+        handler: (args, context) async {
           received = context;
           return {
             'content': [
@@ -157,10 +154,7 @@ void main() {
 
       expect((result as ToolResultText).content, 'agent record');
       expect(received, same(context));
-      expect(
-        await MemoryReadTool(handler: (_) async => {}).callWithContext({'locator': 'agent-entry'}, context),
-        isA<ToolResultError>(),
-      );
+      expect(await tool.call({'locator': 'agent-entry'}), isA<ToolResultError>());
     });
   });
 }

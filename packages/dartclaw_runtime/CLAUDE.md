@@ -285,8 +285,9 @@ tests construct sparse compositions through the same two functions.
   `ConversationSubmissionClaim.admittedContext` pins one attempt, and dispatch promotes it to `currentContext` only
   after project/reference revalidation. Session title generation claims the persisted one-shot bit and applies through
   title revision/provenance compare-and-set. It dispatches only committed filesystem claims through `TurnManager`.
-  Server shutdown stops its admission, drains accepted mutations, cancels turns, then drains retained outcomes and
-  background writes before disposing storage.
+  Server shutdown stops its admission, drains accepted mutations, closes `TurnManager` admission, cancels turns, then
+  drains retained outcomes and background writes before disposing storage. The sweep is one snapshot, so it is complete
+  only behind `closeAdmission`; don't add a turn path that bypasses `TurnManager` and is awaited by that drain.
 - `lib/src/turn_manager.dart` + `turn_runner.dart` (with cancellation and memory parts) + `turn_wait_status.dart` + `turn_governance_enforcer.dart` + `execution_coordinator.dart` (lifecycle/observability/model parts) + `worker_capacity_gate.dart` — turn lifecycle, status, allocation, reuse, and early cancel.
   `TurnRunner._trackSessionUsage` is the runtime context-telemetry producer; the coordinator propagates its observer to
   primary and future workers, and the session router persists observations through `ConversationService`'s mutation chain.

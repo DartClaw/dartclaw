@@ -196,7 +196,9 @@ Retry, edit and fork (refused for `channel`, `cron`, `task`, `logicalAgent` and 
 
 ### Shutdown
 
-`DartclawServer.shutdown` calls `ConversationService.beginShutdown()` (refuse new admission with `SERVER_STOPPING`, hold queued work, drain the mutation chain), cancels active turns, then `drain()` awaits retained outcomes and background writes before storage closes. A completed turn cannot release queued work once shutdown has begun.
+`DartclawServer.shutdown` calls `ConversationService.beginShutdown()` (refuse new admission with `SERVER_STOPPING`, hold queued work, drain the mutation chain), calls `TurnManager.closeAdmission()`, cancels active turns, then `drain()` awaits retained outcomes and background writes before storage closes. A completed turn cannot release queued work once shutdown has begun.
+
+The cancel sweep is one snapshot of `activeSessionIds`, and `drain()` waits on work the sweep cannot see, such as a session-title one-shot still upstream of its reservation. `closeAdmission` makes that snapshot complete: `TurnManager` refuses a reservation on entry and again after its lease wait, with no await between that second check and the runner recording the turn, so a turn is either visible to the sweep or never exists. A swept turn that was reserved but not yet executed settles as cancelled without reaching the provider. `TaskExecutor` leases outside `TurnManager`, so its turns are not gated here; the task runtime's own shutdown owns them.
 
 ---
 

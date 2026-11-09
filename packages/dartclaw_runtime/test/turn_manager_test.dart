@@ -14,6 +14,7 @@ import 'package:test/test.dart';
 
 import 'execution_coordinator_test_support.dart';
 import 'turn_manager_test_support.dart';
+import 'turn_runner_test_support.dart' show FakeTurnRunner;
 
 const _turnLimits = TurnLimitsConfig.defaults();
 
@@ -524,6 +525,95 @@ void main() {
       await worker.turnInvoked;
       worker.completeSuccess();
       await singleTurns.waitForOutcome('s1', turnId);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  group('closeAdmission', () {
+    final throwsAdmissionClosed = throwsA(
+      isA<StateError>().having((error) => error.message, 'message', contains('admission is closed')),
+    );
+
+    test('refuses a later turn before it reaches the worker', () async {
+      turns.closeAdmission();
+
+      await expectLater(turns.startTurn('s1', []), throwsAdmissionClosed);
+
+      expect(worker.turnCalls, 0);
+      expect(turns.activeSessionIds, isEmpty);
+    });
+
+    test('leaves a turn reserved before it visible to a cancel sweep', () async {
+      final turnId = await turns.startTurn('s1', []);
+      await worker.turnInvoked;
+
+      turns.closeAdmission();
+
+      expect(turns.activeSessionIds, ['s1']);
+      await turns.cancelTurn('s1');
+      expect((await turns.waitForOutcome('s1', turnId)).status, TurnStatus.cancelled);
+    });
+
+    TurnManager logicalAgentTurns(SessionService sessions, Future<TurnRunner> Function() createWorker) {
+      final primary = FakeTurnRunner();
+      final coordinator = ExecutionCoordinator(
+        providerCapacities: const {'claude': 1},
+        primary: primary,
+        allowPrimaryBackgroundFallback: false,
+        admitExecution: (request) => primary.admitTurn(request.sessionId, isHumanInput: request.isHumanInput),
+        releaseAdmission: primary.releaseAdmission,
+        createWorker: (_) => createWorker(),
+      );
+      addTearDown(coordinator.dispose);
+      return TurnManager.fromCoordinator(
+        turnLimits: _turnLimits,
+        coordinator: coordinator,
+        sessions: sessions,
+        agentDefinitions: (_) => const AgentDefinition(id: 'agent', description: 'Agent', prompt: 'Prompt'),
+      );
+    }
+
+    Future<Session> logicalAgentSession(SessionService sessions) => sessions.getOrCreateByKey(
+      SessionKey.logicalAgentSession(agentId: 'agent', conversationId: 'c1'),
+      type: SessionType.logicalAgent,
+      provider: 'claude',
+    );
+
+    test('refuses before asking for a worker', () async {
+      final sessions = SessionService(baseDir: tempDir.path);
+      var workerRequests = 0;
+      final closedTurns = logicalAgentTurns(sessions, () async {
+        workerRequests++;
+        return FakeTurnRunner();
+      });
+      final session = await logicalAgentSession(sessions);
+
+      closedTurns.closeAdmission();
+
+      await expectLater(closedTurns.reserveTurn(session.id, agentName: 'agent'), throwsAdmissionClosed);
+      expect(workerRequests, 0, reason: 'a provider process spawned here would only delay shutdown');
+    });
+
+    test('refuses a reservation still waiting for its worker and returns the worker capacity', () async {
+      final sessions = SessionService(baseDir: tempDir.path);
+      final workerRequested = Completer<void>();
+      final workerReady = Completer<TurnRunner>();
+      final waitingTurns = logicalAgentTurns(sessions, () {
+        workerRequested.complete();
+        return workerReady.future;
+      });
+      final session = await logicalAgentSession(sessions);
+
+      final reservation = waitingTurns.reserveTurn(session.id, agentName: 'agent');
+      await workerRequested.future;
+      expect(waitingTurns.availableRunnerCount, 0);
+
+      waitingTurns.closeAdmission();
+      workerReady.complete(FakeTurnRunner());
+
+      await expectLater(reservation, throwsAdmissionClosed);
+      expect(waitingTurns.activeSessionIds, isEmpty, reason: 'the sweep has passed; nothing would cancel this turn');
+      expect(waitingTurns.availableRunnerCount, 1);
     });
   });
 

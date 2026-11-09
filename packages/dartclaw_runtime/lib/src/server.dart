@@ -309,6 +309,7 @@ class DartclawServer {
   Future<void> shutdown() async {
     await _conversation?.beginShutdown();
     _tasks.progressTracker?.dispose();
+    _turn.turns.closeAdmission();
     for (final sessionId in _turn.turns.activeSessionIds.toList()) {
       await _turn.turns.cancelTurn(sessionId);
     }

@@ -148,6 +148,7 @@ class TurnManager implements core.TurnManager {
   final Map<String, TurnRunner> _reservedTurnRunners = {};
   final Map<String, ExecutionLease> _reservedTurnLeases = {};
   final Map<String, String> _contextProviderOverrides = {};
+  bool _admissionClosed = false;
 
   // Same-session reservations run one at a time in arrival order: every await
   // before the session lock (session read, governance checks, rate-limit wait)
@@ -228,6 +229,17 @@ class TurnManager implements core.TurnManager {
   // ---------------------------------------------------------------------------
 
   ExecutionCoordinator get executions => _executions;
+
+  /// Refuses every later reservation and turn start with a [StateError].
+  ///
+  /// A turn reserved before this call stays in [activeSessionIds], so one sweep over them after this call misses
+  /// nothing. Work leased through [ExecutionCoordinator] directly (task and workflow steps) is not gated here; the
+  /// task runtime's own shutdown owns it.
+  void closeAdmission() => _admissionClosed = true;
+
+  void _requireAdmissionOpen() {
+    if (_admissionClosed) throw StateError('Turn admission is closed: the server is shutting down');
+  }
 
   void setContextTelemetryObserver(RuntimeContextTelemetryObserved? observer) {
     _executions.setContextTelemetryObserver(observer);
@@ -453,6 +465,9 @@ class TurnManager implements core.TurnManager {
     final runner = lease.runner;
     final effectiveAgentName = reservation.agentName;
     try {
+      // Re-checked after the lease wait, with no await before the runner records the turn: admission closing during
+      // the wait must not produce a turn the closer's sweep has already passed.
+      _requireAdmissionOpen();
       final turnId = await runner.reserveAdmittedTurn(
         sessionId,
         agentName: effectiveAgentName,
@@ -736,6 +751,7 @@ class TurnManager implements core.TurnManager {
     List<String>? allowedTools,
     String? providerOverride,
   }) async {
+    _requireAdmissionOpen();
     final session = await _sessions?.getSession(sessionId);
     final provider = providerOverride ?? session?.provider ?? _primary.providerId;
     final policy = workerPolicy ?? await _sessionExecutionPolicy(session);

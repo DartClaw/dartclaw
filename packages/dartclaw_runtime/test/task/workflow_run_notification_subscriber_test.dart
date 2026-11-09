@@ -346,14 +346,14 @@ void main() {
       });
     });
 
-    test('a cancelled run counts as finished', () async {
+    test('a cancelled run posts under the finished event, labelled cancelled', () async {
       subscribe([slack]);
       addRun('run-1', slackOrigin);
 
       status('run-1', WorkflowRunStatus.running, WorkflowRunStatus.cancelled);
       await settle();
 
-      expect(slackThreads.rendered.single.status, 'finished');
+      expect(slackThreads.rendered.single.status, 'cancelled');
       expect(slackThreads.rendered.single.text, contains('cancelled'));
     });
 

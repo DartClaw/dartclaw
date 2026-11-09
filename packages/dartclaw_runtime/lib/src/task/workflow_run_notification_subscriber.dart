@@ -462,7 +462,10 @@ class WorkflowRunNotificationSubscriber {
       id: run.id,
       text: text,
       title: name,
-      status: kind.yamlValue,
+      // A cancelled run is selected by the `finished` event but must not be shown as finished.
+      status: event is WorkflowRunStatusChangedEvent && event.newStatus == WorkflowRunStatus.cancelled
+          ? 'cancelled'
+          : kind.yamlValue,
       body: body == null || body.isEmpty ? null : body,
       error: error,
       facts: facts,

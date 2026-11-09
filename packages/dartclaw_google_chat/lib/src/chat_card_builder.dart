@@ -412,6 +412,7 @@ class ChatCardBuilder {
     'started' => 'Started',
     'awaiting_approval' => 'Awaiting Approval',
     'finished' => 'Finished',
+    'cancelled' => 'Cancelled',
     'step_completed' => 'Step Completed',
     _ => status,
   };

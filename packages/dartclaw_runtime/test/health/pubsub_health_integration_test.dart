@@ -217,12 +217,7 @@ void main() {
 
     test('health service includes pubsub section when reporter is provided', () async {
       final reporter = PubSubHealthReporter(enabled: false);
-      final service = HealthService(
-        worker: harness,
-        searchDbPath: '/nonexistent/search.db',
-        sessionsDir: '/nonexistent/sessions',
-        pubsubReporter: reporter,
-      );
+      final service = HealthService(worker: harness, sessionsDir: '/nonexistent/sessions', pubsubReporter: reporter);
 
       final status = await service.getStatus();
       expect(status.containsKey('pubsub'), isTrue);
@@ -232,11 +227,7 @@ void main() {
     });
 
     test('health service omits pubsub section when reporter is null', () async {
-      final service = HealthService(
-        worker: harness,
-        searchDbPath: '/nonexistent/search.db',
-        sessionsDir: '/nonexistent/sessions',
-      );
+      final service = HealthService(worker: harness, sessionsDir: '/nonexistent/sessions');
 
       final status = await service.getStatus();
       expect(status.containsKey('pubsub'), isFalse);
@@ -244,12 +235,7 @@ void main() {
 
     test('health service includes pubsub enabled status', () async {
       final reporter = PubSubHealthReporter(enabled: true, subscriptionCount: () => 2);
-      final service = HealthService(
-        worker: harness,
-        searchDbPath: '/nonexistent/search.db',
-        sessionsDir: '/nonexistent/sessions',
-        pubsubReporter: reporter,
-      );
+      final service = HealthService(worker: harness, sessionsDir: '/nonexistent/sessions', pubsubReporter: reporter);
 
       final status = await service.getStatus();
       final pubsub = status['pubsub'] as Map<String, dynamic>;

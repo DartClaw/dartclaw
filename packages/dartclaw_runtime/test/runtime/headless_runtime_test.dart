@@ -34,7 +34,7 @@ import 'memory_wiring_test_support.dart';
 
 void expectNoPersonalMemoryArtifacts(DartclawConfig config) {
   for (final path in [
-    config.searchDbPath,
+    p.join(config.server.dataDir, 'search.db'),
     p.join(config.workspaceDir, '.dartclaw-memory-index.json'),
     p.join(config.workspaceDir, '.dartclaw-memory-corpus.json'),
     p.join(config.workspaceDir, '.dartclaw-memory-transaction.json'),

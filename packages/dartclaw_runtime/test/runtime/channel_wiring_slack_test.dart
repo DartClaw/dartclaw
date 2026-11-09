@@ -107,7 +107,6 @@ agent:
       addTearDown(turns.executions.dispose);
       final health = HealthService(
         worker: FakeAgentHarness(),
-        searchDbPath: config.searchDbPath,
         sessionsDir: config.sessionsDir,
         tasksDir: p.join(config.server.dataDir, 'tasks'),
       );

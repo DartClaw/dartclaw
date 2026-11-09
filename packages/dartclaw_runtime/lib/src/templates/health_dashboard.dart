@@ -14,7 +14,6 @@ String healthDashboardTemplate({
   required int uptimeSeconds,
   required String workerState,
   required int sessionCount,
-  required int dbSizeBytes,
   required int totalArtifactDiskBytes,
   required String version,
   required SidebarData sidebarData,
@@ -27,7 +26,6 @@ String healthDashboardTemplate({
   Map<String, dynamic>? pubsubHealth,
 }) {
   final uptimeStr = formatUptime(uptimeSeconds);
-  final dbSizeStr = formatBytes(dbSizeBytes);
   final artifactDiskStr = formatBytes(totalArtifactDiskBytes);
   final statusLabel = titleCase(status);
 
@@ -63,8 +61,8 @@ String healthDashboardTemplate({
 
   final topbar = pageTopbarTemplate(title: 'System Health', restartBannerHtml: restartBannerHtml);
 
-  // Uptime, session count and DB size live in the KPI row above; the service
-  // cards carry only the facts that row cannot express.
+  // Uptime and session count live in the KPI row above; the service cards carry
+  // only the facts that row cannot express.
   final cardDefs = <Map<String, dynamic>>[
     {
       'title': 'Storage',
@@ -130,7 +128,6 @@ String healthDashboardTemplate({
   final metricsHtml = [
     metricCardTemplate(color: 'accent', value: uptimeStr, label: 'Uptime'),
     metricCardTemplate(color: 'info', value: '$sessionCount', label: 'Sessions'),
-    metricCardTemplate(color: 'info', value: dbSizeStr, label: 'DB Size'),
     metricCardTemplate(color: 'info', value: artifactDiskStr, label: 'Task Artifacts'),
   ].join('\n');
 

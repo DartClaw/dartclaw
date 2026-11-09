@@ -188,9 +188,6 @@ class DartclawConfig {
   /// logsDir.
   String get logsDir => p.join(server.dataDir, 'logs');
 
-  /// searchDbPath.
-  String get searchDbPath => p.join(server.dataDir, 'search.db');
-
   /// Retained vector projection database path.
   String get vectorsDbPath => p.join(server.dataDir, 'vectors.db');
 

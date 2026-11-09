@@ -231,7 +231,6 @@ Future<({ChannelWiring channels, StorageWiring storage})> wireTestChannels(
         healthService ??
         HealthService(
           worker: FakeAgentHarness(),
-          searchDbPath: config.searchDbPath,
           sessionsDir: config.sessionsDir,
           tasksDir: p.join(config.server.dataDir, 'tasks'),
         ),

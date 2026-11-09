@@ -64,7 +64,6 @@ void main() {
       final config = DartclawConfig(server: ServerConfig(dataDir: '/data'));
       final cases = [
         (name: 'sessionsDir', actual: config.sessionsDir, expected: '/data/sessions'),
-        (name: 'searchDbPath', actual: config.searchDbPath, expected: '/data/search.db'),
         (name: 'dartclawDbPath', actual: config.dartclawDbPath, expected: '/data/dartclaw.db'),
         (name: 'kvPath', actual: config.kvPath, expected: '/data/kv.json'),
         (name: 'workspaceDir', actual: config.workspaceDir, expected: '/data/workspace'),

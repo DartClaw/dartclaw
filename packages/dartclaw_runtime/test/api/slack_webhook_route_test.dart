@@ -81,7 +81,6 @@ class _Rig {
     final audit = GuardAuditLogger(dataDir: tempDir.path);
     final health = HealthService(
       worker: worker,
-      searchDbPath: p.join(tempDir.path, 'search.db'),
       sessionsDir: p.join(tempDir.path, 'sessions'),
       tasksDir: p.join(tempDir.path, 'tasks'),
     )..slackReporter = channel.healthReporter;

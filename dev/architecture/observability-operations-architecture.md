@@ -93,7 +93,6 @@ Sources: `packages/dartclaw_runtime/lib/src/alerts/` (`alert_classifier.dart`, `
 | `uptime_s`, `version` | process start, `dartclawVersion` |
 | `worker_state` | primary `AgentHarness.state` |
 | `session_count` | session directories under the sessions dir |
-| `db_size_bytes` | byte length of `<data_dir>/search.db`. Known defect: PostgreSQL storage never creates that file, so it always reports 0 (`HealthService._dbSize` catches the missing file); it should read the database health projection |
 | `artifact_disk_bytes` | recursive size of `tasks/*/artifacts` |
 | `daily_usage` | `UsageTracker.dailySummary()`, when present |
 | `pubsub`, `slack` | `PubSubHealthReporter` (`dartclaw_google_chat`), `SlackHealthReporter` (`dartclaw_slack`), when the channel is configured |

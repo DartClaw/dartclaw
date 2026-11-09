@@ -862,7 +862,6 @@ class HarnessWiring {
         ? null
         : HealthService(
             worker: primaryHarness,
-            searchDbPath: config.searchDbPath,
             sessionsDir: _storage.sessions.baseDir,
             tasksDir: p.join(config.server.dataDir, 'tasks'),
             usageTracker: _usageTracker,

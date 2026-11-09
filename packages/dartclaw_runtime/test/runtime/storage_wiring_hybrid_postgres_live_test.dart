@@ -7,6 +7,7 @@ import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_runtime/src/runtime/storage_wiring.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager, TurnRunner;
+import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 import '../../../dartclaw_core/test/storage/postgres_live_support.dart';
@@ -70,7 +71,7 @@ void main() {
         expect(memoryRows.map((row) => row.documentId), [memoryHits.single.id]);
         expect(conversationRows.map((row) => row.documentId), [message.id]);
         expect(File(config.dartclawDbPath).existsSync(), isFalse);
-        expect(File(config.searchDbPath).existsSync(), isFalse);
+        expect(File(p.join(config.server.dataDir, 'search.db')).existsSync(), isFalse);
         expect(File(config.vectorsDbPath).existsSync(), isFalse);
       } finally {
         await wiring.dispose();

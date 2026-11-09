@@ -606,7 +606,8 @@ void main() {
           // Uptime is a KPI tile now, not a hero row – the fixture mirrors that.
           'metricsHtml':
               '<div class="metric-value">3d 14h 22m</div><div class="metric-label">Uptime</div>'
-              '<div class="metric-value">12</div><div class="metric-label">DB Size</div><div>2.4 MB</div>',
+              '<div class="metric-value">12</div><div class="metric-label">Sessions</div>'
+              '<div class="metric-value">2.4 MB</div><div class="metric-label">Task Artifacts</div>',
           'sidebar': '',
           'topbar': '',
         },

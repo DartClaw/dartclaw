@@ -21,7 +21,6 @@ Future<Map<String, dynamic>> getStatus(
     'uptime_s': 0,
     'worker_state': ws?.name ?? 'unknown',
     'session_count': sessionCount,
-    'db_size_bytes': 0,
     'version': 'unknown',
   };
 }

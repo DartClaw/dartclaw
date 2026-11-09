@@ -942,12 +942,14 @@ mark.find-hit--active { background: color-mix(in srgb, var(--accent) 40%, transp
   display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--sp-4); margin-bottom: var(--sp-4);
 }
 @media (max-width: 768px) { .metrics-grid { grid-template-columns: repeat(2, 1fr); } }
-/* Health KPI row – exactly four tiles. The column count steps 4 -> 2 -> 1 so it
-   always divides the tile count; an auto-fit track resolves to three columns
-   across a wide band of viewports and strands the fourth tile on its own row. */
+/* Fixed-tile KPI rows. The column count always divides the tile count (4 -> 2 -> 1,
+   3 -> 1); an auto-fit track resolves to three columns across a wide band of
+   viewports and strands the fourth tile on its own row. */
 .metrics-grid-4 { grid-template-columns: repeat(4, 1fr); }
 @media (max-width: 1280px) { .metrics-grid-4 { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 560px) { .metrics-grid-4 { grid-template-columns: 1fr; } }
+.metrics-grid-3 { grid-template-columns: repeat(3, 1fr); }
+@media (max-width: 768px) { .metrics-grid-3 { grid-template-columns: 1fr; } }
 /* === SCHEDULING === */
 /* `position: relative` is load-bearing, not decoration: a scroll container only
    clips absolutely-positioned descendants for which it is the containing block.

@@ -5,7 +5,7 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' hide TurnManager, TurnRunner;
-import 'package:dartclaw_runtime/src/turn_manager.dart' show TurnManager;
+import 'package:dartclaw_runtime/src/turn_manager.dart' show TurnAdmissionClosedException, TurnManager;
 import 'package:dartclaw_runtime/src/turn_runner.dart' show TurnRunner;
 import 'package:dartclaw_runtime/src/turn_wait_status.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager, TurnRunner;
@@ -530,9 +530,7 @@ void main() {
 
   // -------------------------------------------------------------------------
   group('closeAdmission', () {
-    final throwsAdmissionClosed = throwsA(
-      isA<StateError>().having((error) => error.message, 'message', contains('admission is closed')),
-    );
+    final throwsAdmissionClosed = throwsA(isA<TurnAdmissionClosedException>());
 
     test('refuses a later turn before it reaches the worker', () async {
       turns.closeAdmission();

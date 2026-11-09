@@ -307,12 +307,14 @@ class DartclawServer {
   }
 
   Future<void> shutdown() async {
-    await _conversation?.beginShutdown();
+    final mutationsDrained = _conversation?.beginShutdown();
     _tasks.progressTracker?.dispose();
+    // Before awaiting the mutations: one of them may be parked on a lane that only cancelling a turn can free.
     _turn.turns.closeAdmission();
     for (final sessionId in _turn.turns.activeSessionIds.toList()) {
       await _turn.turns.cancelTurn(sessionId);
     }
+    await mutationsDrained;
     await _conversation?.drain();
     await _tasks.executionDrainer?.call();
     await _channels.spaceEventsWiring?.dispose();

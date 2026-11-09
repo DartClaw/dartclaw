@@ -10,6 +10,7 @@ import 'package:dartclaw_runtime/src/concurrency/session_mutation_coordinator.da
 import 'package:dartclaw_runtime/src/governance/budget_exhausted_exception.dart';
 import 'package:dartclaw_runtime/src/conversation/conversation_service.dart';
 import 'package:dartclaw_runtime/src/runtime_tool_history.dart';
+import 'package:dartclaw_runtime/src/turn_manager.dart' show TurnAdmissionClosedException;
 import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeAgentHarness;
 import 'package:logging/logging.dart';
 import 'package:test/test.dart';
@@ -651,6 +652,19 @@ void main() {
       (await conversation.snapshot(sessionId)).findSubmission('shutdown')?.workState,
       ConversationWorkState.queued,
     );
+  });
+
+  test('a queue release refused because admission closed holds the item and leaves drain clean', () async {
+    final active = await _submit(conversation, sessionId, 'active', 'Running when shutdown starts');
+    await _submit(conversation, sessionId, 'next', 'Released as the turn settles');
+    turns.reserveFailure = TurnAdmissionClosedException();
+
+    turns.complete(sessionId, active.submission.turnId!);
+    await _waitForWorkState(conversation, sessionId, 'next', ConversationWorkState.held);
+
+    await conversation.drain();
+    expect(turns.executeCount, 1);
+    expect((await conversation.snapshot(sessionId)).findSubmission('next')?.detail, contains('shut down'));
   });
 
   test('a turn manager without a capacity signal leaves deferred work queued and logs instead of throwing', () async {

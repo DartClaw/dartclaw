@@ -119,7 +119,12 @@ extension _ConversationServicePersistence on ConversationService {
     state = state.put(accepted);
     await _writeWorkRecords(sessionId, accepted, allowUpdate: true);
     await _persist(sessionId, state, accepted, 'queue_release');
-    await _dispatch(sessionId, state, accepted, replayed: false);
+    try {
+      await _dispatch(sessionId, state, accepted, replayed: false);
+    } on ConversationMutationException catch (error) {
+      // No request is waiting on a queue release, and tracked work that rejects would fail the shutdown drain.
+      if (error.code != 'SERVER_STOPPING') rethrow;
+    }
   }
 
   /// Resumes work deferred on the global turn cap once a slot frees.

@@ -129,6 +129,12 @@ class TurnContext {
   });
 }
 
+/// Thrown instead of reserving a turn once [TurnManager.closeAdmission] has run.
+final class TurnAdmissionClosedException implements Exception {
+  @override
+  String toString() => 'TurnAdmissionClosedException: the server is shutting down';
+}
+
 // ---------------------------------------------------------------------------
 // TurnManager
 // ---------------------------------------------------------------------------
@@ -230,7 +236,7 @@ class TurnManager implements core.TurnManager {
 
   ExecutionCoordinator get executions => _executions;
 
-  /// Refuses every later reservation and turn start with a [StateError].
+  /// Refuses every later reservation and turn start with a [TurnAdmissionClosedException].
   ///
   /// A turn reserved before this call stays in [activeSessionIds], so one sweep over them after this call misses
   /// nothing. Work leased through [ExecutionCoordinator] directly (task and workflow steps) is not gated here; the
@@ -238,7 +244,7 @@ class TurnManager implements core.TurnManager {
   void closeAdmission() => _admissionClosed = true;
 
   void _requireAdmissionOpen() {
-    if (_admissionClosed) throw StateError('Turn admission is closed: the server is shutting down');
+    if (_admissionClosed) throw TurnAdmissionClosedException();
   }
 
   void setContextTelemetryObserver(RuntimeContextTelemetryObserved? observer) {

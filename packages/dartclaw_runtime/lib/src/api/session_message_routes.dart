@@ -19,7 +19,7 @@ import '../execution_coordinator.dart';
 import '../session/session_display_title.dart';
 import '../templates/chat.dart' show richInputHtmlFromMetadataMap;
 import '../templates/loader.dart';
-import '../turn_manager.dart' show TurnManager;
+import '../turn_manager.dart' show TurnAdmissionClosedException, TurnManager;
 import 'api_helpers.dart';
 import 'session_routes_support.dart';
 import 'stream_handler.dart';
@@ -316,6 +316,8 @@ Future<Response> _sendExistingSessionTurn({
           'provider': current.provider,
         }),
       );
+    } on TurnAdmissionClosedException {
+      return (turnId: null, response: errorResponse(503, 'SERVER_STOPPING', 'The server is shutting down'));
     }
     try {
       final persisted = await messages.insertMessage(

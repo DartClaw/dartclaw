@@ -9,7 +9,7 @@ import 'package:dartclaw_runtime/src/server.dart' show ServerCoreDeps, ServerTur
 import 'package:dartclaw_runtime/src/server_composition.dart';
 import 'package:dartclaw_runtime/src/turn_manager.dart' show TurnManager;
 import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeAgentHarness;
-import 'package:shelf/shelf.dart' show Request;
+import 'package:shelf/shelf.dart' show Request, Response;
 import 'package:test/test.dart';
 
 import 'test_utils.dart';
@@ -102,5 +102,57 @@ void main() {
 
     expect(harness.turnCallCount, 1, reason: 'the refused title turn must never reach the provider');
     expect((await sessions.getSession(session.id))?.titleProvenance, isNot(SessionTitleProvenance.automaticGenerated));
+  });
+
+  test('a send parked behind the running turn cannot keep shutdown from cancelling that turn', () async {
+    final root = Directory.systemTemp.createTempSync('server_shutdown_');
+    addTearDown(() => root.deleteSync(recursive: true));
+    final sessions = SessionService(baseDir: root.path);
+    final messages = MessageService(baseDir: root.path);
+    final harness = FakeAgentHarness();
+    final turns = _SweepObservingTurns(messages, harness, sessions);
+    final server = composeServer(
+      core: ServerCoreDeps(
+        sessions: sessions,
+        messages: messages,
+        worker: harness,
+        staticDir: await resolveStaticDir(),
+      ),
+      turn: ServerTurnDeps(turns: turns),
+    );
+    Future<Response> send(String sessionId) async => server.handler(
+      Request(
+        'POST',
+        Uri.parse('http://localhost/api/sessions/$sessionId/send'),
+        headers: const {'host': 'localhost', 'content-type': 'application/json'},
+        body: jsonEncode({'message': 'Hello'}),
+      ),
+    );
+
+    final running = await sessions.createSession();
+    final parked = await sessions.createSession();
+    expect((await send(running.id)).statusCode, 200);
+    await harness.turnInvoked;
+    // The primary lane runs one turn: this send holds its session's mutation chain while it waits for the lane.
+    final parkedOnLane = turns.executions.events.firstWhere(
+      (event) => event.kind == ExecutionEventKind.capacityChanged && event.request.sessionId == parked.id,
+    );
+    final parkedSend = send(parked.id);
+    await parkedOnLane;
+
+    await server.shutdown().timeout(
+      const Duration(seconds: 5),
+      onTimeout: () => fail('Shutdown drained a mutation that only the turn it never cancelled could release.'),
+    );
+
+    expect(harness.cancelCalled, isTrue);
+    expect(harness.turnCallCount, 1, reason: 'the refused send must never reach the provider');
+
+    final refused = await parkedSend;
+    expect(refused.statusCode, 503);
+    expect(jsonDecode(await refused.readAsString())['error'], containsPair('code', 'SERVER_STOPPING'));
+    final state = await sessions.getConversationState(parked.id);
+    expect(state.queue.single.workState, ConversationWorkState.held, reason: 'the owner releases it after restart');
+    expect((await messages.getMessages(parked.id)).single.content, 'Hello');
   });
 }

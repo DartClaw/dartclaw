@@ -13,7 +13,7 @@ import '../api/sse_broadcast.dart';
 import '../concurrency/session_mutation_coordinator.dart';
 import '../memory/daily_log_record.dart';
 import '../runtime_tool_history.dart';
-import '../turn_manager.dart' show ResolvedConversationDestination, TurnManager;
+import '../turn_manager.dart' show ResolvedConversationDestination, TurnAdmissionClosedException, TurnManager;
 import '../turn_wait_status.dart';
 import 'turn_attachments.dart';
 
@@ -114,6 +114,9 @@ final class ConversationService {
        _redactor = redactor ?? MessageRedactor();
 
   /// Prevents new dispatch and holds queued work while existing turns settle.
+  ///
+  /// The flag is set before this returns. The returned future waits for accepted mutations, and one of those may be
+  /// waiting for a lane held by an active turn, so a caller that cancels turns must do so without awaiting it first.
   Future<void> beginShutdown() {
     _stopping = true;
     return mutations.drain();
@@ -1225,6 +1228,16 @@ final class ConversationService {
       );
       unawaited(_redispatchWhenCapacityFrees(sessionId));
       return ConversationAdmission(submission: submission, snapshot: snapshot, replayed: replayed);
+    } on TurnAdmissionClosedException {
+      final (submission: _, :snapshot) = await _undispatch(
+        sessionId,
+        next,
+        dispatching,
+        workState: ConversationWorkState.held,
+        detail: 'The server shut down before this message started',
+        boundary: 'dispatch_refused_at_shutdown',
+      );
+      throw ConversationMutationException(503, 'SERVER_STOPPING', 'The server is shutting down', current: snapshot);
     } catch (error) {
       await _undispatch(
         sessionId,

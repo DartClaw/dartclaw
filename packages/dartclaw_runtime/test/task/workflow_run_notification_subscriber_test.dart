@@ -57,6 +57,7 @@ void main() {
   late EventBus eventBus;
   late Directory tempDir;
   late ThreadBindingStore store;
+  WorkflowRunNotificationSubscriber? current;
   late Map<String, WorkflowRun> runs;
   late List<LogRecord> logs;
   late StreamSubscription<LogRecord> logSubscription;
@@ -65,6 +66,7 @@ void main() {
   late FakeChannel whatsapp;
 
   setUp(() async {
+    current = null;
     eventBus = EventBus();
     tempDir = Directory.systemTemp.createTempSync('workflow_run_notifications_test_');
     store = ThreadBindingStore(File('${tempDir.path}/thread-bindings.json'));
@@ -107,7 +109,7 @@ void main() {
     );
     subscriber.subscribe(eventBus);
     addTearDown(subscriber.dispose);
-    return subscriber;
+    return current = subscriber;
   }
 
   WorkflowRun addRun(String id, WorkflowRunOrigin origin, {String workflow = 'code-review'}) {
@@ -156,11 +158,10 @@ void main() {
     );
   }
 
-  Future<void> settle() async {
-    await pumpEventQueue(times: 50);
-    for (var i = 0; i < 10; i++) {
-      await Future<void>.delayed(const Duration(milliseconds: 5));
-    }
+  // The binding store writes a real file, so a post lands after disk I/O, not after a microtask drain.
+  Future<void> settle([String? runId]) async {
+    await pumpEventQueue();
+    await current?.settled(runId);
   }
 
   const slackOrigin = WorkflowRunOrigin(
@@ -501,7 +502,7 @@ void main() {
       status('run-1', WorkflowRunStatus.pending, WorkflowRunStatus.running);
       approval('run-1');
       status('run-1', WorkflowRunStatus.running, WorkflowRunStatus.completed);
-      await settle();
+      await pumpEventQueue();
       expect(gated.sends, isEmpty);
 
       gate.complete();
@@ -525,7 +526,7 @@ void main() {
       status('run-a', WorkflowRunStatus.pending, WorkflowRunStatus.running);
       status('run-b', WorkflowRunStatus.pending, WorkflowRunStatus.running);
       status('run-a', WorkflowRunStatus.running, WorkflowRunStatus.completed);
-      await settle();
+      await settle('run-b');
 
       expect(gated.sends.map((s) => s.threadKey), ['run-run-b'], reason: 'run B posted while run A was held');
       expect(store.lookupByRun('run-a'), isEmpty);

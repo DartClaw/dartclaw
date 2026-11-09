@@ -12,6 +12,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         workflowFollowUp,
         workflowRevisionState;
 import 'package:logging/logging.dart';
+import 'package:meta/meta.dart';
 
 import 'channel_notification_delivery.dart';
 
@@ -96,7 +97,21 @@ class WorkflowRunNotificationSubscriber {
   Future<void> dispose() async {
     await _subscription?.cancel();
     _subscription = null;
-    await Future.wait(_chains.values);
+    await settled();
+  }
+
+  /// Completes once every received event of [runId] (or of every run) has been handled, including events received
+  /// meanwhile.
+  @visibleForTesting
+  Future<void> settled([String? runId]) async {
+    while (true) {
+      final pending = [
+        for (final MapEntry(:key, :value) in _chains.entries)
+          if (runId == null || key == runId) value,
+      ];
+      if (pending.isEmpty) return;
+      await Future.wait(pending);
+    }
   }
 
   void _onEvent(WorkflowLifecycleEvent event) {

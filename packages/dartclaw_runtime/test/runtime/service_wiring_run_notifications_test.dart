@@ -7,6 +7,7 @@ import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnMa
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_runtime/src/runtime/service_wiring.dart' show reconcileThreadBindings, wireRunNotifications;
+import 'package:dartclaw_runtime/src/task/workflow_run_notification_subscriber.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowRun, WorkflowRunOrigin, WorkflowService;
 import 'package:dartclaw_workflow/testing.dart' show InMemoryWorkflowRunRepository;
@@ -73,11 +74,10 @@ void main() {
     ),
   );
 
-  Future<void> settle() async {
-    await pumpEventQueue(times: 50);
-    for (var i = 0; i < 10; i++) {
-      await Future<void>.delayed(const Duration(milliseconds: 5));
-    }
+  // The binding store writes a real file, so a post lands after disk I/O, not after a microtask drain.
+  Future<void> settle(WorkflowRunNotificationSubscriber? subscriber) async {
+    await pumpEventQueue();
+    await subscriber?.settled();
   }
 
   DartclawConfig configWith({WorkflowChatNotificationsConfig? chatNotifications, bool threadBinding = false}) =>
@@ -112,7 +112,7 @@ void main() {
 
       runStarted('run-a');
       runStarted('run-b');
-      await settle();
+      await settle(subscriber);
 
       expect(threads.sends.map((s) => (s.recipientId, s.threadKey)), [
         ('C0NOTIFY', 'run-run-a'),
@@ -163,7 +163,7 @@ void main() {
 
         runStarted('run-web');
         runStarted('run-chat');
-        await settle();
+        await settle(subscriber);
 
         expect(
           logs.where((r) => r.level == Level.WARNING && r.message.contains('workflow.chat_notifications.channel')),
@@ -191,7 +191,7 @@ void main() {
       await addRun('run-web');
 
       runStarted('run-web');
-      await settle();
+      await settle(subscriber);
 
       expect(whatsapp.sentMessages, isEmpty);
       expect(
@@ -229,7 +229,7 @@ void main() {
 
       await subscriber.dispose();
       runStarted('run-a');
-      await settle();
+      await settle(subscriber);
 
       expect(threads.sends, isEmpty);
     });

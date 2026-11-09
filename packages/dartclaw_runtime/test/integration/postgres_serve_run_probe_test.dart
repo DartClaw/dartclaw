@@ -74,6 +74,13 @@ void main() {
         final messages = await _eventuallyMessages(server, sessionId, expectedCount: 2);
         expect((messages.last as Map<String, dynamic>)['content'], 'PostgreSQL turn complete.');
 
+        // The first completed exchange starts the automatic title agent on this same fake harness. Titling is not
+        // under test (its reply would also meet the content guard's classifier), so fail that turn rather than leave
+        // it pending: shutdown drains it and would otherwise wait on a turn nothing completes.
+        await harness.turnInvoked;
+        expect(harness.lastAgentId, startsWith('session-title-'));
+        harness.completeError(StateError('Automatic title is not under test'));
+
         const webhookBody = '{"zen":"postgres serve probe"}';
         final digest = Hmac(sha256, utf8.encode(_webhookSecret)).convert(utf8.encode(webhookBody));
         final webhookResponse = await server.handler(

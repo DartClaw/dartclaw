@@ -14,7 +14,7 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 
 ---
 
-## [0.28.0] - 2026-11-04
+## [0.28.0] - 2026-11-09
 
 ### Added
 

@@ -263,6 +263,20 @@ void main() {
       expect(result, isNot(contains('- Contact:')));
     });
 
+    test('tells the agent to write standard Markdown links, not channel markup', () async {
+      final service = BehaviorFileService(workspaceDir: globalDir.path);
+
+      final result = await service.composeSystemPrompt(origin: (channel: 'slack', contact: 'Ada', group: true));
+
+      expect(
+        result,
+        contains(
+          '- Contact: "Ada"\n'
+          "- Reply format: standard Markdown, links as [label](url); never the channel's own markup.",
+        ),
+      );
+    });
+
     test('encodes a contact label so it cannot forge a prompt section', () async {
       final service = BehaviorFileService(workspaceDir: globalDir.path);
 

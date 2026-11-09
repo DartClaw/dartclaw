@@ -382,7 +382,9 @@ class BehaviorFileService {
       '## Channel\n'
       '- Channel: ${origin.channel}\n'
       '- Conversation: ${origin.group ? 'group' : 'direct'}'
-      '${origin.contact == null ? '' : '\n- Contact: ${jsonEncode(origin.contact)}'}',
+      '${origin.contact == null ? '' : '\n- Contact: ${jsonEncode(origin.contact)}'}\n'
+      // Every channel converts standard Markdown to its own markup and escapes native markup it did not build.
+      '- Reply format: standard Markdown, links as [label](url); never the channel\'s own markup.',
     );
   }
 

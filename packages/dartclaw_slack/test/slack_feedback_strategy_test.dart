@@ -14,6 +14,59 @@ const _token =
     'xox'
     'b-1111111111-2222222222-AbCdEfGhIjKlMnOpQrStUvWx';
 
+/// Refuses what Slack documents it refuses (docs.slack.dev, `chat.update` and `chat.startStream`):
+/// `chat.update` text past 4,000 characters, and a stream once its accumulated `markdown_text` passes 12,000.
+class _SlackWithLimits extends FakeSlackWebApi {
+  var _streamed = 0;
+
+  void _accumulate(String method, String? markdownText) {
+    final streamed = _streamed + (markdownText?.length ?? 0);
+    if (streamed > 12000) throw SlackApiException(method, errorCode: 'msg_too_long');
+    _streamed = streamed;
+  }
+
+  @override
+  Future<String> startStream({
+    required String channel,
+    required String threadTs,
+    String? recipientTeamId,
+    String? recipientUserId,
+    String? markdownText,
+  }) {
+    _accumulate('chat.startStream', markdownText);
+    return super.startStream(
+      channel: channel,
+      threadTs: threadTs,
+      recipientTeamId: recipientTeamId,
+      recipientUserId: recipientUserId,
+      markdownText: markdownText,
+    );
+  }
+
+  @override
+  Future<void> appendStream({required String channel, required String ts, required String markdownText}) {
+    _accumulate('chat.appendStream', markdownText);
+    return super.appendStream(channel: channel, ts: ts, markdownText: markdownText);
+  }
+
+  @override
+  Future<void> stopStream({required String channel, required String ts, String? markdownText}) {
+    _accumulate('chat.stopStream', markdownText);
+    return super.stopStream(channel: channel, ts: ts, markdownText: markdownText);
+  }
+
+  @override
+  Future<void> updateMessage({
+    required String channel,
+    required String ts,
+    required String text,
+    List<Map<String, dynamic>>? blocks,
+  }) {
+    if (text.length > 4000) throw const SlackApiException('chat.update', errorCode: 'msg_too_long');
+    return super.updateMessage(channel: channel, ts: ts, text: text, blocks: blocks);
+  }
+}
+
 /// One turn's strategy over a fake Web API, with a clock that only moves when the strategy sleeps.
 class _Turn {
   new({
@@ -22,9 +75,10 @@ class _Turn {
     String channel = 'C1',
     bool inChannel = true,
     MessageRedactor? redactor,
-  }) {
+    FakeSlackWebApi? api,
+  }) : api = api ?? FakeSlackWebApi() {
     strategy = SlackFeedbackStrategy(
-      api: api,
+      api: this.api,
       channel: channel,
       threadTs: threadTs,
       streaming: streaming,
@@ -39,7 +93,7 @@ class _Turn {
     );
   }
 
-  final api = FakeSlackWebApi();
+  final FakeSlackWebApi api;
   final sleeps = <Duration>[];
   var clock = DateTime.utc(2026, 1, 1);
   late final SlackFeedbackStrategy strategy;
@@ -382,6 +436,67 @@ void main() {
       expect(turn.api.posts.last.text, startsWith('($total/$total)'));
       final lengthKept = first.text.length + turn.api.posts.fold<int>(0, (sum, post) => sum + post.text.length);
       expect(lengthKept, greaterThanOrEqualTo(reply.length), reason: 'nothing is truncated');
+    });
+  });
+
+  group('a long streamed reply ends as one set of messages within what Slack accepts', () {
+    /// Streams [reply] in word-sized deltas, as an agent writes it.
+    Future<bool> streamAndComplete(_Turn turn, String reply) async {
+      for (final word in reply.split(' ')) {
+        await turn.delta('$word ');
+      }
+      return turn.complete(reply);
+    }
+
+    /// The edited stream message followed by the posted parts, each within `chat.update`'s 4,000 characters.
+    List<String> messages(_Turn turn) {
+      final update = turn.api.updates.single;
+      expect(update.ts, turn.api.stops.single.ts, reason: 'the first part is written over the stream message');
+      expect(turn.api.posts.every((post) => post.threadTs == '100.1'), isTrue);
+      final texts = [update.text, ...turn.api.posts.map((post) => post.text)];
+      expect(texts.every((text) => text.length <= 4000), isTrue);
+      return texts;
+    }
+
+    /// The parts with their `(n/total)` labels removed, joined back together.
+    String joined(List<String> parts) {
+      for (final (i, part) in parts.indexed) {
+        expect(part, startsWith('(${i + 1}/${parts.length}) '));
+      }
+      return parts.map((part) => part.substring(part.indexOf(') ') + 2)).join();
+    }
+
+    test("a reply that formats past chat.update's 4,000 characters is split over the stream message", () async {
+      final turn = _Turn(api: _SlackWithLimits());
+      final reply = List.filled(800, 'word **bold**').join(' '); // 11,199 characters streamed, 9,599 formatted
+
+      final delivered = await streamAndComplete(turn, reply);
+
+      expect(delivered, isTrue, reason: 'the queue must not post a second copy');
+      final parts = messages(turn);
+      expect(parts.length, greaterThan(1));
+      expect(joined(parts), List.filled(800, 'word *bold*').join(' '), reason: 'every word once, in order');
+    });
+
+    test('a long stream that already equals the formatted reply stays the one message', () async {
+      final turn = _Turn(api: _SlackWithLimits());
+      final reply = List.filled(2000, 'word').join(' '); // 9,999 characters, no formatting
+
+      final delivered = await streamAndComplete(turn, reply);
+
+      expect(delivered, isTrue);
+      expect(turn.api.updates, isEmpty);
+      expect(turn.api.posts, isEmpty);
+    });
+
+    test("a stream refused past Slack's 12,000-character total is split over its message", () async {
+      final turn = _Turn(api: _SlackWithLimits());
+      final reply = List.filled(3000, 'word').join(' '); // 14,999 characters
+
+      final delivered = await streamAndComplete(turn, reply);
+
+      expect(delivered, isTrue);
+      expect(joined(messages(turn)), reply);
     });
   });
 }

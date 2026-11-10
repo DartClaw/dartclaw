@@ -1,6 +1,9 @@
 import 'package:dartclaw_core/dartclaw_core.dart' show chunkNativeChatMarkup, convertStandardMarkdownToNativeChatMarkup;
 
 /// The longest text one posted Slack message carries here; a longer reply is split.
+///
+/// Also the hard limit on `chat.update` text (`msg_too_long` past it), which the
+/// streamed reply's closing edit relies on.
 const _chunkSize = 4000;
 
 /// A reply as Slack shows it: standard Markdown converted to mrkdwn.

@@ -24,6 +24,7 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 ### Fixed
 
 - An integration-branch workflow whose foreach runs one item at a time (`max_parallel: 1`, e.g. `implement-prd` with `MAX_PARALLEL=1`) failed every item at once: `worktree: auto` resolved that scope to `inline`, which tried to check the workflow branch out in the project checkout while the run's shared worktree already held it. It now resolves to `shared`, so the items run one after another in the run's worktree.
+- A streamed Slack reply longer than 4,000 characters that needed its closing edit (Markdown formatting, text from before a tool call, or a stream Slack cut off at 12,000 characters) ended in the thread twice: Slack refused the edit with `msg_too_long`, since `chat.update` takes at most 4,000 characters, not the assumed 40,000, and the full reply was then posted after the streamed text. The stream message now gets the reply's first 4,000-character chunk and the rest are posted after it.
 - `dartclaw workflow run` printed a failure after the last step, such as a publish failure, as `Failed at step 9/8`; it now prints `Failed after step 8/8`.
 
 ## [0.28.0] - 2026-11-09

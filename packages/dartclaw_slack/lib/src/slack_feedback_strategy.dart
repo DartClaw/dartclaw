@@ -7,7 +7,6 @@ import 'slack_markdown.dart';
 import 'slack_web_api_client.dart';
 
 const _maxAppendChars = 12000;
-const _maxMessageChars = 40000;
 const _minWriteInterval = Duration(seconds: 1);
 
 /// Progress feedback for one Slack turn: the thread's agent session is
@@ -26,8 +25,9 @@ const _minWriteInterval = Duration(seconds: 1);
 ///   Slack-formatted reply when it differs from it.
 /// - A failed stream call stops the stream and has the message edited into the
 ///   complete reply; when that edit fails too, [onTurnCompleted] returns `false`.
-/// - A reply past Slack's 40,000-character limit leaves the stream path: the
-///   first chunk is written over the stream message and the rest are posted.
+/// - A reply that does not fit one `chat.update` (4,000 characters, so also any
+///   stream Slack cut off at its 12,000-character total) is split: the first
+///   chunk is written over the stream message and the rest are posted.
 ///
 /// The session is set `active` when the turn completes, fails or is cancelled,
 /// because Slack no longer ends `processing` when the reply posts. With
@@ -148,22 +148,19 @@ class SlackFeedbackStrategy implements ChannelFeedbackStrategy {
     final reply = _redact(responseText);
     final formatted = slackReplyText(reply);
     if (formatted.isEmpty) return true;
-
-    if (formatted.length > _maxMessageChars) {
-      final chunks = slackReplyChunks(reply);
-      if (!await _edit(ts, chunks.first)) return false;
-      for (final chunk in chunks.skip(1)) {
-        try {
-          await _api.postMessage(channel: _channel, text: chunk, threadTs: _threadTs);
-        } on SlackApiException catch (error) {
-          _log.warning('Dropping a Slack reply chunk for $_channel: $error');
-        }
-      }
-      return true;
-    }
-
+    // A stream may hold more than one `chat.update` accepts, so an equal one is kept as it is.
     if (!_broken && _sent.toString().trim() == formatted.trim()) return true;
-    return _edit(ts, formatted);
+
+    final chunks = slackReplyChunks(reply);
+    if (!await _edit(ts, chunks.first)) return false;
+    for (final chunk in chunks.skip(1)) {
+      try {
+        await _api.postMessage(channel: _channel, text: chunk, threadTs: _threadTs);
+      } on SlackApiException catch (error) {
+        _log.warning('Dropping a Slack reply chunk for $_channel: $error');
+      }
+    }
+    return true;
   }
 
   /// Sends the released text, one append at a time, until nothing releasable is left.

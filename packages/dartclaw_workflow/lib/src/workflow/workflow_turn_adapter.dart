@@ -53,6 +53,18 @@ class WorkflowGitPromotionSerializeRemaining extends WorkflowGitPromotionResult 
   const new();
 }
 
+/// The pull request a workflow step authored for its own publish, named by
+/// `gitStrategy.publish.pullRequest`.
+class WorkflowPullRequest {
+  /// Pull request title.
+  final String title;
+
+  /// Pull request body, Markdown.
+  final String body;
+
+  const new({required this.title, required this.body});
+}
+
 /// Workflow publish status.
 enum WorkflowPublishStatus {
   success,
@@ -135,10 +147,14 @@ class WorkflowTurnAdapter {
     String? storyId,
   })?
   promoteWorkflowBranch;
+
+  /// [pullRequest] is the step-authored pull request when the definition
+  /// declares `gitStrategy.publish.pullRequest`; null otherwise.
   final Future<WorkflowGitPublishResult> Function({
     required String runId,
     required String projectId,
     required String branch,
+    WorkflowPullRequest? pullRequest,
   })?
   publishWorkflowBranch;
   final Future<void> Function({

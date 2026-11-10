@@ -8,6 +8,7 @@
 // review path.
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' show Task;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowPullRequest;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart'
     show
         MergeExecutor,
@@ -93,5 +94,6 @@ class FakePrCreator extends PrCreator {
     required Task task,
     required String branch,
     String? notes,
+    WorkflowPullRequest? pullRequest,
   }) async => result;
 }

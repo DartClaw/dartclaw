@@ -521,13 +521,14 @@ For project-backed workflows, git state is orchestrated at workflow level, not o
 | `worktree` | `shared`, `per-task`, `per-map-item`, `inline` or `auto` (or `{mode: …}`) |
 | `promotion` | `merge`, `rebase`, `none` |
 | `publish.enabled` | Deterministic publish at completion; writes `publish.status`, `.branch`, `.remote`, `.pr_url`, `.error` |
+| `publish.pullRequest` | Names the step output (`{title, body}`) the opened PR uses instead of the last task's title and prompt; the built-ins point it at their closing `andthen:ship --auto` step |
 | `cleanup.enabled` | Default true; `false` keeps worktrees and branches after a terminal state |
 | `artifacts` | Auto-commit of produced files (section 10.5) |
 | `merge_resolve` | Agent-resolved promotion conflicts (section 10.4) |
 
 ### 10.1 Worktree mode resolution
 
-`WorkflowGitStrategy.effectiveWorktreeMode(maxParallel, isMap)` resolves an omitted or `auto` mode per scope: a foreach scope with `max_parallel` greater than 1 or `unlimited` resolves to `per-map-item`; a serial foreach scope resolves to `inline`; a non-foreach scope resolves to `shared` when `integrationBranch: true` (keeping the workflow branch out of the operator's live checkout) else `inline`. Authored values are used as written. The validator treats unresolved `auto` conservatively for artifact-commit checks.
+`WorkflowGitStrategy.effectiveWorktreeMode(maxParallel, isMap)` resolves an omitted or `auto` mode per scope: a foreach scope with `max_parallel` greater than 1 or `unlimited` resolves to `per-map-item`; any other scope, serial foreach included, resolves to `shared` when `integrationBranch: true` (keeping the workflow branch out of the operator's live checkout, which cannot switch to a branch the shared worktree holds) else `inline`. Authored values are used as written. The validator treats unresolved `auto` conservatively for artifact-commit checks.
 
 **Shared-worktree binding.** A `shared` worktree is keyed by the run id and a `per-map-item` one by `<runId>:map:<i>`. The on-disk worktree id is `wf-<token>` (`wf-<token>-map-<i>`), where `<token>` is the first 16 hex characters of the SHA-256 of the run id, not a task UUID. Creation is serialized per key: the first task creates the worktree and concurrent tasks for the same key await it, so parallel steps cannot race to create two. The resulting `{key, path, branch, workflowRunId}` binding is persisted on the run and reloaded before resume, retry and recovery, so a restarted run adopts its existing worktree. A binding whose `workflowRunId` differs from the requesting run is refused with a `StateError`.
 

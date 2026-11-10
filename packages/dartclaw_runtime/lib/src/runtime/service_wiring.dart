@@ -33,6 +33,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowGitPromotionError,
         WorkflowGitPublishResult,
         WorkflowPublishStatus,
+        WorkflowPullRequest,
         WorkflowRun,
         WorkflowRunRepository,
         workflowBlockedOutcomeSummary,

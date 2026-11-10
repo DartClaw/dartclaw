@@ -10,7 +10,13 @@ import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart'
     show HarnessFactory, PostgresBackend, Task, WorkflowStepCompletedEvent;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show EventBus, TaskStatusChangedEvent, WorkflowContext, WorkflowRunStatusChangedEvent, WorkflowRunOrigin;
+    show
+        EventBus,
+        TaskStatusChangedEvent,
+        WorkflowContext,
+        WorkflowPullRequest,
+        WorkflowRunStatusChangedEvent,
+        WorkflowRunOrigin;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart'
     show DartclawRuntime, LogService, PrCreated, PrCreationFailed, PrCreationResult, PrCreator;
 import 'package:logging/logging.dart';
@@ -1267,6 +1273,7 @@ final class _E2ePrCreator extends PrCreator {
     required Task task,
     required String branch,
     String? notes,
+    WorkflowPullRequest? pullRequest,
   }) async {
     try {
       return PrCreated(await _createPr(branch: branch));

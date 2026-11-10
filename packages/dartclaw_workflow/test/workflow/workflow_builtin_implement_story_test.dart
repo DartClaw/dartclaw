@@ -207,6 +207,7 @@ void main() {
               findingsCount: 0,
             ),
           ),
+          'ship' => shipStub,
           _ => throw StateError('Unexpected step: ${queued.stepKey}'),
         };
       },
@@ -254,6 +255,7 @@ void main() {
                 findingsCount: queued.occurrence == 0 ? 1 : 0,
               ),
             ),
+            'ship' => shipStub,
             _ => throw StateError('Unexpected step: ${queued.stepKey}'),
           };
         },
@@ -309,7 +311,7 @@ void main() {
         runGit(['checkout', '-b', workflowBranch!, baseRef]);
         return WorkflowGitIntegrationBranchResult(integrationBranch: workflowBranch!);
       },
-      publishWorkflowBranch: ({required runId, required projectId, required branch}) async {
+      publishWorkflowBranch: ({required runId, required projectId, required branch, pullRequest}) async {
         runGit(['push', 'origin', branch]);
         runGit(['checkout', 'main']);
         return WorkflowGitPublishResult(

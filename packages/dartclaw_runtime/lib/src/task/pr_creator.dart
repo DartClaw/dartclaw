@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' show Task;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowPullRequest;
 import 'package:logging/logging.dart';
 
 import '../project/project_auth_support.dart';
@@ -72,12 +73,17 @@ class PrCreator {
   /// Creates a GitHub PR for the given [branch].
   ///
   /// [notes] is an optional operator-facing addendum (e.g. unresolved workflow
-  /// items) appended to the PR body under its own heading.
+  /// items) added to the PR body under its own heading.
+  ///
+  /// [pullRequest], when given, supplies the title and body in place of
+  /// [task]'s. Its body stays last, so a section it ends with still ends the
+  /// PR; the host-written parts go above it.
   Future<PrCreationResult> create({
     required Project project,
     required Task task,
     required String branch,
     String? notes,
+    WorkflowPullRequest? pullRequest,
   }) async {
     final auth = describeProjectAuth(project, _credentials);
     if (auth == null || !auth.compatible) {
@@ -116,8 +122,10 @@ class PrCreator {
         _apiBaseUri.resolve('/repos/${repo.owner}/${repo.name}/pulls'),
         headers: headers,
         body: jsonEncode({
-          'title': task.title,
-          'body': _buildPrBody(task, notes: notes),
+          'title': pullRequest == null ? task.title : _scrubTitle(pullRequest.title),
+          'body': pullRequest == null
+              ? _buildPrBody(task, notes: notes)
+              : _buildAuthoredPrBody(task, pullRequest.body, notes: notes),
           'head': branch,
           'base': project.defaultBranch,
           if (project.pr.draft) 'draft': true,
@@ -170,15 +178,37 @@ class PrCreator {
     if (task.acceptanceCriteria != null) {
       parts.add('\n### Acceptance Criteria\n${task.acceptanceCriteria}');
     }
-    if (notes != null && notes.trim().isNotEmpty) {
-      // Fenced code block: notes carry agent-influenced item ids, and GitHub
-      // interprets @mentions, closes-#N keywords, and links anywhere in a PR
-      // body – a code block neutralizes all three while staying readable.
-      parts.add('\n### Unresolved items\n```\n${notes.trim()}\n```');
-    }
+    final notesSection = _notesSection(notes);
+    if (notesSection != null) parts.add('\n$notesSection');
     parts.add('\n---\n_Created by DartClaw task ${task.id}_');
     return parts.join('\n');
   }
+
+  String _buildAuthoredPrBody(Task task, String body, {String? notes}) {
+    final parts = <String>['_Created by DartClaw task ${task.id}_'];
+    final notesSection = _notesSection(notes);
+    if (notesSection != null) parts.add(notesSection);
+    parts.add('---\n${_scrubBody(body).trim()}');
+    return parts.join('\n\n');
+  }
+
+  String? _notesSection(String? notes) {
+    if (notes == null || notes.trim().isEmpty) return null;
+    // Fenced code block: notes carry agent-influenced item ids, and GitHub
+    // interprets @mentions, closes-#N keywords, and links anywhere in a PR
+    // body – a code block neutralizes all three while staying readable.
+    return '### Unresolved items\n```\n${notes.trim()}\n```';
+  }
+
+  // An authored body is agent output bound for an off-machine sink. Terminal
+  // escapes and control characters go; Markdown stays, because the body's
+  // tables are what a PR viewer parses. Newlines and tabs are kept.
+  static String _scrubBody(String value) => value
+      .replaceAll('\r\n', '\n')
+      .replaceAll(RegExp(r'\x1B\[[0-9;]*[A-Za-z]'), '')
+      .replaceAll(RegExp(r'[\x00-\x08\x0B-\x1F\x7F-\x9F]'), '');
+
+  static String _scrubTitle(String value) => _scrubBody(value).replaceAll(RegExp(r'\s+'), ' ').trim();
 
   Future<({int statusCode, String body})> _request(
     String method,

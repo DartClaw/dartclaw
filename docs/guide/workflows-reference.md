@@ -351,6 +351,7 @@ First matching entry wins. `"*"` matches all steps and should appear last.
 | `worktree` | string or map | `inline`, `shared`, `per-task`, `per-map-item`, or `auto`; the map form accepts only `mode` |
 | `promotion` | string | Promotion policy, commonly `merge` |
 | `publish.enabled` | bool | Publish the workflow branch when complete |
+| `publish.pullRequest` | string | Output key of a step whose value is `{title, body}`; the pull request publish opens uses it in place of the last task's title and prompt. The body stays last, below DartClaw's notes. Publish fails the run when the value is missing or blank. Requires `publish.enabled: true` |
 | `cleanup.enabled` | bool | Clean up workflow git resources after completion |
 | `artifacts.commit` | bool | Commit artifacts produced by workflow steps onto the workflow branch |
 | `artifacts.commitMessage` / `commit_message` | string | Commit message for artifact commits |

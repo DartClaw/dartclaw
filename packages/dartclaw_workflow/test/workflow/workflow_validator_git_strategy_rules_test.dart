@@ -28,6 +28,39 @@ void main() {
       expect(validator.validate(def).errors, isEmpty);
     });
 
+    group('publish.pullRequest', () {
+      WorkflowDefinition withPullRequest({required bool? publish, String outputKey = 'pull_request'}) =>
+          WorkflowDefinition(
+            name: 'wf',
+            description: 'd',
+            steps: [
+              WorkflowStep(
+                id: 'ship',
+                name: 'Ship',
+                prompts: const ['p'],
+                outputs: {
+                  outputKey: const OutputConfig(format: OutputFormat.json, schema: {'type': 'object'}),
+                },
+              ),
+            ],
+            gitStrategy: WorkflowGitStrategy(publish: publish, publishPullRequest: 'pull_request'),
+          );
+
+      test('accepts a key a step declares when publish is enabled', () {
+        expect(validator.validate(withPullRequest(publish: true)).errors, isEmpty);
+      });
+
+      test('rejects a key no step declares', () {
+        final errors = validator.validate(withPullRequest(publish: true, outputKey: 'other')).errors;
+        expect(errors.single.message, contains('"pull_request", which no step declares'));
+      });
+
+      test('rejects it without publish enabled', () {
+        final errors = validator.validate(withPullRequest(publish: null)).errors;
+        expect(errors.single.message, contains('requires gitStrategy.publish.enabled: true'));
+      });
+    });
+
     test('integration branch workflows warn when BRANCH defaults to main', () {
       final def = WorkflowDefinition(
         name: 'wf',

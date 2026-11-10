@@ -37,6 +37,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowGitPromotionResult,
         WorkflowGitPromotionSuccess,
         WorkflowGitPublishResult,
+        WorkflowPullRequest,
         WorkflowStartResolution,
         WorkflowLoop,
         WorkflowRoleDefaults,
@@ -470,7 +471,12 @@ WorkflowTurnAdapter standardTurnAdapter({
     String? storyId,
   })?
   promoteWorkflowBranch,
-  Future<WorkflowGitPublishResult> Function({required String runId, required String projectId, required String branch})?
+  Future<WorkflowGitPublishResult> Function({
+    required String runId,
+    required String projectId,
+    required String branch,
+    WorkflowPullRequest? pullRequest,
+  })?
   publishWorkflowBranch,
   Future<void> Function({
     required String runId,

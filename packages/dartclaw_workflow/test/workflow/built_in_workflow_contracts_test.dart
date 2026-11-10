@@ -275,6 +275,21 @@ void main() {
       expect(implement.maxRetries, 1);
     });
 
+    test('both implementation workflows end on an unattended ship whose pull request publish opens', () {
+      for (final file in ['implement-prd.yaml', 'implement-story.yaml']) {
+        final def = _load(file);
+        final ship = def.steps.last;
+        expect(ship.id, 'ship', reason: file);
+        expect(ship.skill, 'andthen:ship', reason: file);
+        expect(_allPromptText(ship), startsWith('--auto'), reason: '$file: ship must not wait for a push answer');
+        expect(def.gitStrategy?.publish, isTrue, reason: file);
+        expect(def.gitStrategy?.publishPullRequest, 'pull_request', reason: file);
+        final schema = ship.outputs!['pull_request']!.schema as Map;
+        expect(schema['required'], ['title', 'body'], reason: file);
+        expect(ship.inputs, contains('review_report_path'), reason: '$file: ship reads the latest review verdicts');
+      }
+    });
+
     test('inline implement-prd mirrors the per-story nested-loop shape', () {
       final def = _loadInline('implement-prd-inline.yaml');
       expect(_flattenedSteps(def).where((step) => step.id == 'refactor'), isEmpty);

@@ -30,6 +30,8 @@ gitStrategy:
   promotion: merge
   publish:
     enabled: true
+    # The ship step's pull request is the one publish opens.
+    pullRequest: pull_request
   # Per-story worktrees inherit committed files from the workflow branch.
   # Required when artifact-producing planning steps run under worktree: auto
   # with max_parallel > 1.
@@ -278,3 +280,31 @@ steps:
           findings_count: findings_count
           gating_findings_count: gating_findings_count
           verdict: verdict
+
+  # Closes out the branch the way andthen:ship does by hand: lands the FIS
+  # observations, deletes the shipped plan bundle and commits. Under --auto it
+  # stops before anything leaves the machine and returns the pull request,
+  # whose body ends with the Ship summary a PR viewer joins to the PRD.
+  - id: ship
+    name: Ship
+    skill: andthen:ship
+    allowedTools: [shell, file_read, file_write, file_edit]
+    inputs: [prd, story_results, review_report_path]
+    prompt: "--auto {{context.plan}}"
+    outputs:
+      pull_request:
+        format: json
+        schema:
+          type: object
+          additionalProperties: false
+          required: [title, body]
+          properties:
+            title:
+              type: string
+              minLength: 1
+              description: The pull request title ship wrote.
+            body:
+              type: string
+              minLength: 1
+              description: The pull request body ship wrote, verbatim, ending with its Ship summary section.
+        description: The pull request ship returns under --auto in place of opening it; publish opens it.

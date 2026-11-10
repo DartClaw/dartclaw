@@ -404,6 +404,16 @@ steps:
       );
     });
 
+    test('parses gitStrategy.publish.pullRequest and round-trips it', () {
+      final definition = parser.parse(
+        workflowYaml(rootFields: 'gitStrategy:\n  publish:\n    enabled: true\n    pullRequest: pull_request'),
+      );
+      expect(definition.gitStrategy?.publishPullRequest, 'pull_request');
+      final json = definition.toJson()['gitStrategy'] as Map<String, dynamic>;
+      expect(json['publish'], {'enabled': true, 'pullRequest': 'pull_request'});
+      expect(WorkflowGitStrategy.fromJson(json).publishPullRequest, 'pull_request');
+    });
+
     test('rejects conflicting gitStrategy.integrationBranch spellings', () {
       final yaml = workflowYaml(
         rootFields: '''

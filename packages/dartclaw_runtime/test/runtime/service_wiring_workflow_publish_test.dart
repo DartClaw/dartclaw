@@ -9,7 +9,7 @@ import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show WorkflowGitPublishResult, WorkflowPublishStatus, WorkflowRun;
+    show WorkflowGitPublishResult, WorkflowPublishStatus, WorkflowPullRequest, WorkflowRun;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -28,7 +28,7 @@ class _FakeRemotePushService extends RemotePushService {
 
 class _FakePrCreator extends PrCreator {
   final PrCreationResult result;
-  final List<({Project project, Task task, String branch, String? notes})> calls = [];
+  final List<({Project project, Task task, String branch, String? notes, WorkflowPullRequest? pullRequest})> calls = [];
 
   new(this.result);
 
@@ -38,8 +38,9 @@ class _FakePrCreator extends PrCreator {
     required Task task,
     required String branch,
     String? notes,
+    WorkflowPullRequest? pullRequest,
   }) async {
-    calls.add((project: project, task: task, branch: branch, notes: notes));
+    calls.add((project: project, task: task, branch: branch, notes: notes, pullRequest: pullRequest));
     return result;
   }
 }
@@ -144,6 +145,7 @@ void main() {
       required RemotePushService remotePushService,
       required PrCreator prCreator,
       String? notes,
+      WorkflowPullRequest? pullRequest,
     }) => publishWorkflowBranchWithProjectAuth(
       runId: 'run-123',
       projectId: 'workflow-testing',
@@ -153,6 +155,7 @@ void main() {
       remotePushService: remotePushService,
       prCreator: prCreator,
       notes: notes,
+      pullRequest: pullRequest,
     );
 
     test('successfully creates a PR and persists the PR URL on the latest workflow task', () async {
@@ -190,6 +193,25 @@ void main() {
       expect(await workflowPushedBranches(taskService, [await taskService.get('task-2') as Task]), {
         'dartclaw/workflow/run123',
       });
+    });
+
+    test('threads the step-authored pull request through to the PR creator', () async {
+      await putWorkflowTask('task-1', 'run-123', DateTime.parse('2026-04-15T10:01:00Z'));
+      final prCreator = _FakePrCreator(const PrCreated('https://github.com/acme/workflow-testing/pull/44'));
+      const pullRequest = WorkflowPullRequest(title: 'Ship feature X', body: '## Ship summary\n\nPRD: -');
+
+      await publish(
+        projectService: FakeProjectService(
+          projects: [makeProject(pr: const PrConfig(strategy: PrStrategy.githubPr))],
+          includeLocalProjectInGetAll: false,
+          defaultProjectId: 'workflow-testing',
+        ),
+        remotePushService: _FakeRemotePushService(const PushSuccess()),
+        prCreator: prCreator,
+        pullRequest: pullRequest,
+      );
+
+      expect(prCreator.calls.single.pullRequest, same(pullRequest));
     });
 
     test('threads blocked-outcome notes through to the PR creator', () async {

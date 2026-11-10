@@ -139,6 +139,11 @@ void main() {
       expect(output.first, '[workflow] Failed at step 3/6: Step failed: timeout');
     });
 
+    test('workflowFailed after every step completed names the last step, not one past it', () {
+      printer.workflowFailed(6, 'publish failed: no remote');
+      expect(output.first, '[workflow] Failed after step 6/6: publish failed: no remote');
+    });
+
     test('workflowFailed with null error has no suffix', () {
       printer.workflowFailed(2, null);
       expect(output.first, '[workflow] Failed at step 3/6');

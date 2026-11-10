@@ -287,6 +287,7 @@ abstract final class WorkflowDslRules {
 
   static const gitPublish = WorkflowBlockRule('gitPublish', [
     WorkflowFieldRule(['enabled'], [WorkflowValueKind.boolean]),
+    WorkflowFieldRule(['pullRequest'], [WorkflowValueKind.string]),
   ]);
   static const gitCleanup = WorkflowBlockRule('gitCleanup', [
     WorkflowFieldRule(['enabled'], [WorkflowValueKind.boolean]),

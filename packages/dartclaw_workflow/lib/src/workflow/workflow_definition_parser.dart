@@ -706,12 +706,18 @@ class WorkflowDefinitionParser {
     _rejectUnknownFields(raw, WorkflowDslRules.gitStrategy.keys, 'gitStrategy', sourcePath);
     final publishRaw = raw['publish'];
     bool? publish;
+    String? publishPullRequest;
     if (publishRaw != null) {
       if (publishRaw is! YamlMap) {
         throw FormatException('Field "gitStrategy.publish" must be a mapping${_at(sourcePath)}.');
       }
       _rejectUnknownFields(publishRaw, WorkflowDslRules.gitPublish.keys, 'gitStrategy.publish', sourcePath);
       publish = _optionalBool(publishRaw['enabled'], 'gitStrategy.publish.enabled', sourcePath);
+      publishPullRequest = _optionalStringValue(
+        publishRaw['pullRequest'],
+        'gitStrategy.publish.pullRequest',
+        sourcePath,
+      );
     }
 
     final cleanupRaw = raw['cleanup'];
@@ -775,6 +781,7 @@ class WorkflowDefinitionParser {
       worktree: worktree,
       promotion: _optionalStringValue(raw['promotion'], 'gitStrategy.promotion', sourcePath),
       publish: publish,
+      publishPullRequest: publishPullRequest,
       cleanup: cleanup,
       artifacts: artifacts,
       mergeResolve: rawMergeResolve != null ? MergeResolveConfig.fromJson(rawMergeResolve) : null,

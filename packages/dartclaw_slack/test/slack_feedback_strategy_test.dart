@@ -201,8 +201,8 @@ void main() {
       final delivered = await turn.complete('text');
 
       expect(delivered, isFalse);
-      expect(turn.api.calls, ['assistant.threads.setStatus', 'assistant.threads.setStatus']);
-      expect(turn.api.statuses.map((s) => s.status), ['is working...', '']);
+      expect(turn.api.calls, ['agents.sessions.setStatus', 'agents.sessions.setStatus']);
+      expect(turn.api.statuses.map((s) => s.status), [SlackSessionStatus.processing, SlackSessionStatus.active]);
     });
 
     test('a message with no thread makes no stream and no status call', () async {
@@ -217,18 +217,29 @@ void main() {
     });
   });
 
-  group('the assistant status (OC02)', () {
-    test('is set at the start and cleared on completion', () async {
+  group('the agent session status (OC02)', () {
+    test('is processing from the start and active once the turn completes', () async {
       final turn = _Turn();
 
       await turn.start();
-      expect(turn.api.statuses.single, (channel: 'C1', threadTs: '100.1', status: 'is working...'));
+      expect(turn.api.statuses.single, (channel: 'C1', threadTs: '100.1', status: SlackSessionStatus.processing));
       await turn.complete('done');
 
-      expect(turn.api.statuses.last, (channel: 'C1', threadTs: '100.1', status: ''));
+      expect(turn.api.statuses.last, (channel: 'C1', threadTs: '100.1', status: SlackSessionStatus.active));
     });
 
-    test('is cleared when the turn fails, and the stream that was open is stopped', () async {
+    test('is active after a streamed reply, which Slack no longer clears on its own', () async {
+      final turn = _Turn();
+
+      await turn.start();
+      await turn.delta('Answer ');
+      expect(await turn.complete('Answer'), isTrue);
+
+      expect(turn.api.calls.last, 'agents.sessions.setStatus', reason: 'active is sent after the stream ends');
+      expect(turn.api.statuses.last.status, SlackSessionStatus.active);
+    });
+
+    test('is active when the turn fails, and the stream that was open is stopped', () async {
       final turn = _Turn();
       await turn.start();
       await turn.delta('partial ');
@@ -237,20 +248,41 @@ void main() {
 
       expect(turn.api.stops, hasLength(1));
       expect(turn.api.updates, isEmpty, reason: 'there is no reply to write over the partial message');
-      expect(turn.api.statuses.last.status, '');
+      expect(turn.api.statuses.last.status, SlackSessionStatus.active);
+    });
+
+    test('is active when a cancelled turn completes with no reply', () async {
+      final turn = _Turn();
+      await turn.start();
+
+      await turn.complete('');
+
+      expect(turn.api.statuses.map((s) => s.status), [SlackSessionStatus.processing, SlackSessionStatus.active]);
+    });
+
+    test('is still set active when ending the stream fails', () async {
+      final turn = _Turn();
+      turn.api.onCall = (method) =>
+          method == 'chat.stopStream' ? const SlackApiException('x', errorCode: 'internal_error') : null;
+      await turn.start();
+      await turn.delta('Answer ');
+
+      await turn.complete('Answer');
+
+      expect(turn.api.statuses.last.status, SlackSessionStatus.active);
     });
 
     test('a status call that fails logs a warning and never fails the turn or its reply', () async {
       final turn = _Turn();
       turn.api.onCall = (method) =>
-          method == 'assistant.threads.setStatus' ? const SlackApiException('x', errorCode: 'missing_scope') : null;
+          method == 'agents.sessions.setStatus' ? const SlackApiException('x', errorCode: 'missing_scope') : null;
 
       await turn.start();
       await turn.delta('Answer ');
       final delivered = await turn.complete('Answer');
 
       expect(delivered, isTrue);
-      expect(logs.where((r) => r.level == Level.WARNING && r.message.contains('assistant status')), isNotEmpty);
+      expect(logs.where((r) => r.level == Level.WARNING && r.message.contains('session status')), hasLength(2));
     });
   });
 

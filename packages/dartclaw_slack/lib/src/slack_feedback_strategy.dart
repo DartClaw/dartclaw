@@ -9,10 +9,10 @@ import 'slack_web_api_client.dart';
 const _maxAppendChars = 12000;
 const _maxMessageChars = 40000;
 const _minWriteInterval = Duration(seconds: 1);
-const _workingStatus = 'is working...';
 
-/// Progress feedback for one Slack turn: an assistant status while it runs and
-/// the reply streamed into its thread as the agent writes it.
+/// Progress feedback for one Slack turn: the thread's agent session is
+/// `processing` while it runs, and the reply streams into the thread as the
+/// agent writes it.
 ///
 /// One instance serves one turn. The reply ends as exactly one message holding
 /// the turn's reply, or the strategy reports it did not deliver and the queue
@@ -29,8 +29,10 @@ const _workingStatus = 'is working...';
 /// - A reply past Slack's 40,000-character limit leaves the stream path: the
 ///   first chunk is written over the stream message and the rest are posted.
 ///
-/// With streaming off or without a thread no stream call is made. A status call
-/// that fails is logged and never delays or fails the turn.
+/// The session is set `active` when the turn completes, fails or is cancelled,
+/// because Slack no longer ends `processing` when the reply posts. With
+/// streaming off or without a thread no stream call is made. A status call that
+/// fails is logged and never delays or fails the turn.
 class SlackFeedbackStrategy implements ChannelFeedbackStrategy {
   static final _log = Logger('SlackFeedbackStrategy');
 
@@ -81,7 +83,7 @@ class SlackFeedbackStrategy implements ChannelFeedbackStrategy {
 
   @override
   Future<void> onTurnStarted({required FeedbackContext context, TurnProgressSnapshot? snapshot}) =>
-      _setStatus(_workingStatus);
+      _setStatus(SlackSessionStatus.processing);
 
   @override
   Future<void> onTextDelta({
@@ -112,14 +114,14 @@ class SlackFeedbackStrategy implements ChannelFeedbackStrategy {
   @override
   Future<void> onStatusTick({required FeedbackContext context, required TurnProgressSnapshot snapshot}) async {}
 
-  /// Ends the stream and clears the status; the partial stream message stays.
+  /// Ends the stream and sets the session active; the partial stream message stays.
   ///
   /// Called when the turn failed, so there is no reply to reconcile.
   Future<void> onTurnFailed() async {
     await _pump;
     final ts = _streamTs;
     if (ts != null) await _stop(ts, tail: null);
-    await _setStatus('');
+    await _setStatus(SlackSessionStatus.active);
   }
 
   /// Delivers the reply as the stream message and returns whether exactly one
@@ -135,7 +137,7 @@ class SlackFeedbackStrategy implements ChannelFeedbackStrategy {
       if (ts == null) return false;
       return await _finish(ts, responseText);
     } finally {
-      await _setStatus('');
+      await _setStatus(SlackSessionStatus.active);
     }
   }
 
@@ -269,13 +271,13 @@ class SlackFeedbackStrategy implements ChannelFeedbackStrategy {
     }
   }
 
-  Future<void> _setStatus(String status) async {
+  Future<void> _setStatus(SlackSessionStatus status) async {
     final threadTs = _threadTs;
     if (threadTs == null) return;
     try {
-      await _api.setThreadStatus(channel: _channel, threadTs: threadTs, status: status);
+      await _api.setSessionStatus(channel: _channel, threadTs: threadTs, status: status);
     } on SlackApiException catch (error) {
-      _log.warning('Could not ${status.isEmpty ? 'clear' : 'set'} the Slack assistant status in $_channel: $error');
+      _log.warning('Could not set the Slack agent session status to ${status.name} in $_channel: $error');
     }
   }
 

@@ -121,13 +121,13 @@ Preparation (Owner, once per transport): in `$DATA/dartclaw.yaml`, set `channels
 ### Steps
 
 1. Owner: ask the bot "Run `sleep 150` in a shell, then answer done."
-2. Owner: note the assistant status shown in the thread at the start, at about two minutes, and at the end
+2. Owner: note the "Working..." indicator in the thread at the start, at about two minutes, and after the reply
 3. Runner: read the server log for status calls on that turn
 
 ### Expected
 
-- The thread shows the "is working..." status while the turn runs, in a channel thread as in a DM
-- A status that expires before the reply is not an error in the log, and the reply arrives once when the turn ends
+- The thread shows Slack's "Working..." indicator while the turn runs, in a channel thread as in a DM, and it is gone once the reply has posted
+- The log holds one `processing` and one `active` status call for the turn and no status warning, and the reply arrives once when the turn ends
 
 
 ## S9: Files In A Thread And On A Mention

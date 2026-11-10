@@ -494,7 +494,10 @@ void main() {
       );
       expect(turns.started, isEmpty);
       expect(turns.reserved.single.agentName, 'ana', reason: 'the turn runs on the logical-agent surface');
-      expect(slackApi.statuses.map((status) => status.status), ['is working...', '']);
+      expect(slackApi.statuses.map((status) => status.status), [
+        SlackSessionStatus.processing,
+        SlackSessionStatus.active,
+      ]);
     });
 
     test('pause replay does not reconstruct a bound session as a primary turn', () async {

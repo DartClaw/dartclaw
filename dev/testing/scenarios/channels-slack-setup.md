@@ -71,6 +71,6 @@ Run on Socket Mode: restore the S1 configuration first.
 
 - `slack.scopes` is `fail` and names both `assistant:write` and `files:read`
 - The reply arrives in the same time as in S1, so the failed status call never delayed the turn
-- The log names the failed status call as a warning, and one complete reply is in the thread whether or not the stream started
+- A status call Slack refuses is logged as a warning, and one complete reply is in the thread whether or not the stream started
 - The reply to the file names the `files:read` scope, and the file's text is not in the answer
 - After the reinstall in step 6 the doctor returns to all `pass`

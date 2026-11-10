@@ -26,7 +26,7 @@ void main() {
   group('shipped manifests', () {
     test('both declare what the adapter subscribes to and the scopes doctor compares against', () {
       for (final manifest in [socket, events]) {
-        expect(manifest['features']['assistant_view']['assistant_description'], isNotEmpty);
+        expect(manifest['features']['agent_view']['agent_description'], isNotEmpty);
         expect(manifest['oauth_config']['scopes']['bot'], unorderedEquals(slackExpectedBotScopes));
         expect(manifest['settings']['event_subscriptions']['bot_events'], unorderedEquals(_botEvents));
         expect(manifest['settings']['interactivity']['is_enabled'], isTrue);

@@ -171,7 +171,7 @@ class SlackChannel extends Channel {
   @override
   bool ownsJid(String jid) => _slackIdPattern.hasMatch(jid);
 
-  /// The feedback for one turn of [message]: assistant status, and the reply streamed
+  /// The feedback for one turn of [message]: the agent session status, and the reply streamed
   /// into its thread unless `channels.slack.streaming` is off or the message has no thread.
   ///
   /// [redact] masks secrets in the text before any of it is streamed.

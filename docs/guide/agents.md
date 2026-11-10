@@ -420,7 +420,7 @@ every thread DartClaw opens. Leave `sandbox` unset to keep the profile; see
 
 Codex CLI exposes installed skills through a `<skills_instructions>` available-skills index in the initial model context. Codex 0.121+ loads only skill metadata (name, description, and path), not full skill bodies. Full `SKILL.md` instructions are read from disk only when a skill is invoked or opened. If you are running an older Codex release without this optimization, every workflow turn pays the full skill-body cost; upgrade to 0.121+ to restore the metadata-only behavior.
 
-DartClaw therefore uses Codex's native skill loading directly. Runtime-provisioned workflow skills are installed under `<dataDir>/.agents/skills/` with the `dartclaw-` prefix, AndThen-provided Codex agents are installed under `<dataDir>/.codex/agents/`, and each configured project/worktree receives per-skill links into those data-dir payloads. DartClaw does not symlink Codex auth files and does not inline skill bodies into prompts.
+DartClaw therefore uses Codex's native skill loading directly. DartClaw-native workflow skills are installed under `<dataDir>/.agents/skills/` with the `dartclaw-` prefix, and each configured project/worktree receives per-skill links into those data-dir payloads. AndThen is not provisioned by DartClaw; install it for Codex yourself ([AndThen Skills](andthen-skills.md)). DartClaw does not symlink Codex auth files and does not inline skill bodies into prompts.
 
 Which Codex home a host turn runs against depends on the credential the host presents:
 

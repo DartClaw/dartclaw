@@ -169,13 +169,7 @@ class TaskWiring {
 
   Future<void> _materializeWorkflowSkillsForWorktree(String worktreePath) async {
     final inventory = WorkspaceSkillInventory.fromDataDir(_dataDir);
-    _workspaceSkillLinker.materialize(
-      dataDir: _dataDir,
-      workspaceDir: worktreePath,
-      skillNames: inventory.skillNames,
-      agentMdNames: inventory.agentMdNames,
-      agentTomlNames: inventory.agentTomlNames,
-    );
+    _workspaceSkillLinker.materialize(dataDir: _dataDir, workspaceDir: worktreePath, skillNames: inventory.skillNames);
   }
 
   /// Wires task services that require a live [TurnManager].

@@ -13,39 +13,22 @@ typedef WorkspaceDirectoryCopier = void Function(Directory source, Directory des
 /// Resolves the effective git dir for a workspace or worktree.
 typedef WorkspaceGitDirResolver = String? Function(String workspaceDir);
 
-/// Installed DartClaw skill and agent names discovered from a data dir.
+/// Installed DartClaw skill names discovered from a data dir.
 final class WorkspaceSkillInventory {
   final List<String> skillNames;
   final Map<String, String> skillDescriptions;
-  final List<String> agentMdNames;
-  final List<String> agentTomlNames;
 
-  const new({
-    required this.skillNames,
-    this.skillDescriptions = const {},
-    required this.agentMdNames,
-    required this.agentTomlNames,
-  });
+  const new({required this.skillNames, this.skillDescriptions = const {}});
 
   factory fromDataDir(String dataDir) {
     final skills = _discoverSkills(dataDir, managedOnly: true);
-    return WorkspaceSkillInventory(
-      skillNames: skills.keys.toList(growable: false),
-      skillDescriptions: skills,
-      agentMdNames: _discoverAgentNames(p.join(dataDir, '.claude', 'agents'), '.md'),
-      agentTomlNames: _discoverAgentNames(p.join(dataDir, '.codex', 'agents'), '.toml'),
-    );
+    return WorkspaceSkillInventory(skillNames: skills.keys.toList(growable: false), skillDescriptions: skills);
   }
 
   /// Reads provider-native skill metadata rooted in one configured workspace.
   factory fromWorkspace(String workspaceDir) {
     final skills = _discoverSkills(workspaceDir, managedOnly: false);
-    return WorkspaceSkillInventory(
-      skillNames: skills.keys.toList(growable: false),
-      skillDescriptions: skills,
-      agentMdNames: const [],
-      agentTomlNames: const [],
-    );
+    return WorkspaceSkillInventory(skillNames: skills.keys.toList(growable: false), skillDescriptions: skills);
   }
 }
 
@@ -71,13 +54,7 @@ final class WorkspaceSkillLinker {
        _gitDirResolver = gitDirResolver ?? _defaultGitDirResolver,
        _symlinksEnabled = symlinksEnabled;
 
-  void materialize({
-    required String dataDir,
-    required String workspaceDir,
-    required Iterable<String> skillNames,
-    required Iterable<String> agentMdNames,
-    required Iterable<String> agentTomlNames,
-  }) {
+  void materialize({required String dataDir, required String workspaceDir, required Iterable<String> skillNames}) {
     for (final name in _dartclawNames(skillNames)) {
       _materializeDirectory(
         sourcePath: p.join(dataDir, '.claude', 'skills', name),
@@ -86,22 +63,6 @@ final class WorkspaceSkillLinker {
       _materializeDirectory(
         sourcePath: p.join(dataDir, '.agents', 'skills', name),
         destinationPath: p.join(workspaceDir, '.agents', 'skills', name),
-      );
-    }
-
-    for (final name in _dartclawNames(agentMdNames)) {
-      final fileName = _withExtension(name, '.md');
-      _materializeFile(
-        sourcePath: p.join(dataDir, '.claude', 'agents', fileName),
-        destinationPath: p.join(workspaceDir, '.claude', 'agents', fileName),
-      );
-    }
-
-    for (final name in _dartclawNames(agentTomlNames)) {
-      final fileName = _withExtension(name, '.toml');
-      _materializeFile(
-        sourcePath: p.join(dataDir, '.codex', 'agents', fileName),
-        destinationPath: p.join(workspaceDir, '.codex', 'agents', fileName),
       );
     }
 
@@ -115,6 +76,7 @@ final class WorkspaceSkillLinker {
     ]) {
       _cleanDartclawEntries(Directory(p.joinAll([workspaceDir, ...relativeRoot])), extension: null);
     }
+    // Releases before 0.16.5 also linked AndThen agent definitions; clean still removes those links.
     _cleanDartclawEntries(Directory(p.join(workspaceDir, '.claude', 'agents')), extension: '.md');
     _cleanDartclawEntries(Directory(p.join(workspaceDir, '.codex', 'agents')), extension: '.toml');
     _removeGitExclude(workspaceDir);
@@ -127,16 +89,6 @@ final class WorkspaceSkillLinker {
       sourcePath: sourcePath,
       destinationPath: destinationPath,
       copyFallback: () => _replaceDirectory(source, Directory(destinationPath)),
-    );
-  }
-
-  void _materializeFile({required String sourcePath, required String destinationPath}) {
-    final source = File(sourcePath);
-    if (!source.existsSync()) return;
-    _materializePayload(
-      sourcePath: sourcePath,
-      destinationPath: destinationPath,
-      copyFallback: () => _replaceFile(source, File(destinationPath)),
     );
   }
 
@@ -184,14 +136,6 @@ final class WorkspaceSkillLinker {
   void _replaceDirectory(Directory source, Directory destination) {
     if (destination.existsSync()) destination.deleteSync(recursive: true);
     _directoryCopier(source, destination);
-  }
-
-  void _replaceFile(File source, File destination) {
-    destination.parent.createSync(recursive: true);
-    final tempPath = p.join(destination.parent.path, '.${p.basename(destination.path)}.dartclaw.tmp-$pid');
-    final tempFile = source.copySync(tempPath);
-    if (destination.existsSync()) destination.deleteSync();
-    tempFile.renameSync(destination.path);
   }
 
   static bool _isReservedDartClawPayload(String path) => p.basenameWithoutExtension(path).startsWith('dartclaw-');
@@ -266,8 +210,6 @@ Iterable<String> _dartclawNames(Iterable<String> names) {
 
 bool _isDartClawManagedName(String name) => RegExp(r'^dartclaw-[A-Za-z0-9._-]+$').hasMatch(name);
 
-String _withExtension(String name, String extension) => p.extension(name) == extension ? name : '$name$extension';
-
 Map<String, String> _discoverSkills(String dataDir, {required bool managedOnly}) {
   final descriptions = <String, String>{};
   for (final root in [p.join(dataDir, '.claude', 'skills'), p.join(dataDir, '.agents', 'skills')]) {
@@ -302,20 +244,6 @@ String _skillDescription(File file, String name) {
     // Invalid metadata leaves the skill discoverable under its stable name.
   }
   return name;
-}
-
-List<String> _discoverAgentNames(String dirPath, String extension) {
-  final dir = Directory(dirPath);
-  if (!dir.existsSync()) return const [];
-  final names = <String>[];
-  for (final entry in dir.listSync(followLinks: false)) {
-    if (entry is! File) continue;
-    if (p.extension(entry.path) != extension) continue;
-    final name = p.basenameWithoutExtension(entry.path);
-    if (_isDartClawManagedName(name)) names.add(name);
-  }
-  names.sort();
-  return names;
 }
 
 void _defaultLinkFactory({required String targetPath, required String linkPath}) {

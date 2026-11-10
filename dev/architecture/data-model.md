@@ -102,7 +102,7 @@ Each badge in the figure names the recovery path from the table above: restore f
 │   ├── sessions/  kv.json  turn_state.json   Isolated copies of the server-side stores
 ├── containers/  bridge/  models/   [R] Per-container state, delivered bridge binary, downloaded embedding model
 ├── feeds/  logs/                   [L] Shell-job output files, application logs
-└── .claude/  .codex/  .agents/     [R] Provisioned skills and agent definitions
+└── .claude/  .agents/             [R] Provisioned DartClaw-native skills
 ```
 
 The PostgreSQL database is configured separately (`database.url` or `database.credential`); it is not under `<data_dir>`.

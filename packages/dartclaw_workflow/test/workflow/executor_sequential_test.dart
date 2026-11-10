@@ -639,7 +639,7 @@ void main() {
   test('deterministic publish writes publish.* outputs when enabled', () async {
     final publishExecutor = h.makeExecutor(
       turnAdapter: standardTurnAdapter(
-        publishWorkflowBranch: ({required runId, required projectId, required branch}) async =>
+        publishWorkflowBranch: ({required runId, required projectId, required branch, pullRequest}) async =>
             WorkflowGitPublishResult(
               status: WorkflowPublishStatus.success,
               branch: branch,

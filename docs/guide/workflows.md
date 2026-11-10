@@ -997,7 +997,7 @@ To wire it up end-to-end, expose the server publicly (or via a tunnel for local 
 
 ### `implement-story` – Feature Pipeline
 
-Pipeline that first classifies `FEATURE` with `dartclaw-discover-andthen-spec`. It accepts an inline feature description or an existing FIS path; an existing written source that is not a FIS fails with a pointer to `implement-prd`. Inline descriptions produce a FIS with `andthen:plan`; existing FIS files are reused. The workflow then implements via `andthen:exec-plan`, runs an integrated `andthen:review`, and enters the remediation loop only when the loop `entryGate` sees remaining findings. If implementation completes every story in its plan, `andthen:exec-plan` runs one simplification pass inside that step.
+Pipeline that first classifies `FEATURE` with `dartclaw-discover-andthen-spec`. It accepts an inline feature description or an existing FIS path; an existing written source that is not a FIS fails with a pointer to `implement-prd`. Inline descriptions produce a FIS with `andthen:plan`; existing FIS files are reused. The workflow then implements via `andthen:exec-plan`, runs an integrated `andthen:review`, and enters the remediation loop only when the loop `entryGate` sees remaining findings. If implementation completes every story in its plan, `andthen:exec-plan` runs one simplification pass inside that step. A final `ship` step runs `andthen:ship --auto`, which commits the close-out and returns the pull request's title and body instead of pushing; `gitStrategy.publish.pullRequest` makes that the PR publish opens, so its body ends with AndThen's `## Ship summary` section.
 
 Notable patterns:
 - **Narrow input guard**: FIS-path reuse is decided by `dartclaw-discover-andthen-spec`, not by relying on `andthen:plan` inference.
@@ -1013,7 +1013,7 @@ Role usage:
 
 ### `implement-prd` – Story Fan-Out
 
-Multi-story pipeline organized around PRD-as-input, a merged plan step (`andthen:plan`) that produces the story plan and per-story specs in one pass when needed, and the per-story exec layer. A per-story `foreach` pipeline then runs `implement -> review-story -> story-remediation` under `worktree: auto`, which means serial runs stay inline while real fan-out still gets per-item git isolation/promotion. Built-in step sequence: `discover-plan-state -> plan -> story-pipeline -> plan-review -> review-aggregate -> remediation-loop`.
+Multi-story pipeline organized around PRD-as-input, a merged plan step (`andthen:plan`) that produces the story plan and per-story specs in one pass when needed, and the per-story exec layer. A per-story `foreach` pipeline then runs `implement -> review-story -> story-remediation` under `worktree: auto`, which means serial runs stay inline while real fan-out still gets per-item git isolation/promotion. Built-in step sequence: `discover-plan-state -> plan -> plan-approval -> story-pipeline -> plan-review -> review-aggregate -> remediation-loop -> ship`. `ship` runs `andthen:ship --auto`: it deletes the shipped plan bundle, commits, and returns the pull request publish opens, as in `implement-story`.
 
 Notable patterns:
 - **PRD / Plan / Exec altitudes**: `discover-plan-state` requires an existing PRD, excludes `done` and `skipped` stories and direct or transitive dependents of `skipped` stories, and prunes only `done` dependencies; `plan` is the only step allowed to produce `stories` and `story_specs`; the foreach pipeline is the exec layer. An empty discovery catalog means no story remains runnable.

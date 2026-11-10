@@ -84,9 +84,19 @@ Future<String?> runDeterministicPublish({
     return 'workflow publish could not resolve a branch to publish';
   }
 
+  WorkflowPullRequest? pullRequest;
+  final pullRequestKey = definition.gitStrategy?.publishPullRequest;
+  if (pullRequestKey != null) {
+    pullRequest = _authoredPullRequest(context[pullRequestKey]);
+    if (pullRequest == null) {
+      return 'workflow publish requires context "$pullRequestKey" to hold a pull request with a non-blank '
+          'title and body';
+    }
+  }
+
   _log.info("Workflow '${run.id}': publishing branch '$branch' for project '$projectId'");
   try {
-    final result = await publish(runId: run.id, projectId: projectId, branch: branch);
+    final result = await publish(runId: run.id, projectId: projectId, branch: branch, pullRequest: pullRequest);
     context['publish.status'] = result.status.toJson();
     context['publish.branch'] = result.branch;
     context['publish.remote'] = result.remote;
@@ -150,4 +160,14 @@ String? _cleanupProjectId(WorkflowRun run) {
     }
   }
   return null;
+}
+
+/// The step-authored pull request in [value], or null when it is not the
+/// `{title, body}` object the authoring step's schema promised.
+WorkflowPullRequest? _authoredPullRequest(Object? value) {
+  if (value is! Map) return null;
+  final title = value['title'];
+  final body = value['body'];
+  if (title is! String || title.trim().isEmpty || body is! String || body.trim().isEmpty) return null;
+  return WorkflowPullRequest(title: title, body: body);
 }

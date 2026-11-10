@@ -17,6 +17,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowGitException,
         WorkflowGitPublishResult,
         WorkflowPublishStatus,
+        WorkflowPullRequest,
         WorkflowGitStrategy,
         WorkflowRun,
         WorkflowStep,
@@ -43,7 +44,7 @@ void main() {
       final cleanupCalls = <({bool preserveWorktrees})>[];
       final publishExecutor = h.makeExecutor(
         turnAdapter: standardTurnAdapter(
-          publishWorkflowBranch: ({required runId, required projectId, required branch}) async =>
+          publishWorkflowBranch: ({required runId, required projectId, required branch, pullRequest}) async =>
               throw const WorkflowGitException('push failed: remote rejected'),
           cleanupWorkflowGit:
               ({required runId, required projectId, required status, required preserveWorktrees}) async {
@@ -92,7 +93,7 @@ void main() {
     test('publish failure run retains its run id, error message, and inspectable context', () async {
       final publishExecutor = h.makeExecutor(
         turnAdapter: standardTurnAdapter(
-          publishWorkflowBranch: ({required runId, required projectId, required branch}) async =>
+          publishWorkflowBranch: ({required runId, required projectId, required branch, pullRequest}) async =>
               throw const WorkflowGitException('network unreachable'),
         ),
       );
@@ -186,7 +187,7 @@ void main() {
       final finalRun = await runPublish(
         adapter: standardTurnAdapter(
           turnId: 't',
-          publishWorkflowBranch: ({required runId, required projectId, required branch}) async =>
+          publishWorkflowBranch: ({required runId, required projectId, required branch, pullRequest}) async =>
               WorkflowGitPublishResult(
                 status: WorkflowPublishStatus.success,
                 branch: branch,
@@ -205,7 +206,7 @@ void main() {
       final finalRun = await runPublish(
         adapter: standardTurnAdapter(
           turnId: 't',
-          publishWorkflowBranch: ({required runId, required projectId, required branch}) async =>
+          publishWorkflowBranch: ({required runId, required projectId, required branch, pullRequest}) async =>
               WorkflowGitPublishResult(
                 status: WorkflowPublishStatus.success,
                 branch: branch,
@@ -224,7 +225,7 @@ void main() {
       final finalRun = await runPublish(
         adapter: standardTurnAdapter(
           turnId: 't',
-          publishWorkflowBranch: ({required runId, required projectId, required branch}) async =>
+          publishWorkflowBranch: ({required runId, required projectId, required branch, pullRequest}) async =>
               WorkflowGitPublishResult(
                 status: WorkflowPublishStatus.failed,
                 branch: branch,
@@ -244,7 +245,7 @@ void main() {
       final finalRun = await runPublish(
         adapter: standardTurnAdapter(
           turnId: 't',
-          publishWorkflowBranch: ({required runId, required projectId, required branch}) async =>
+          publishWorkflowBranch: ({required runId, required projectId, required branch, pullRequest}) async =>
               throw const WorkflowGitException('network unreachable'),
         ),
         variables: const {'PROJECT': 'my-project', 'BRANCH': 'feature/test'},
@@ -390,6 +391,69 @@ void main() {
       await executor.execute(run, definition, WorkflowContext(variables: const {'PROJECT': 'my-project'}));
 
       expect(cleanupCalls, equals([true]));
+    });
+  });
+
+  group('publish.pullRequest hands the step-authored pull request to publish', () {
+    const definition = WorkflowDefinition(
+      name: 'publish-authored-pr',
+      description: 'Authored pull request publish',
+      gitStrategy: WorkflowGitStrategy(publish: true, publishPullRequest: 'pull_request'),
+      steps: [],
+      variables: {'PROJECT': WorkflowVariable(required: false)},
+    );
+
+    Future<(WorkflowRun?, List<WorkflowPullRequest?>)> runWith(Map<String, dynamic> data) async {
+      final received = <WorkflowPullRequest?>[];
+      final executor = h.makeExecutor(
+        turnAdapter: standardTurnAdapter(
+          publishWorkflowBranch: ({required runId, required projectId, required branch, pullRequest}) async {
+            received.add(pullRequest);
+            return WorkflowGitPublishResult(
+              status: WorkflowPublishStatus.success,
+              branch: branch,
+              remote: 'origin',
+              prUrl: 'https://github.com/u/r/pull/1',
+            );
+          },
+        ),
+      );
+      final run = WorkflowRun(
+        id: 'publish-authored-pr-run',
+        definitionName: definition.name,
+        status: WorkflowRunStatus.running,
+        startedAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+        variablesJson: const {'PROJECT': 'my-project', 'BRANCH': 'feature/test'},
+        definitionJson: definition.toJson(),
+      );
+      await h.repository.insert(run);
+      await executor.execute(
+        run,
+        definition,
+        WorkflowContext(data: data, variables: const {'PROJECT': 'my-project', 'BRANCH': 'feature/test'}),
+      );
+      return (await h.repository.getById(run.id), received);
+    }
+
+    test('passes the named context value as the pull request', () async {
+      final (finalRun, received) = await runWith({
+        'pull_request': {'title': 'Ship feature X', 'body': 'Why.\n\n## Ship summary\n\nPRD: -'},
+      });
+
+      expect(finalRun?.status, WorkflowRunStatus.completed);
+      expect(received.single?.title, 'Ship feature X');
+      expect(received.single?.body, endsWith('## Ship summary\n\nPRD: -'));
+    });
+
+    test('fails the run without publishing when the named value is not a pull request', () async {
+      final (finalRun, received) = await runWith({
+        'pull_request': {'title': 'Ship feature X', 'body': '  '},
+      });
+
+      expect(finalRun?.status, WorkflowRunStatus.failed);
+      expect(finalRun?.errorMessage, contains('"pull_request"'));
+      expect(received, isEmpty);
     });
   });
 }

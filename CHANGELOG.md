@@ -14,6 +14,12 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 
 ---
 
+## [0.28.1] - 2026-11-10
+
+### Changed
+
+- `implement-prd` and `implement-story` now end with an `andthen:ship --auto` step, and the pull request their publish opens carries the title and body that step wrote: intent, outcomes and proof first, ending with AndThen's `## Ship summary` section (PRD, each story's outcomes with their proof, a verdict per review lens), which AndThen Studio's PR page parses. Before, the PR body was the last step's prompt. The ship step also deletes the shipped plan bundle and commits before the push. A custom workflow opts in with `gitStrategy.publish.pullRequest: <output key>`, naming a step output that holds `{title, body}`; publish fails the run when that output is missing or blank.
+
 ## [0.28.0] - 2026-11-09
 
 ### Added

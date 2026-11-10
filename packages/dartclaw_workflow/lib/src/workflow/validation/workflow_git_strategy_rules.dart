@@ -86,6 +86,26 @@ extension _WorkflowGitStrategyRules on WorkflowDefinitionValidator {
       );
     }
 
+    final pullRequestKey = strategy.publishPullRequest;
+    if (pullRequestKey != null) {
+      if (strategy.publish != true) {
+        errors.add(
+          _err(
+            WorkflowValidationErrorType.invalidReference,
+            'gitStrategy.publish.pullRequest requires gitStrategy.publish.enabled: true.',
+          ),
+        );
+      }
+      if (!definition.steps.any((step) => step.outputKeys.contains(pullRequestKey))) {
+        errors.add(
+          _err(
+            WorkflowValidationErrorType.invalidReference,
+            'gitStrategy.publish.pullRequest names "$pullRequestKey", which no step declares in outputs:.',
+          ),
+        );
+      }
+    }
+
     _validateMergeResolve(strategy, errors);
   }
 

@@ -214,6 +214,7 @@ export 'src/workflow/workflow_turn_adapter.dart'
         WorkflowGitPromotionSuccess,
         WorkflowGitPublishResult,
         WorkflowPublishStatus,
+        WorkflowPullRequest,
         WorkflowStartResolution,
         WorkflowTurnAdapter,
         WorkflowTurnOutcome; // retained: host-injected workflow turn/git bridge seam

@@ -521,6 +521,7 @@ For project-backed workflows, git state is orchestrated at workflow level, not o
 | `worktree` | `shared`, `per-task`, `per-map-item`, `inline` or `auto` (or `{mode: …}`) |
 | `promotion` | `merge`, `rebase`, `none` |
 | `publish.enabled` | Deterministic publish at completion; writes `publish.status`, `.branch`, `.remote`, `.pr_url`, `.error` |
+| `publish.pullRequest` | Names the step output (`{title, body}`) the opened PR uses instead of the last task's title and prompt; the built-ins point it at their closing `andthen:ship --auto` step |
 | `cleanup.enabled` | Default true; `false` keeps worktrees and branches after a terminal state |
 | `artifacts` | Auto-commit of produced files (section 10.5) |
 | `merge_resolve` | Agent-resolved promotion conflicts (section 10.4) |

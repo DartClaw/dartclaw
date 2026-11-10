@@ -1090,6 +1090,11 @@ class WorkflowGitStrategy {
   /// Publish behavior setting from `publish.enabled`.
   final bool? publish;
 
+  /// Context key from `publish.pullRequest`: the step output holding the
+  /// `{title, body}` pull request the publish opens. Null keeps the PR built
+  /// from the run's last task.
+  final String? publishPullRequest;
+
   /// End-of-run worktree/branch cleanup setting. `null` means default
   /// (cleanup enabled); see [cleanupEnabled] for the resolved boolean.
   final bool? cleanup;
@@ -1147,6 +1152,7 @@ class WorkflowGitStrategy {
     this.worktree,
     this.promotion,
     this.publish,
+    this.publishPullRequest,
     this.cleanup,
     this.artifacts,
     MergeResolveConfig? mergeResolve,
@@ -1157,7 +1163,8 @@ class WorkflowGitStrategy {
     if (integrationBranch != null) 'integrationBranch': integrationBranch,
     if (worktree != null) 'worktree': worktree!.toJsonValue(),
     if (promotion != null) 'promotion': promotion,
-    if (publish != null) 'publish': {'enabled': publish},
+    if (publish != null || publishPullRequest != null)
+      'publish': {'enabled': ?publish, 'pullRequest': ?publishPullRequest},
     if (cleanup != null) 'cleanup': {'enabled': cleanup},
     if (artifacts != null) 'artifacts': artifacts!.toJson(),
     if (_mergeResolve != null) 'merge_resolve': _mergeResolve.toJson(),
@@ -1179,6 +1186,11 @@ class WorkflowGitStrategy {
       publish: switch (json['publish']) {
         Map<String, dynamic> publish => publish['enabled'] as bool?,
         Map<Object?, Object?> publish => Map<String, dynamic>.from(publish)['enabled'] as bool?,
+        _ => null,
+      },
+      publishPullRequest: switch (json['publish']) {
+        Map<String, dynamic> publish => publish['pullRequest'] as String?,
+        Map<Object?, Object?> publish => Map<String, dynamic>.from(publish)['pullRequest'] as String?,
         _ => null,
       },
       cleanup: switch (json['cleanup']) {

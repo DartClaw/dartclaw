@@ -711,6 +711,7 @@ void main() {
               },
             ),
             'update-state' => StubResponse(outputs: {'state_update_summary': 'updated after remediation'}),
+            'ship' => shipStub,
             _ => throw StateError('Unexpected step: ${queued.stepKey}'),
           };
         },

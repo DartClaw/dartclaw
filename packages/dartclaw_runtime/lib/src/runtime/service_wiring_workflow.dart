@@ -149,7 +149,7 @@ WorkflowTurnAdapter _buildWorkflowTurnAdapter(
             storyId: storyId,
           );
         },
-    publishWorkflowBranch: ({required runId, required projectId, required branch}) async {
+    publishWorkflowBranch: ({required runId, required projectId, required branch, pullRequest}) async {
       final workflowRun = await storage.workflowRunRepository.getById(runId);
       final resolvedProject = await resolveProject(projectId);
       // A zero-server run publishes what its own checkout can reach: locally
@@ -170,6 +170,7 @@ WorkflowTurnAdapter _buildWorkflowTurnAdapter(
           branch: branch,
           resolvedProject: resolvedProject,
           notes: workflowPublishNotes(workflowRun),
+          pullRequest: pullRequest,
         );
       }
       return publishWorkflowBranchWithProjectAuth(
@@ -181,6 +182,7 @@ WorkflowTurnAdapter _buildWorkflowTurnAdapter(
         remotePushService: task.remotePushService,
         prCreator: prCreator ?? task.prCreator,
         notes: workflowPublishNotes(workflowRun),
+        pullRequest: pullRequest,
       );
     },
     cleanupWorkflowGit: ({required runId, required projectId, required status, required preserveWorktrees}) async {
@@ -283,6 +285,7 @@ Future<WorkflowGitPublishResult> _publishWorkflowBranchLocalLane(
   required String branch,
   required Project? resolvedProject,
   required String? notes,
+  required WorkflowPullRequest? pullRequest,
 }) async {
   if (resolvedProject == null || resolvedProject.remoteUrl.isEmpty) {
     final projectDir =
@@ -325,6 +328,7 @@ Future<WorkflowGitPublishResult> _publishWorkflowBranchLocalLane(
           ),
       branch: branch,
       notes: notes,
+      pullRequest: pullRequest,
     );
     result = switch (prResult) {
       PrCreated(:final url) => WorkflowGitPublishResult(
@@ -427,6 +431,7 @@ Future<WorkflowGitPublishResult> publishWorkflowBranchWithProjectAuth({
   required RemotePushService remotePushService,
   required PrCreator prCreator,
   String? notes,
+  WorkflowPullRequest? pullRequest,
 }) async {
   final resolvedProject = await projectService.get(projectId);
   if (resolvedProject == null) {
@@ -479,6 +484,7 @@ Future<WorkflowGitPublishResult> publishWorkflowBranchWithProjectAuth({
           task: syntheticTask,
           branch: branch,
           notes: notes,
+          pullRequest: pullRequest,
         );
         result = switch (prResult) {
           PrCreated(:final url) => WorkflowGitPublishResult(

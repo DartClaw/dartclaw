@@ -20,6 +20,11 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 
 - `implement-prd` and `implement-story` now end with an `andthen:ship --auto` step, and the pull request their publish opens carries the title and body that step wrote: intent, outcomes and proof first, ending with AndThen's `## Ship summary` section (PRD, each story's outcomes with their proof, a verdict per review lens), which AndThen Studio's PR page parses. Before, the PR body was the last step's prompt. The ship step also deletes the shipped plan bundle and commits before the push. A custom workflow opts in with `gitStrategy.publish.pullRequest: <output key>`, naming a step output that holds `{title, body}`; publish fails the run when that output is missing or blank.
 
+### Fixed
+
+- An integration-branch workflow whose foreach runs one item at a time (`max_parallel: 1`, e.g. `implement-prd` with `MAX_PARALLEL=1`) failed every item at once: `worktree: auto` resolved that scope to `inline`, which tried to check the workflow branch out in the project checkout while the run's shared worktree already held it. It now resolves to `shared`, so the items run one after another in the run's worktree.
+- `dartclaw workflow run` printed a failure after the last step, such as a publish failure, as `Failed at step 9/8`; it now prints `Failed after step 8/8`.
+
 ## [0.28.0] - 2026-11-09
 
 ### Added

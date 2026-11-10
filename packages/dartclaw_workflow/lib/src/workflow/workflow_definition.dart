@@ -1125,9 +1125,10 @@ class WorkflowGitStrategy {
   /// `auto` resolves to `per-map-item` for map/foreach scopes whose effective
   /// `maxParallel` is greater than 1. Runtime callers also pass `null` for
   /// the `"unlimited"` path, which is treated as parallel fan-out.
-  /// Integration-branch workflows resolve non-map scopes to `shared` so the
-  /// workflow-owned branch stays out of the operator's live checkout.
-  /// Remaining `auto` cases resolve to `inline`.
+  /// Integration-branch workflows resolve every other scope, serial map scopes
+  /// included, to `shared` so the workflow-owned branch stays out of the
+  /// operator's live checkout – that checkout cannot switch to a branch the
+  /// shared worktree already holds. Remaining `auto` cases resolve to `inline`.
   String effectiveWorktreeMode({required int? maxParallel, required bool isMap}) {
     final authored = worktree?.mode;
     if (authored == null || authored == WorkflowGitWorktreeMode.auto) {
@@ -1138,7 +1139,7 @@ class WorkflowGitStrategy {
       if (isMap && effectiveMaxParallel > 1) {
         return 'per-map-item';
       }
-      if (!isMap && integrationBranch == true) {
+      if (integrationBranch == true) {
         return 'shared';
       }
       return 'inline';

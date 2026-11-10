@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
@@ -118,6 +120,56 @@ void main() {
     final r1 = storyResults[1] as Map<String, dynamic>;
     expect((r0['implement'] as Map<String, dynamic>)['story_result'], 'STORY_RESULT_ALPHA');
     expect((r1['implement'] as Map<String, dynamic>)['story_result'], 'STORY_RESULT_BETA');
+  });
+
+  test('implement-prd runs serial stories in the shared workflow worktree, never inline', () async {
+    const story = {
+      'id': 'S01',
+      'title': 'Story One',
+      'dependencies': <String>[],
+      'spec_path': 'docs/specs/test/fis/s01-story-one.md',
+    };
+    final storyWorktreeModes = <String?>[];
+    final trace = await driver.executeBuiltInWorkflow(
+      workflowFileName: 'implement-prd.yaml',
+      variables: {
+        'FEATURE': 'docs/specs/test/prd.md',
+        'PROJECT': 'demo-project',
+        'BRANCH': 'main',
+        'MAX_PARALLEL': '1',
+      },
+      responseForStep: (queued) async {
+        if (queued.stepKey == 'implement') {
+          final git = jsonDecode(queued.task.workflowStepExecution!.gitJson!) as Map<String, dynamic>;
+          storyWorktreeModes.add(git['worktree'] as String?);
+        }
+        return switch (queued.stepKey) {
+          'discover-plan-state' => const StubResponse(
+            outputs: {
+              'framework': 'none',
+              'project_root': '/repo/demo',
+              'document_locations': {'product': null},
+              'state_protocol': {'state_file': null},
+              'prd': 'docs/specs/test/prd.md',
+              'plan': '',
+              'story_specs': {'items': <Map<String, Object?>>[]},
+            },
+          ),
+          'plan' => const StubResponse(
+            outputs: {
+              'plan': 'docs/specs/test/plan.md',
+              'story_specs': {
+                'items': [story],
+              },
+            },
+          ),
+          _ => implementPrdCommonStub(queued),
+        };
+      },
+    );
+
+    expect(trace.finalRun?.status, WorkflowRunStatus.completed, reason: trace.finalRun?.errorMessage);
+    expect(storyWorktreeModes, ['shared']);
   });
 
   group('plan review gate', () {

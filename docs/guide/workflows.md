@@ -589,7 +589,7 @@ Key runtime behavior:
 - `integrationBranch: true` creates a workflow-owned integration branch from `BRANCH` (or project default branch).
 - Existing workflow definitions that still use `bootstrap: true` continue to load as a deprecated alias, but new definitions should use `integrationBranch`.
 - Workflow-owned steps use task `reviewMode: auto-accept`; model human checkpoints with dedicated review or `approval` steps.
-- `worktree: auto` resolves to `per-map-item` for parallel map/foreach scopes, to `shared` for workflow-level steps when `integrationBranch: true`, and otherwise to `inline`.
+- `worktree: auto` resolves to `per-map-item` for parallel map/foreach scopes, to `shared` for every other scope (serial map/foreach included) when `integrationBranch: true`, and otherwise to `inline`.
 - Omitted `gitStrategy.promotion` is inferred from the resolved worktree mode: `merge` for per-map-item isolation, `none` for inline/shared execution.
 - `worktree: shared` reuses one workflow-owned worktree across serial phases.
 - `worktree: per-map-item` isolates mapped story implementation branches while enabling promotion into the integration branch.

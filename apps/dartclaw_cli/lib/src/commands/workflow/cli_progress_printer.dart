@@ -189,7 +189,13 @@ class CliProgressPrinter {
     _emitSpans([
       const StyledSpan('[workflow]', _cTag),
       const StyledSpan(' '),
-      StyledSpan('Failed at step ${completedSteps + 1}/$totalSteps', _cFail),
+      // A run whose steps all completed can still fail in post-step work (publish).
+      StyledSpan(
+        completedSteps >= totalSteps
+            ? 'Failed after step $totalSteps/$totalSteps'
+            : 'Failed at step ${completedSteps + 1}/$totalSteps',
+        _cFail,
+      ),
       if (error != null) ...[const StyledSpan(': ', _cMeta), StyledSpan(scrubAgentReportedText(error), _cReason)],
     ]);
   }

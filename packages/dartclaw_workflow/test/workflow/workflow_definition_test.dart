@@ -179,6 +179,18 @@ void main() {
         'shared',
         reason: 'integration-branch workflow-level steps should not switch the operator checkout',
       );
+      const integrationAuto = WorkflowGitStrategy(
+        integrationBranch: true,
+        worktree: WorkflowGitWorktreeStrategy(mode: WorkflowGitWorktreeMode.auto),
+      );
+      expect(
+        integrationAuto.effectiveWorktreeMode(maxParallel: 1, isMap: true),
+        'shared',
+        reason:
+            'a serial map scope must not check the integration branch out in the operator checkout, '
+            'which the shared worktree already holds',
+      );
+      expect(integrationAuto.effectiveWorktreeMode(maxParallel: 2, isMap: true), 'per-map-item');
       expect(
         const WorkflowGitStrategy().effectiveWorktreeMode(maxParallel: 2, isMap: true),
         'per-map-item',

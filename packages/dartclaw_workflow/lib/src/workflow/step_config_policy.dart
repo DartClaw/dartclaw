@@ -10,7 +10,8 @@ import 'workflow_template_engine.dart';
 /// A null strategy is treated as the default [WorkflowGitStrategy] (`auto`),
 /// identical to an authored `gitStrategy: { worktree: auto }`: a parallel
 /// map/foreach scope resolves to `per-map-item` (isolated per-iteration
-/// worktrees), serial and non-map scopes to `inline`. Collapsing null to a
+/// worktrees), every other scope to `shared` under an integration branch and
+/// `inline` otherwise. Collapsing null to a
 /// literal `inline` would deny a strategy-less definition its per-item
 /// isolation, so concurrent iterations would share — and clobber — the live
 /// checkout. This is the single resolution seam; every caller routes through it

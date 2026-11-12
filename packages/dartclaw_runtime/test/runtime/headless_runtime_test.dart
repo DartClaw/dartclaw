@@ -108,7 +108,6 @@ void main() {
   });
 
   test('skill bootstrap does not create remote project clone directories before initialization', () async {
-    seedAndthenSrc(p.join(tempDir.path, 'andthen-src'), sha: 'bootstrap-head');
     final builtInSkillsSource = seedDcNativeSkillsSource(p.join(tempDir.path, 'built-in-skills'));
     final cfg = fixture.config(
       projects: ProjectConfig(
@@ -641,7 +640,7 @@ steps:
     expect(unexpectedDataDirSkillEntries(tempDir.path), isEmpty);
     final registeredNames = wired.workflowRegistry.listAll().map((workflow) => workflow.name).toSet();
     expect(registeredNames, containsAll(['implement-prd', 'implement-story', 'code-review']));
-    expect(runner.calls.where((call) => call.executable.endsWith('install-skills.sh')), isEmpty);
+    expect(runner.calls, isEmpty);
   });
 
   test('dispose cleans up workflow task worktrees in headless mode', () async {

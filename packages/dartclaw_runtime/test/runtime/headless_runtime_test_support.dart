@@ -231,14 +231,6 @@ WorkflowDefinition branchGuardDefinition({
   );
 }
 
-void seedAndthenSrc(String srcDir, {required String sha}) {
-  Directory(srcDir).createSync(recursive: true);
-  Directory(p.join(srcDir, '.git')).createSync(recursive: true);
-  final scriptDir = Directory(p.join(srcDir, 'scripts'))..createSync(recursive: true);
-  File(p.join(scriptDir.path, 'install-skills.sh')).writeAsStringSync('#!/bin/sh\nexit 0\n');
-  File(p.join(srcDir, '.git', 'HEAD_SHA')).writeAsStringSync(sha);
-}
-
 List<String> unexpectedDataDirSkillEntries(String dataDir) {
   final allowed = {
     'dartclaw-discover-andthen-spec',
@@ -272,6 +264,8 @@ Directory seedDcNativeSkillsSource(String sourceDir) {
   return dir;
 }
 
+/// Records every subprocess the skill provisioner starts; provisioning is a
+/// filesystem copy, so a suite expects no calls.
 class FakeProvisionerProcessRunner {
   final List<({String executable, List<String> arguments, String? workingDirectory})> calls = [];
 
@@ -282,55 +276,6 @@ class FakeProvisionerProcessRunner {
     Map<String, String>? environment,
   }) async {
     calls.add((executable: executable, arguments: arguments, workingDirectory: workingDirectory));
-
-    if (executable == 'git' && arguments.contains('rev-parse')) {
-      final cIndex = arguments.indexOf('-C');
-      final srcDir = cIndex >= 0 && cIndex + 1 < arguments.length ? arguments[cIndex + 1] : null;
-      final shaFile = srcDir == null ? null : File(p.join(srcDir, '.git', 'HEAD_SHA'));
-      return ProcessResult(0, 0, '${shaFile?.readAsStringSync().trim() ?? 'standalone-head'}\n', '');
-    }
-    if (executable == 'git') {
-      return ProcessResult(0, 0, '', '');
-    }
-    if (executable.endsWith('install-skills.sh')) {
-      String? skillsDir;
-      String? codexAgentsDir;
-      String? claudeSkillsDir;
-      String? claudeAgentsDir;
-      for (var i = 0; i < arguments.length - 1; i++) {
-        switch (arguments[i]) {
-          case '--skills-dir':
-            skillsDir = arguments[i + 1];
-          case '--codex-agents-dir':
-            codexAgentsDir = arguments[i + 1];
-          case '--claude-skills-dir':
-            claudeSkillsDir = arguments[i + 1];
-          case '--claude-agents-dir':
-            claudeAgentsDir = arguments[i + 1];
-        }
-      }
-      if (arguments.contains('--claude-user')) {
-        final home = environment?['HOME'];
-        if (home == null || home.isEmpty) {
-          return ProcessResult(0, 2, '', 'HOME is required for --claude-user');
-        }
-        skillsDir ??= p.join(home, '.agents', 'skills');
-        codexAgentsDir ??= p.join(home, '.codex', 'agents');
-        claudeSkillsDir ??= p.join(home, '.claude', 'skills');
-        claudeAgentsDir ??= p.join(home, '.claude', 'agents');
-      }
-      for (final dir in [skillsDir, codexAgentsDir, claudeSkillsDir, claudeAgentsDir].whereType<String>()) {
-        Directory(dir).createSync(recursive: true);
-      }
-      for (final dir in [skillsDir, claudeSkillsDir].whereType<String>()) {
-        for (final name in shippedDartclawSkillRefs) {
-          File(p.join(dir, name, 'SKILL.md'))
-            ..createSync(recursive: true)
-            ..writeAsStringSync('---\nname: $name\ndescription: fake $name\n---\n# $name\n');
-        }
-      }
-      return ProcessResult(0, 0, '', '');
-    }
     return ProcessResult(0, 0, '', '');
   }
 }

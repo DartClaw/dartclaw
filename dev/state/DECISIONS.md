@@ -76,6 +76,7 @@
 | [059](../adrs/059-doctor-preserves-config-load-refusals.md) | Doctor preserves config load refusals | Accepted | CLI diagnostics / directory repair |
 | [060](../adrs/060-postgresql-only-storage.md) | PostgreSQL server storage and standalone workflow files | Accepted 2026-09-20; amended 2026-09-29 (standalone uses files; partially supersedes ADR-045/048/050) | Storage / standalone workflows / native setup / optional hybrid search |
 | [061](../adrs/061-credential-files-unreadable-by-default.md) | Credential files unreadable by default for every harness | Accepted 2026-10-16 | Security / FileGuard defaults |
+| [062](../adrs/062-read-only-package-registry-egress-for-containers.md) | Read-only package-registry egress for containerized executions | Proposed 2026-11-10 (0.28.1 – a `registry` bridge surface: host-side mirror for pub and npm, GET/HEAD only, pinned origins, no credentials, `workspace` profile only; `network:none` stays) | Security / container egress |
 
 ## Superseded
 

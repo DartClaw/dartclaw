@@ -346,8 +346,8 @@ void main() {
       p.join(stubDir.path, 'codex'),
     )..writeAsStringSync('#!/bin/sh\nprintf %s "\$CODEX_HOME" > "$recorded"\ncp "$fixture" "\$CODEX_HOME/auth.json"\n');
     Process.runSync('chmod', ['755', stub.path]);
-    // An absolute path, because Process.start resolves a bare `codex` against the test process's PATH, not the
-    // spawn environment's, and would run an operator's real `codex login`.
+    // An absolute path, because on macOS from Dart 3.14 (posix_spawn) Process.start resolves a bare `codex` against
+    // the test process's PATH, not the spawn environment's, and would run an operator's real `codex login`.
     configFile.writeAsStringSync(
       'data_dir: ${p.join(root.path, 'data')}\nproviders:\n  codex:\n    executable: ${stub.path}\n',
     );

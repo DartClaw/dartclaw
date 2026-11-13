@@ -54,7 +54,7 @@ jobs:
       - name: Setup Dart
         uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
         with:
-          sdk: 3.13.0
+          sdk: 3.14.0
 
       - name: Install Linux native dependency
         if: runner.os == 'Linux'
@@ -330,7 +330,7 @@ jobs:
       - name: Setup Dart
         uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
         with:
-          sdk: 3.13.0
+          sdk: 3.14.0
 
       - name: Install dependencies
         run: dart pub get --enforce-lockfile
@@ -401,7 +401,7 @@ jobs:
       - name: Setup Dart
         uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
         with:
-          sdk: 3.13.0
+          sdk: 3.14.0
 
       - name: Install dependencies
         run: dart pub get --enforce-lockfile

@@ -335,7 +335,7 @@ void main() {
     expect(Directory(p.join(credentialsDir, 'codex')).existsSync(), isFalse);
   });
 
-  test('the real spawn reaches a codex on PATH with the dedicated CODEX_HOME', () async {
+  test('the real spawn reaches the configured codex with the dedicated CODEX_HOME', () async {
     if (Platform.isWindows) return; // Shell-script stub and chmod are POSIX-only.
     final stubDir = Directory(p.join(root.path, 'bin'))..createSync(recursive: true);
     final recorded = p.join(root.path, 'recorded-codex-home');
@@ -346,8 +346,13 @@ void main() {
       p.join(stubDir.path, 'codex'),
     )..writeAsStringSync('#!/bin/sh\nprintf %s "\$CODEX_HOME" > "$recorded"\ncp "$fixture" "\$CODEX_HOME/auth.json"\n');
     Process.runSync('chmod', ['755', stub.path]);
+    // An absolute path, because Process.start resolves a bare `codex` against the test process's PATH, not the
+    // spawn environment's, and would run an operator's real `codex login`.
+    configFile.writeAsStringSync(
+      'data_dir: ${p.join(root.path, 'data')}\nproviders:\n  codex:\n    executable: ${stub.path}\n',
+    );
 
-    final code = await runAuth(environment: env({'PATH': '${stubDir.path}:/bin:/usr/bin'}));
+    final code = await runAuth(environment: env({'PATH': '/bin:/usr/bin'}));
 
     expect(code, isNull);
     expect(File(recorded).readAsStringSync(), p.join(credentialsDir, 'codex'));

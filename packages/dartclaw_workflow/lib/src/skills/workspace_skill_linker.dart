@@ -76,7 +76,7 @@ final class WorkspaceSkillLinker {
     ]) {
       _cleanDartclawEntries(Directory(p.joinAll([workspaceDir, ...relativeRoot])), extension: null);
     }
-    // Releases before 0.16.5 also linked AndThen agent definitions; clean still removes those links.
+    // Releases before 0.16.5 also linked agent definitions; clean still removes those links.
     _cleanDartclawEntries(Directory(p.join(workspaceDir, '.claude', 'agents')), extension: '.md');
     _cleanDartclawEntries(Directory(p.join(workspaceDir, '.codex', 'agents')), extension: '.toml');
     _removeGitExclude(workspaceDir);

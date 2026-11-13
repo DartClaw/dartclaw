@@ -103,7 +103,7 @@ vibe-acp --version
 If you are working from a source checkout, build the standalone binary directly:
 
 ```bash
-git clone <repo-url> && cd dartclaw
+git clone https://github.com/DartClaw/dartclaw.git && cd dartclaw
 dart pub get
 bash dev/tools/build.sh
 build/bin/dartclaw --version

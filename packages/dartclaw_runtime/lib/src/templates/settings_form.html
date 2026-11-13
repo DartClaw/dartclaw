@@ -3,7 +3,7 @@
   <input type="hidden" tl:attr="name=${sectionField},value=${sectionId}">
 
   <div class="well form-field" role="group" tl:each="group : ${groups}" tl:attr="aria-labelledby=${group.labelId}">
-    <span class="t-caption tracking-caps" tl:attr="id=${group.labelId}" tl:text="${group.label}">Group</span>
+    <span class="settings-group-label t-label" tl:attr="id=${group.labelId}" tl:text="${group.label}">Group</span>
 
     <div tl:each="field : ${group.fields}" tl:attr="class=${field.fieldClass},data-field=${field.path}">
       <label class="form-label t-caption tracking-caps" tl:attr="for=${field.labelFor}">

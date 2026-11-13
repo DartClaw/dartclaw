@@ -13,11 +13,11 @@
 
   <tl:block tl:utext="${pageHeaderHtml}"></tl:block>
 
-  <div tl:if="${hasProjects}">
+  <div tl:if="${hasProjects}" class="project-list">
     <div tl:each="project : ${projects}" class="card"
          tl:attr="data-project-id=${project.id}">
       <div class="card-header">
-        <div>
+        <div class="project-title">
           <strong class="t-heading" tl:text="${project.name}">Project Name</strong>
           <span class="status-badge" tl:classappend="${project.statusBadgeClass}"
                 tl:text="${project.statusLabel}">Ready</span>

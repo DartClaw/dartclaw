@@ -260,6 +260,10 @@
   flex-shrink: 0;
 }
 
+/* A button already spaces its children with a 4px flex gap, so the glyph's own
+   8px would put it 12px from the label. */
+.btn[data-icon]::before { margin-right: var(--sp-1, 4px); }
+
 
 /* ----------------------------------------------------------------
    3. ICON CLASS MAPPINGS (.icon-*)

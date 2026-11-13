@@ -821,12 +821,12 @@ Card sub-elements:
 
 | Class | Use |
 |---|---|
-| `.card-header` | Title on the `heading-md` tier with `1px` border-bottom. Flex row with gap. |
+| `.card-header` | Title on the `heading-md` tier with `1px` border-bottom. Flex row with gap. As a card's last child it drops the border and its spacing, so a header-only card does not end on an empty band. |
 | `.card-header--sm` | Dense variant of `.card-header` at `body-md` / 600, for list rows and stacked cards. |
 | `.card-header-gradient` | Bold title with accent gradient underline. Higher emphasis. |
 | `.card-header-actions` | Trailing slot inside `.card-header`; pushes buttons to the right edge. Claims free space only — the title baseline and the header's `border-bottom` are untouched, and a header without the slot renders exactly as before. |
 | `.card-body` | Content area. `body-md`, `fg-sub1`. |
-| `.card-footer` | Metadata row. `caption`, `fg-sub0`. Flex row with gap. |
+| `.card-footer` | Metadata row. `caption`, `fg-sub0`. Flex row with gap; wraps, so a narrow card stacks its metadata instead of overflowing. |
 
 ### Status indicators
 

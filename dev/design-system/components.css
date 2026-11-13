@@ -1227,6 +1227,9 @@ code, pre, kbd, samp { font-family: var(--font-mono); }
   gap: var(--sp-2);
 }
 .card-title { font: inherit; }
+/* A header with nothing under it divides nothing: drop the rule and its
+   spacing so a header-only card does not end on an empty band. */
+.card-header:last-child { padding-bottom: 0; margin-bottom: 0; border-bottom: none; }
 
 /* Trailing actions slot. The header is already a centred flex row, so the slot
    only has to claim the free space — it must not touch the header's own box, or
@@ -1276,6 +1279,7 @@ code, pre, kbd, samp { font-family: var(--font-mono); }
   margin-top: var(--sp-3);
   border-top: 1px solid color-mix(in oklab, var(--bg-surface0) 50%, transparent);
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--sp-2);
 }

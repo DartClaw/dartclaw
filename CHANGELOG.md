@@ -39,6 +39,7 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 - A guard added with `DartclawServer.registerGuard` now survives a `security.*` hot reload; before, the rebuild dropped it.
 - The `dartclaw serve` startup banner lists Slack among the enabled channels.
 - The HTTP request log no longer records the gateway token from a `?token=` sign-in URL or the signed `?t=` knowledge-source link; both are logged as `REDACTED`, as the webhook `secret` already was.
+- Web UI layout: sidebar chat rows no longer show a lone grey square above the title (line 1 carries provider and model), and a sidebar project lines up with the rows under it. Dashboard section headings sit 12px above the block they label instead of nearer the one before it. The Memory corpus card, the Projects cards (no gap between cards, metadata overflowing at phone width), the Session info cost rows, Settings field groups, the archived-conversation notice and the phone chat topbar are laid out consistently. At phone width a Scheduling table row keeps its three actions on one line and the table scrolls sideways, instead of stacking them into a 165px row. A project mark, channel mark, status dot or `SYSTEM` badge no longer sits on a line of its own above the text it belongs to.
 - The `governance.admin_senders` description no longer claims admins are exempt from the token budget; they are exempt from per-sender rate limits and queue caps only.
 
 ## [0.28.0] - 2026-11-09

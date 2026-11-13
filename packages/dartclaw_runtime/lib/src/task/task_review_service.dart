@@ -441,10 +441,6 @@ class TaskReviewService {
           await _persistPrArtifact(taskId, 'Pull Request', ArtifactKind.pr, url, isFilePath: false);
           return null;
 
-        case PrGhNotFound(:final instructions):
-          await _persistPrArtifact(taskId, 'PR Instructions', ArtifactKind.pr, instructions, isFilePath: true);
-          return null;
-
         case PrCreationFailed(:final error, :final details):
           final content = 'PR creation failed: $error\n$details';
           await _persistPrArtifact(taskId, 'PR Creation Error', ArtifactKind.pr, content, isFilePath: true);

@@ -78,8 +78,13 @@ class ChannelWiring {
   String? _webhookSecret;
   ChannelManager? _fallbackDeliveryChannelManager;
   List<ChannelGroupConfig>? _channelGroupConfigs;
+  ScopeReconciler? _scopeReconciler;
 
   ChannelManager? get channelManager => _channelManager;
+
+  /// Applies live `sessions.dm_scope`/`group_scope` changes to the scope [channelManager] derives keys from.
+  /// Null until [wire] runs.
+  ScopeReconciler? get scopeReconciler => _scopeReconciler;
   WhatsAppChannel? get whatsAppChannel => _whatsAppChannel;
   SignalChannel? get signalChannel => _signalChannel;
   SlackChannel? get slackChannel => _slackChannel;
@@ -156,9 +161,10 @@ class ChannelWiring {
     final slackEnabled = slackConfig.enabled;
 
     final liveScopeConfig = LiveScopeConfig(config.sessions.scopeConfig);
+    _scopeReconciler = ScopeReconciler(liveScopeConfig: liveScopeConfig)..subscribe(_eventBus);
 
     // The one row lookup, built before the channel manager so the session-key
-    // derivation and both dispatch sites consume the same rows.
+    // derivation and the queue dispatcher consume the same rows.
     final rows = GroupConfigResolver.fromChannelEntries(
       {
         ChannelType.whatsapp: whatsAppConfig.groupAllowlist,
@@ -410,15 +416,6 @@ class ChannelWiring {
           slashCommandHandler: slashCommandHandler,
           deduplicator: deduplicator,
           subscriptionManager: subscriptionManager,
-          dispatchMessage: (message) => dispatchInboundChannelMessage(
-            channelManager: activeChannelManager,
-            sessions: sessions,
-            messages: messages,
-            turnManagerGetter: () => serverRefGetter().turns,
-            config: config,
-            message: message,
-            agentBinder: _agentBinder,
-          ),
         );
 
         // Phase 2: Create PubSubClient + full space events wiring.
@@ -686,44 +683,6 @@ class ChannelWiring {
                 QueueResult.queued
           : null,
       pausedByName: pauseController != null ? () => pauseController.pausedBy ?? 'admin' : null,
-    );
-  }
-
-  /// The direct inbound route, used by Google Chat's webhook; the queue route builds the same provenance from the
-  /// dispatcher arguments [MessageQueue] derives from the same message.
-  @visibleForTesting
-  static Future<String> dispatchInboundChannelMessage({
-    required ChannelManager channelManager,
-    required SessionService sessions,
-    required MessageService messages,
-    required TurnManager Function() turnManagerGetter,
-    required DartclawConfig config,
-    required ChannelMessage message,
-    ChannelAgentBinder? agentBinder,
-  }) {
-    final sessionKey = channelManager.deriveSessionKey(message);
-    final row = channelManager.resolveRow(message);
-    final overrides = resolveChannelTurnOverrides(sessionKey: sessionKey, config: config, row: row);
-    return dispatchChannelTurn(
-      sessions: sessions,
-      messages: messages,
-      turnManagerGetter: turnManagerGetter,
-      sessionKey: sessionKey,
-      message: message.text,
-      channelType: message.channelType,
-      senderJid: message.senderJid,
-      senderDisplayName: message.senderDisplayName,
-      groupJid: message.groupJid,
-      provenance: TurnProvenance.channel(
-        channelType: message.channelType,
-        recipientId: resolveRecipientId(message),
-        threadId: channelManager.threadedNotificationsFor(message.channelType.name)?.extractThread(message.metadata),
-        sessionKey: sessionKey,
-        senderId: message.senderJid,
-      ),
-      model: overrides.model,
-      effort: overrides.effort,
-      binding: agentBinder?.bind(row),
     );
   }
 }

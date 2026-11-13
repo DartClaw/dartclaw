@@ -248,7 +248,7 @@ void main() {
         defaultProjectId: 'workflow-testing',
       );
       final pushService = _FakeRemotePushService(const PushSuccess());
-      final prCreator = _FakePrCreator(const PrGhNotFound('Create the PR manually.'));
+      final prCreator = _FakePrCreator(const PrCreated('https://github.com/acme/workflow-testing/pull/42'));
 
       final result = await publish(
         projectService: projectService,
@@ -256,7 +256,7 @@ void main() {
         prCreator: prCreator,
       );
 
-      expect(result.status, WorkflowPublishStatus.manual);
+      expect(result.status, WorkflowPublishStatus.success);
       expect(pushService.callCount, 1);
       final status = await _git(projectPath, ['status', '--porcelain', '--untracked-files=all']);
       expect((status.stdout as String).trim(), isEmpty);
@@ -264,31 +264,6 @@ void main() {
       expect((log.stdout as String).trim(), 'workflow: prepare publish');
       final tree = await _git(projectPath, ['ls-tree', '-r', '--name-only', 'dartclaw/workflow/run123']);
       expect((tree.stdout as String).split('\n'), contains('notes/summary.md'));
-    });
-
-    test('manual PR fallback returns manual status and persists only the branch artifact', () async {
-      await putWorkflowTask('task-1', 'run-123', DateTime.parse('2026-04-15T10:01:00Z'));
-
-      final projectService = FakeProjectService(
-        projects: [makeProject(pr: const PrConfig(strategy: PrStrategy.githubPr))],
-        includeLocalProjectInGetAll: false,
-        defaultProjectId: 'workflow-testing',
-      );
-      final pushService = _FakeRemotePushService(const PushSuccess());
-      final prCreator = _FakePrCreator(const PrGhNotFound('Create the PR manually.'));
-
-      final result = await publish(
-        projectService: projectService,
-        remotePushService: pushService,
-        prCreator: prCreator,
-      );
-
-      expect(result.status, WorkflowPublishStatus.manual);
-      expect(result.prUrl, isEmpty);
-      final artifacts = await taskService.listArtifacts('task-1');
-      expect(artifacts, hasLength(1));
-      expect(artifacts.single.kind, ArtifactKind.branch);
-      expect(artifacts.single.path, 'dartclaw/workflow/run123');
     });
 
     test('push auth failure returns failed status and does not create publish artifacts', () async {

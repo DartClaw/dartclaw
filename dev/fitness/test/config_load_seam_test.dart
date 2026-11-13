@@ -6,8 +6,8 @@
 //   `loadDartclawConfig` seam in dartclaw_runtime.
 //
 // Why:
-//   Channel sections (`channels.google_chat`, `.signal`, `.whatsapp`) are parsed
-//   outside `dartclaw_kernel` — the three channel packages depend on it, so a
+//   Channel sections (`channels.google_chat`, `.signal`, `.slack`, `.whatsapp`) are
+//   parsed outside `dartclaw_kernel` — the four channel packages depend on it, so a
 //   switch there would invert ADR-034. `load()` therefore cannot prime them, and
 //   a config obtained straight from `load()` carries none of their parse
 //   warnings: they vanish from `config.warnings` (so `status`/`serve`/`cleanup`/

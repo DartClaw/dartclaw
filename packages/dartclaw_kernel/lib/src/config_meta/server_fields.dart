@@ -7,14 +7,16 @@ const Map<String, FieldMeta> _serverFields = {
     jsonKey: 'workspace.gitSync.enabled',
     type: ConfigFieldType.bool_,
     mutability: ConfigMutability.live,
-    description: 'Commit workspace changes to the local repository on the git-sync schedule. Off by default.',
+    description: 'Commit workspace changes to the local repository on the git-sync schedule. On by default.',
   ),
   'workspace.git_sync.push_enabled': FieldMeta(
     yamlPath: 'workspace.git_sync.push_enabled',
     jsonKey: 'workspace.gitSync.pushEnabled',
     type: ConfigFieldType.bool_,
     mutability: ConfigMutability.live,
-    description: 'Also push those commits to the configured remote. Ignored while git sync itself is off.',
+    description:
+        'Also push those commits to the workspace origin remote, when one exists. On by default; ignored while git sync '
+        'itself is off.',
   ),
   'workspace.git_sync.interval_minutes': FieldMeta(
     yamlPath: 'workspace.git_sync.interval_minutes',

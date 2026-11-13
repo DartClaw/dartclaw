@@ -124,7 +124,6 @@ AlertClassification? classifyAlert(DartclawEvent event) {
     TurnWaitStateChangedEvent() => null,
     SessionCreatedEvent() => null,
     SessionEndedEvent() => null,
-    SessionErrorEvent() => null,
     CompactionStartingEvent() => null,
     WorkflowRunStatusChangedEvent() => null,
     WorkflowStepCompletedEvent() => null,

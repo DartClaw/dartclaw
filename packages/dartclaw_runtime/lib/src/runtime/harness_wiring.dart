@@ -855,6 +855,7 @@ class HarnessWiring {
       kv: _storage.kvService,
       budgetWarningTokens: config.usage.budgetWarningTokens,
       maxFileSizeBytes: config.usage.maxFileSizeBytes,
+      timezone: config.governance.budget.timezone,
     );
 
     final primaryHarness = _harness;

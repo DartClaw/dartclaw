@@ -323,16 +323,18 @@ void registerServerSystemPages(
 
 // ---- Logger -----------------------------------------------------------------
 
-/// Redacts sensitive query parameters (e.g. `secret`) from request log lines.
+/// Redacts bearer secrets carried in query strings from request log lines.
 ///
-/// Shelf's default `logRequests()` logs the full URI including query strings,
-/// which would expose webhook secrets in plaintext. This logger strips the
-/// `secret` parameter value before logging. Output goes through the standard
-/// [Logger] so it gets colorized level/name and structured formatting.
+/// Shelf's `logRequests()` logs the full URI including the query string. The
+/// redacted parameters are the WhatsApp webhook `secret`, the gateway `token`
+/// (`?token=` bootstrap URL the startup banner prints) and the signed
+/// knowledge-source link `t`. Output goes through the standard [Logger] so it
+/// gets colorized level/name and structured formatting.
 final _httpLog = Logger('HTTP');
+final _secretQueryParameter = RegExp(r'([?&])(secret|token|t)=[^&\s]*');
 
 void _sanitizedLogger(String msg, bool isError) {
-  final sanitized = msg.replaceAll(RegExp(r'([?&])secret=[^&\s]*'), r'$1secret=REDACTED');
+  final sanitized = msg.replaceAllMapped(_secretQueryParameter, (m) => '${m[1]}${m[2]}=REDACTED');
   if (isError) {
     _httpLog.severe(sanitized);
   } else {

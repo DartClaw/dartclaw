@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:dartclaw_core/dartclaw_core.dart' show secureWriteFileSync;
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
@@ -105,9 +106,8 @@ Map<String, String> _buildLegacyAskPassEnv(
   final scriptPath = p.join(dataDir, 'projects', '.git-askpass-$credRef');
   try {
     Directory(p.dirname(scriptPath)).createSync(recursive: true);
-    File(keyFilePath).writeAsStringSync(apiKey);
-    File(scriptPath).writeAsStringSync('#!/bin/sh\ncat \'$keyFilePath\'\n');
-    Process.runSync('chmod', ['+x', scriptPath]);
+    secureWriteFileSync(File(keyFilePath), apiKey);
+    _writeOwnerOnlyScript(scriptPath, '#!/bin/sh\ncat \'$keyFilePath\'\n');
     for (final path in [scriptPath, keyFilePath]) {
       if (!tempFiles.contains(path)) tempFiles.add(path);
     }
@@ -128,8 +128,9 @@ Map<String, String> _buildGitHubTokenEnv(
   final scriptPath = p.join(dataDir, 'projects', '.git-askpass-$credRef');
   try {
     Directory(p.dirname(scriptPath)).createSync(recursive: true);
-    File(tokenFilePath).writeAsStringSync(token);
-    File(scriptPath).writeAsStringSync(
+    secureWriteFileSync(File(tokenFilePath), token);
+    _writeOwnerOnlyScript(
+      scriptPath,
       [
         '#!/bin/sh',
         'case "\$1" in',
@@ -139,7 +140,6 @@ Map<String, String> _buildGitHubTokenEnv(
         '',
       ].join('\n'),
     );
-    Process.runSync('chmod', ['+x', scriptPath]);
     for (final path in [scriptPath, tokenFilePath]) {
       if (!tempFiles.contains(path)) tempFiles.add(path);
     }
@@ -148,4 +148,9 @@ Map<String, String> _buildGitHubTokenEnv(
     _log.warning('Failed to create GitHub askpass script: $e — using default git auth');
     return const {};
   }
+}
+
+void _writeOwnerOnlyScript(String path, String contents) {
+  secureWriteFileSync(File(path), contents);
+  Process.runSync('chmod', ['u+x', path]);
 }

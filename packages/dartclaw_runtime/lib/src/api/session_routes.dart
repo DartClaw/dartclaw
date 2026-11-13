@@ -43,8 +43,7 @@ final _log = Logger('SessionRoutes');
 Router sessionRoutes(
   SessionService sessions,
   MessageService messages,
-  TurnManager turns,
-  AgentHarness worker, {
+  TurnManager turns, {
   SessionResetService? resetService,
   MessageRedactor? redactor,
   ProjectService? projectService,
@@ -306,7 +305,6 @@ Router sessionRoutes(
     sessions: sessions,
     messages: messages,
     turns: turns,
-    worker: worker,
     redactor: redactor,
     projectService: projectService,
     sessionMutations: sessionMutations,

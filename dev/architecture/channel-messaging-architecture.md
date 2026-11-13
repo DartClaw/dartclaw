@@ -258,8 +258,6 @@ The queue's dispatcher (built in `ChannelWiring._buildChannelManager`) resolves 
 
 Model and effort resolve per turn (`runtime/model_resolver.dart`): allowlist row, then `sessions.channels.<channel>`, then `sessions.*`, then `governance.crowd_coding` (group sessions only), then the harness default. `TurnProvenance.channel(...)` records channel, recipient, thread, session key and sender; tasks, scheduled work, workflows and logical-agent turns use non-conversational scopes and never receive `isHumanInput`.
 
-Google Chat's webhook handler can also dispatch directly (`dispatchInboundChannelMessage`), but only when constructed without a `ChannelManager`; `ChannelWiring` always passes one, so a served runtime always goes through §3.
-
 ---
 
 ## 8. Outbound Pipeline

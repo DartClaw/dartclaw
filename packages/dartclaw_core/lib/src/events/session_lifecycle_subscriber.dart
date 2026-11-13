@@ -8,7 +8,7 @@ import 'event_bus.dart';
 /// Logs session lifecycle events at INFO level.
 ///
 /// Subscribes to [SessionLifecycleEvent] (sealed parent of
-/// [SessionCreatedEvent], [SessionEndedEvent], [SessionErrorEvent])
+/// [SessionCreatedEvent], [SessionEndedEvent])
 /// and emits structured log lines for each.
 class SessionLifecycleSubscriber {
   static final _log = Logger('SessionLifecycle');
@@ -28,8 +28,6 @@ class SessionLifecycleSubscriber {
             'Session ended: ${event.sessionId} '
             '(type: ${event.sessionType})',
           );
-        case SessionErrorEvent():
-          _log.warning('Session error: ${event.sessionId} — ${event.error}');
       }
     });
   }

@@ -26,7 +26,7 @@ void main() {
       sessions,
       messages,
       turns,
-      worker,
+
       defaultProvider: 'codex',
       temporaryConversationCapability: const TemporaryConversationCapability(
         providerId: 'codex',

@@ -154,7 +154,7 @@ Sources: `packages/dartclaw_kernel/lib/src/guard_audit.dart`, `packages/dartclaw
 After each completed turn `TurnRunner` calls `UsageTracker.record(UsageEvent)` unawaited. Each of its four steps (append, aggregate, rotate, budget log) is independently guarded, so one failure skips only that step.
 
 - **`usage.jsonl`** in the data dir: one line per turn (`timestamp`, `session_id`, `agent_name`, token counts, `token_usage_complete`, `duration_ms`). Past `usage.max_file_size_bytes` (10 MB) it is renamed to `usage.jsonl.1`, replacing any earlier backup.
-- **Daily KV aggregate** `usage_daily:YYYY-MM-DD`: `total_input_tokens`, `total_output_tokens`, `token_usage_complete` (true only while every turn was fully measured), `by_agent` (`input`, `output`, `turns`), and `budget_warning_posted_at` once `BudgetEnforcer` has posted its warning. The date is the server-local date of the event.
+- **Daily KV aggregate** `usage_daily:YYYY-MM-DD`: `total_input_tokens`, `total_output_tokens`, `token_usage_complete` (true only while every turn was fully measured), `by_agent` (`input`, `output`, `turns`), and `budget_warning_posted_at` once `BudgetEnforcer` has posted its warning. The date is the event's date in `governance.budget.timezone` (default UTC): `UsageTracker.dailyKeyFor` is the one day boundary, used by the writer and by `BudgetEnforcer`.
 - **`agent_name`** is the turn's agent: `main`, a logical or channel agent ID, `task`, or `cron:<jobId>` (the heartbeat is the job `heartbeat`, so `cron:heartbeat`).
 - **`usage.budget_warning_tokens`** (default unset) only logs a warning on every record once the daily total crosses it. It is unrelated to the governance budget, which is `governance.budget.daily_tokens` (§11).
 
@@ -175,7 +175,7 @@ Budget layering (daily `governance.budget.daily_tokens`, per-task `tasks.budget.
 
 ### Turn traces and retrieval diagnostics
 
-Each turn also produces a `TurnTrace` persisted by `TurnTraceService` (PostgreSQL `turns` table, or the file execution store for standalone runs) and served by `GET /api/traces` and `GET /api/traces/<id>` (limit capped at 500). Schema, the bounded `tool_calls` envelope and memory-search `sourceLocators` are in [Data Model & Persistence](data-model.md); the model and query surface in [Task & Execution Architecture](task-execution-architecture.md) § 8 (Turn Traces).
+Each turn also produces a `TurnTrace` persisted by `TurnTraceService` (PostgreSQL `turns` table, or the file execution store for standalone runs) and served by `GET /api/traces` and `GET /api/traces/<id>` (limit capped at 500). The summary is summed in Dart over the filtered rows, so no engine-specific SQL is involved; the contract suite runs it on PostgreSQL. Schema, the bounded `tool_calls` envelope and memory-search `sourceLocators` are in [Data Model & Persistence](data-model.md); the model and query surface in [Task & Execution Architecture](task-execution-architecture.md) § 8 (Turn Traces).
 
 `POST /api/search/inspect` (`dartclaw search inspect`) returns result identity plus ranking evidence for the `memory` or `conversation` corpus: per candidate the one-based keyword and vector ranks, the weighted-RRF contributions (keyword 0.25, vector 0.75) and their fused sum, plus the corpus's unembedded count and any fallback or stale-vector degradations. Snippets are capped at 240 Unicode scalars. If diagnostics are unavailable (no evidence, unknown unembedded count, memory index not current) it answers `503 SEARCH_INSPECTION_UNAVAILABLE` with no hits. Responses carry no raw query, document body, vector, credential or provider error text. Code: `api/search_inspection_routes.dart`, `packages/dartclaw_search/lib/src/hybrid_search.dart`.
 
@@ -243,7 +243,7 @@ The first frame is `connected` with the review count, active tasks, runners plus
 
 ### Chat stream
 
-`sseStreamResponse` streams one turn: `delta`, `tool_use` and `tool_result` as HTML fragments (redacted and escaped), terminated by `done`, with `turn_error` or `turn_cancelled` before it. A turn that settled before the client connected replays its terminal frames from `TurnManager.recentOutcome`; an unknown turn is `404 TURN_NOT_FOUND`. The stream is transient: durable messages and `ConversationState` are the recovery authority, and clients answer `conversation_changed` (session ID plus revision) by refetching the snapshot instead of rebuilding state from events. Effective-context telemetry records its source and freshness when the adapter provides them; absence stays null. The attention feed derives from durable completion, failure and input-request records, and action availability is recomputed from the live request and owning turn, never from read or dismiss state (see [Session & State Architecture](session-state-architecture.md)).
+`sseStreamResponse` streams one turn from the harness running it (`TurnManager.harnessForTurn`), on the primary or a worker lane: `delta`, `tool_use` and `tool_result` as HTML fragments (redacted and escaped), terminated by `done`, with `turn_error` or `turn_cancelled` before it. A turn that settled before the client connected replays its terminal frames from `TurnManager.recentOutcome`; an unknown turn is `404 TURN_NOT_FOUND`. The stream is transient: durable messages and `ConversationState` are the recovery authority, and clients answer `conversation_changed` (session ID plus revision) by refetching the snapshot instead of rebuilding state from events. Effective-context telemetry records its source and freshness when the adapter provides them; absence stays null. The attention feed derives from durable completion, failure and input-request records, and action availability is recomputed from the live request and owning turn, never from read or dismiss state (see [Session & State Architecture](session-state-architecture.md)).
 
 ### Runner and capacity observability
 
@@ -357,7 +357,7 @@ Loop mechanisms: `turnChainDepth`, `tokenVelocity`, `toolFingerprint` (`dartclaw
 
 ### Daily budget outcomes
 
-`BudgetEnforcer` is the daily scope over the shared `BudgetEngine`. The warn-once marker is `budget_warning_posted_at` in the day's `usage_daily:` aggregate, so it survives restarts. "Today" follows `governance.budget.timezone`.
+`BudgetEnforcer` is the daily scope over the shared `BudgetEngine`. The warn-once marker is `budget_warning_posted_at` in the day's `usage_daily:` aggregate, so it survives restarts. "Today" is `UsageTracker.dailyKeyFor`'s day, which follows `governance.budget.timezone`, so the budget reads the aggregate the usage was written to.
 
 | Consumption | Outcome | Effect |
 |-------------|---------|--------|

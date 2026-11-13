@@ -49,7 +49,7 @@ void main() {
             sessions,
             messages,
             turns,
-            worker,
+
             defaultProvider: 'codex',
             temporaryConversationCapability: _temporaryCapability,
             ownerWorkspaceDir: sessions.baseDir,
@@ -82,7 +82,7 @@ void main() {
           sessions,
           messages,
           turns,
-          worker,
+
           defaultProvider: 'codex',
           temporaryConversationCapability: _temporaryCapability,
           ownerWorkspaceDir: sessions.baseDir,
@@ -121,9 +121,7 @@ void main() {
     final worker = FakeAgentHarness();
     final turns = FakeTurnManager(messages, worker);
     final unavailable = ApiRouteTestClient(
-      localAdminMiddleware()(
-        sessionRoutes(sessions, messages, turns, worker, ownerWorkspaceDir: sessions.baseDir).call,
-      ),
+      localAdminMiddleware()(sessionRoutes(sessions, messages, turns, ownerWorkspaceDir: sessions.baseDir).call),
     );
     expect(
       await unavailable.expectJsonErrorCode(
@@ -142,7 +140,7 @@ void main() {
         sessions,
         messages,
         turns,
-        worker,
+
         defaultProvider: 'codex',
         temporaryConversationCapability: const TemporaryConversationCapability(
           providerId: 'codex',
@@ -185,7 +183,7 @@ void main() {
         sessions,
         messages,
         turns,
-        worker,
+
         defaultProvider: 'codex',
         temporaryConversationCapability: _temporaryCapability,
         processAttachmentOwner: processAttachments,

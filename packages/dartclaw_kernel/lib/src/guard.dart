@@ -101,6 +101,8 @@ class GuardChain {
   static final _log = Logger('GuardChain');
 
   List<Guard> _guards;
+  // Guards from [addGuard]; kept apart so a [replaceGuards] rebuild from config cannot drop them.
+  List<Guard> _added = const [];
   final GuardChain? _base;
 
   /// Guards evaluated in declaration order for every check.
@@ -108,7 +110,9 @@ class GuardChain {
   /// For a [GuardChain.layered] chain this includes the base chain's current
   /// guards followed by this chain's own. Returns an unmodifiable view; use
   /// [replaceGuards] to swap the list.
-  List<Guard> get guards => List.unmodifiable([...?_base?._guards, ..._guards]);
+  List<Guard> get guards => List.unmodifiable([...?_base?._own, ..._own]);
+
+  List<Guard> get _own => _added.isEmpty ? _guards : [..._guards, ..._added];
 
   /// Optional callback invoked for non-pass verdicts.
   final GuardVerdictCallback? onVerdict;
@@ -132,8 +136,9 @@ class GuardChain {
       onVerdict = base?.onVerdict,
       failOpen = base?.failOpen ?? false;
 
-  /// Atomically replaces the guard list.
+  /// Atomically replaces the guards this chain was built with (guard hot-reload).
   ///
+  /// Guards appended with [addGuard] are kept and still run after [newGuards].
   /// In-progress evaluations that have already captured the old list reference
   /// complete without interruption; subsequent evaluations use [newGuards].
   void replaceGuards(List<Guard> newGuards) {
@@ -143,11 +148,11 @@ class GuardChain {
 
   /// Appends [guard] after all existing guards.
   ///
-  /// Added guards are evaluated in the order they are registered and always
-  /// run after the guards already present.
+  /// Added guards are evaluated in the order they are registered, always run
+  /// after the guards the chain was built with, and survive [replaceGuards].
   void addGuard(Guard guard) {
-    _guards = [..._guards, guard];
-    _log.info('Added guard ${guard.name} (${guard.category}) at position ${_guards.length}');
+    _added = [..._added, guard];
+    _log.info('Added guard ${guard.name} (${guard.category}) at position ${_guards.length + _added.length}');
   }
 
   /// Evaluates all guards for a 'beforeToolCall' hook point.
@@ -199,8 +204,8 @@ class GuardChain {
     GuardVerdict result = GuardVerdict.pass();
     // Capture the current list references so a concurrent replaceGuards() call
     // does not affect an in-progress evaluation.
-    final baseGuards = _base?._guards;
-    final currentGuards = baseGuards == null ? _guards : [...baseGuards, ..._guards];
+    final baseGuards = _base?._own;
+    final currentGuards = baseGuards == null ? _own : [...baseGuards, ..._own];
 
     for (final guard in currentGuards) {
       GuardVerdict verdict;

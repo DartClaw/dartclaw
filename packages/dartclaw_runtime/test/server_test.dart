@@ -10,6 +10,7 @@ import 'package:dartclaw_runtime/src/turn_runner.dart' show TurnRunner;
 import 'package:dartclaw_testing/dartclaw_testing.dart'
     show FakeProjectService, InMemoryTaskRepository, RecordingGitRunner, openPreparedTaskBackend;
 import 'package:dartclaw_workflow/testing.dart';
+import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart' show Request, Response;
 import 'package:test/test.dart';
@@ -212,6 +213,36 @@ void main() {
     expect(body, contains('href="/"'));
   });
 
+  test('session reset reaches the reset service the server was composed with', () async {
+    final resetServer = composeServer(
+      core: ServerCoreDeps(
+        sessions: sessions,
+        messages: messages,
+        worker: worker,
+        staticDir: _staticDirPath,
+        resetService: SessionResetService(sessions: sessions, messages: messages, resetHour: -1),
+      ),
+      turn: ServerTurnDeps(
+        turns: composeServerTurns(
+          sessions: sessions,
+          messages: messages,
+          worker: worker,
+          behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'),
+        ),
+      ),
+    );
+    addTearDown(resetServer.shutdown);
+    final session = await sessions.createSession();
+    await messages.insertMessage(sessionId: session.id, role: 'user', content: 'before reset');
+
+    final response = await resetServer.handler(
+      Request('POST', Uri.parse('http://localhost/api/sessions/${session.id}/reset')),
+    );
+
+    expect(response.statusCode, 200, reason: await response.readAsString());
+    expect(await messages.getMessages(session.id), isEmpty);
+  });
+
   test('workflow-enabled server sends slash-prefixed text through the normal turn path', () async {
     final sessionDataDir = p.join(tempDir.path, 'slash-data');
     final localSessions = SessionService(baseDir: sessionDataDir);
@@ -324,6 +355,42 @@ void main() {
 
       expect(response.statusCode, 403);
     });
+  });
+
+  test('the request log redacts bearer secrets carried in the query string', () async {
+    final config = DartclawConfig(
+      server: ServerConfig(host: 'localhost', dataDir: tempDir.path),
+    );
+    server = composeServer(
+      core: ServerCoreDeps(
+        sessions: sessions,
+        messages: messages,
+        worker: worker,
+        staticDir: _staticDirPath,
+        authEnabled: false,
+        config: config,
+      ),
+      turn: ServerTurnDeps(
+        turns: composeServerTurns(
+          sessions: sessions,
+          messages: messages,
+          worker: worker,
+          behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'),
+          config: config,
+        ),
+      ),
+    );
+    final logged = <String>[];
+    final sub = Logger('HTTP').onRecord.listen((record) => logged.add(record.message));
+    addTearDown(sub.cancel);
+
+    for (final query in ['token=gw-secret&view=1', 't=link-secret', 'secret=hook-secret']) {
+      await server.handler(Request('GET', Uri.parse('http://localhost/health?$query'), headers: {'host': 'localhost'}));
+    }
+
+    final log = logged.join('\n');
+    expect(log, isNot(anyOf(contains('gw-secret'), contains('link-secret'), contains('hook-secret'))));
+    expect(log, allOf(contains('token=REDACTED&view=1'), contains('t=REDACTED'), contains('secret=REDACTED')));
   });
 
   test('authentication-disabled run-now rejects cross-origin browser requests', () async {

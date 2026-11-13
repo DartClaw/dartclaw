@@ -1558,7 +1558,7 @@
       "additionalProperties": false,
       "properties": {
         "admin_senders": {
-          "description": "Sender IDs exempt from rate limits and budget blocks; may write shared knowledge, resolve workflow run approvals and accept or reject tasks from a Google Chat review card. An empty list makes every sender an admin, so in a group channel every member. (restart required)",
+          "description": "Sender IDs exempt from per-sender rate limits and queue caps (not the token budget); may write shared knowledge, resolve workflow run approvals and accept or reject tasks from a Google Chat review card. An empty list makes every sender an admin, so in a group channel every member. (restart required)",
           "items": {
             "type": "string"
           },
@@ -3129,7 +3129,7 @@
               "type": "string"
             },
             "stale_timeout_hours": {
-              "description": "Hours an idle task worktree survives before cleanup removes it. (restart required)",
+              "description": "Age in hours past which startup removes a task worktree whose task is missing or finished. Worktrees of active tasks are kept. (restart required)",
               "maximum": 168,
               "minimum": 1,
               "type": "integer"
@@ -3411,7 +3411,7 @@
           "additionalProperties": false,
           "properties": {
             "enabled": {
-              "description": "Commit workspace changes to the local repository on the git-sync schedule. Off by default. (live)",
+              "description": "Commit workspace changes to the local repository on the git-sync schedule. On by default. (live)",
               "type": "boolean"
             },
             "interval_minutes": {
@@ -3421,7 +3421,7 @@
               "type": "integer"
             },
             "push_enabled": {
-              "description": "Also push those commits to the configured remote. Ignored while git sync itself is off. (live)",
+              "description": "Also push those commits to the workspace origin remote, when one exists. On by default; ignored while git sync itself is off. (live)",
               "type": "boolean"
             }
           },

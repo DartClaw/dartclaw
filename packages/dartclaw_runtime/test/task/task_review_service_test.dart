@@ -644,41 +644,6 @@ void main() {
       );
     });
 
-    test('gh not found → push succeeds, warning artifact, task accepted', () async {
-      final tempDir = await Directory.systemTemp.createTemp('dartclaw_proj_review_');
-      addTearDown(() async {
-        if (await tempDir.exists()) await tempDir.delete(recursive: true);
-      });
-
-      await _putProjectTaskInReview(tasks, 'task-gh');
-
-      final projectService = _projectService(
-        project: _makeProject(
-          id: 'my-app',
-          pr: const PrConfig(strategy: PrStrategy.githubPr),
-        ),
-      );
-      final pushService = FakeRemotePushService(result: const PushSuccess());
-      final prCreator = FakePrCreator(result: const PrGhNotFound('gh not found. Create PR manually.'));
-      final gitRunner = _cleanBranchDiffGitRunner();
-      final service = TaskReviewService(
-        tasks: tasks,
-        remotePushService: pushService,
-        prCreator: prCreator,
-        projectService: projectService,
-        dataDir: tempDir.path,
-        processRunner: gitRunner.run,
-      );
-
-      final result = await service.review('task-gh', 'accept');
-
-      expect(result, const TypeMatcher<ReviewSuccess>());
-      expect((await tasks.get('task-gh'))!.status, TaskStatus.accepted);
-      final artifacts = await tasks.listArtifacts('task-gh');
-      final prArtifact = artifacts.firstWhere((a) => a.kind == ArtifactKind.pr);
-      expect(prArtifact.name, 'PR Instructions');
-    });
-
     test('PR creation failure keeps task in review and preserves the worktree', () async {
       final tempDir = await Directory.systemTemp.createTemp('dartclaw_proj_review_');
       addTearDown(() async {

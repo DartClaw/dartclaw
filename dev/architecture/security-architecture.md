@@ -98,7 +98,7 @@ Provider branching is confined to protocol adapters and composition. Security, s
 
 `SecurityWiring` implements `Reconfigurable` (`watchKeys: security.*`, which covers the `guards:` YAML section). A reload rebuilds the base list from `delta.current.security` and swaps it atomically with `replaceGuards`. A failed rebuild logs and keeps the existing chain; a failed build at startup exits. `guards.enabled` turning false needs a restart. `MessageRedactor` reloads through a small `logging.*` adapter.
 
-Caveat: `replaceGuards` replaces the whole base list, so guards added by `registerGuard` do not survive a reload.
+`replaceGuards` replaces only the config-built guards; guards added by `registerGuard` (`GuardChain.addGuard`) are kept and still run after them.
 
 **Source**: `packages/dartclaw_runtime/lib/src/security/guard_builder.dart`, `packages/dartclaw_runtime/lib/src/runtime/harness_wiring_guards.dart`, `packages/dartclaw_runtime/lib/src/server_composition.dart`
 
@@ -404,7 +404,7 @@ Use two PostgreSQL roles: an administrator provisions the database, runtime role
 | HTTPS (GitHub token) | Remote rewritten to canonical HTTPS; `GIT_ASKPASS` script answers `x-access-token` and the token |
 | HTTPS (other) | `GIT_ASKPASS` script that prints the secret |
 
-Known limitation: the askpass scripts read the secret from a helper file in `<data_dir>/projects/` (`.git-askpass-<ref>.key|.token`) written with the process's default permissions. The project service and push service delete these files at `dispose()` (shutdown), the workflow git port after each operation. Protect the data directory accordingly.
+The askpass scripts read the secret from a helper file in `<data_dir>/projects/` (`.git-askpass-<ref>.key|.token`); the file is written mode 0600 and the script 0700 (`secureWriteFileSync`). The project service and push service delete these files at `dispose()` (shutdown), the workflow git port after each operation. Protect the data directory accordingly.
 
 **Source**: `packages/dartclaw_runtime/lib/src/task/git_credential_env.dart`, `project/project_service_impl.dart`, `task/remote_push_service.dart`
 
@@ -436,6 +436,7 @@ The pipeline is built in `Server._buildPipeline`. `auth_mode: none` installs `lo
 - **Startup banner**: when stderr is a terminal, `serve` prints `http://<host>:<port>/?token=<token>`, so the token lands in terminal scrollback and any captured session. Rotate it after sharing one.
 - **Session cookie**: `base64url({"iat": unix_ms}).base64url(HMAC-SHA256(payload, gateway token))`, 30-day TTL, `dart_session; HttpOnly; SameSite=Strict; Path=/; Max-Age=2592000` plus `Secure` when `auth.cookie_secure`. No server-side state.
 - **Failed auth**: `recordFailedAuth` fires `FailedAuthEvent` and counts on `AuthRateLimiter` (5 failures per minute per remote key by default; `auth.trusted_proxies` governs which `X-Forwarded-For` is honored). Success resets the window.
+- **Request log**: `logRequests` writes the full URI, so its logger (`_sanitizedLogger`, `server_deps.dart`) rewrites the `token` (gateway bootstrap), `t` (signed source link) and `secret` (WhatsApp webhook) query values to `REDACTED`.
 - **`auth_mode: none`** grants every request local-admin context; `originHostGuardMiddleware` then requires loopback `server.host` and `Host` for writes.
 
 **Source**: `packages/dartclaw_runtime/lib/src/auth/` (`auth_middleware.dart`, `session_token.dart`, `token_service.dart`, `auth_rate_limiter.dart`, `request_auth_context.dart`)
@@ -539,7 +540,7 @@ Webhook routes sit outside the gateway middleware (exact public paths plus the `
 
 ## Task Security
 
-`TaskFileGuard` (`task/task_file_guard.dart`) is a per-task registry, not a `Guard`: `TaskExecutor` registers the canonical worktree path when a declared worktree is created and cleanup (accept, reject, cancel) deregisters it. Its `isAllowed(taskId, path)` check (`canonicalize` plus `isWithin`, deny when unregistered) has no production caller today, so the registry enforces nothing by itself. Effective containment of a task comes from its execution directory being the worktree, provider-native writable roots where the provider honors them, container mounts, `FileGuard` for sensitive paths, and `TaskToolFilterGuard` for tool surface and read-only mode. Legacy owner profiles still mount `/projects:ro`, giving OS-level read access to every project clone; managed-workspace agents see only their workspace and admitted directory. That application-layer gap is acceptable within DartClaw's single-admin product scope, where Docker remains the primary boundary. Wiring the registry into an enforcement point, or removing it, needs an owner decision.
+`TaskFileGuard` (`task/task_file_guard.dart`) is a per-task registry, not a `Guard`: `TaskExecutor` registers the canonical worktree path when a declared worktree is created and cleanup (accept, reject, cancel) deregisters it. Its `isAllowed(taskId, path)` check (`canonicalize` plus `isWithin`, deny when unregistered) has no production caller today, so the registry enforces nothing by itself. Effective containment of a task comes from its execution directory being the worktree, provider-native writable roots where the provider honors them, container mounts, `FileGuard` for sensitive paths, and `TaskToolFilterGuard` for tool surface and read-only mode. Legacy owner profiles still mount `/projects:ro`, giving OS-level read access to every project clone; managed-workspace agents see only their workspace and admitted directory. That application-layer gap is acceptable within DartClaw's single-admin product scope, where Docker remains the primary boundary. Wiring the registry into an enforcement point, or removing it, needs an owner decision (TD-148).
 
 ---
 

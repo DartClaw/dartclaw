@@ -99,7 +99,7 @@ void main() {
     );
     expect(await messages.getMessages(sessionId), hasLength(sourceMessageCount));
 
-    final rawHandler = sessionRoutes(sessions, messages, turns, worker, ownerWorkspaceDir: sessions.baseDir).call;
+    final rawHandler = sessionRoutes(sessions, messages, turns, ownerWorkspaceDir: sessions.baseDir).call;
     final branchAdminHandler = localAdminMiddleware()(rawHandler);
     final sessionsBeforeStaleBranch = (await sessions.listSessions()).map((session) => session.id).toSet();
     final revisionBeforeStaleBranch = (await sessions.getConversationState(sessionId)).revision;
@@ -407,7 +407,7 @@ void main() {
       throwsA(isA<ConversationMutationException>().having((error) => error.code, 'code', 'UNKNOWN_REFERENCE')),
     );
 
-    final rawHandler = sessionRoutes(sessions, messages, turns, worker, ownerWorkspaceDir: sessions.baseDir).call;
+    final rawHandler = sessionRoutes(sessions, messages, turns, ownerWorkspaceDir: sessions.baseDir).call;
     final unauthorized = await rawHandler(
       Request(
         'POST',

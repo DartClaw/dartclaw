@@ -142,46 +142,38 @@ class TurnTraceService {
 
     final whereClause = where.isEmpty ? '' : ' WHERE ${where.join(' AND ')}';
 
-    // Aggregate query (full result set, no pagination).
-    final aggStmt = await _backend!.prepare(
-      'SELECT COUNT(*) as cnt, '
-      'SUM(input_tokens) as total_input, SUM(output_tokens) as total_output, '
-      'SUM(cache_read_tokens) as total_cache_read, SUM(cache_write_tokens) as total_cache_write, '
-      'SUM(CAST(strftime(\'%s\', ended_at) AS INTEGER) - CAST(strftime(\'%s\', started_at) AS INTEGER)) * 1000 as total_duration_ms '
+    // The summary covers the full filtered set, not the page. It is summed here because tool calls are stored as
+    // JSON and timestamps as ISO text, and engine SUM types differ (PostgreSQL widens BIGINT sums to NUMERIC).
+    final summaryStmt = await _backend!.prepare(
+      'SELECT input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, started_at, ended_at, tool_calls '
       'FROM turns$whereClause',
     );
-    late TurnTraceSummary summary;
+    final List<Map<String, Object?>> summaryRows;
     try {
-      final aggRows = await aggStmt.query(params);
-      final aggRow = aggRows.firstOrNull;
-      if (aggRow == null) {
-        summary = const TurnTraceSummary();
-      } else {
-        // tool_calls count requires a separate query since it's stored as JSON.
-        final toolCountStmt = await _backend.prepare('SELECT tool_calls FROM turns$whereClause');
-        int totalToolCalls = 0;
-        try {
-          final toolRows = await toolCountStmt.query(params);
-          for (final row in toolRows) {
-            final tc = row['tool_calls'] as String?;
-            if (tc != null) totalToolCalls += _decodeToolCalls(tc).count;
-          }
-        } finally {
-          await toolCountStmt.close();
-        }
-        summary = TurnTraceSummary(
-          totalInputTokens: (aggRow['total_input'] as num?)?.toInt() ?? 0,
-          totalOutputTokens: (aggRow['total_output'] as num?)?.toInt() ?? 0,
-          totalCacheReadTokens: (aggRow['total_cache_read'] as num?)?.toInt() ?? 0,
-          totalCacheWriteTokens: (aggRow['total_cache_write'] as num?)?.toInt() ?? 0,
-          totalDurationMs: (aggRow['total_duration_ms'] as num?)?.toInt() ?? 0,
-          totalToolCalls: totalToolCalls,
-          traceCount: (aggRow['cnt'] as num?)?.toInt() ?? 0,
-        );
-      }
+      summaryRows = await summaryStmt.query(params);
     } finally {
-      await aggStmt.close();
+      await summaryStmt.close();
     }
+    int sum(String column) => summaryRows.fold(0, (total, row) => total + (row[column] as int? ?? 0));
+    final summary = TurnTraceSummary(
+      totalInputTokens: sum('input_tokens'),
+      totalOutputTokens: sum('output_tokens'),
+      totalCacheReadTokens: sum('cache_read_tokens'),
+      totalCacheWriteTokens: sum('cache_write_tokens'),
+      totalDurationMs: summaryRows.fold(
+        0,
+        (total, row) =>
+            total +
+            DateTime.parse(row['ended_at'] as String)
+                .difference(DateTime.parse(row['started_at'] as String))
+                .inMilliseconds,
+      ),
+      totalToolCalls: summaryRows.fold(0, (total, row) {
+        final toolCalls = row['tool_calls'] as String?;
+        return total + (toolCalls == null ? 0 : _decodeToolCalls(toolCalls).count);
+      }),
+      traceCount: summaryRows.length,
+    );
 
     // Paginated trace query.
     final dataStmt = await _backend.prepare(

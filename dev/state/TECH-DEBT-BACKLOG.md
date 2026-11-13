@@ -9,10 +9,50 @@
 ## High
 <!-- Severity: blocks correctness, security, or critical workflow. Address with priority. -->
 
-_No tech debt recorded yet._
+### TD-148 – `TaskFileGuard` registers task worktrees but enforces nothing
+
+**Impact**: security – a task's file access is not confined to its worktree by DartClaw
+**Found**: 2026-10-20, architecture-doc verification (security-architecture.md, task-execution-architecture.md)
+**Affects**: `packages/dartclaw_runtime/lib/src/task/task_file_guard.dart`, `task_executor.dart` (register), `worktree_cleanup.dart` (deregister), ADR-017
+
+**Context**: `TaskExecutor` registers each declared worktree and cleanup deregisters it, but `TaskFileGuard.isAllowed` has no production caller, so the registry is bookkeeping only. ADR-017 still says "`TaskFileGuard` enforces per-task scoping at the application layer". Containment today comes from the execution directory being the worktree, provider writable roots, container mounts, `FileGuard` for sensitive paths and `TaskToolFilterGuard`; legacy owner profiles still mount `/projects:ro`, so a task can read every project clone.
+
+**Needs decision**: wire `isAllowed` into the guard chain as a task-scoped file guard (which reads count as escapes, how `/projects:ro` and shared workflow worktrees are treated), or delete the registry and amend ADR-017 to name the boundaries that actually hold.
+
+**Trigger**: any work on task isolation, multi-project mounts or ADR-017.
+
+Last reviewed: 2026-10-20
 
 ## Medium
 <!-- Severity: maintainability, clarity, or non-critical correctness. Schedule deliberately. -->
+
+### TD-150 – Nothing produces `TaskStatus.interrupted`; a task left `running` stays `running`
+
+**Impact**: correctness – orphaned tasks never settle; a reserved status and its UI are unreachable
+**Found**: 2026-10-20, architecture-doc verification (task-execution-architecture.md § status table)
+**Affects**: `packages/dartclaw_core/lib/src/task/task_status.dart`, `TaskExecutor` (dispatches `queued` only), `server.dart` startup, task detail and list templates, CLI workflow progress
+
+**Context**: `interrupted` has transitions (`running → interrupted → queued | cancelled`), labels, a task-detail banner ("The previous run stopped unexpectedly…") and CLI handling, but no code transitions into it. Nothing at startup or after a lost turn moves a `running` task with no active turn anywhere, so a task orphaned by a crash or restart (or by TD-149) stays `running` until someone cancels it.
+
+**Needs decision**: add the producer (for example startup recovery: `running` tasks with no live turn → `interrupted`) or delete the status, its edges and its UI.
+
+**Trigger**: crash-recovery work on tasks, or TD-149.
+
+Last reviewed: 2026-10-20
+
+### TD-149 – Push-back moves a task to `running` and nothing runs it
+
+**Impact**: correctness – a pushed-back task without a channel origin is stuck; the push-back counter never counts
+**Found**: 2026-10-20, architecture-doc verification (task-execution-architecture.md § 6.3)
+**Affects**: `packages/dartclaw_runtime/lib/src/task/task_review_service.dart` (`push_back` → `running`), `TaskExecutor`, `Task.transition` (`pushBackCount`), push-back delivery in `service_wiring.dart`
+
+**Context**: 0.12 decision D19 made push-back `review → running` with the feedback delivered as a new turn. Today delivery runs only when the task has a channel `TaskOrigin`, and it starts the turn on the origin's channel session, not through `TaskExecutor`, so nothing moves the task back to `review` afterwards. A task created in the web UI or API gets no turn at all. `TaskExecutor` dispatches `queued` tasks only, and its prompt composer already consumes `pushBackComment`, which only a `queued` re-run would reach. `Task.transition` increments `pushBackCount` only on `review → queued`, so the count stays 0 and the task page's three-push-backs warning never shows.
+
+**Needs decision**: keep D19 and give the running task a completion path (and count push-backs on `review → running`), or reverse D19 to `review → queued` so the executor re-runs the task with the comment.
+
+**Trigger**: any push-back or task review work.
+
+Last reviewed: 2026-10-20
 
 ### TD-119 – Logical-agent session cancellation lacks caller-to-child causality
 

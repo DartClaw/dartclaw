@@ -344,15 +344,23 @@ class TurnManager implements core.TurnManager {
     required String requestId,
     required bool approved,
   }) async {
-    final runner = _executions.runners.where((candidate) => candidate.isActiveTurn(sessionId, turnId)).firstOrNull;
+    final runner = _activeRunner(sessionId, turnId);
     if (runner == null) throw StateError('Approval turn is no longer active');
     await runner.resolveToolApproval(turnId: turnId, requestId: requestId, approved: approved);
   }
 
   bool canResolveToolApproval({required String sessionId, required String turnId, required String requestId}) {
-    final runner = _executions.runners.where((candidate) => candidate.isActiveTurn(sessionId, turnId)).firstOrNull;
+    final runner = _activeRunner(sessionId, turnId);
     return runner?.canResolveToolApproval(turnId: turnId, requestId: requestId) ?? false;
   }
+
+  /// The harness running [turnId] of [sessionId], whichever lane leased it; null once the turn is no longer active.
+  ///
+  /// A runner runs one turn at a time, so its harness's events during the turn are that turn's events.
+  AgentHarness? harnessForTurn(String sessionId, String turnId) => _activeRunner(sessionId, turnId)?.harness;
+
+  TurnRunner? _activeRunner(String sessionId, String turnId) =>
+      _executions.runners.where((candidate) => candidate.isActiveTurn(sessionId, turnId)).firstOrNull;
 
   @override
   Future<String> reserveTurn(

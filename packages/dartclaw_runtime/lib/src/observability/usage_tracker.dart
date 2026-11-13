@@ -3,6 +3,9 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:logging/logging.dart';
+import 'package:meta/meta.dart' show visibleForTesting;
+import 'package:timezone/data/latest_all.dart' as tzdata;
+import 'package:timezone/timezone.dart' as tz;
 
 // ---------------------------------------------------------------------------
 // UsageEvent
@@ -49,14 +52,24 @@ class UsageEvent {
 /// All operations are fire-and-forget -- errors are logged, never thrown.
 class UsageTracker {
   static final _log = Logger('UsageTracker');
+  static var _timezoneDataInitialized = false;
 
   final String dataDir;
   final KvService? _kv;
   final int? budgetWarningTokens;
   final int maxFileSizeBytes;
 
-  new({required this.dataDir, KvService? kv, this.budgetWarningTokens, this.maxFileSizeBytes = 10 * 1024 * 1024})
-    : _kv = kv;
+  /// The zone whose calendar day bounds a daily aggregate: `UTC`, `GMT`, `UTC+N`, `UTC-N`, or an IANA name.
+  /// An unrecognized value falls back to UTC with one warning.
+  final String timezone;
+
+  new({
+    required this.dataDir,
+    KvService? kv,
+    this.budgetWarningTokens,
+    this.maxFileSizeBytes = 10 * 1024 * 1024,
+    this.timezone = 'UTC',
+  }) : _kv = kv;
 
   String get usageFilePath => '$dataDir/usage.jsonl';
 
@@ -93,7 +106,7 @@ class UsageTracker {
     final kv = _kv;
     if (kv == null) return null;
 
-    final key = _dailyKey(DateTime.now());
+    final key = dailyKeyFor(DateTime.now());
     final raw = await kv.get(key);
     if (raw == null) return null;
 
@@ -102,7 +115,7 @@ class UsageTracker {
 
   /// Returns the daily usage aggregate for the given [dateKey].
   ///
-  /// The [dateKey] format matches [_dailyKey] output: `usage_daily:YYYY-MM-DD`.
+  /// The [dateKey] format matches [dailyKeyFor] output: `usage_daily:YYYY-MM-DD`.
   /// Returns null if no data exists for that date or KV is unavailable.
   Future<Map<String, dynamic>?> dailySummaryForDate(String dateKey) async {
     final kv = _kv;
@@ -154,7 +167,7 @@ class UsageTracker {
     final kv = _kv;
     if (kv == null) return;
 
-    final key = _dailyKey(event.timestamp);
+    final key = dailyKeyFor(event.timestamp);
     final existing = await kv.get(key);
 
     Map<String, dynamic> aggregate;
@@ -204,7 +217,7 @@ class UsageTracker {
     final kv = _kv;
     if (kv == null) return;
 
-    final key = _dailyKey(timestamp);
+    final key = dailyKeyFor(timestamp);
     final raw = await kv.get(key);
     if (raw == null) return;
 
@@ -221,9 +234,55 @@ class UsageTracker {
     }
   }
 
-  static String _dailyKey(DateTime timestamp) {
-    final m = timestamp.month.toString().padLeft(2, '0');
-    final d = timestamp.day.toString().padLeft(2, '0');
-    return 'usage_daily:${timestamp.year}-$m-$d';
+  /// The KV key of the daily aggregate [timestamp] falls in: `usage_daily:YYYY-MM-DD` of its date in [timezone].
+  ///
+  /// The one day boundary for writers and readers of the aggregates, so a budget reads the day usage was recorded in.
+  String dailyKeyFor(DateTime timestamp) {
+    final utc = timestamp.toUtc();
+    final location = _location;
+    return dateKeyForTime(location == null ? utc.add(_fixedOffset) : tz.TZDateTime.from(utc, location));
+  }
+
+  /// Formats the calendar date of [localTime] as a daily aggregate key.
+  @visibleForTesting
+  static String dateKeyForTime(DateTime localTime) {
+    final m = localTime.month.toString().padLeft(2, '0');
+    final d = localTime.day.toString().padLeft(2, '0');
+    return 'usage_daily:${localTime.year}-$m-$d';
+  }
+
+  // Resolved on first use, so a tracker whose aggregates nobody keys never warns about its zone.
+  late final tz.Location? _location = _resolveIanaLocation(timezone);
+  late final Duration _fixedOffset = _resolveFixedOffset(timezone) ?? _unrecognizedTimezone();
+
+  Duration _unrecognizedTimezone() {
+    _log.warning(
+      'Unrecognized timezone "$timezone" — falling back to UTC. '
+      'Supported formats: UTC, UTC+N, UTC-N, or IANA timezone names',
+    );
+    return Duration.zero;
+  }
+
+  static Duration? _resolveFixedOffset(String timezone) {
+    final normalized = timezone.trim().toUpperCase();
+    if (normalized == 'UTC' || normalized == 'GMT') return Duration.zero;
+    final match = RegExp(r'^UTC([+-])(\d{1,2})$').firstMatch(normalized);
+    if (match == null) return null;
+    final sign = match.group(1) == '+' ? 1 : -1;
+    return Duration(hours: sign * int.parse(match.group(2)!));
+  }
+
+  static tz.Location? _resolveIanaLocation(String timezone) {
+    final value = timezone.trim();
+    if (value.isEmpty || !value.contains('/')) return null;
+    try {
+      if (!_timezoneDataInitialized) {
+        tzdata.initializeTimeZones();
+        _timezoneDataInitialized = true;
+      }
+      return tz.getLocation(value);
+    } on tz.LocationNotFoundException {
+      return null;
+    }
   }
 }

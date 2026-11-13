@@ -35,7 +35,7 @@ scheduling:
 agent:
   agents:
     search:
-      tools: [WebSearch, WebFetch]
+      tools: [web_search, web_fetch]
 
 # Channel delivery (optional – web UI works without any of these)
 # Uncomment the channel(s) you use:

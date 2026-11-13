@@ -119,7 +119,9 @@ const Map<String, FieldMeta> _agentFields = {
     jsonKey: 'tasks.worktree.staleTimeoutHours',
     type: ConfigFieldType.int_,
     mutability: ConfigMutability.restart,
-    description: 'Hours an idle task worktree survives before cleanup removes it.',
+    description:
+        'Age in hours past which startup removes a task worktree whose task is missing or finished. Worktrees of '
+        'active tasks are kept.',
     min: 1,
     max: 168,
   ),

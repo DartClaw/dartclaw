@@ -3,9 +3,10 @@ import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:dartclaw_core/dartclaw_core.dart';
+import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager;
 import 'package:shelf/shelf.dart';
 
+import '../turn_manager.dart' show TurnManager;
 import 'sse_broadcast.dart';
 
 /// Encodes an SSE frame with HTML content to UTF-8 bytes. Newlines in
@@ -37,14 +38,8 @@ Iterable<List<int>> _terminalFrames(TurnOutcome outcome) sync* {
   }
 }
 
-/// Returns an SSE [Response] that streams turn events in real time.
-Response sseStreamResponse(
-  AgentHarness worker,
-  TurnManager turns,
-  String sessionId,
-  String turnId, {
-  MessageRedactor? redactor,
-}) {
+/// Returns an SSE [Response] that streams the events of the harness running [turnId], on whichever lane it runs.
+Response sseStreamResponse(TurnManager turns, String sessionId, String turnId, {MessageRedactor? redactor}) {
   // A fast turn may settle before EventSource connects, so replay its terminal contract.
   final outcome = turns.recentOutcome(sessionId, turnId);
   if (outcome != null) {
@@ -75,7 +70,7 @@ Response sseStreamResponse(
   final toolNames = <String, String>{};
   const htmlEscape = HtmlEscape();
 
-  eventSub = worker.events.listen((event) {
+  eventSub = turns.harnessForTurn(sessionId, turnId)?.events.listen((event) {
     if (controller.isClosed) return;
     final List<int> frame;
     if (event is DeltaEvent) {

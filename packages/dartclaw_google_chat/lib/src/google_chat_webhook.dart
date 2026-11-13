@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:convert';
 
 import 'package:dartclaw_core/dartclaw_core.dart';
@@ -16,26 +15,20 @@ import 'slash_command_parser.dart';
 import 'webhook_http_support.dart';
 import 'workspace_events_manager.dart';
 
-/// Dispatches an inbound Google Chat message and returns the reply text.
-typedef GoogleChatMessageDispatcher = Future<String> Function(ChannelMessage message);
-
 /// Handles signed Google Chat webhook deliveries and surfaces them to the runtime.
 class GoogleChatWebhookHandler {
   static final _log = Logger('GoogleChatWebhookHandler');
   static const _typingMessage = '_DartClaw is typing..._';
   static const _welcomeMessage = 'Hello! I am DartClaw. Send me a message to get started.';
-  static const _errorMessage = 'Sorry, I was unable to process your message. Please try again later.';
 
   final GoogleChatChannel channel;
   final GoogleJwtVerifier jwtVerifier;
   final GoogleChatConfig config;
   final ChannelManager? channelManager;
-  final GoogleChatMessageDispatcher? dispatchMessage;
   final DmAccessController? dmAccess;
   final MentionGating? mentionGating;
   final EventBus? eventBus;
   final List<String> trustedProxies;
-  final Duration responseTimeout;
   final ChannelReviewHandler? _reviewHandler;
   final ChannelRunApprovalHandler? _runApprovalHandler;
   final ChatCardBuilder _cardBuilder;
@@ -49,12 +42,10 @@ class GoogleChatWebhookHandler {
     required this.jwtVerifier,
     required this.config,
     this.channelManager,
-    this.dispatchMessage,
     this.dmAccess,
     this.mentionGating,
     this.eventBus,
     this.trustedProxies = const [],
-    this.responseTimeout = const Duration(seconds: 25),
     ChannelReviewHandler? reviewHandler,
     ChannelRunApprovalHandler? runApprovalHandler,
     ChatCardBuilder? cardBuilder,
@@ -184,53 +175,22 @@ class GoogleChatWebhookHandler {
     }
 
     final manager = channelManager;
-    if (manager != null) {
-      // Dedup check — skip if this message already arrived via Pub/Sub.
-      final dedup = _deduplicator;
-      final messageName = channelMessage.metadata['messageName'] as String?;
-      if (dedup != null && messageName != null && messageName.isNotEmpty) {
-        if (!dedup.tryProcess(messageName)) {
-          _log.fine('Duplicate message $messageName (already seen via Pub/Sub) — skipping webhook processing');
-          return _jsonResponse(const {});
-        }
-      }
-
-      await _sendTypingIndicator(spaceName, channelMessage);
-      manager.handleInboundMessage(channelMessage);
+    if (manager == null) {
       return _jsonResponse(const {});
     }
 
-    final dispatcher = dispatchMessage;
-    if (dispatcher == null) {
-      return _jsonResponse(const {});
-    }
-
-    final responseFuture = dispatcher(channelMessage);
-    String? responseText;
-    var timedOut = false;
-    try {
-      responseText = await responseFuture.timeout(responseTimeout);
-    } on TimeoutException {
-      timedOut = true;
-    } catch (error, stackTrace) {
-      _log.warning('Google Chat dispatch failed', error, stackTrace);
-      await _sendError(spaceName);
-      return _jsonResponse(const {});
-    }
-
-    if (!timedOut) {
-      final formatted = _formatWithMetadata(channelMessage, responseText ?? '');
-      if (formatted.isEmpty) {
+    // Dedup check — skip if this message already arrived via Pub/Sub.
+    final dedup = _deduplicator;
+    final messageName = channelMessage.metadata['messageName'] as String?;
+    if (dedup != null && messageName != null && messageName.isNotEmpty) {
+      if (!dedup.tryProcess(messageName)) {
+        _log.fine('Duplicate message $messageName (already seen via Pub/Sub) — skipping webhook processing');
         return _jsonResponse(const {});
       }
-      if (formatted.length > 1) {
-        unawaited(_sendChunks(spaceName, formatted.skip(1)));
-      }
-      return _jsonResponse({'text': formatted.first.text});
     }
 
     await _sendTypingIndicator(spaceName, channelMessage);
-    unawaited(_deliverDeferredResponse(spaceName, responseFuture, channelMessage));
+    manager.handleInboundMessage(channelMessage);
     return _jsonResponse(const {});
   }
 
@@ -554,52 +514,6 @@ class GoogleChatWebhookHandler {
         }
       case TypingIndicatorMode.disabled:
         break;
-    }
-  }
-
-  Future<void> _deliverDeferredResponse(String spaceName, Future<String> responseFuture, ChannelMessage message) async {
-    try {
-      final responseText = await responseFuture;
-      await _sendChunks(spaceName, _formatWithMetadata(message, responseText));
-    } catch (error, stackTrace) {
-      _log.warning('Google Chat async delivery failed', error, stackTrace);
-      await _sendError(spaceName);
-    }
-  }
-
-  /// Formats response text into [ChannelResponse] chunks with inbound message
-  /// metadata restored — matching the same pattern used by [MessageQueue].
-  List<ChannelResponse> _formatWithMetadata(ChannelMessage message, String responseText) {
-    return channel.formatResponse(responseText).map((chunk) {
-      return ChannelResponse(
-        text: chunk.text,
-        mediaAttachments: chunk.mediaAttachments,
-        metadata: {
-          ...chunk.metadata,
-          sourceMessageIdMetadataKey: message.id,
-          if (message.metadata['messageName'] case final String messageName) 'messageName': messageName,
-          if (message.metadata['messageCreateTime'] case final String createTime) 'messageCreateTime': createTime,
-          if (message.metadata['senderDisplayName'] case final String senderDisplayName)
-            'senderDisplayName': senderDisplayName,
-          if (message.metadata['spaceType'] case final String spaceType) 'spaceType': spaceType,
-        },
-        replyToMessageId: message.metadata['messageName'] as String?,
-        structuredPayload: chunk.structuredPayload,
-      );
-    }).toList();
-  }
-
-  Future<void> _sendChunks(String spaceName, Iterable<ChannelResponse> chunks) async {
-    for (final chunk in chunks) {
-      await channel.sendMessage(spaceName, chunk);
-    }
-  }
-
-  Future<void> _sendError(String spaceName) async {
-    try {
-      await channel.sendMessage(spaceName, const ChannelResponse(text: _errorMessage));
-    } catch (error, stackTrace) {
-      _log.warning('Failed to send Google Chat error message', error, stackTrace);
     }
   }
 

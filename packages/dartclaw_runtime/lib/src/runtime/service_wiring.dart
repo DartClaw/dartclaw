@@ -790,7 +790,6 @@ class _RuntimeAssembly {
     final scheduling = channel == null || configWriter == null
         ? null
         : await _wireScheduling(ctx, storage, channel, harness, security, credentialHealth, configWriter);
-    final scopeReconciler = _wireScopeReconciler(ctx);
     final groupSessionInit = channel == null ? null : await _wireGroupSessionInit(ctx, storage, channel);
 
     DartclawServer? server;
@@ -853,7 +852,7 @@ class _RuntimeAssembly {
       alertRouter,
       lifecycleManager,
       runNotifications,
-      scopeReconciler,
+      channel?.scopeReconciler,
       groupSessionInit,
       outboundMcpPool,
       trackedWorkflowGitCleanup: _trackedWorkflowGitCleanup(storage, project, workflowService),
@@ -1400,12 +1399,6 @@ class _RuntimeAssembly {
     return scheduling;
   }
 
-  ScopeReconciler _wireScopeReconciler(_WiringContext ctx) {
-    final scopeReconciler = ScopeReconciler(liveScopeConfig: LiveScopeConfig(config.sessions.scopeConfig));
-    scopeReconciler.subscribe(ctx.eventBus);
-    return scopeReconciler;
-  }
-
   Future<GroupSessionInitializer> _wireGroupSessionInit(
     _WiringContext ctx,
     StorageWiring storage,
@@ -1468,7 +1461,7 @@ class _RuntimeAssembly {
       null,
       null,
       null,
-      _wireScopeReconciler(ctx),
+      null,
       null,
       null,
     );

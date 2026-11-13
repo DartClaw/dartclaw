@@ -765,7 +765,6 @@ class DartclawServer {
       _core.sessions,
       _core.messages,
       _turn.turns,
-      _core.worker,
       resetService: _core.resetService,
       redactor: _core.redactor,
       projectService: _tasks.projectService,

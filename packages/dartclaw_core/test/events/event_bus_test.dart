@@ -36,9 +36,6 @@ void main() {
   SessionEndedEvent endedEvent({String id = 's1'}) =>
       SessionEndedEvent(sessionId: id, sessionType: 'web', timestamp: now);
 
-  SessionErrorEvent errorEvent({String id = 's1', String error = 'fail'}) =>
-      SessionErrorEvent(sessionId: id, sessionType: 'web', timestamp: now, error: error);
-
   ContextResearchMetricsEvent contextResearchEvent() => ContextResearchMetricsEvent(
     inputTokens: 10,
     outputTokens: 5,
@@ -88,13 +85,11 @@ void main() {
 
       bus.fire(createdEvent());
       bus.fire(endedEvent());
-      bus.fire(errorEvent());
       await Future<void>.delayed(Duration.zero);
 
-      expect(events, hasLength(3));
+      expect(events, hasLength(2));
       expect(events[0], isA<SessionCreatedEvent>());
       expect(events[1], isA<SessionEndedEvent>());
-      expect(events[2], isA<SessionErrorEvent>());
     });
 
     test('on<ContextResearchMetricsEvent>() receives synthesis metrics', () async {

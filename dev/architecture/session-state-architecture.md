@@ -140,7 +140,7 @@ The `agentId` component is `main` unless the allowlist row that owns the convers
 
 `SessionScopeConfig` (`session_scope_config.dart`) holds the global scopes plus `model` and `effort` overrides for channel turns, and a `channels` map of `ChannelScopeConfig` overrides. `forChannel(channelType)` merges a channel's override over the global values. `SessionConfig` adds `resetHour` (default 4, negative disables), `idleTimeoutMinutes` (default 0), `autoSettleIdleDays` (default 0), and the maintenance config.
 
-`ChannelManager` reads scope through `LiveScopeConfig`, a mutable holder. `ScopeReconciler` updates a `LiveScopeConfig` on `sessions.dm_scope` / `group_scope` changes, but `service_wiring.dart` constructs the reconciler's instance separately from the one `channel_wiring.dart` gives `ChannelManager`, so a live scope change does not currently reach key derivation.
+`ChannelManager` reads scope through `LiveScopeConfig`, a mutable holder. `ScopeReconciler` updates that holder on `sessions.dm_scope` / `group_scope` changes; `ChannelWiring` builds both on the one instance, so a live scope change reaches the next key derivation.
 
 ---
 
@@ -294,7 +294,7 @@ The turn id is generated and `turn_state.json` written only after admission and 
 
 | Family (sealed parent) | Events |
 |---|---|
-| `SessionLifecycleEvent` | `SessionCreatedEvent`, `SessionEndedEvent`, `SessionErrorEvent` (declared, no production emitter) |
+| `SessionLifecycleEvent` | `SessionCreatedEvent`, `SessionEndedEvent` |
 | `TaskLifecycleEvent` | `TaskStatusChangedEvent`, `TaskReviewReadyEvent`, `TaskEventCreatedEvent`, `BudgetWarningEvent` |
 | `WorkflowLifecycleEvent` | run status, step completed or skipped, parallel group, loop and map iteration, budget warning, approval requested or resolved, serialization enacted |
 | `AgentExecutionEvent` | `AgentExecutionStatusChangedEvent` |

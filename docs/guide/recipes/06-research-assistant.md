@@ -6,7 +6,7 @@ An interactive research workflow powered by the search agent and memory system. 
 
 ## Features Used
 
-- **[Search agent](../search.md)** -- performs web searches with `WebSearch` and `WebFetch` via the tool policy cascade
+- **[Search agent](../search.md)** -- performs web searches with `web_search` and `web_fetch` via the tool policy cascade
 - **[Content-guard](../security.md)** -- scans search results at the agent boundary for safety
 - **[Canonical memory](../workspace.md)** -- stores detailed curated findings in `memory/topics/*`; use `memory_apply` to change them
 - **[Memory search](../search.md#memory-search)** -- retrieves previous research via PostgreSQL lexical or explicit hybrid search
@@ -24,7 +24,7 @@ agent:
   max_turns: 100
   agents:
     search:
-      tools: [WebSearch, WebFetch]
+      tools: [web_search, web_fetch]
       model: haiku
       max_response_bytes: 5242880
 
@@ -81,7 +81,7 @@ When asked a research question:
 
 ```markdown
 ## Search Agent Behavior
-- The search agent has access to WebSearch and WebFetch only
+- The search agent has access to `web_search` and `web_fetch` only
 - Prefer authoritative sources (official docs, academic papers, established media)
 - Do not follow links to file downloads or executable content
 - If a search returns no useful results, try alternative search terms before reporting failure

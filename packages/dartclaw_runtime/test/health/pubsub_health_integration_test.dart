@@ -2,10 +2,9 @@ import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
 import 'dart:convert';
 
-import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier;
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeAgentHarness;
+import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeAgentHarness, FakeChannelManager;
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shelf/shelf.dart';
@@ -104,7 +103,7 @@ void main() {
         restClient: restClient,
       );
 
-      ChannelMessage? dispatched;
+      final channelManager = FakeChannelManager();
       final handler = GoogleChatWebhookHandler(
         channel: channel,
         jwtVerifier: _AlwaysValidJwtVerifier(),
@@ -114,11 +113,7 @@ void main() {
           groupAccess: GroupAccessMode.open,
           typingIndicatorMode: TypingIndicatorMode.disabled,
         ),
-        dispatchMessage: (msg) async {
-          dispatched = msg;
-          return 'OK';
-        },
-        responseTimeout: const Duration(milliseconds: 200),
+        channelManager: channelManager,
       );
 
       // Send a valid webhook request
@@ -144,8 +139,8 @@ void main() {
 
       // Webhook should succeed regardless of PubSub state
       expect(response.statusCode, 200);
-      expect(dispatched, isNotNull);
-      expect(dispatched!.text, 'Hello from webhook');
+      expect(channelManager.received, hasLength(1));
+      expect(channelManager.received.single.text, 'Hello from webhook');
 
       // PubSub client should still be in error state (states are independent)
       expect(pubsubClient.healthStatus.consecutiveErrors, greaterThanOrEqualTo(0));
@@ -166,7 +161,7 @@ void main() {
         restClient: restClient,
       );
 
-      ChannelMessage? dispatched;
+      final channelManager = FakeChannelManager();
       final handler = GoogleChatWebhookHandler(
         channel: channel,
         jwtVerifier: _AlwaysValidJwtVerifier(),
@@ -176,11 +171,7 @@ void main() {
           groupAccess: GroupAccessMode.open,
           typingIndicatorMode: TypingIndicatorMode.disabled,
         ),
-        dispatchMessage: (msg) async {
-          dispatched = msg;
-          return 'Response';
-        },
-        responseTimeout: const Duration(milliseconds: 200),
+        channelManager: channelManager,
       );
 
       final webhookPayload = {
@@ -204,7 +195,7 @@ void main() {
       );
 
       expect(response.statusCode, 200);
-      expect(dispatched, isNotNull);
+      expect(channelManager.received, hasLength(1));
     });
   });
 

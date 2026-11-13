@@ -348,7 +348,6 @@ void main() {
       PrCreationResult result = const PrCreated('https://example.com');
       final _ = switch (result) {
         PrCreated(:final url) => 'created: $url',
-        PrGhNotFound(:final instructions) => 'manual: $instructions',
         PrCreationFailed(:final error, :final details) => 'failed: $error ($details)',
       };
     });

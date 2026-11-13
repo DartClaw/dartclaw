@@ -28,7 +28,7 @@ export 'merge_executor.dart'
         TargetShaMismatch,
         UncleanIndex,
         UntrackedOverlap;
-export 'pr_creator.dart' show PrCreator, PrCreationResult, PrCreated, PrGhNotFound, PrCreationFailed;
+export 'pr_creator.dart' show PrCreator, PrCreationResult, PrCreated, PrCreationFailed;
 export 'remote_push_service.dart'
     show RemotePushService, PushResult, PushSuccess, PushAuthFailure, PushRejected, PushError;
 export 'git_credential_env.dart' show GitCredentialPlan, resolveGitCredentialPlan;

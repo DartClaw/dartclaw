@@ -18,7 +18,7 @@ import 'container_authority_cleanup_owner.dart';
 ///
 /// **Security reload seam** — two participants are registered with [ConfigNotifier]:
 ///
-/// 1. This class implements [Reconfigurable] for `guards.*` — on reconfigure,
+/// 1. This class implements [Reconfigurable] for `security.*` — on reconfigure,
 ///    rebuilds all guard instances from the updated [SecurityConfig] and atomically
 ///    swaps the guard list in the existing [GuardChain] (fail-safe: invalid configs
 ///    preserve the current live chain).
@@ -275,14 +275,14 @@ class SecurityWiring implements Reconfigurable {
         final redactor = _messageRedactorForRegistration;
         _configNotifier.register(_MessageRedactorAdapter(redactor));
       }
-      // Register self for guards.* hot-reload. Successful rebuilds swap the
+      // Register self for security.* hot-reload. Successful rebuilds swap the
       // entire guard list atomically.
       _configNotifier.register(this);
     }
   }
 
   // ---------------------------------------------------------------------------
-  // Reconfigurable — security.* hot-reload (guards.* changes)
+  // Reconfigurable — security.* hot-reload
   // ---------------------------------------------------------------------------
 
   @override
@@ -291,7 +291,7 @@ class SecurityWiring implements Reconfigurable {
   @override
   void reconfigure(ConfigDelta delta) {
     if (_guardChain == null) {
-      _log.info('SecurityWiring: guards.* changed but guard chain is not active — skipping rebuild');
+      _log.info('SecurityWiring: security.* changed but guard chain is not active — skipping rebuild');
       return;
     }
 

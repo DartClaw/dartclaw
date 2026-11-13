@@ -80,7 +80,7 @@ The figure and the table carry the same edges; a chip inside a box is an edge dr
 | `cancelled` | `failed` (only the workflow race correction, below) |
 | `accepted`, `rejected` | none |
 
-`TaskStatus.terminal` is true for `accepted`, `rejected`, `cancelled`, and `failed`, even though `failed` has a retry edge. `updateFields` refuses terminal tasks, so retry bookkeeping is written while the task is still `running`. No production code enters `interrupted` today; the edges are reserved.
+`TaskStatus.terminal` is true for `accepted`, `rejected`, `cancelled`, and `failed`, even though `failed` has a retry edge. `updateFields` refuses terminal tasks, so retry bookkeeping is written while the task is still `running`. No production code enters `interrupted` today, and nothing settles a `running` task left without a turn; the producer-or-delete decision is TD-150.
 
 `cancelled → failed` exists for one case: a workflow turn failure that raced a dispose-cancel must win over the cancel. Only `TaskFailureHandler` calls it, gated by `correctCancelled`; generic cancellation is never rewritten.
 
@@ -205,7 +205,7 @@ Tasks with `needsWorktree: true` get a git worktree, a structured diff for revie
 
 ### 5.2 TaskFileGuard
 
-`task/task_file_guard.dart` is a registry of `taskId → canonical worktree path` with an `isAllowed(taskId, path)` containment check. `TaskExecutor` registers on worktree creation and `cleanupWorktree` deregisters. Nothing in `lib/` calls `isAllowed` today, so it records worktree ownership but does not enforce a boundary; containment comes from the container mounts and the guard chain ([Security Architecture](security-architecture.md)).
+`task/task_file_guard.dart` is a registry of `taskId → canonical worktree path` with an `isAllowed(taskId, path)` containment check. `TaskExecutor` registers on worktree creation and `cleanupWorktree` deregisters. Nothing in `lib/` calls `isAllowed` today, so it records worktree ownership but does not enforce a boundary; containment comes from the container mounts and the guard chain ([Security Architecture](security-architecture.md)). Wiring it in or deleting it is TD-148.
 
 ### 5.3 DiffGenerator and ArtifactCollector
 
@@ -232,7 +232,7 @@ Tasks with `needsWorktree: true` get a git worktree, a structured diff for revie
 
 Credentials are referenced, never copied: a project stores `credentialsRef`, and `resolveGitCredentialPlan` (`git_credential_env.dart`) turns the `CredentialsConfig` entry into a process environment at push time. `GIT_TERMINAL_PROMPT=0` and an empty credential helper are always set. SSH remotes get `GIT_SSH_COMMAND` (with `-i` for a key credential). A GitHub token rewrites the remote to its canonical HTTPS URL and uses a `GIT_ASKPASS` script that answers `x-access-token` and reads the token from a file under `<dataDir>/projects/`. Those askpass and token files exist on disk until `RemotePushService.dispose`.
 
-`PrCreator.create` calls the GitHub REST API directly (no `gh` CLI): `POST /repos/{owner}/{repo}/pulls` (title from the task, body from description, acceptance criteria and any notes, base `project.defaultBranch`, `draft` from `project.pr`), then `POST …/issues/{n}/labels` for `project.pr.labels`. It returns `PrCreated`, or `PrCreationFailed` for an incompatible credential, non-GitHub remote, missing token, or API error. A label failure after the PR exists still reports `PrCreationFailed` and names the PR URL. (`PrGhNotFound` is declared and handled but nothing produces it.)
+`PrCreator.create` calls the GitHub REST API directly (no `gh` CLI): `POST /repos/{owner}/{repo}/pulls` (title from the task, body from description, acceptance criteria and any notes, base `project.defaultBranch`, `draft` from `project.pr`), then `POST …/issues/{n}/labels` for `project.pr.labels`. It returns `PrCreated`, or `PrCreationFailed` for an incompatible credential, non-GitHub remote, missing token, or API error. A label failure after the PR exists still reports `PrCreationFailed` and names the PR URL.
 
 ---
 
@@ -259,11 +259,11 @@ Which path runs is decided by `taskTargetsExternalProject(task)`: `taskProjectId
 ### 6.3 Push-back
 
 1. Reject an empty comment.
-2. Transition `review → running` with `pushBackComment` set and `pushBackCount` incremented in `configJson`.
+2. Transition `review → running` with `pushBackComment` set in `configJson`. `pushBackCount` is incremented only on `review → queued`, so push-back leaves it unchanged.
 3. Record a `pushBack` event.
 4. Best-effort `PushBackFeedbackDelivery`: when the task carries a `TaskOrigin`, the feedback is started as a human-input turn on the origin channel's session (wired in `service_wiring.dart`); failures are logged only. Tasks without an origin get no delivery.
 
-The worktree is kept. `TaskExecutor` dispatches `queued` tasks only and nothing in it picks up a task that is already `running`, so a pushed-back task is not re-run by the executor on its own. `pushBackComment` is consumed by the prompt composer when the task is next dispatched.
+The worktree is kept. `TaskExecutor` dispatches `queued` tasks only and nothing in it picks up a task that is already `running`, so a pushed-back task is not re-run by the executor on its own, and nothing returns it to `review` after the delivered turn. `pushBackComment` is consumed by the prompt composer only when the task is next dispatched. Keeping 0.12's `review → running` (D19) with a completion path, or reverting to `review → queued`, is TD-149.
 
 ### 6.4 Review mode
 
@@ -373,7 +373,7 @@ One engine, two scopes. `BudgetEngine` (`governance/budget_engine.dart`) owns th
 
 ### 10.2 Global daily scope
 
-`BudgetEnforcer` (`governance/budget_enforcer.dart`) reads daily totals from `UsageTracker`, timezone-aware via `BudgetConfig.timezone`, with a fixed 80% warning constant and a warn-once marker (`budget_warning_posted_at`) in the persisted daily aggregate; the first crossing of either threshold consumes the day's single warning. It has no error handling: a storage failure surfaces rather than admitting an over-budget turn. `TurnGovernanceEnforcer` maps the result: at 100% with `BudgetAction.block` it throws `BudgetExhaustedException` (which the poller turns into a non-retryable task failure); otherwise it broadcasts `budget_warning` and continues. The daily guardrail and the per-task cap are separate controls ([Observability & Operations](observability-operations-architecture.md), Usage Tracking; [Security Architecture](security-architecture.md) for governance).
+`BudgetEnforcer` (`governance/budget_enforcer.dart`) reads daily totals from `UsageTracker`, keyed by `UsageTracker.dailyKeyFor` in `governance.budget.timezone`, with a fixed 80% warning constant and a warn-once marker (`budget_warning_posted_at`) in the persisted daily aggregate; the first crossing of either threshold consumes the day's single warning. It has no error handling: a storage failure surfaces rather than admitting an over-budget turn. `TurnGovernanceEnforcer` maps the result: at 100% with `BudgetAction.block` it throws `BudgetExhaustedException` (which the poller turns into a non-retryable task failure); otherwise it broadcasts `budget_warning` and continues. The daily guardrail and the per-task cap are separate controls ([Observability & Operations](observability-operations-architecture.md), Usage Tracking; [Security Architecture](security-architecture.md) for governance).
 
 ---
 

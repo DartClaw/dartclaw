@@ -38,22 +38,3 @@ final class SessionEndedEvent extends SessionLifecycleEvent {
   @override
   String toString() => 'SessionEndedEvent(id: $sessionId, type: $sessionType)';
 }
-
-/// Fired when a session encounters an error.
-// NOT_ALERTABLE: session lifecycle telemetry — surfaced via SSE only
-final class SessionErrorEvent extends SessionLifecycleEvent {
-  /// Error string associated with the session failure.
-  final String error;
-
-  /// Creates a session-error event.
-  new({
-    required super.sessionId,
-    super.sessionKey,
-    required super.sessionType,
-    required super.timestamp,
-    required this.error,
-  });
-
-  @override
-  String toString() => 'SessionErrorEvent(id: $sessionId, type: $sessionType, error: $error)';
-}

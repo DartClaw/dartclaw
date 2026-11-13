@@ -52,7 +52,7 @@ void main() {
         sessions,
         messages,
         turns,
-        harness,
+
         projectService: projects,
         contextCapabilities: const {'claude': EffectiveContextCapabilities(model: true, effort: true)},
         ownerWorkspaceDir: sessions.baseDir,

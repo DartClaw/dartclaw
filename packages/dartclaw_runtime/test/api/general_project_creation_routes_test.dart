@@ -45,7 +45,7 @@ void main() {
     );
     api = ApiRouteTestClient(
       localAdminMiddleware()(
-        sessionRoutes(sessions, messages, turns, worker, projectService: projects, ownerWorkspaceDir: owner.path).call,
+        sessionRoutes(sessions, messages, turns, projectService: projects, ownerWorkspaceDir: owner.path).call,
       ),
     );
   });

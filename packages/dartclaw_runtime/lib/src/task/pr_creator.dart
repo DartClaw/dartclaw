@@ -23,14 +23,6 @@ final class PrCreated extends PrCreationResult {
   const new(this.url);
 }
 
-/// Manual follow-up is required after the push completed.
-final class PrGhNotFound extends PrCreationResult {
-  /// Human-readable instructions for creating the PR manually.
-  final String instructions;
-
-  const new(this.instructions);
-}
-
 /// GitHub PR creation failed.
 final class PrCreationFailed extends PrCreationResult {
   final String error;

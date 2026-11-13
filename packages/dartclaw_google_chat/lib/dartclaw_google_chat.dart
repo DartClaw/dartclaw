@@ -32,7 +32,7 @@ export 'src/google_chat_utils.dart' show asMap, isBotMessage, resolveGroupJid, r
 export 'src/user_oauth_auth_service.dart' show UserOAuthAuthService;
 export 'src/user_oauth_credential_store.dart' show StoredUserCredentials, UserOAuthCredentialStore;
 export 'src/slash_command_executor.dart' show SlashCommandExecutor;
-export 'src/google_chat_webhook.dart' show GoogleChatMessageDispatcher, GoogleChatWebhookHandler;
+export 'src/google_chat_webhook.dart' show GoogleChatWebhookHandler;
 export 'src/google_chat_jwt_verifier.dart' show GoogleChatJwtVerifier;
 export 'src/google_chat_space_events_wiring.dart' show GoogleChatSpaceEventsWiring;
 export 'src/google_chat_subscription_routes.dart' show googleChatSubscriptionRoutes;

@@ -30,7 +30,7 @@ DartclawRuntime _assembleRuntime(
   AlertRouter? alertRouter,
   ThreadBindingLifecycleManager? lifecycleManager,
   WorkflowRunNotificationSubscriber? runNotifications,
-  ScopeReconciler scopeReconciler,
+  ScopeReconciler? scopeReconciler,
   GroupSessionInitializer? groupSessionInit,
   OutboundMcpPool? outboundMcpPool, {
   Future<void> Function()? trackedWorkflowGitCleanup,
@@ -93,7 +93,7 @@ DartclawRuntime _assembleRuntime(
         await harness?.disposePrimaryContainer();
         await security?.dispose();
         groupSessionInit?.dispose();
-        await scopeReconciler.cancel();
+        await scopeReconciler?.cancel();
         await storage.disposeTurnStateStore();
         await scheduling?.dispose();
         await project.dispose();

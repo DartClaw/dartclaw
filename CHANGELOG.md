@@ -21,11 +21,24 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 - **Slack moves to the Agent messaging experience (breaking, Slack app)** – the shipped manifests declare `features.agent_view` with `agent_description`, replacing `assistant_view`, which Slack retires in February 2027. The thread status now uses Slack's agent sessions: `agents.sessions.setStatus` sets the session `processing` when a turn starts and `active` when it completes, fails or is cancelled, so Slack's "Working..." indicator never outlives the turn (Slack no longer clears it when the reply posts). The custom "is working..." text is gone, because the session API takes none. **Migration:** move a Slack app created from the 0.28.0 manifests to the Agent experience, on the app's **Agent** page or by editing its manifest; Slack cannot undo the move ([Slack](docs/guide/slack.md#moving-an-app-from-an-earlier-release)). Until it moves, Slack may refuse the status calls, which are logged as warnings; replies are unaffected. `SlackWebApiClient.setThreadStatus` is replaced by `setSessionStatus` taking a `SlackSessionStatus`.
 - `implement-prd` and `implement-story` now end with an `andthen:ship --auto` step, and the pull request their publish opens carries the title and body that step wrote: intent, outcomes and proof first, ending with AndThen's `## Ship summary` section (PRD, each story's outcomes with their proof, a verdict per review lens), which AndThen Studio's PR page parses. Before, the PR body was the last step's prompt. The ship step also deletes the shipped plan bundle and commits before the push. A custom workflow opts in with `gitStrategy.publish.pullRequest: <output key>`, naming a step output that holds `{title, body}`; publish fails the run when that output is missing or blank.
 
+### Removed
+
+- SDK: `PrGhNotFound`, `SessionErrorEvent`, and the Google Chat webhook's direct-dispatch path (`GoogleChatMessageDispatcher`, `GoogleChatWebhookHandler.dispatchMessage` and `responseTimeout`), none of which a running server reached. `sseStreamResponse` and `sessionRoutes` no longer take an `AgentHarness`.
+
 ### Fixed
 
 - An integration-branch workflow whose foreach runs one item at a time (`max_parallel: 1`, e.g. `implement-prd` with `MAX_PARALLEL=1`) failed every item at once: `worktree: auto` resolved that scope to `inline`, which tried to check the workflow branch out in the project checkout while the run's shared worktree already held it. It now resolves to `shared`, so the items run one after another in the run's worktree.
 - A streamed Slack reply longer than 4,000 characters that needed its closing edit (Markdown formatting, text from before a tool call, or a stream Slack cut off at 12,000 characters) ended in the thread twice: Slack refused the edit with `msg_too_long`, since `chat.update` takes at most 4,000 characters, not the assumed 40,000, and the full reply was then posted after the streamed text. The stream message now gets the reply's first 4,000-character chunk and the rest are posted after it.
 - `dartclaw workflow run` printed a failure after the last step, such as a publish failure, as `Failed at step 9/8`; it now prints `Failed after step 8/8`.
+- A `PATCH` of `sessions.dm_scope` or `sessions.group_scope` now changes how the next channel message maps to a session; before, the change was saved but took effect only after a restart.
+- `GET /api/traces` no longer fails on PostgreSQL; its summary used a SQLite-only date function.
+- The daily token budget now counts a turn in the day it was recorded: usage is keyed by the date in `governance.budget.timezone`, which the budget already read. Before, usage used the server's local date, so near midnight a turn could land in a day the budget did not read. Every daily usage total now follows that timezone (default UTC), budget enabled or not, including the `/health` usage figure.
+- A web chat turn that runs on a worker lane now streams its text and tool indicators; before, the stream followed the primary harness, showing only the final frame, or another conversation's text while the primary lane was busy.
+- The git askpass helper files under `<data_dir>/projects/` that hold a project credential are now readable by the owner only (0600, script 0700).
+- A guard added with `DartclawServer.registerGuard` now survives a `security.*` hot reload; before, the rebuild dropped it.
+- The `dartclaw serve` startup banner lists Slack among the enabled channels.
+- The HTTP request log no longer records the gateway token from a `?token=` sign-in URL or the signed `?t=` knowledge-source link; both are logged as `REDACTED`, as the webhook `secret` already was.
+- The `governance.admin_senders` description no longer claims admins are exempt from the token budget; they are exempt from per-sender rate limits and queue caps only.
 
 ## [0.28.0] - 2026-11-09
 

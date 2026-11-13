@@ -133,7 +133,7 @@ void main() {
     final waitStarted = Completer<void>();
     final turns = _PausingCompletionTurnManager(messages, worker, waitStarted, allowCompletion);
     final handler = localAdminMiddleware()(
-      sessionRoutes(sessions, messages, turns, worker, ownerWorkspaceDir: sessions.baseDir).call,
+      sessionRoutes(sessions, messages, turns, ownerWorkspaceDir: sessions.baseDir).call,
     );
     final session = await sessions.createSession(retention: ConversationRetention.process);
     await messages.insertMessage(sessionId: session.id, role: 'user', content: 'held');
@@ -162,7 +162,7 @@ void main() {
         sessions,
         messages,
         turns,
-        worker,
+
         ownerWorkspaceDir: sessions.baseDir,
         onConversationCreated: (service) => conversation = service,
       ).call,

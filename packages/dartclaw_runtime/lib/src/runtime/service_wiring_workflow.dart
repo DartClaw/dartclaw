@@ -337,12 +337,6 @@ Future<WorkflowGitPublishResult> _publishWorkflowBranchLocalLane(
         remote: pushResult.remote,
         prUrl: url,
       ),
-      PrGhNotFound() => WorkflowGitPublishResult(
-        status: WorkflowPublishStatus.manual,
-        branch: pushResult.branch,
-        remote: pushResult.remote,
-        prUrl: '',
-      ),
       PrCreationFailed(:final error, :final details) => WorkflowGitPublishResult(
         status: WorkflowPublishStatus.failed,
         branch: pushResult.branch,
@@ -492,12 +486,6 @@ Future<WorkflowGitPublishResult> publishWorkflowBranchWithProjectAuth({
             branch: branch,
             remote: 'origin',
             prUrl: url,
-          ),
-          PrGhNotFound() => WorkflowGitPublishResult(
-            status: WorkflowPublishStatus.manual,
-            branch: branch,
-            remote: 'origin',
-            prUrl: '',
           ),
           PrCreationFailed(:final error, :final details) => WorkflowGitPublishResult(
             status: WorkflowPublishStatus.failed,

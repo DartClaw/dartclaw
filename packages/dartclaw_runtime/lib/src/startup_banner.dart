@@ -1,7 +1,22 @@
 import 'dart:io';
 import 'dart:math' show max;
 
+import 'package:dartclaw_kernel/dartclaw_kernel.dart' show ChannelType, DartclawConfig;
+
+import 'config/channel_config_resolver.dart';
 import 'version.dart';
+
+/// Display names of the channels [config] enables, for [startupBanner]'s `channels`.
+List<String> startupBannerChannels(DartclawConfig config) => [
+  for (final channelType in enabledChannelTypes(config))
+    switch (channelType) {
+      ChannelType.whatsapp => 'WhatsApp',
+      ChannelType.signal => 'Signal',
+      ChannelType.googlechat => 'Google Chat',
+      ChannelType.slack => 'Slack',
+      ChannelType.web => 'Web',
+    },
+];
 
 /// Builds an ASCII box-framed startup banner for the DartClaw server.
 ///

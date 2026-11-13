@@ -351,8 +351,8 @@ class WorktreeManager {
     _log.info('Cleaned up worktree for task $taskId');
   }
 
-  /// Checks all worktrees in `<dataDir>/worktrees/` and logs warnings
-  /// for any older than [_staleTimeoutHours].
+  /// Reaps worktrees older than [_staleTimeoutHours] whose task is missing or
+  /// terminal; one whose task is still active is left with a warning.
   Future<void> detectStaleWorktrees() async {
     final dir = Directory(_worktreesDir);
     if (!dir.existsSync()) return;

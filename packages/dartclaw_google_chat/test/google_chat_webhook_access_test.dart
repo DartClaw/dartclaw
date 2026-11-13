@@ -5,7 +5,7 @@ import 'dart:convert';
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
 import 'package:dartclaw_google_chat/testing.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeGoogleJwtVerifier;
+import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeChannelManager, FakeGoogleJwtVerifier;
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
 
@@ -61,7 +61,7 @@ Future<Response> _post(GoogleChatWebhookHandler handler, {required Object body})
 void main() {
   late FakeGoogleChatRestClient restClient;
   late FakeGoogleJwtVerifier jwtVerifier;
-  late ChannelMessage? dispatchedMessage;
+  late FakeChannelManager channelManager;
 
   GoogleChatWebhookHandler buildHandler({
     DmAccessMode dmMode = DmAccessMode.open,
@@ -96,18 +96,14 @@ void main() {
       config: channel.config,
       dmAccess: dmAccess,
       mentionGating: mentionGating,
-      dispatchMessage: (message) async {
-        dispatchedMessage = message;
-        return 'Agent reply';
-      },
-      responseTimeout: const Duration(milliseconds: 50),
+      channelManager: channelManager,
     );
   }
 
   setUp(() {
     restClient = FakeGoogleChatRestClient();
     jwtVerifier = FakeGoogleJwtVerifier();
-    dispatchedMessage = null;
+    channelManager = FakeChannelManager();
   });
 
   group('DM access control', () {
@@ -115,7 +111,7 @@ void main() {
       final handler = buildHandler(dmMode: DmAccessMode.open);
       final response = await _post(handler, body: _payload());
       expect(response.statusCode, 200);
-      expect(dispatchedMessage, isNotNull);
+      expect(channelManager.received.lastOrNull, isNotNull);
     });
 
     test('dm_access: disabled — blocks all senders', () async {
@@ -123,28 +119,28 @@ void main() {
       final response = await _post(handler, body: _payload());
       expect(response.statusCode, 200);
       expect(await response.readAsString(), '{}');
-      expect(dispatchedMessage, isNull);
+      expect(channelManager.received.lastOrNull, isNull);
     });
 
     test('dm_access: allowlist — allows listed sender', () async {
       final handler = buildHandler(dmMode: DmAccessMode.allowlist, dmAllowlist: {'users/123'});
       final response = await _post(handler, body: _payload());
       expect(response.statusCode, 200);
-      expect(dispatchedMessage, isNotNull);
+      expect(channelManager.received.lastOrNull, isNotNull);
     });
 
     test('dm_access: allowlist — blocks unlisted sender', () async {
       final handler = buildHandler(dmMode: DmAccessMode.allowlist, dmAllowlist: {'users/999'});
       final response = await _post(handler, body: _payload());
       expect(response.statusCode, 200);
-      expect(dispatchedMessage, isNull);
+      expect(channelManager.received.lastOrNull, isNull);
     });
 
     test('dm_access: pairing — sends pairing code for unknown sender', () async {
       final handler = buildHandler(dmMode: DmAccessMode.pairing);
       final response = await _post(handler, body: _payload());
       expect(response.statusCode, 200);
-      expect(dispatchedMessage, isNull);
+      expect(channelManager.received.lastOrNull, isNull);
       expect(restClient.sentMessages, hasLength(1));
       expect(restClient.sentMessages.first.$1, 'spaces/AAAA');
       expect(restClient.sentMessages.first.$2, contains('pairing code'));
@@ -154,7 +150,7 @@ void main() {
       final handler = buildHandler(dmMode: DmAccessMode.pairing, dmAllowlist: {'users/123'});
       final response = await _post(handler, body: _payload());
       expect(response.statusCode, 200);
-      expect(dispatchedMessage, isNotNull);
+      expect(channelManager.received.lastOrNull, isNotNull);
       expect(restClient.sentMessages, isEmpty);
     });
   });
@@ -174,7 +170,7 @@ void main() {
         body: _payloadWithSpace({'name': 'spaces/AAAA', 'spaceType': 'DIRECT_MESSAGE', 'displayName': 'Primary'}),
       );
       expect(response.statusCode, 200);
-      expect(dispatchedMessage, isNull);
+      expect(channelManager.received.lastOrNull, isNull);
     });
 
     test('a spaceType-only direct message reaches an allowlisted DM sender with a DM group jid', () async {
@@ -184,10 +180,10 @@ void main() {
         body: _payloadWithSpace({'name': 'spaces/AAAA', 'spaceType': 'DIRECT_MESSAGE'}),
       );
       expect(response.statusCode, 200);
-      expect(dispatchedMessage, isNotNull);
-      expect(dispatchedMessage!.groupJid, isNull);
+      expect(channelManager.received.lastOrNull, isNotNull);
+      expect(channelManager.received.lastOrNull!.groupJid, isNull);
       // Reply threading keys off the normalized value, not the wire spelling.
-      expect(dispatchedMessage!.metadata['spaceType'], 'DM');
+      expect(channelManager.received.lastOrNull!.metadata['spaceType'], 'DM');
     });
 
     test('a payload carrying neither space-type key fails closed to DM access control', () async {
@@ -198,16 +194,16 @@ void main() {
       );
       final response = await _post(handler, body: _payloadWithSpace({'name': 'spaces/AAAA'}));
       expect(response.statusCode, 200);
-      expect(dispatchedMessage, isNull);
+      expect(channelManager.received.lastOrNull, isNull);
     });
 
     test('a spaceType-only named space is still classified as a group', () async {
       final handler = buildHandler(groupAccess: GroupAccessMode.open, requireMention: false);
       final response = await _post(handler, body: _payloadWithSpace({'name': 'spaces/GRP', 'spaceType': 'SPACE'}));
       expect(response.statusCode, 200);
-      expect(dispatchedMessage, isNotNull);
-      expect(dispatchedMessage!.groupJid, 'spaces/GRP');
-      expect(dispatchedMessage!.metadata['spaceType'], 'SPACE');
+      expect(channelManager.received.lastOrNull, isNotNull);
+      expect(channelManager.received.lastOrNull!.groupJid, 'spaces/GRP');
+      expect(channelManager.received.lastOrNull!.metadata['spaceType'], 'SPACE');
     });
 
     test('the deprecated type key still wins and behaves as before', () async {
@@ -221,12 +217,12 @@ void main() {
         body: _payloadWithSpace({'name': 'spaces/AAAA', 'type': 'DM', 'spaceType': 'SPACE'}),
       );
       expect(dmResponse.statusCode, 200);
-      expect(dispatchedMessage, isNull);
+      expect(channelManager.received.lastOrNull, isNull);
 
       final groupResponse = await _post(handler, body: _payloadWithSpace({'name': 'spaces/GRP', 'type': 'ROOM'}));
       expect(groupResponse.statusCode, 200);
-      expect(dispatchedMessage, isNotNull);
-      expect(dispatchedMessage!.groupJid, 'spaces/GRP');
+      expect(channelManager.received.lastOrNull, isNotNull);
+      expect(channelManager.received.lastOrNull!.groupJid, 'spaces/GRP');
     });
   });
 
@@ -238,7 +234,7 @@ void main() {
         body: _payload(spaceType: 'ROOM', spaceName: 'spaces/GRP'),
       );
       expect(response.statusCode, 200);
-      expect(dispatchedMessage, isNull);
+      expect(channelManager.received.lastOrNull, isNull);
     });
 
     test('group_access: open — allows all group messages', () async {
@@ -248,7 +244,7 @@ void main() {
         body: _payload(spaceType: 'ROOM', spaceName: 'spaces/GRP'),
       );
       expect(response.statusCode, 200);
-      expect(dispatchedMessage, isNotNull);
+      expect(channelManager.received.lastOrNull, isNotNull);
     });
 
     test('group_access: allowlist — allows listed space', () async {
@@ -262,7 +258,7 @@ void main() {
         body: _payload(spaceType: 'ROOM', spaceName: 'spaces/GRP'),
       );
       expect(response.statusCode, 200);
-      expect(dispatchedMessage, isNotNull);
+      expect(channelManager.received.lastOrNull, isNotNull);
     });
 
     test('group_access: allowlist — blocks unlisted space', () async {
@@ -276,7 +272,7 @@ void main() {
         body: _payload(spaceType: 'ROOM', spaceName: 'spaces/GRP'),
       );
       expect(response.statusCode, 200);
-      expect(dispatchedMessage, isNull);
+      expect(channelManager.received.lastOrNull, isNull);
     });
   });
 
@@ -288,7 +284,7 @@ void main() {
         body: _payload(spaceType: 'ROOM', spaceName: 'spaces/GRP'),
       );
       expect(response.statusCode, 200);
-      expect(dispatchedMessage, isNull);
+      expect(channelManager.received.lastOrNull, isNull);
     });
 
     test('requireMention: true — processes group message with bot mention', () async {
@@ -309,7 +305,7 @@ void main() {
         ),
       );
       expect(response.statusCode, 200);
-      expect(dispatchedMessage, isNotNull);
+      expect(channelManager.received.lastOrNull, isNotNull);
     });
 
     test('requireMention: false — processes group message without mention', () async {
@@ -319,14 +315,14 @@ void main() {
         body: _payload(spaceType: 'ROOM', spaceName: 'spaces/GRP'),
       );
       expect(response.statusCode, 200);
-      expect(dispatchedMessage, isNotNull);
+      expect(channelManager.received.lastOrNull, isNotNull);
     });
 
     test('DM messages bypass mention gating', () async {
       final handler = buildHandler(dmMode: DmAccessMode.open, requireMention: true, botUser: 'users/bot');
       final response = await _post(handler, body: _payload(spaceType: 'DM'));
       expect(response.statusCode, 200);
-      expect(dispatchedMessage, isNotNull);
+      expect(channelManager.received.lastOrNull, isNotNull);
     });
   });
 
@@ -337,9 +333,9 @@ void main() {
         handler,
         body: _payload(spaceType: 'DM', userName: 'users/456'),
       );
-      expect(dispatchedMessage, isNotNull);
-      expect(dispatchedMessage!.senderJid, 'users/456');
-      expect(dispatchedMessage!.groupJid, isNull);
+      expect(channelManager.received.lastOrNull, isNotNull);
+      expect(channelManager.received.lastOrNull!.senderJid, 'users/456');
+      expect(channelManager.received.lastOrNull!.groupJid, isNull);
     });
 
     test('ROOM message has senderJid=user.name and groupJid=space.name', () async {
@@ -348,9 +344,9 @@ void main() {
         handler,
         body: _payload(spaceType: 'ROOM', spaceName: 'spaces/GRP', userName: 'users/789'),
       );
-      expect(dispatchedMessage, isNotNull);
-      expect(dispatchedMessage!.senderJid, 'users/789');
-      expect(dispatchedMessage!.groupJid, 'spaces/GRP');
+      expect(channelManager.received.lastOrNull, isNotNull);
+      expect(channelManager.received.lastOrNull!.senderJid, 'users/789');
+      expect(channelManager.received.lastOrNull!.groupJid, 'spaces/GRP');
     });
 
     test('SPACE message has groupJid=space.name', () async {
@@ -359,15 +355,15 @@ void main() {
         handler,
         body: _payload(spaceType: 'SPACE', spaceName: 'spaces/TEAM', userName: 'users/111'),
       );
-      expect(dispatchedMessage, isNotNull);
-      expect(dispatchedMessage!.senderJid, 'users/111');
-      expect(dispatchedMessage!.groupJid, 'spaces/TEAM');
+      expect(channelManager.received.lastOrNull, isNotNull);
+      expect(channelManager.received.lastOrNull!.senderJid, 'users/111');
+      expect(channelManager.received.lastOrNull!.groupJid, 'spaces/TEAM');
     });
 
     test('metadata includes spaceName', () async {
       final handler = buildHandler(dmMode: DmAccessMode.open);
       await _post(handler, body: _payload(spaceName: 'spaces/XYZ'));
-      expect(dispatchedMessage!.metadata['spaceName'], 'spaces/XYZ');
+      expect(channelManager.received.lastOrNull!.metadata['spaceName'], 'spaces/XYZ');
     });
   });
 }

@@ -1,6 +1,6 @@
-<p align="center">
+<h1 align="center">
   <img src="assets/logo-banner-1280-8bit.png" alt="DartClaw" width="720">
-</p>
+</h1>
 
 <p align="center">
   <strong>Agentic powers. No supply-chain roulette. Secure by design.</strong>
@@ -13,9 +13,9 @@
   <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-blue"></a>
 </p>
 
-**DartClaw turns the coding agents you already use into a self-hosted AI that remembers, works in the background, and answers from your phone, with real security boundaries between the agents and your machine.**
+**DartClaw turns the coding agents you already use into a persistent, security-conscious personal AI: equal parts assistant, context engine, and software factory.**
 
-It drives Claude Code, Codex, and verified ACP agents from one AOT-compiled Dart binary. The binary carries its own web UI, REST API, CLI, scheduler, task queue, workflow engine, and memory. DartClaw itself needs no Node.js and no npm: what runs on your host is one compiled binary, built from source you can audit.
+It is self-hosted and runs on the Claude or Codex subscription you already have, or on an API key. It remembers across sessions, works on a schedule and in the background, answers from WhatsApp, Signal, Slack, and Google Chat, and takes a spec to a reviewed pull request. All of it ships as one AOT-compiled Dart binary with its own web UI, REST API, and CLI, and with no Node.js and no npm. Real boundaries stand between the agents and your machine: container isolation, a fail-closed guard chain, and provider credentials that never enter the container.
 
 > [!NOTE]
 > DartClaw is **experimental** and pre-1.0. Breaking changes land between releases while the core matures; each one is
@@ -27,17 +27,13 @@ It drives Claude Code, Codex, and verified ACP agents from one AOT-compiled Dart
 
 ## What you get
 
-**A personal assistant that remembers.** Chat in the web UI or over WhatsApp, Signal, Slack, and Google Chat. Memory carries across sessions, and scheduled jobs run without you: a morning briefing at 7, a knowledge scan at noon, a reflection pass overnight ([recipes](docs/guide/recipes/README.md)).
-
-**A team assistant.** Allowlisted Slack and Google Chat channels get one shared agent session per thread. A workflow started from a thread reports its progress back there, and its approval posts carry Approve and Reject buttons for your admins.
-
-**A software factory.** Built-in `implement-story`, `implement-prd`, and `code-review` workflows take work from a spec to reviewed, pull-request-ready code, with approval gates and per-step token accounting. Write your own in YAML and trigger them from chat, a web form, a GitHub PR webhook, or CI. The separate `dartclaw-workflow` binary runs them with no server and no database.
-
-**Background tasks.** Hand off work, keep chatting, and review the result later. A task can run in its own git worktree and on a different provider, and it waits in a review queue until you accept it; accepting merges or pushes the result. Worker capacity is bounded per provider, so Claude and Codex tasks run side by side.
-
-**Knowledge you can inspect.** The Context Engine keeps an agent-curated wiki, a temporal knowledge graph, and long-term memory. Agents query it over MCP (`context_research`) and get compact, citation-backed answers. You browse the same knowledge in the Knowledge Hub, including how it looked at any earlier point in time. Other tools, such as your IDE, can read it with their own audited read-only token.
-
-**One runtime, several agents.** Claude Code (JSONL) and Codex (JSON-RPC) are first-class. Goose and Vibe join over ACP once they match a verified target profile. Named logical agents carry their own model, persona, workspace, and private memory, and they can hand work to each other through `sessions_spawn` and `sessions_send`.
+- **Your assistant, on your phone.** Chat in the web UI or over WhatsApp, Signal, Slack, and Google Chat. A team channel gets one shared agent session per thread, and workflow approvals arrive there with Approve and Reject buttons for your admins.
+- **It remembers.** The Context Engine keeps an agent-curated wiki, a knowledge graph with history, and long-term memory. Agents get compact answers with citations. You browse the same knowledge in the web UI, as it is now or as it was at any earlier point, and other tools such as your IDE can read it with their own read-only token.
+- **It works without you.** Scheduled jobs deliver a morning briefing at 7, scan a knowledge inbox at noon, and reflect on the day overnight. The [recipes](docs/guide/recipes/README.md) are complete setups to copy.
+- **A software factory.** Built-in `implement-story`, `implement-prd`, and `code-review` workflows take a spec to reviewed, pull-request-ready code, with approval gates and per-step token accounting. Write your own in YAML and trigger them from chat, a web form, a GitHub PR webhook, or CI, where the standalone `dartclaw-workflow` binary needs no server and no database. The built-ins use skills from the [AndThen](docs/guide/andthen-skills.md) plugin.
+- **Background tasks with a review queue.** Hand off work, keep chatting, and accept or reject the result later. A task can run in its own git worktree and on a different provider, so Claude and Codex work side by side.
+- **Several agents, one runtime.** Claude Code and Codex are first-class. Goose and Vibe run over the Agent Client Protocol (ACP) as verified, host-only targets. Named agents carry their own model, persona, and private memory, and hand work to each other.
+- **Operable from anywhere.** A full web UI with live streaming, a REST API, and a CLI for everything from `serve` to tasks, workflows, and jobs ([CLI reference](docs/guide/cli-reference.md)).
 
 <table>
   <tr>
@@ -62,39 +58,52 @@ It drives Claude Code, Codex, and verified ACP agents from one AOT-compiled Dart
 
 Agent frameworks usually ask the model to behave. DartClaw puts the boundaries in the operating system and the host.
 
-- **Containers by default.** When Docker or Podman is present, agent turns run in a container with `--network none`, `--cap-drop ALL`, a read-only root filesystem, a non-root user, and a mount allowlist. With no container runtime the server still starts, says at startup that no OS boundary is active, and runs in advisory mode.
-- **No credentials in the container.** A containerized agent reaches its model provider and its approved host tools only through the host gateway, over framed `docker exec` pipes. No socket is mounted, no port is published, and no provider key enters the container's environment.
-- **A fail-closed guard chain.** Command, file, network, and content guards check every tool call by its provider-neutral name and block when in doubt. The content guard has a model classify what is handed to an agent and what it fetches from the web. Every block is written to the audit log.
-- **Runtime governance.** Per-sender rate limits, daily token budgets, loop detection, and `/stop`, `/pause`, `/resume` commands that the host, not the model, handles on every channel.
-- **A small, auditable supply chain.** One compiled binary with its web assets, templates, and skills inside. Architecture fitness checks hold dependencies and package boundaries in CI.
+- **Containers by default.** When Docker or Podman is present and DartClaw holds a provider credential, agent turns run in a container with `--network none`, `--cap-drop ALL`, a read-only root filesystem, a non-root user, and a mount allowlist. Without a container runtime the server still starts, runs the agents on the host with guards but no OS boundary (advisory mode), and says so at startup.
+- **No credentials in the container.** The containerized agent has no network of its own. Its model calls travel through the host, which adds the credential on the way out and strips credential headers on the way back. No socket is mounted and no port is published.
+- **A fail-closed guard chain.** Command, file, network, and content guards check the agent's tool calls and block when in doubt. The content guard has a model classify what is handed to an agent and what it fetches from the web. Every block lands in the audit log.
+- **Runtime governance you switch on.** Per-sender rate limits, daily token budgets, loop detection, and `/stop`, `/pause`, `/resume` commands that the host, not the model, handles on every channel.
+- **Nothing fetched at runtime.** One compiled binary carries its web UI, templates, skills, and workflows. A bare install starts with no asset downloads and no first-run network request, and fitness checks in CI hold dependencies and package boundaries.
 
-Each provider keeps its own documented security posture. ACP agents, for example, run on the host and never receive terminal reverse-calls. The [Security guide](docs/guide/security.md) states what each mode does and does not protect.
+Each provider keeps its own documented security posture. ACP agents, for example, run on the host without a container. The [Security guide](docs/guide/security.md) states what each mode does and does not protect.
 
 ## Quick start
 
 DartClaw runs on **macOS** (Apple Silicon, Intel), **Linux** (x64, arm64), and **Windows** x64. You need:
 
 - at least one agent CLI: [Claude Code](https://code.claude.com/docs) (`claude`) or [Codex CLI](https://github.com/openai/codex) (`codex`)
-- **PostgreSQL 14+** for the server ([setup guide](docs/guide/postgresql.md)); standalone workflows need no database
+- **PostgreSQL 14+** for the server ([install guide](docs/guide/postgresql.md)); standalone workflows need no database
 - optionally Docker or Podman, which turns on container isolation automatically
+- for the built-in coding workflows, the [AndThen](docs/guide/andthen-skills.md) plugin
+
+**1. Create the database.** Run this as a PostgreSQL administrator (`psql postgres` on a Homebrew install):
+
+```sql
+CREATE ROLE dartclaw LOGIN PASSWORD '<password>' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION;
+CREATE DATABASE dartclaw OWNER dartclaw;
+\connect dartclaw
+CREATE SCHEMA IF NOT EXISTS dartclaw AUTHORIZATION dartclaw;
+REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+```
+
+**2. Install DartClaw and start it.**
 
 ```bash
 brew tap DartClaw/dartclaw
 brew install dartclaw
 
-# Point DartClaw at its database and create an instance.
+# Point DartClaw at the database and create an instance.
 export DARTCLAW_DATABASE_URL='postgresql://dartclaw:<password>@127.0.0.1:5432/dartclaw?sslmode=disable'
 dartclaw init
 
-# Bootstrap the schema and check the setup.
+# Create the tables and check the setup.
 CONFIG=~/.dartclaw/dartclaw.yaml   # the path init printed
 dartclaw --config "$CONFIG" doctor --fix
 
-# Store a subscription credential in DartClaw's own store (or export ANTHROPIC_API_KEY instead).
-claude setup-token
-dartclaw --config "$CONFIG" auth claude
+# Use your Claude subscription (or export ANTHROPIC_API_KEY and skip these two lines).
+claude setup-token                        # prints a token
+dartclaw --config "$CONFIG" auth claude   # paste it at the prompt
 
-dartclaw serve --config "$CONFIG"
+dartclaw --config "$CONFIG" serve
 # Open http://127.0.0.1:3333
 ```
 
@@ -124,7 +133,9 @@ Container isolation is unavailable on native Windows; the [Windows guide](docs/g
 ```bash
 brew install DartClaw/dartclaw/dartclaw-workflow
 dartclaw-workflow init
-dartclaw-workflow run my-flow --json
+dartclaw-workflow run code-review --json \
+  --var TARGET="Review pull request #42 for regressions and missing tests" \
+  --var PR_NUMBER=42 --var PROJECT=my-project-id
 ```
 
 The built-in workflows call skills from the [AndThen](docs/guide/andthen-skills.md) plugin, so install it for the
@@ -148,33 +159,36 @@ The build produces `build/bin/dartclaw` and `build/bin/dartclaw-workflow`.
 Two layers with a hard trust boundary between them:
 
 - **The Dart host** owns state, the HTTP API, the web UI, security policy, scheduling, channels, task orchestration, and governance.
-- **The agent runtime** reasons and runs tools, either inside a per-owner container or as a host process.
+- **The agent runtime** reasons and runs tools, either inside a container or as a host process.
 
 ```mermaid
 flowchart LR
   IN["Web UI · REST API · CLI<br/>WhatsApp · Signal · Slack · Google Chat"]
-  subgraph HOST["Dart host"]
-    GC["Guard chain<br/>audit log · content guard<br/>rate limits · token budgets · loop detection"]
-    HG["Host Gateway"]
+  GC["Dart host<br/>guard chain · audit log<br/>rate limits · token budgets"]
+  subgraph BOX["Container: no network · read-only root · mount allowlist"]
+    CL["Claude Code"]
+    CX["Codex"]
   end
-  subgraph BOX["Container: network none · read-only root · mount allowlist"]
-    CL["Claude Code<br/>JSONL over stdio"]
-    CX["Codex<br/>JSON-RPC"]
-  end
-  ACP["ACP agents: Goose, Vibe<br/>host only"]
+  HG["Dart host<br/>Host Gateway<br/>adds the credential"]
+  ACP["ACP agents: Goose, Vibe<br/>host process, no container"]
+  LLM["Model provider"]
   IN --> GC
-  GC --> CL & CX
+  GC --> BOX
+  BOX -- "model calls" --> HG
+  HG --> LLM
   GC --> ACP
-  HG -. "provider access and approved tools,<br/>no credentials in the container" .- BOX
+  ACP --> LLM
 ```
 
 Without a container runtime, Claude Code and Codex run as host processes in advisory mode, and the server says so at startup.
 
-The host drives every provider through one `AgentHarness` interface, so orchestration has a single contract while each provider keeps its own protocol and capabilities. See [Architecture](docs/guide/architecture.md).
+One orchestration contract covers every provider, while each keeps its own protocol and capabilities. See [Architecture](docs/guide/architecture.md).
 
-## Configuration
+## Make it yours
 
-One `dartclaw.yaml` holds the typed configuration; a release-pinned JSON Schema gives your editor completion and validation. A minimal file:
+The agent's personality, standing instructions, and memory are plain Markdown files you can edit and version, in the workspace at `~/.dartclaw/workspace/`: `SOUL.md`, `AGENTS.md`, `USER.md`, `TOOLS.md`, `MEMORY.md`, and `HEARTBEAT.md`.
+
+Everything else is one typed `dartclaw.yaml`. A release-pinned JSON Schema gives your editor completion and validation, and nearly every setting can also be changed from the web UI's Settings page. A minimal file:
 
 ```yaml
 port: 3333
@@ -185,7 +199,7 @@ agent:
   model: sonnet
 ```
 
-The agent's personality and standing instructions live in plain Markdown in the workspace (`~/.dartclaw/workspace/`): `SOUL.md`, `AGENTS.md`, `USER.md`, `TOOLS.md`, `MEMORY.md`, and `HEARTBEAT.md`. Nearly every setting can also be changed from the web UI's Settings page. See the [Configuration guide](docs/guide/configuration.md).
+See the [Configuration guide](docs/guide/configuration.md) and [Customization](docs/guide/customization.md).
 
 ## Documentation
 
@@ -202,6 +216,9 @@ The agent's personality and standing instructions live in plain Markdown in the 
 **SDK**: build your own agent on DartClaw's packages, starting with the [Quick Start](docs/sdk/quick-start.md). Then see the [Package Guide](docs/sdk/packages.md), [Concepts](docs/sdk/concepts.md), [Architecture](docs/sdk/architecture.md), [Security](docs/sdk/security.md), and the runnable [examples](examples/sdk/).
 
 ## Project structure
+
+<details>
+<summary>Apps and packages in the Dart workspace</summary>
 
 ```
 apps/
@@ -224,6 +241,8 @@ packages/
 docs/                    User guide and SDK guide
 dev/                     Contributor docs, architecture, fitness checks, dev tools, testing profiles
 ```
+
+</details>
 
 ## Development
 

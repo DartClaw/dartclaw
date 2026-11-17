@@ -98,6 +98,63 @@ class AcceptanceCommandEvidenceTest(unittest.TestCase):
             result = (root / 'results.md').read_text()
             self.assertLess(result.index('| codex | node |'), result.index('## codex / dart'))
 
+    def test_registry_counts_include_transport_refusals_and_count_routed_blocks_once(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            request = {'guard': 'host-gateway', 'hook': 'bridge', 'principal': 'authority-1',
+                       'server': 'npm', 'tool': '/npm/lodash'}
+            served = {**request, 'reason': 'status=404', 'verdict': 'pass', 'decision': 'allow'}
+            refused = {**request, 'reason': 'status=405', 'verdict': 'block', 'decision': 'deny'}
+            mcp = {'guard': 'host-gateway', 'hook': 'bridge', 'verdict': 'block',
+                   'reason': 'mcp: tool "list_resources" is not authorized', 'sessionId': 'session-1'}
+            routed_event = {**mcp, 'reason': 'registry: registry npm: only GET and HEAD are allowed'}
+            queue_event = {**mcp, 'reason': 'registry: bridge in-flight limit reached'}
+            cap_event = {**mcp, 'reason': 'registry: upstream response exceeds 67108864 bytes'}
+            (root / 'audit-2026-11-17.ndjson').write_text('\n'.join(map(json.dumps, [mcp, served, queue_event])) + '\n')
+            (root / 'audit-2026-11-18.ndjson').write_text('\n'.join(map(json.dumps, [refused, routed_event, cap_event])) + '\n')
+            requests = coding_results.registry_requests(root)
+            self.assertEqual(requests, [served, queue_event, refused, routed_event, cap_event])
+            self.assertEqual(coding_results.registry_counts(requests), {'served': 1, 'refused': 3})
+
+    def test_registry_refusal_preserves_baseline_recording_and_fails_qualification(self):
+        for baseline in ('1', '0'):
+            with self.subTest(baseline=baseline), tempfile.TemporaryDirectory() as temporary:
+                root = pathlib.Path(temporary)
+                (root / 'story.md').write_text('Fixture story')
+                exit_code = int(baseline)
+                status = 'failed' if exit_code else 'completed'
+                run = {'id': 'run', 'status': status, 'currentStepIndex': 0, 'childTaskIds': ['task'],
+                       'steps': [{'id': 'step', 'index': 0, 'taskId': 'task'}], 'contextJson': {'data': {}}}
+                tool_calls = [_shell_call(command, f'DARTCLAW_ACCEPTANCE_EXIT={exit_code}\n')
+                              for command in ('npm install', 'npm test')]
+                responses = {
+                    '/api/config': {'_meta': {'configPath': str(root / 'dartclaw.yaml')}},
+                    '/api/workflows/runs/run': run,
+                    '/api/tasks/task': {'status': 'failed' if exit_code else 'accepted',
+                                        'agentExecution': {'containerJson': {'profile': 'workspace'}}},
+                    '/api/traces?taskId=task&limit=500&offset=0': {
+                        'traces': [{'taskId': 'task', 'startedAt': 'now', 'toolCalls': tool_calls}]},
+                }
+                refusal = {'guard': 'host-gateway', 'hook': 'bridge', 'verdict': 'block',
+                           'reason': 'registry: bridge in-flight limit reached'}
+                (root / 'audit-2026-11-17.ndjson').write_text(json.dumps(refusal) + '\n')
+
+                def subprocess_run(argv, **kwargs):
+                    if argv[0] == 'dart':
+                        kwargs['stdout'].write('{"type":"run_started","run":{"id":"run"}}\n')
+                        return subprocess.CompletedProcess(argv, exit_code)
+                    return subprocess.CompletedProcess(argv, 0, stdout='')
+
+                args = ['coding_results.py', 'claude', 'node', *(str(root) for _ in range(4)), baseline]
+                with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()), \
+                     patch('sys.argv', args), patch.object(coding_results, 'api', side_effect=responses.__getitem__), \
+                     patch.object(coding_results.subprocess, 'run', side_effect=subprocess_run):
+                    self.assertEqual(coding_results.main(), 0 if exit_code else 1)
+                row = json.loads((root / 'results.json').read_text())[0]
+                self.assertEqual(row['registryCounts'], {'served': 0, 'refused': 1})
+                if not exit_code:
+                    self.assertIn('Registry requests were refused', row['error'])
+
     def test_baseline_ignores_only_recorded_acceptance_failures(self):
         row = {'status': 'completed', 'failureTaskId': 'step', 'tasks': [{'taskId': 'step', 'status': 'accepted'}],
                'install': {'exit': 127, 'taskId': 'step'}, 'test': {'exit': 127, 'taskId': 'step'}}

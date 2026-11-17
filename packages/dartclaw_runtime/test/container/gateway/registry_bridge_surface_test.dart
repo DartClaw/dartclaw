@@ -4,6 +4,10 @@ import 'dart:io';
 
 import 'package:dartclaw_bridge/dartclaw_bridge.dart';
 import 'package:dartclaw_runtime/src/container/gateway/gateway_models.dart';
+import 'package:dartclaw_runtime/src/container/gateway/host_gateway.dart';
+import 'package:dartclaw_runtime/src/container/gateway/npm_registry_adapter.dart';
+import 'package:dartclaw_runtime/src/container/gateway/provider_adapter.dart';
+import 'package:dartclaw_runtime/src/container/gateway/pub_registry_adapter.dart';
 import 'package:dartclaw_runtime/src/container/gateway/registry_adapter.dart';
 import 'package:dartclaw_runtime/src/container/gateway/registry_bridge_surface.dart';
 import 'package:test/test.dart';
@@ -43,6 +47,9 @@ void main() {
       hits.add('first${request.uri}');
       request.headers.forEach((name, values) => forwarded[name] = values);
       switch (request.uri.path) {
+        case '/same-origin':
+          request.response.statusCode = 302;
+          request.response.headers.set('location', '/archive');
         case '/inside':
           request.response.statusCode = 302;
           request.response.headers.set('location', 'http://127.0.0.1:${second.port}/archive');
@@ -97,6 +104,11 @@ void main() {
     await second.close(force: true);
     await unpinned.close(force: true);
   });
+
+  List<RegistryAdapter> registryAdapters() => [
+    PubRegistryAdapter(upstream: Uri.parse('http://127.0.0.1:${second.port}')),
+    NpmRegistryAdapter(upstream: Uri.parse('http://127.0.0.1:${first.port}')),
+  ];
 
   Future<GatewayResponse> fetch(String path, {String method = 'GET', Map<String, List<String>> headers = const {}}) =>
       surface.handle(
@@ -212,6 +224,96 @@ void main() {
       (authority: 'authority-17', ecosystem: 'test-registry', path: '/downloads/b', status: 404, served: true),
       (authority: 'authority-17', ecosystem: 'test-registry', path: '/packages/publish', status: 405, served: false),
     ]);
+  });
+
+  group('pub and npm', () {
+    setUp(() async {
+      await surface.dispose();
+      surface = RegistryBridgeSurface(
+        adapters: registryAdapters(),
+        authorityId: 'authority-17',
+        onRequest: (authority, ecosystem, path, status, served) async =>
+            audit.add((authority: authority, ecosystem: ecosystem, path: path, status: status, served: served)),
+      );
+    });
+
+    test('passes a scoped npm package path to the origin with its slash encoded', () async {
+      for (final path in ['/npm/@sindresorhus%2fis', '/npm/@sindresorhus/is/-/is-4.6.0.tgz']) {
+        final response = await fetch(path);
+        expect(response.status, 200);
+        await response.body.drain<void>();
+      }
+
+      expect(hits.map((hit) => hit.replaceAll('%2F', '%2f')), [
+        'first/@sindresorhus%2fis',
+        'first/@sindresorhus/is/-/is-4.6.0.tgz',
+      ]);
+    });
+
+    test('applies the refusal rules to every registered adapter', () async {
+      final denials = <String>[];
+      final gateway = HostGateway(
+        providerAdapters: {
+          'claude': AnthropicMessagesAdapter(credential: ProviderCredentialSource.apiKey(() => 'unused')),
+        },
+        registryAdapters: registryAdapters(),
+        onDenied: (_, reason) => denials.add(reason),
+      );
+      addTearDown(gateway.dispose);
+      final channel = FakeBridgeChannel();
+      gateway.attach(gateway.register(principal: principal()), BridgeSurface.registry, channel);
+      await channel.handshake(BridgeSurface.registry);
+
+      var requestId = 0;
+      for (final route in ['npm', 'pub']) {
+        for (final (method, path) in [('PUT', '/is-odd'), ('POST', '/-/npm/v1/security/advisories/bulk')]) {
+          final refusal = await channel.request(++requestId, method: method, path: '/$route$path');
+          expect(refusal.status, 405);
+          expect(refusal.isDenied, isTrue);
+        }
+      }
+      expect(hits, isEmpty);
+      final refused = await channel.request(++requestId, method: 'GET', path: '/npm/inside');
+      expect(refused.status, 403);
+      expect(refused.isDenied, isTrue);
+      expect(hits, ['first/inside']);
+      final served = await channel.request(++requestId, method: 'GET', path: '/npm/same-origin');
+      expect(served.status, 200);
+      expect(served.body, 'archive');
+      expect(hits, ['first/inside', 'first/same-origin', 'first/archive']);
+      expect(denials, [
+        'registry: registry npm: only GET and HEAD are allowed',
+        'registry: registry npm: only GET and HEAD are allowed',
+        'registry: registry pub: only GET and HEAD are allowed',
+        'registry: registry pub: only GET and HEAD are allowed',
+        'registry: registry npm: redirect origin is not pinned',
+      ]);
+    });
+
+    test('keeps each route on its own origin', () async {
+      expect(await utf8.decodeStream((await fetch('/pub/is-odd')).body), 'redirected');
+      expect(await utf8.decodeStream((await fetch('/npm/is-odd')).body), 'archive');
+      expect(hits, ['second/is-odd', 'first/is-odd']);
+    });
+
+    test('records served npm requests under the npm ecosystem', () async {
+      for (final path in ['/npm/is-odd', '/npm/is-odd/-/is-odd-3.0.1.tgz']) {
+        final response = await fetch(path);
+        expect(response.status, 200);
+        await response.body.drain<void>();
+      }
+
+      expect(audit, [
+        (authority: 'authority-17', ecosystem: 'npm', path: '/npm/is-odd', status: 200, served: true),
+        (
+          authority: 'authority-17',
+          ecosystem: 'npm',
+          path: '/npm/is-odd/-/is-odd-3.0.1.tgz',
+          status: 200,
+          served: true,
+        ),
+      ]);
+    });
   });
 }
 

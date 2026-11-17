@@ -56,9 +56,12 @@
     .step circle { fill: var(--kd); } .step text { fill: var(--on); font-size: 11px; font-weight: 700; text-anchor: middle; }
     /* Interaction, effective only when the SVG is opened directly. */
     .n { cursor: pointer; }
+    /* Keep the native outline from enclosing the details panel. */
+    a:focus-visible { outline: none; }
     .n:hover .box, a:focus-visible .box { stroke: var(--hi); stroke-width: 2.8; }
     .d { display: none; pointer-events: none; }
     .n:hover .d, a:focus-visible .d { display: inline; }
+    svg:has(.n:hover) a:focus-visible .n:not(:hover) .d { display: none; }
     svg:has(.n:hover) .d0, svg:has(a:focus-visible) .d0 { display: none; }
     svg:has(.n:hover) .edges .e { opacity: .14; }
     .e.join path { marker-end: none; }
@@ -68,7 +71,7 @@
     svg:has(#bridge:hover) .edges :is(.f-bridge,.t-bridge) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
     svg:has(#mcp:hover) .edges :is(.f-mcp,.t-mcp) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
     svg:has(#registry:hover) .edges :is(.f-registry,.t-registry) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
-    svg:has(#pub:hover) .edges :is(.f-pub,.t-pub) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#registries:hover) .edges :is(.f-registries,.t-registries) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
     svg:has(#cred:hover) .edges :is(.f-cred,.t-cred) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
     svg:has(#gw:hover) .edges :is(.f-gw,.t-gw) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
     svg:has(#adapter:hover) .edges :is(.f-adapter,.t-adapter) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
@@ -107,7 +110,7 @@
     <g class="e main f-adapter t-openai"><path d="M722,334 H806"/><text class="el" x="742" y="327" text-anchor="start">API key</text></g>
     <g class="e main f-adapter t-chatgpt"><path d="M722,334 H736 V410 H806"/><text class="el" x="742" y="403" text-anchor="start">subscription</text></g>
     <g class="e f-gw t-registry"><path d="M391,386 V420"/><text class="el" x="399" y="407">registry pipe</text></g>
-    <g class="e main f-registry t-pub"><path d="M722,494 H806"/><text class="el" x="738" y="486">GET/HEAD</text></g>
+    <g class="e main f-registry t-registries"><path d="M722,494 H806"/><text class="el" x="738" y="486">GET/HEAD</text></g>
   </g>
 
   <a href="../security-architecture.md#host-owned-provider-mediation"><g class="n tint k-ext" id="cli">
@@ -185,17 +188,17 @@
   <a href="../security-architecture.md#host-owned-provider-mediation"><g class="n tint k-host" id="registry">
     <rect class="box" x="306" y="422" width="416" height="104" rx="9"/>
     <text class="name mono-name" x="318" y="445">RegistryBridgeSurface · registry</text>
-    <text class="sub" x="318" y="463">workspace only · loopback :8082/pub · GET/HEAD only</text>
+    <text class="sub" x="318" y="463">workspace only · loopback :8082 under /pub and /npm · GET/HEAD only</text>
     <text class="sub" x="318" y="481">Pinned origins; no credentials; audit every request and refusal</text>
-    <text class="sub" x="318" y="499">Metadata URLs rewritten; archives unchanged; 64 MiB cap</text>
+    <text class="sub" x="318" y="499">Pub metadata URLs rewritten · npm packuments untouched · 64 MiB cap</text>
     <g class="d"><text class="p1" x="36" y="646"><tspan class="b">RegistryBridgeSurface</tspan> · workspace grant owns both the pipe and client environment; restricted gets neither</text><text class="p2" x="36" y="666">RegistryAdapter pins routes and origins; redirects stay inside those pins. Headers share the provider strip lists.</text></g>
   </g></a>
-  <a href="../security-architecture.md#host-owned-provider-mediation"><g class="n tint k-chan" id="pub">
+  <a href="../security-architecture.md#host-owned-provider-mediation"><g class="n tint k-chan" id="registries">
     <rect class="box" x="808" y="466" width="164" height="70" rx="9"/>
     <text class="name" x="820" y="489">pub.dev</text>
-    <text class="sub" x="820" y="507">exact HTTPS origin pin</text>
-    <text class="sub" x="820" y="523">public packages only</text>
-    <g class="d"><text class="p1" x="36" y="646"><tspan class="b">PubRegistryAdapter</tspan> · PUB_HOSTED_URL points at http://127.0.0.1:8082/pub at container creation</text><text class="p2" x="36" y="666">A committed pub.dev lockfile is a different source; pub re-resolves and writes the mirror URL.</text></g>
+    <text class="name" x="820" y="507">registry.npmjs.org</text>
+    <text class="sub" x="820" y="523">exact HTTPS origin pins</text>
+    <g class="d"><text class="p1" x="36" y="646"><tspan class="b">PubRegistryAdapter</tspan> pins pub.dev under /pub. <tspan class="b">NpmRegistryAdapter</tspan> pins registry.npmjs.org under /npm.</text><text class="p2" x="36" y="666">Pub re-resolves a lockfile from pub.dev. npm handles tarball routing and leaves public URLs in its lockfile.</text></g>
   </g></a>
   <g transform="translate(24,568)">
     <g class="tint k-ext"><rect class="box" x="0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="22" y="10">container process</text>

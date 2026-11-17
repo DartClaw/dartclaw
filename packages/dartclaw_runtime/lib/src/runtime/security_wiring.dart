@@ -8,6 +8,7 @@ import 'package:logging/logging.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 
+import '../container/gateway/npm_registry_adapter.dart';
 import '../container/gateway/pub_registry_adapter.dart';
 import 'container_authority_cleanup_owner.dart';
 
@@ -501,7 +502,7 @@ class SecurityWiring implements Reconfigurable {
     _containerHealthMonitor = ContainerHealthMonitor(eventBus: _eventBus)..start();
     _gateway = HostGateway(
       providerAdapters: buildProviderAdapters(),
-      registryAdapters: [PubRegistryAdapter()],
+      registryAdapters: [PubRegistryAdapter(), NpmRegistryAdapter()],
       onRegistryRequest: (authority, ecosystem, path, status, served) => _auditLogger.writeEntry(
         AuditEntry(
           timestamp: DateTime.now(),

@@ -86,14 +86,42 @@ def baseline_error(row):
     return 'Workflow failure is not linked to an acceptance command failure.'
 
 
+def registry_refusal(entry):
+    # GatewayPipe prefixes the host-authored GuardBlockEvent reason with its surface.
+    return entry['verdict'] == 'block' and entry.get('reason', '').startswith('registry: ')
+
+
+def registry_requests(data):
+    return [
+        entry
+        for path in sorted(data.glob('audit-*.ndjson'))
+        for entry in map(json.loads, path.read_text().splitlines())
+        if entry['guard'] == 'host-gateway' and entry['hook'] == 'bridge'
+        and (
+            ('principal' in entry and 'server' in entry)
+            or registry_refusal(entry)
+        )
+    ]
+
+
+def registry_counts(requests):
+    # Both routed and transport refusals fire the same event. Keep paired
+    # routed audit rows as evidence without counting the same refusal twice.
+    return {
+        'served': sum(entry.get('decision') == 'allow' for entry in requests),
+        'refused': sum(registry_refusal(entry) for entry in requests),
+    }
+
+
 def record_row(result_dir, row):
     records = result_dir / "results.json"
     rows = json.loads(records.read_text()) if records.exists() else []
     rows.append(row)
     records.write_text(json.dumps(rows, indent=2) + "\n")
-    lines = ["# Container coding results", "", "| Provider | Fixture | Run | Install exit | Test exit | Placement |", "|---|---|---|---|---|---|"]
+    lines = ["# Container coding results", "", "| Provider | Fixture | Run | Install exit | Test exit | Placement | Registry served | Registry refused |", "|---|---|---|---|---|---|---|---|"]
     for item in rows:
-        lines.append(f"| {item['provider']} | {item['fixture']} | {item.get('runId', 'not started')} | {item['install']['exit']} | {item['test']['exit']} | {item['placement']} |")
+        counts = item.get('registryCounts', {})
+        lines.append(f"| {item['provider']} | {item['fixture']} | {item.get('runId', 'not started')} | {item['install']['exit']} | {item['test']['exit']} | {item['placement']} | {counts.get('served', 'unavailable')} | {counts.get('refused', 'unavailable')} |")
     for item in rows:
         lines.extend(["", f"## {item['provider']} / {item['fixture']}", "", f"Workflow status: {item.get('status', 'unavailable')}; CLI exit: {item['cliExit']}", "", "Task placements:", "", "```json", json.dumps(item['tasks'], indent=2), "```"])
         for command in (item['install'], item['test']):
@@ -139,6 +167,9 @@ def main():
         with cli_log.open("w") as log:
             outcome = subprocess.run(["dart", "run", "apps/dartclaw_cli/bin/dartclaw.dart", "--config", str(data / "dartclaw.yaml"), "workflow", "run", "implement-story", "-p", "coding-fixture", "-v", "FEATURE=" + (project / "story.md").read_text(), "--json"], stdout=log, stderr=subprocess.STDOUT, timeout=7200)
         row['cliExit'] = outcome.returncode
+        requests = registry_requests(data)
+        row['registryCounts'] = registry_counts(requests)
+        (output / f"{provider}-{fixture}-registry.json").write_text(json.dumps(requests, indent=2) + '\n')
         events = [json.loads(line) for line in cli_log.read_text().splitlines() if line.strip()]
         starts = [event['run']['id'] for event in events if event.get('type') == 'run_started']
         if len(starts) != 1:
@@ -185,10 +216,15 @@ def main():
         status = subprocess.run(['git', '-C', str(project), 'status', '--porcelain'], capture_output=True, text=True, check=True).stdout
         if status:
             raise RuntimeError('Original fixture changed: ' + status)
+        if baseline != '1' and row['registryCounts']['refused']:
+            raise RuntimeError('Registry requests were refused; see the recorded registry audit.')
         if any(item['exit'] is None for item in (row['install'], row['test'])):
             raise RuntimeError('Acceptance command evidence missing from persisted tool traces.')
         if baseline != '1' and (row['install']['exit'] != 0 or row['test']['exit'] != 0 or row['status'] != 'completed'):
             raise RuntimeError('Install, test or workflow failed; see recorded command output.')
+        ecosystem = 'pub' if fixture == 'dart' else 'npm'
+        if baseline != '1' and not any(entry.get('server') == ecosystem and entry.get('decision') == 'allow' for entry in requests):
+            raise RuntimeError(f'No served {ecosystem} request was recorded by the profile server.')
         if baseline == '1' and baseline_error(row):
             raise RuntimeError(baseline_error(row))
     except (RuntimeError, OSError, ValueError, subprocess.SubprocessError) as error:

@@ -6,6 +6,10 @@ import 'package:dartclaw_core/dartclaw_core.dart' show containerGeneratedStatePa
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_runtime/src/container/bridge_binary.dart' show BridgeBinaryProvisioner;
 import 'package:dartclaw_runtime/src/container/container_manager.dart';
+import 'package:dartclaw_runtime/src/container/gateway/gateway_models.dart';
+import 'package:dartclaw_runtime/src/container/gateway/host_gateway.dart';
+import 'package:dartclaw_runtime/src/container/gateway/npm_registry_adapter.dart';
+import 'package:dartclaw_runtime/src/container/gateway/pub_registry_adapter.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeProcess;
 import 'package:fake_async/fake_async.dart';
 import 'package:logging/logging.dart';
@@ -203,6 +207,46 @@ void main() {
       granted.removeRange(index - 1, index + 1);
       expect(granted, creations.first);
       expect(granted[granted.indexOf('--network') + 1], 'none');
+    });
+
+    test('registry client environment carries every registered ecosystem for a granted authority only', () async {
+      final gateway = HostGateway(
+        providerAdapters: const {},
+        registryAdapters: [PubRegistryAdapter(), NpmRegistryAdapter()],
+      );
+      addTearDown(gateway.dispose);
+      final creations = <List<String>>[];
+      final state = _tempStateDir();
+      for (final profile in ['restricted', 'workspace']) {
+        final principal = GatewayPrincipal(
+          sessionId: 'registry-test',
+          providerId: 'claude',
+          policy: ExecutionPolicy.container(profile),
+        );
+        await _manager(
+          profileId: profile,
+          generatedStateDir: state,
+          registryClientEnvironment: gateway.registryClientEnvironment(principal),
+          run: (_, arguments) async {
+            if (arguments.first == 'create') creations.add(arguments);
+            return ProcessResult(1, arguments.first == 'inspect' ? 1 : 0, '', '');
+          },
+        ).start();
+      }
+
+      final (restricted, workspace) = (creations.first, creations.last.toList());
+      for (final value in [
+        'PUB_HOSTED_URL=http://127.0.0.1:8082/pub',
+        'npm_config_registry=http://127.0.0.1:8082/npm',
+        'npm_config_audit=false',
+      ]) {
+        final index = workspace.indexOf(value);
+        expect(index, greaterThan(0), reason: value);
+        expect(workspace[index - 1], '-e');
+        workspace.removeRange(index - 1, index + 1);
+      }
+      expect(workspace, restricted);
+      expect(restricted[restricted.indexOf('--network') + 1], 'none');
     });
 
     test('isRuntimeAvailable returns true on zero exit code', () async {

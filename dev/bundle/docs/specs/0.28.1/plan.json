@@ -234,16 +234,30 @@
       "dependsOn": [
         "S06"
       ],
-      "status": "pending",
+      "status": "done",
       "fis": "s07-npm-registry-adapter.md",
-      "completedTaskIds": [],
+      "completedTaskIds": [
+        "TI01",
+        "TI02",
+        "TI03",
+        "TI04",
+        "TI05",
+        "TI06",
+        "TI07",
+        "TI08",
+        "TI09"
+      ],
       "scope": "Add the npm adapter to the `registry` surface, serving packuments unmodified because npm's own registry-host replacement routes tarballs through the mirror, so `npm install` succeeds in S02's Node fixture container; close FR9: S02's scenario passes on both fixtures with both providers, ADR-062's \"Response URLs\" row is reworded to the no-direct-connection invariant, and ADR-062 moves to Accepted.",
       "sourceRefs": [
         "dev/bundle/docs/specs/0.28.1/prd.md#fr9-read-only-package-registry-egress"
       ],
       "provenance": null,
       "assetRefs": [],
-      "sequencing": null
+      "sequencing": null,
+      "verified": {
+        "at": "2026-11-17T22:58Z",
+        "summary": "DARTCLAW_CONTAINER_DATA_DIR=/Users/tobias/.dartclaw bash dev/testing/profiles/container/coding.sh -> exit=0, codex/node: completed; install=0; test=0; Codex steps=5"
+      }
     },
     {
       "id": "S08",

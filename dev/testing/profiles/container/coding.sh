@@ -131,6 +131,9 @@ for provider in "${PROVIDERS[@]}"; do
     REMOTE="$RUN_ROOT/$NAME/origin.git"
     mkdir -p "$DATA_DIR" "$PROJECT"
     cp -R "$SCRIPT_DIR/fixtures/$fixture/." "$PROJECT/"
+    for instructions in AGENTS.md CLAUDE.md; do
+      cp "$SCRIPT_DIR/fixtures/project-instructions.md" "$PROJECT/$instructions"
+    done
     git -C "$PROJECT" init -q --initial-branch=main
     git -C "$PROJECT" config user.name 'Container fixture'
     git -C "$PROJECT" config user.email 'fixture@example.invalid'

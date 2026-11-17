@@ -2,8 +2,7 @@
 
 ## Status
 
-Proposed – 2026-11-10. Owner pinned the defaults below for 0.28.1 (D1–D3); acceptance follows the live proof that
-containerized coding steps fail without it.
+Accepted – 2026-11-17. Both providers installed dependencies and passed tests in the Dart and Node workspace fixtures.
 
 ## Context
 
@@ -35,11 +34,11 @@ Add a third bridge surface, `registry`, served by a host-side registry mirror.
 | Aspect | Rule |
 |---|---|
 | Transport | The package manager talks plain HTTP to the bridge's loopback port; the host performs the HTTPS request. No CA in the container, no CONNECT tunnel, no network attachment. `network:none` stays. |
-| Ecosystems (0.28.1) | pub (`PUB_HOSTED_URL`) and npm (`npm_config_registry`), set in the container environment at spawn. Others are added as adapters when needed. |
-| Upstreams | Each ecosystem adapter pins its origins (`https://pub.dev`, `https://registry.npmjs.org`, plus the exact download origin each one redirects to). Redirects are followed host-side only within that set. Not NetworkGuard's allowlist, whose wildcards (`*.googleapis.com`) are too broad for this. |
+| Ecosystems (0.28.1) | pub (`PUB_HOSTED_URL`) and npm (`npm_config_registry`, `npm_config_audit=false`), set at container creation. Others are added as adapters when needed. |
+| Upstreams | Each ecosystem adapter pins its exact HTTPS origins (`https://pub.dev` for pub and `https://registry.npmjs.org` for npm). The host follows redirects only within that adapter’s pins. |
 | Methods | `GET` and `HEAD` only. Anything else is refused host-side, so publish, login and upload paths cannot be reached. |
 | Credentials | None. Requests go out without auth headers; container-supplied `Authorization` headers are dropped. Private registries are out of scope. |
-| Response URLs | Absolute download URLs in registry metadata that point at a pinned origin are rewritten to the loopback mirror, so the client never tries a direct connection. A URL outside the pinned set is left unchanged and fails in the container. |
+| Response URLs | The client never needs a direct connection for a pinned-origin download. The adapter marks metadata for URL rewriting only if its client has no registry-host replacement. URLs outside the pins have no route through the mirror. |
 | Profiles | Granted to `workspace` authorities; never to `restricted`. No config knob. |
 | Audit | Each request is recorded with authority, ecosystem, path and status; a refusal fires `GuardBlockEvent` (`guard: host-gateway`, `hook: bridge`), as other bridge refusals do. |
 | Limits | The pipe's existing `BridgeLimits` apply (64 MiB per response, 8 in flight). An artifact over the cap fails with a message naming the cap. |
@@ -56,8 +55,8 @@ Add a third bridge surface, `registry`, served by a host-side registry mirror.
 
 ### Negative
 
-- Per-ecosystem code: each adapter knows its client's environment variable, its download origins and its URL
-  rewriting. pip, cargo and others are not covered until added.
+- Each adapter owns its client's environment and exact origin pins. Clients without registry-host replacement
+  require metadata URL rewriting to keep pinned-origin downloads on the mirror.
 - Install-time package scripts (npm `postinstall`) run inside the container. They are contained by the same boundary
   as the agent, but a malicious dependency can still change the worktree; V3's review downgrade does not cover
   `package.json` or lockfiles.
@@ -92,7 +91,11 @@ Add a third bridge surface, `registry`, served by a host-side registry mirror.
 - Pub pins `https://pub.dev` only. Execution-time metadata for `test` 1.33.0 named a pub.dev archive; its HEAD
   request returned 200 with zero redirects. The repository protocol permits redirects, so any later download
   origin must be added as an exact pin after observation, never a wildcard. Decoded JSON metadata URLs are
-  rewritten to `/pub`; archive bytes are untouched. npm's registry-host replacement proof remains the next story's.
+  rewritten to `/pub`; archive bytes are untouched.
+- npm pins `https://registry.npmjs.org` for both packuments and tarballs. With Node 24.22.3 and npm 11.19.1,
+  the default `replace-registry-host` routed downloads from both packuments and lockfiles through `/npm` during
+  `npm install` and `npm ci`. The adapter leaves packuments untouched, and `package-lock.json` keeps public URLs.
+  `npm_config_audit=false` prevents the default audit POST.
 - Docs in the same change: `dev/architecture/security-architecture.md` (§ Host-Owned Provider Mediation, threat
   table), `docs/guide/security.md` (the "Sole egress" bullet), and its diagram.
 

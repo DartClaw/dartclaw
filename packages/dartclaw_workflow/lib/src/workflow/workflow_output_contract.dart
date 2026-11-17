@@ -17,9 +17,29 @@ const String executionEnvelopeOutputsKey = 'outputs';
 /// envelope. Reserved as a declared-output key name.
 const String executionEnvelopeStepOutcomeKey = 'step_outcome';
 
-/// Reserved declared-output key names that would collide with the execution
-/// envelope's top-level shape.
-const Set<String> reservedEnvelopeOutputKeys = {executionEnvelopeOutputsKey, executionEnvelopeStepOutcomeKey};
+const workflowExecutionSurfaceHoldKey = '_workflow.git.execution_surface_hold';
+const workflowApprovedBranchesKey = '_workflow.git.approved_branches';
+
+/// Output names reserved for the envelope or host-owned approval state.
+const Set<String> reservedEnvelopeOutputKeys = {
+  executionEnvelopeOutputsKey,
+  executionEnvelopeStepOutcomeKey,
+  workflowExecutionSurfaceHoldKey,
+  workflowApprovedBranchesKey,
+};
+
+class ReservedWorkflowOutput implements Exception {
+  final String key;
+  const new(this.key);
+  @override
+  String toString() => 'Step output "$key" is reserved by the host';
+}
+
+void validateWorkflowOutputKeys(Iterable<String> keys) {
+  for (final key in keys) {
+    if (reservedEnvelopeOutputKeys.contains(key)) throw ReservedWorkflowOutput(key);
+  }
+}
 
 /// Host-stamped marker key recording the execution-envelope schema version on a
 /// persisted `structuredOutput` payload.

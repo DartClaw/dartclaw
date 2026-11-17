@@ -193,8 +193,21 @@ Push-back does not re-run the task: the executor only dispatches `queued` tasks.
 conversation, the feedback is started as a new turn in that conversation's session; a task created from the web UI or
 API gets no delivery. The comment is added to the task's prompt if it is dispatched again.
 
-`tasks.completion_action: accept` accepts every task that reaches `review` without waiting for an operator; a merge
-conflict or push failure leaves it in `review`.
+`tasks.completion_action: accept` automatically accepts a task that reaches `review`, except when its worktree
+changes an execution surface. The check includes committed branch changes, tracked edits and untracked files,
+case-insensitively, at the repository root:
+
+- `.claude/`, `.codex/`, `.husky/`, `.githooks/`, `.github/workflows/`
+- `.mcp.json`, `.envrc`, `.vscode/tasks.json`, `.vscode/settings.json`, `mise.toml`
+- any added or changed symlink, at any depth
+
+Deletions and both ends of a rename count for the listed paths. `CLAUDE.md` and `AGENTS.md` alone do not hold a task.
+A held task stays in `review`; its detail page names the paths and the API includes them in
+`configJson._executionSurfaceHold.paths`. Review the diff, then use **Accept** in the web UI, the review API, or a
+channel review button. An agent's `task_review` accept is automatic for this rule and cannot release the hold, even
+in your admin chat. Slack has no task review buttons, so a person must open the task page or use the API instead of
+asking the agent to accept its own execution-surface changes. A merge conflict or push failure also leaves the task
+in `review`.
 
 The task detail page combines:
 

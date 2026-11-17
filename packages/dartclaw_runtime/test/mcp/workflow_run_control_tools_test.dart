@@ -169,6 +169,45 @@ void main() {
   });
 
   group('workflow_resume', () {
+    for (final publish in [false, true]) {
+      test(
+        'registered workflow_resume cannot approve an execution-surface ${publish ? 'publish' : 'promotion'} hold',
+        () async {
+          adminSenders = ['admin'];
+          final run = await insertRun('held');
+          await repository.update(
+            run.copyWith(
+              contextJson: {
+                ...run.contextJson,
+                'data': {
+                  '_workflow.git.execution_surface_hold': {
+                    'branch': 'held-branch',
+                    'paths': ['.mcp.json'],
+                    'publish': publish,
+                  },
+                },
+              },
+            ),
+          );
+          final result = toolResult(
+            await _call(
+              newHandler().forCaller(harnessRunning(() => turn(ChannelType.slack, sender: 'admin'))),
+              'workflow_resume',
+              {'run_id': 'held'},
+            ),
+          );
+          expect(result['isError'], isTrue);
+          final payload = resultPayload(result);
+          expect(payload.toString(), contains('person_required'));
+          expect(payload.toString(), contains('web UI'));
+          expect(payload.toString(), contains('API'));
+          final held = (await repository.getById('held'))!;
+          expect(held.status, WorkflowRunStatus.awaitingApproval);
+          expect((held.contextJson['data'] as Map)['_workflow.git.approved_branches'], isNull);
+        },
+      );
+    }
+
     test('a WhatsApp DM admin and a Signal group admin resume; a non-admin in the group is refused', () async {
       adminSenders = ['+4670000001', '+4670000002'];
       await insertRun('run-wa');

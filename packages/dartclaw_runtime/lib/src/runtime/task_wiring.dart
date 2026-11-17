@@ -11,8 +11,7 @@ import 'storage_wiring.dart';
 
 /// Builds the auto-accept callback used by [TaskExecutor].
 ///
-/// The callback is best-effort: non-success review results are converted into
-/// thrown errors so [TaskExecutor] can log them and keep the task in `review`.
+/// Review holds remain in review; failures are reported as errors.
 Future<void> Function(String taskId)? buildAutoAcceptCallback({
   required String completionAction,
   required Future<ReviewResult> Function(String taskId) reviewTask,
@@ -25,6 +24,9 @@ Future<void> Function(String taskId)? buildAutoAcceptCallback({
     final result = await reviewTask(taskId);
     switch (result) {
       case ReviewSuccess():
+        return;
+      case ReviewExecutionSurfaceHold(:final message):
+        Logger('TaskWiring').info('Auto-accept held for task $taskId: $message');
         return;
       case ReviewMergeConflict(
         taskId: final conflictTaskId,

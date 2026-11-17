@@ -487,10 +487,22 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
       // Deferred pause: siblings have settled, so no in-flight task wait gets
       // aborted into a spurious failure. No-ops when a teardown or hold
       // already moved the run off `running`.
-      await _pauseRun(
-        run,
-        mapCtx.abortReason ?? "Foreach step '${controllerStep.id}' was interrupted and can be resumed.",
-      );
+      final hold = WorkflowExecutionSurfaceHold.read(context);
+      if (hold != null) {
+        final refreshedRun = (await _repository.getById(run.id)) ?? run;
+        await _transitionStepAwaitingApproval(
+          refreshedRun,
+          controllerStep,
+          context,
+          stepIndex: stepIndex,
+          reason: hold.message,
+        );
+      } else {
+        await _pauseRun(
+          run,
+          mapCtx.abortReason ?? "Foreach step '${controllerStep.id}' was interrupted and can be resumed.",
+        );
+      }
       return null;
     }
     var tokenUsageComplete = true;
@@ -1008,6 +1020,16 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
             mergeResolveEnabled: definition.gitStrategy?.mergeResolve.enabled == true,
           );
           switch (promotionResult) {
+            case PromotionHeld(:final paths):
+              context[workflowExecutionSurfaceHoldKey] ??= WorkflowExecutionSurfaceHold(
+                branch: storyBranch,
+                paths: paths,
+              ).toJson();
+              mapCtx.aborted = true;
+              mapCtx.inFlightCount--;
+              await persistProgress();
+              stopAfterPromotion = true;
+              return;
             case PromotionSuccess(:final commitSha):
               if (storyId != null && storyId.isNotEmpty) promotedIds.add(storyId);
               context['${controllerStep.id}[$iterIndex].promotion'] = 'success';
@@ -1048,6 +1070,16 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
                   return;
                 }
                 switch (resolveResult) {
+                  case WorkflowGitPromotionHeld(:final paths):
+                    context[workflowExecutionSurfaceHoldKey] ??= WorkflowExecutionSurfaceHold(
+                      branch: storyBranch,
+                      paths: paths,
+                    ).toJson();
+                    mapCtx.aborted = true;
+                    mapCtx.inFlightCount--;
+                    await persistProgress();
+                    stopAfterPromotion = true;
+                    return;
                   case WorkflowGitPromotionSuccess(:final commitSha):
                     if (storyId != null && storyId.isNotEmpty) promotedIds.add(storyId);
                     context['${controllerStep.id}[$iterIndex].promotion'] = 'success';

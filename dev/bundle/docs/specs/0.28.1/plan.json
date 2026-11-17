@@ -108,9 +108,19 @@
       "id": "S03",
       "name": "Execution-surface review downgrade",
       "dependsOn": [],
-      "status": "pending",
+      "status": "done",
       "fis": "s03-execution-surface-review-downgrade.md",
-      "completedTaskIds": [],
+      "completedTaskIds": [
+        "TI01",
+        "TI02",
+        "TI03",
+        "TI04",
+        "TI05",
+        "TI06",
+        "TI07",
+        "TI08",
+        "TI09"
+      ],
       "scope": "One fixed execution-surface path list, checked against the change set of every automatic task accept, every automatic workflow promotion and every workflow publish; a hit, or any added symlink, holds the change for review with the matched paths named on the task detail page and in the task API. The check runs before the host's commit sweep, and host commit sweeps in agent worktrees run with git hooks disabled. `CLAUDE.md` and `AGENTS.md` are off the list; no config knob.",
       "sourceRefs": [
         "dev/bundle/docs/specs/0.28.1/prd.md#fr5-execution-surface-review-downgrade",
@@ -118,7 +128,11 @@
       ],
       "provenance": null,
       "assetRefs": [],
-      "sequencing": null
+      "sequencing": null,
+      "verified": {
+        "at": "2026-11-17T17:35Z",
+        "summary": "dart test --reporter=failures-only packages/dartclaw_runtime/test/task/execution_surface_test.dart packages/dartclaw_runtime/test/task/diff_generator_test.dart -> exit=0, +30: All tests passed!"
+      }
     },
     {
       "id": "S04",

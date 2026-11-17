@@ -302,6 +302,13 @@ Mutation and test endpoints return `403` for requests without admin access.
 
 ## Container Isolation
 
+An agent can write executable configuration inside its mounted repository. Merging or pushing those changes would
+carry hooks, provider/MCP settings, workflow files or symlinks beyond the container boundary. Automatic task accept
+and workflow promotion/publish therefore hold [execution surface changes](tasks.md#review-workflow) for a person's
+review. Host commit sweeps use `-c core.hooksPath=/dev/null` so a repository hook cannot execute during preparation.
+Explicit person acceptance or workflow resume releases the held branch; agent tools cannot approve these holds.
+
+
 **As of 0.25 this is the default posture.** A config that declares no `container:` section is resolved once at startup:
 DartClaw probes for a container runtime (`docker`, then `podman`) and isolates agent execution where it finds one. Where
 it finds none, the server still starts, in advisory mode, and says at startup that no OS boundary is active and why.

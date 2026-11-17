@@ -558,6 +558,24 @@ void main() {
   });
 
   group('GET /api/tasks/<id>', () {
+    test('execution-surface hold paths are serialized in configJson', () async {
+      await putTaskInReview('held');
+      await tasks.updateFields(
+        'held',
+        configJson: const {
+          '_executionSurfaceHold': {
+            'paths': ['.mcp.json'],
+          },
+        },
+      );
+      final response = await handler(Request('GET', Uri.parse('http://localhost/api/tasks/held')));
+      expect(response.statusCode, 200);
+      final body = decodeObject(await response.readAsString());
+      expect((body['configJson'] as Map)['_executionSurfaceHold'], {
+        'paths': ['.mcp.json'],
+      });
+    });
+
     test('returns task detail', () async {
       await createTask('task-1', title: 'Detailed task');
 

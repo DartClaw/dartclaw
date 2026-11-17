@@ -15,15 +15,12 @@ extension _WorkflowOutputSchemaRules on WorkflowDefinitionValidator {
         final key = entry.key;
         final config = entry.value;
 
-        // `outputs` and `step_outcome` are the execution envelope's top-level
-        // keys — a declared output using either would collide with the finalizer
-        // shape, so they are reserved host-side.
         if (reservedEnvelopeOutputKeys.contains(key)) {
           errors.add(
             _err(
               WorkflowValidationErrorType.invalidReference,
-              'Step "${step.id}" output "$key" uses a reserved execution-envelope key name. '
-              '"$executionEnvelopeOutputsKey" and "$executionEnvelopeStepOutcomeKey" are reserved by the host.',
+              'Step "${step.id}" output "$key" uses a reserved host output key name. '
+              'Reserved names: ${reservedEnvelopeOutputKeys.join(', ')}.',
               stepId: step.id,
             ),
           );

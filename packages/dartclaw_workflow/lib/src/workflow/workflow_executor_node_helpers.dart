@@ -101,6 +101,11 @@ extension WorkflowExecutorNodeHelpers on WorkflowExecutor {
     );
 
     switch (promotionResult) {
+      case WorkflowGitPromotionHeld(:final paths):
+        context[workflowExecutionSurfaceHoldKey] = WorkflowExecutionSurfaceHold(branch: branch, paths: paths).toJson();
+        outputs['${step.id}.promotion'] = 'held';
+        outputs['${step.id}.promotion.taskId'] = task.id;
+        return null;
       case WorkflowGitPromotionSuccess(:final commitSha):
         outputs['${step.id}.promotion'] = 'success';
         outputs['${step.id}.promotion_sha'] = commitSha;

@@ -34,6 +34,12 @@ class WorkflowGitPromotionSuccess extends WorkflowGitPromotionResult {
   const new({required this.commitSha});
 }
 
+/// Promotion stopped before Git writes until a person reviews [paths].
+class WorkflowGitPromotionHeld extends WorkflowGitPromotionResult {
+  final List<String> paths;
+  const new(this.paths);
+}
+
 class WorkflowGitPromotionConflict extends WorkflowGitPromotionResult {
   final List<String> conflictingFiles;
   final String details;
@@ -69,6 +75,7 @@ class WorkflowPullRequest {
 enum WorkflowPublishStatus {
   success,
   manual,
+  held,
   failed;
 
   String toJson() => name;
@@ -78,7 +85,7 @@ enum WorkflowPublishStatus {
 
 /// Result of deterministic workflow publish.
 class WorkflowGitPublishResult {
-  /// `success`, `manual`, or `failed`.
+  /// Outcome of the host publish boundary.
   final WorkflowPublishStatus status;
 
   /// Branch that was published.
@@ -93,7 +100,17 @@ class WorkflowGitPublishResult {
   /// Error detail for failed publish.
   final String? error;
 
-  const new({required this.status, required this.branch, required this.remote, required this.prUrl, this.error});
+  /// Paths requiring person review before publish can proceed.
+  final List<String> heldPaths;
+
+  const new({
+    required this.status,
+    required this.branch,
+    required this.remote,
+    required this.prUrl,
+    this.error,
+    this.heldPaths = const [],
+  });
 }
 
 /// Resolved workflow start contract values produced by host-side preflight.

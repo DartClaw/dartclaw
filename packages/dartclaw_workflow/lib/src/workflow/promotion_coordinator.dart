@@ -20,6 +20,11 @@ final class PromotionSuccess extends PromotionOutcome {
   const new(this.commitSha);
 }
 
+final class PromotionHeld extends PromotionOutcome {
+  final List<String> paths;
+  const new(this.paths);
+}
+
 /// Promotion encountered a conflict.
 final class PromotionConflict extends PromotionOutcome {
   final List<String> conflictingFiles;
@@ -157,6 +162,7 @@ Future<PromotionOutcome> callPromote({
   );
   return switch (result) {
     WorkflowGitPromotionSuccess(:final commitSha) => PromotionSuccess(commitSha),
+    WorkflowGitPromotionHeld(:final paths) => PromotionHeld(paths),
     WorkflowGitPromotionConflict(:final conflictingFiles, :final details) => PromotionConflict(
       conflictingFiles: conflictingFiles,
       details: details,

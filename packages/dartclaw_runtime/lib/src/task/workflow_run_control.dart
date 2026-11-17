@@ -7,6 +7,9 @@ import '../governance/refusal_audit.dart';
 
 /// Why [WorkflowRunControl] refused a call.
 enum RunControlRefusal {
+  /// Execution-surface holds require a person.
+  personRequired,
+
   /// The sender is not in `governance.admin_senders`.
   notAdmin,
 
@@ -134,6 +137,7 @@ final class WorkflowRunControl {
         RunControlRefusal.changesNotOffered => ChannelRunApprovalRefusal.changesNotOffered,
         RunControlRefusal.limitReached => ChannelRunApprovalRefusal.limitReached,
         RunControlRefusal.feedbackRequired => ChannelRunApprovalRefusal.feedbackRequired,
+        RunControlRefusal.personRequired => ChannelRunApprovalRefusal.notPending,
       }, message),
       // A click names its run, so an unknown one is a stale or forged button.
       RunControlNotFound() => const ChannelRunApprovalRefused(
@@ -302,6 +306,7 @@ final class WorkflowRunControl {
       await audit(allowed: false, reason: refusal.reason.name);
       final web = source == WorkflowApprovalSource.web;
       return switch (refusal.reason) {
+        WorkflowApprovalRefusal.personRequired => RunControlRefused(RunControlRefusal.personRequired, refusal.message),
         WorkflowApprovalRefusal.invalidNonce => const RunControlRefused(
           RunControlRefusal.invalid,
           'This approval button is no longer valid',

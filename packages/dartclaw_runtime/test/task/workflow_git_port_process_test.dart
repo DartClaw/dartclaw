@@ -3,6 +3,9 @@ import 'dart:io';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' show WorkflowGitPortProcess;
 import 'package:test/test.dart';
 
+import 'task_executor_test_support.dart' show initGitRepo;
+import 'task_review_test_support.dart' show installMarkerGitHook;
+
 void main() {
   group('WorkflowGitPortProcess', () {
     late Directory tempDir;
@@ -16,6 +19,26 @@ void main() {
         await tempDir.delete(recursive: true);
       }
     });
+
+    for (final hooksPath in ['.husky', '.githooks']) {
+      test('commit runs no git hooks from $hooksPath', () async {
+        final repo = await initGitRepo();
+        addTearDown(() => repo.delete(recursive: true));
+        final marker = await installMarkerGitHook(repo.path, hooksPath: hooksPath);
+        File('${repo.path}/work.txt').writeAsStringSync('work\n');
+        final port = WorkflowGitPortProcess();
+        await port.add(repo.path, ['work.txt']);
+        final commit = await port.commit(
+          repo.path,
+          message: 'fixture changes',
+          authorName: 'Fixture',
+          authorEmail: 'fixture@example.com',
+        );
+        expect(commit.sha, isNotEmpty);
+        expect(await port.pathExistsAtRef(repo.path, ref: 'HEAD', path: 'work.txt'), isTrue);
+        expect(marker.existsSync(), isFalse);
+      });
+    }
 
     test('replays artifact commit add/diff/commit sequence', () async {
       await _git(tempDir.path, ['init', '-q']);

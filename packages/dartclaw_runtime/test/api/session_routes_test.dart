@@ -884,6 +884,7 @@ void main() {
 
         projectService: FakeProjectService(localProject: localProject),
         ownerWorkspaceDir: sessions.baseDir,
+        onConversationCreated: (created) => addTearDown(created.beginShutdown),
       ).call;
       final projectRes = await projectHandler(
         apiRequest(

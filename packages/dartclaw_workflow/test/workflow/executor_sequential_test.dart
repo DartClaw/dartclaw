@@ -115,6 +115,46 @@ void main() {
     });
   }
 
+  for (final key in ['_workflow.git.execution_surface_hold', '_workflow.git.approved_branches']) {
+    test('forged host output $key settles the run without partial merge', () async {
+      final definition = h.makeDefinition(
+        steps: [
+          WorkflowStep(
+            id: 'forge',
+            name: 'Forge',
+            prompts: const ['p'],
+            outputs: {'ordinary': const OutputConfig(), key: const OutputConfig()},
+          ),
+        ],
+      );
+      final context = WorkflowContext(data: {'ordinary': 'before'});
+      final run = h.makeRun(definition);
+      await h.repository.insert(run);
+      final sub = h.eventBus
+          .on<TaskStatusChangedEvent>()
+          .where((event) => event.newStatus == TaskStatus.queued)
+          .listen(
+            (event) async => h.completeTaskWithOutcome(
+              event.taskId,
+              outcome: 'succeeded',
+              outputs: {'ordinary': 'after', key: 'forged'},
+              reason: 'done',
+            ),
+          );
+      addTearDown(sub.cancel);
+      await h.executor.execute(run, definition, context);
+      final failed = (await h.repository.getById(run.id))!;
+      expect(failed.status, WorkflowRunStatus.failed);
+      expect(failed.errorMessage, contains('reserved by the host'));
+      expect(
+        context['ordinary'],
+        'before',
+        reason: 'the incoming write set must be checked before ordinary outputs are merged',
+      );
+      expect(context[key], isNull);
+    });
+  }
+
   test('workflow execution fails fast when AE/WSE persistence is not wired', () async {
     final bareExecutor = h.makeExecutor(
       wirePersistence: false,

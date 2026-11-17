@@ -213,6 +213,9 @@ class WorkflowApprovalExpectation {
 
 /// Why a resolution carrying a resolver or an expectation was refused.
 enum WorkflowApprovalRefusal {
+  /// Execution-surface holds require an explicit person resolution.
+  personRequired,
+
   /// The run is not waiting at that approval.
   notPending,
 

@@ -121,6 +121,8 @@ final class WorkflowGitPortProcess implements WorkflowGitPort {
   }) async {
     return _withRepoLock(worktreePath, () async {
       final args = <String>[
+        '-c',
+        'core.hooksPath=/dev/null',
         if (authorName != null && authorName.trim().isNotEmpty) ...['-c', 'user.name=$authorName'],
         if (authorEmail != null && authorEmail.trim().isNotEmpty) ...['-c', 'user.email=$authorEmail'],
         'commit',

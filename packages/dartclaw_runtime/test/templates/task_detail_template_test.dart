@@ -25,6 +25,26 @@ void main() {
   );
   const navItems = <NavItem>[(label: 'Tasks', href: '/tasks', active: true, navGroup: 'system', icon: 'tasks')];
 
+  test('execution-surface hold names escaped paths and keeps Accept', () {
+    final html = taskDetailPageTemplate(
+      sidebarData: emptySidebar,
+      navItems: navItems,
+      task: const {
+        'id': 'held-task',
+        'title': 'Held task',
+        'status': 'review',
+        'createdAt': '2026-03-10T10:00:00Z',
+        'executionSurfacePaths': ['.mcp.json', '.claude/<script>alert(1)</script>.sh'],
+      },
+      artifacts: const [],
+    );
+    expect(html, contains('Execution surface review required'));
+    expect(html, contains('.mcp.json'));
+    expect(html, contains('&lt;script&gt;'));
+    expect(html, isNot(contains('<script>alert(1)</script>')));
+    expect(html, contains('Accept'));
+  });
+
   test('renders draft start action', () {
     final html = taskDetailPageTemplate(
       sidebarData: emptySidebar,

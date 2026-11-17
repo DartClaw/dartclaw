@@ -19,6 +19,42 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
     void Function(String taskId)? onFirstTaskCreated,
     _NestedLoopScope? nestedLoopScope,
   }) async {
+    if (promoteAfterSuccess && context['${step.id}.promotion'] == 'held') {
+      final taskId = context['${step.id}.promotion.taskId'] as String;
+      final task = await _taskService.get(taskId);
+      if (task == null) throw StateError('Held promotion task $taskId is unavailable');
+      final outputs = <String, dynamic>{};
+      final failure = await _promoteWorkflowTask(
+        run: run,
+        step: step,
+        task: task,
+        context: context,
+        outputs: outputs,
+        projectId: task.projectId,
+        promotionStrategy: _effectivePromotion(
+          definition.gitStrategy,
+          resolvedWorktreeMode: _resolvedWorktreeModeForScope(
+            definition,
+            step,
+            context,
+            enclosingMaxParallel: enclosingMaxParallel,
+            enclosingMapScope: mapCtx != null,
+          ),
+        ),
+      );
+      final hold = WorkflowExecutionSurfaceHold.read(context);
+      return StepOutcome(
+        step: step,
+        task: task,
+        outputs: outputs,
+        tokenCount: 0,
+        success: failure == null && hold == null,
+        awaitingApproval: hold != null,
+        error: failure?.message ?? hold?.message,
+        outcomeReason: failure?.message ?? hold?.message,
+        outcome: hold == null && failure == null ? 'succeeded' : 'needsInput',
+      );
+    }
     if (context['${step.id}.status'] == 'failed') {
       context.remove('${step.id}.status');
       context.remove('${step.id}.error');
@@ -505,6 +541,10 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
             projectId: effectiveProjectId,
             promotionStrategy: effectivePromotion,
           );
+          final hold = WorkflowExecutionSurfaceHold.read(context);
+          if (hold != null) {
+            return buildTaskOutcome(success: false, error: hold.message, reason: hold.message, awaitingApproval: true);
+          }
           if (promotionFailure != null) {
             return buildTaskOutcome(success: false, error: promotionFailure.message, reason: outcomeReason);
           }

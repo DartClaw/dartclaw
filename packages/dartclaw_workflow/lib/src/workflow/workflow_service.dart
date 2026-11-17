@@ -29,6 +29,8 @@ import 'package:logging/logging.dart';
 import 'package:uuid/uuid.dart';
 
 import 'workflow_context.dart';
+import 'workflow_execution_surface_hold.dart';
+import 'workflow_output_contract.dart';
 import 'workflow_approval_interaction.dart';
 import 'workflow_approval_policy.dart';
 import 'workflow_cleanup_policy.dart';
@@ -376,6 +378,17 @@ class WorkflowService {
       throw WorkflowApprovalRefused(_refusalForSettledRun(run), message);
     }
 
+    final executionHold = WorkflowExecutionSurfaceHold.read(WorkflowContext.fromJson(run.contextJson));
+    if (executionHold != null &&
+        !switch (resolver?.source) {
+          WorkflowApprovalSource.web || WorkflowApprovalSource.button => true,
+          WorkflowApprovalSource.tool || null => false,
+        }) {
+      throw const WorkflowApprovalRefused(
+        WorkflowApprovalRefusal.personRequired,
+        'Execution surface changes require a person. Review the changes and resume this run in the web UI or through the API.',
+      );
+    }
     final pendingApprovalStepId = run.contextJson['_approval.pending.stepId'] as String?;
     if (pendingApprovalStepId != null) {
       run = await _recordApprovalResolution(
@@ -1219,6 +1232,12 @@ class WorkflowService {
     final stepStatus = approved ? 'accepted' : 'rejected';
     final approvalStatus = approved ? 'approved' : 'rejected';
     final context = await _loadResumeContext(run, null);
+    final executionHold = WorkflowExecutionSurfaceHold.read(context);
+    if (approved && executionHold != null) {
+      final branches = (context[workflowApprovedBranchesKey] as List?)?.cast<String>() ?? <String>[];
+      context[workflowApprovedBranchesKey] = {...branches, executionHold.branch}.toList();
+      context.remove(workflowExecutionSurfaceHoldKey);
+    }
     context['$stepId.status'] = stepStatus;
     context['$stepId.approval.status'] = approvalStatus;
     context['$stepId.approval.resolved_at'] = resolvedAt;

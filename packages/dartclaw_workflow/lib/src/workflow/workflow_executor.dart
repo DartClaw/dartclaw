@@ -35,6 +35,8 @@ import 'step_retry_policy.dart';
 import 'step_outcome_normalizer.dart' as step_outcome_normalizer;
 import 'built_in_workflow_workspace.dart';
 import 'workflow_context.dart';
+import 'workflow_output_contract.dart';
+import 'workflow_execution_surface_hold.dart';
 import 'workflow_context_persistence.dart';
 import 'workflow_approval_interaction.dart' show workflowRevisionContextKey;
 import 'workflow_approval_policy.dart';
@@ -922,6 +924,9 @@ class WorkflowExecutor {
             nodeIndex++;
         }
       }
+    } on ReservedWorkflowOutput catch (failure) {
+      await _failRun(run, failure.toString());
+      return;
     } on GateUnproducedOutputFailure catch (failure) {
       // A gate with nothing to decide on, not a gate that failed. The refusal
       // is only useful as a recorded failure: letting it escape here tears the
@@ -1000,6 +1005,21 @@ class WorkflowExecutor {
       final publishError = await _runDeterministicPublish(run, definition, context);
       if (publishError != null) {
         await _failRun(run, publishError, cleanupWorkflowGit: false);
+        return;
+      }
+      final hold = WorkflowExecutionSurfaceHold.read(context);
+      if (hold != null) {
+        final current = (await _repository.getById(run.id)) ?? run;
+        final finalStep =
+            definition.steps.lastOrNull ??
+            WorkflowStep(id: 'publish', name: 'Publish', taskType: WorkflowTaskType.approval);
+        await _transitionStepAwaitingApproval(
+          current,
+          finalStep,
+          context,
+          stepIndex: definition.steps.length - 1,
+          reason: hold.message,
+        );
         return;
       }
       final refreshed = await _repository.getById(run.id);

@@ -1,5 +1,7 @@
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 
+import '../task/execution_surface.dart';
+
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -37,6 +39,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowRun,
         WorkflowRunRepository,
         workflowBlockedOutcomeSummary,
+        workflowBranchIsApproved,
         WorkflowServiceOptions,
         WorkflowStartResolution,
         WorkflowTurnAdapter,
@@ -67,6 +70,7 @@ import 'security_wiring.dart';
 import 'storage_wiring.dart';
 import 'standalone_execution_lease.dart';
 import 'task_wiring.dart';
+import 'workflow_git_support.dart' show workflowExecutionSurfacePaths;
 import 'project_wiring.dart';
 
 part 'service_wiring_workflow.dart';

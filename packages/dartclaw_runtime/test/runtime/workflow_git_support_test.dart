@@ -3,8 +3,12 @@ import 'dart:io';
 import 'package:dartclaw_runtime/src/runtime/workflow_git_support.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' show PushAuthFailure, PushSuccess;
 import 'package:path/path.dart' as p;
-import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowGitPromotionSuccess, WorkflowPublishStatus;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart'
+    show WorkflowGitPromotionSuccess, WorkflowGitPromotionHeld, WorkflowGitPromotionError, WorkflowPublishStatus;
 import 'package:test/test.dart';
+
+import '../task/task_executor_test_support.dart' show initGitRepo;
+import '../task/task_review_test_support.dart' show installMarkerGitHook;
 
 Future<ProcessResult> _git(String workingDirectory, List<String> arguments) {
   return Process.run('git', arguments, workingDirectory: workingDirectory);
@@ -48,6 +52,24 @@ void main() {
       tempDir.deleteSync(recursive: true);
     }
   });
+
+  for (final hooksPath in ['.husky', '.githooks']) {
+    test('host commit sweep runs no git hooks from $hooksPath', () async {
+      final repo = await initGitRepo();
+      addTearDown(() => repo.delete(recursive: true));
+      await _git(repo.path, ['config', 'user.email', 'fixture@example.com']);
+      await _git(repo.path, ['config', 'user.name', 'Fixture']);
+      final marker = await installMarkerGitHook(repo.path, hooksPath: hooksPath);
+      File('${repo.path}/work.txt').writeAsStringSync('work\n');
+      await commitWorkflowWorktreeChangesIfNeeded(
+        projectDir: repo.path,
+        branch: 'main',
+        commitMessage: 'fixture changes',
+      );
+      expect((await _git(repo.path, ['show', 'HEAD:work.txt'])).stdout, 'work\n');
+      expect(marker.existsSync(), isFalse);
+    });
+  }
 
   test('commitWorkflowWorktreeChangesIfNeeded commits pending changes in the branch worktree', () async {
     final repoDir = Directory(p.join(tempDir.path, 'repo'))..createSync(recursive: true);
@@ -103,6 +125,46 @@ void main() {
 
     final log = await _git(repoDir.path, ['log', '--format=%s', '-1']);
     expect((log.stdout as String).trim(), 'initial');
+  });
+
+  for (final approved in [false, true]) {
+    test('execution-surface hold checks promotion before sweep (approved=$approved)', () async {
+      final repo = await initGitRepo();
+      addTearDown(() => repo.deleteSync(recursive: true));
+      await _git(repo.path, ['config', 'user.name', 'Fixture']);
+      await _git(repo.path, ['config', 'user.email', 'fixture@example.com']);
+      await _git(repo.path, ['branch', 'integration']);
+      final worktree = p.join(tempDir.path, 'source');
+      expect((await _git(repo.path, ['worktree', 'add', '-b', 'story', worktree, 'main'])).exitCode, 0);
+      File(p.join(worktree, '.mcp.json')).writeAsStringSync('{}');
+      final before = (await _git(repo.path, ['rev-parse', 'integration'])).stdout;
+      final result = await promoteWorkflowBranchLocally(
+        projectDir: repo.path,
+        runId: 'held',
+        branch: 'story',
+        integrationBranch: 'integration',
+        strategy: 'merge',
+        approved: approved,
+      );
+      if (approved) {
+        expect(result, isA<WorkflowGitPromotionSuccess>());
+        expect((await _git(repo.path, ['show', 'integration:.mcp.json'])).stdout, '{}');
+      } else {
+        expect(result, isA<WorkflowGitPromotionHeld>().having((hold) => hold.paths, 'paths', ['.mcp.json']));
+        expect((await _git(repo.path, ['rev-parse', 'integration'])).stdout, before);
+        expect((await _git(worktree, ['status', '--porcelain'])).stdout, contains('.mcp.json'));
+      }
+    });
+  }
+  test('execution-surface hold refuses promotion when metadata cannot be read', () async {
+    final result = await promoteWorkflowBranchLocally(
+      projectDir: tempDir.path,
+      runId: 'bad',
+      branch: 'story',
+      integrationBranch: 'integration',
+      strategy: 'merge',
+    );
+    expect(result, isA<WorkflowGitPromotionError>());
   });
 
   test('promoteWorkflowBranchLocally restores the original branch after merging into integration', () async {
@@ -243,6 +305,91 @@ void main() {
     expect((status.stdout as String).trim(), 'M docs/STATE.md');
   });
 
+  for (final remotePush in [false, true]) {
+    for (final committed in [false, true]) {
+      test('execution-surface publish hold (remotePush=$remotePush, committed=$committed)', () async {
+        final repo = await initGitRepo();
+        addTearDown(() => repo.deleteSync(recursive: true));
+        await _git(repo.path, ['checkout', '-b', 'publish']);
+        File(p.join(repo.path, '.mcp.json')).writeAsStringSync('{}');
+        if (committed) {
+          expect((await _git(repo.path, ['add', '.mcp.json'])).exitCode, 0);
+          expect(
+            (await _git(repo.path, [
+              '-c',
+              'user.name=Fixture',
+              '-c',
+              'user.email=fixture@example.com',
+              'commit',
+              '-m',
+              'execution file',
+            ])).exitCode,
+            0,
+          );
+        }
+        final before = (await _git(repo.path, ['rev-parse', 'HEAD'])).stdout;
+        var pushed = false;
+        var fetched = false;
+        final result = remotePush
+            ? await publishWorkflowBranchWithRemotePush(
+                projectDir: repo.path,
+                branch: 'publish',
+                baseRef: 'main',
+                pushBranch: () async {
+                  pushed = true;
+                  return const PushSuccess();
+                },
+                fetchRemoteTrackingRef: () async {
+                  fetched = true;
+                  return ProcessResult(0, 0, '', '');
+                },
+              )
+            : await publishWorkflowBranchLocally(projectDir: repo.path, branch: 'publish', baseRef: 'main');
+        expect(result.status, WorkflowPublishStatus.held);
+        expect(result.heldPaths, ['.mcp.json']);
+        expect((await _git(repo.path, ['rev-parse', 'HEAD'])).stdout, before);
+        expect((await _git(repo.path, ['status', '--porcelain'])).stdout, committed ? isEmpty : contains('.mcp.json'));
+        expect(pushed, isFalse);
+        expect(fetched, isFalse);
+      });
+    }
+    test('execution-surface publish metadata errors refuse push (remotePush=$remotePush)', () async {
+      var pushed = false;
+      final result = remotePush
+          ? await publishWorkflowBranchWithRemotePush(
+              projectDir: tempDir.path,
+              branch: 'publish',
+              baseRef: 'main',
+              pushBranch: () async {
+                pushed = true;
+                return const PushSuccess();
+              },
+              fetchRemoteTrackingRef: () async => ProcessResult(0, 0, '', ''),
+            )
+          : await publishWorkflowBranchLocally(projectDir: tempDir.path, branch: 'publish', baseRef: 'main');
+      expect(result.status, WorkflowPublishStatus.failed);
+      expect(result.error, contains('inspect execution surface'));
+      expect(pushed, isFalse);
+    });
+  }
+
+  test('execution-surface publish ignores another checkout that will not be swept', () async {
+    final repo = await initGitRepo();
+    addTearDown(() => repo.deleteSync(recursive: true));
+    final remote = p.join(tempDir.path, 'remote.git');
+    expect((await _git(repo.path, ['init', '--bare', remote])).exitCode, 0);
+    expect((await _git(repo.path, ['remote', 'add', 'origin', remote])).exitCode, 0);
+    expect((await _git(repo.path, ['branch', 'publish'])).exitCode, 0);
+    File(p.join(repo.path, '.envrc')).writeAsStringSync('unswept checkout changes');
+    final result = await publishWorkflowBranchLocally(projectDir: repo.path, branch: 'publish', baseRef: 'main');
+    expect(result.status, WorkflowPublishStatus.success);
+    expect((await _git(repo.path, ['status', '--porcelain'])).stdout, contains('.envrc'));
+    expect(
+      (await _git(repo.path, ['ls-tree', '-r', '--name-only', 'origin/publish'])).stdout,
+      isNot(contains('.envrc')),
+    );
+  });
+
   test('publishWorkflowBranchLocally refreshes the origin tracking ref after push', () async {
     final remoteDir = Directory(p.join(tempDir.path, 'remote.git'))..createSync(recursive: true);
     final repoDir = Directory(p.join(tempDir.path, 'repo'));
@@ -260,7 +407,7 @@ void main() {
     const branch = 'dartclaw/workflow/run123/integration';
     expect((await _git(repoDir.path, ['checkout', '-b', branch])).exitCode, 0);
 
-    final result = await publishWorkflowBranchLocally(projectDir: repoDir.path, branch: branch);
+    final result = await publishWorkflowBranchLocally(projectDir: repoDir.path, branch: branch, baseRef: 'origin/main');
 
     expect(result.status, WorkflowPublishStatus.success);
 
@@ -293,6 +440,7 @@ void main() {
     final result = await publishWorkflowBranchWithRemotePush(
       projectDir: repoDir.path,
       branch: branch,
+      baseRef: 'origin/main',
       pushBranch: () async {
         pushed = true;
         final push = await _git(repoDir.path, ['push', 'origin', branch]);
@@ -331,6 +479,7 @@ void main() {
     final result = await publishWorkflowBranchWithRemotePush(
       projectDir: repoDir.path,
       branch: 'main',
+      baseRef: 'main',
       pushBranch: () async => const PushAuthFailure('Authentication denied (credential: github-main).'),
       fetchRemoteTrackingRef: () {
         fetched = true;

@@ -22,8 +22,10 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart';
 import 'package:test/test.dart';
 
 import 'workflow_git_test_support.dart';
+import '../execution_surface_test_support.dart';
 
 void main() {
+  executionSurfacePromotionTests(foreach: true);
   group('parallel story promotion — disjoint file sets', () {
     late WorkflowGitFixture fixture;
 

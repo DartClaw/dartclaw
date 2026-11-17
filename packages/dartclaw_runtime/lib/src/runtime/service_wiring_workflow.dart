@@ -140,6 +140,7 @@ WorkflowTurnAdapter _buildWorkflowTurnAdapter(
           if (resolvedProject == null && !_isLocalProjectId(projectId)) {
             return WorkflowGitPromotionError('Project "$projectId" not found');
           }
+          final workflowRun = await storage.workflowRunRepository.getById(runId);
           return promoteWorkflowBranchLocally(
             projectDir: resolvedProject?.localPath ?? await projectDirFor(projectId),
             runId: runId,
@@ -147,6 +148,7 @@ WorkflowTurnAdapter _buildWorkflowTurnAdapter(
             integrationBranch: integrationBranch,
             strategy: strategy,
             storyId: storyId,
+            approved: workflowBranchIsApproved(workflowRun?.contextJson ?? const {}, branch),
           );
         },
     publishWorkflowBranch: ({required runId, required projectId, required branch, pullRequest}) async {
@@ -170,6 +172,7 @@ WorkflowTurnAdapter _buildWorkflowTurnAdapter(
           branch: branch,
           resolvedProject: resolvedProject,
           notes: workflowPublishNotes(workflowRun),
+          approved: workflowBranchIsApproved(workflowRun?.contextJson ?? const {}, branch),
           pullRequest: pullRequest,
         );
       }
@@ -182,6 +185,7 @@ WorkflowTurnAdapter _buildWorkflowTurnAdapter(
         remotePushService: task.remotePushService,
         prCreator: prCreator ?? task.prCreator,
         notes: workflowPublishNotes(workflowRun),
+        approved: workflowBranchIsApproved(workflowRun?.contextJson ?? const {}, branch),
         pullRequest: pullRequest,
       );
     },
@@ -286,12 +290,21 @@ Future<WorkflowGitPublishResult> _publishWorkflowBranchLocalLane(
   required Project? resolvedProject,
   required String? notes,
   required WorkflowPullRequest? pullRequest,
+  required bool approved,
 }) async {
   if (resolvedProject == null || resolvedProject.remoteUrl.isEmpty) {
     final projectDir =
         resolvedProject?.localPath ??
         await _resolveWorkflowProjectDir(projectService, projectId, localFallbackDir: localFallbackDir);
-    final result = await publishWorkflowBranchLocally(projectDir: projectDir, branch: branch);
+    final result = await publishWorkflowBranchLocally(
+      projectDir: projectDir,
+      branch: branch,
+      baseRef: await executionSurfaceBaseRef(
+        worktreePath: projectDir,
+        defaultBranch: resolvedProject?.defaultBranch ?? config.tasks.worktreeBaseRef,
+      ),
+      approved: approved,
+    );
     if (result.status != WorkflowPublishStatus.success) return result;
     await _recordWorkflowPublishArtifacts(taskService, runId: runId, branch: branch, result: result);
     return result;
@@ -299,6 +312,11 @@ Future<WorkflowGitPublishResult> _publishWorkflowBranchLocalLane(
   final pushResult = await publishWorkflowBranchWithRemotePush(
     projectDir: resolvedProject.localPath,
     branch: branch,
+    baseRef: await executionSurfaceBaseRef(
+      worktreePath: resolvedProject.localPath,
+      defaultBranch: resolvedProject.defaultBranch,
+    ),
+    approved: approved,
     pushBranch: () => remotePushService.push(project: resolvedProject, branch: branch),
     fetchRemoteTrackingRef: () => _fetchRemoteTrackingRefWithProjectAuth(
       config,
@@ -426,6 +444,7 @@ Future<WorkflowGitPublishResult> publishWorkflowBranchWithProjectAuth({
   required PrCreator prCreator,
   String? notes,
   WorkflowPullRequest? pullRequest,
+  bool approved = false,
 }) async {
   final resolvedProject = await projectService.get(projectId);
   if (resolvedProject == null) {
@@ -439,6 +458,25 @@ Future<WorkflowGitPublishResult> publishWorkflowBranchWithProjectAuth({
   }
 
   try {
+    if (!approved) {
+      final paths = await workflowExecutionSurfacePaths(
+        projectDir: resolvedProject.localPath,
+        branch: branch,
+        baseRef: await executionSurfaceBaseRef(
+          worktreePath: resolvedProject.localPath,
+          defaultBranch: resolvedProject.defaultBranch,
+        ),
+      );
+      if (paths.isNotEmpty) {
+        return WorkflowGitPublishResult(
+          status: WorkflowPublishStatus.held,
+          branch: branch,
+          remote: 'origin',
+          prUrl: '',
+          heldPaths: paths,
+        );
+      }
+    }
     await commitWorkflowWorktreeChangesIfNeeded(
       projectDir: resolvedProject.localPath,
       branch: branch,

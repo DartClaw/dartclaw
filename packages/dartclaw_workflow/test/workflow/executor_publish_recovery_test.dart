@@ -29,8 +29,10 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
 import 'package:test/test.dart';
 
 import 'workflow_executor_test_support.dart';
+import 'execution_surface_test_support.dart';
 
 void main() {
+  executionSurfacePublishTests();
   final h = WorkflowExecutorHarness();
   setUp(h.setUp);
   tearDown(h.tearDown);

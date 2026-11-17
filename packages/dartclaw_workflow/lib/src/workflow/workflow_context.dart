@@ -1,3 +1,5 @@
+import 'workflow_output_contract.dart';
+
 /// System-variable key prefix under which the executor records the declared
 /// outputs a terminally failed step never produced.
 ///
@@ -39,7 +41,10 @@ class WorkflowContext {
   }
 
   /// Merges step outputs into the context.
-  void merge(Map<String, dynamic> outputs) => _data.addAll(outputs);
+  void merge(Map<String, dynamic> outputs) {
+    validateWorkflowOutputKeys(outputs.keys);
+    _data.addAll(outputs);
+  }
 
   /// Removes a context value when retry or remediation needs to clear stale state.
   void remove(String key) => _data.remove(key);

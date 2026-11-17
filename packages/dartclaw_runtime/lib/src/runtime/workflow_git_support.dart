@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import '../task/execution_surface.dart';
+
 import 'package:dartclaw_core/dartclaw_core.dart' show ArtifactKind, RepoLock, Task, WorkflowTaskService;
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart'
@@ -17,6 +19,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
         resolveIntegrationBranchName,
         WorkflowGitPromotionConflict,
+        WorkflowGitPromotionHeld,
         WorkflowGitPromotionError,
         WorkflowGitPromotionResult,
         WorkflowGitPromotionSuccess,
@@ -227,7 +230,13 @@ Future<void> commitWorkflowWorktreeChangesIfNeeded({
     throw StateError('Failed to stage workflow worktree changes in "$worktreePath": $stderr');
   }
 
-  final commit = await runGit(['commit', '-m', commitMessage], workingDirectory: worktreePath);
+  final commit = await runGit([
+    '-c',
+    'core.hooksPath=/dev/null',
+    'commit',
+    '-m',
+    commitMessage,
+  ], workingDirectory: worktreePath);
   if (commit.exitCode != 0 && !_isNothingToCommit(commit)) {
     final stderr = (commit.stderr as String).trim();
     final stdout = (commit.stdout as String).trim();
@@ -377,6 +386,7 @@ Future<WorkflowGitPromotionResult> promoteWorkflowBranchLocally({
   required String integrationBranch,
   required String strategy,
   String? storyId,
+  bool approved = false,
 }) {
   return _workflowGitRepoLock.acquire(_repoLockKey(projectDir), () async {
     return _promoteWorkflowBranchLocallyUnlocked(
@@ -386,6 +396,7 @@ Future<WorkflowGitPromotionResult> promoteWorkflowBranchLocally({
       integrationBranch: integrationBranch,
       strategy: strategy,
       storyId: storyId,
+      approved: approved,
     );
   });
 }
@@ -397,10 +408,26 @@ Future<WorkflowGitPromotionResult> _promoteWorkflowBranchLocallyUnlocked({
   required String integrationBranch,
   required String strategy,
   String? storyId,
+  bool approved = false,
 }) async {
   final safeBranch = normalizeGitRefOperand(branch, label: 'workflow branch');
   final safeIntegrationBranch = normalizeGitRefOperand(integrationBranch, label: 'workflow integration branch');
   try {
+    if (!approved) {
+      final paths = <String>{
+        ...await workflowExecutionSurfacePaths(
+          projectDir: projectDir,
+          branch: safeBranch,
+          baseRef: safeIntegrationBranch,
+        ),
+        ...await workflowExecutionSurfacePaths(
+          projectDir: projectDir,
+          branch: safeIntegrationBranch,
+          baseRef: safeIntegrationBranch,
+        ),
+      }.toList()..sort();
+      if (paths.isNotEmpty) return WorkflowGitPromotionHeld(paths);
+    }
     await commitWorkflowWorktreeChangesIfNeeded(
       projectDir: projectDir,
       branch: safeBranch,
@@ -506,10 +533,18 @@ Future<T> _withIntegrationWorktree<T>({
 Future<WorkflowGitPublishResult> publishWorkflowBranchLocally({
   required String projectDir,
   required String branch,
+  required String baseRef,
+  bool approved = false,
   String remote = 'origin',
 }) {
   return _workflowGitRepoLock.acquire(_repoLockKey(projectDir), () async {
-    return _publishWorkflowBranchLocallyUnlocked(projectDir: projectDir, branch: branch, remote: remote);
+    return _publishWorkflowBranchLocallyUnlocked(
+      projectDir: projectDir,
+      branch: branch,
+      remote: remote,
+      baseRef: baseRef,
+      approved: approved,
+    );
   });
 }
 
@@ -537,9 +572,28 @@ WorkflowGitPublishResult _publishFailure(String branch, String remote, String er
 Future<WorkflowGitPublishResult> _publishWorkflowBranchLocallyUnlocked({
   required String projectDir,
   required String branch,
+  required String baseRef,
+  bool approved = false,
   required String remote,
 }) async {
   final safeBranch = normalizeGitRefOperand(branch, label: 'workflow branch');
+  if (!approved) {
+    try {
+      final paths = await workflowExecutionSurfacePaths(projectDir: projectDir, branch: safeBranch, baseRef: baseRef);
+      if (paths.isNotEmpty) {
+        return WorkflowGitPublishResult(
+          status: WorkflowPublishStatus.held,
+          branch: safeBranch,
+          remote: remote,
+          prUrl: '',
+          heldPaths: paths,
+        );
+      }
+    } catch (error) {
+      return _publishFailure(safeBranch, remote, 'Failed to inspect execution surface: $error');
+    }
+  }
+
   // Commit any pending worktree changes before pushing. For shared-worktree
   // workflows the agent may leave uncommitted changes in the worktree that is
   // checked out on [branch]. Without this step the push would succeed but the
@@ -582,6 +636,8 @@ typedef WorkflowRemoteTrackingRefFetch = Future<ProcessResult> Function();
 Future<WorkflowGitPublishResult> publishWorkflowBranchWithRemotePush({
   required String projectDir,
   required String branch,
+  required String baseRef,
+  bool approved = false,
   required WorkflowBranchPush pushBranch,
   required WorkflowRemoteTrackingRefFetch fetchRemoteTrackingRef,
   String remote = 'origin',
@@ -590,6 +646,8 @@ Future<WorkflowGitPublishResult> publishWorkflowBranchWithRemotePush({
     return _publishWorkflowBranchWithRemotePushUnlocked(
       projectDir: projectDir,
       branch: branch,
+      baseRef: baseRef,
+      approved: approved,
       remote: remote,
       pushBranch: pushBranch,
       fetchRemoteTrackingRef: fetchRemoteTrackingRef,
@@ -600,11 +658,30 @@ Future<WorkflowGitPublishResult> publishWorkflowBranchWithRemotePush({
 Future<WorkflowGitPublishResult> _publishWorkflowBranchWithRemotePushUnlocked({
   required String projectDir,
   required String branch,
+  required String baseRef,
+  bool approved = false,
   required String remote,
   required WorkflowBranchPush pushBranch,
   required WorkflowRemoteTrackingRefFetch fetchRemoteTrackingRef,
 }) async {
   final safeBranch = normalizeGitRefOperand(branch, label: 'workflow branch');
+  if (!approved) {
+    try {
+      final paths = await workflowExecutionSurfacePaths(projectDir: projectDir, branch: safeBranch, baseRef: baseRef);
+      if (paths.isNotEmpty) {
+        return WorkflowGitPublishResult(
+          status: WorkflowPublishStatus.held,
+          branch: safeBranch,
+          remote: remote,
+          prUrl: '',
+          heldPaths: paths,
+        );
+      }
+    } catch (error) {
+      return _publishFailure(safeBranch, remote, 'Failed to inspect execution surface: $error');
+    }
+  }
+
   final prepareError = await _prepareWorkflowBranchForPublish(projectDir, safeBranch);
   if (prepareError != null) return _publishFailure(safeBranch, remote, prepareError);
 
@@ -693,4 +770,18 @@ Future<String?> _findWorktreePathForBranch({required String projectDir, required
 bool _isNothingToCommit(ProcessResult result) {
   final output = '${result.stdout}\n${result.stderr}'.toLowerCase();
   return output.contains('nothing to commit') || output.contains('working tree clean');
+}
+
+Future<List<String>> workflowExecutionSurfacePaths({
+  required String projectDir,
+  required String branch,
+  required String baseRef,
+}) async {
+  final worktreePath = await _findWorktreePathForBranch(projectDir: projectDir, branch: branch);
+  return executionSurfacePaths(
+    worktreePath: worktreePath ?? projectDir,
+    baseRef: baseRef,
+    branch: branch,
+    includeWorktree: worktreePath != null,
+  );
 }

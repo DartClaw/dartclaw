@@ -128,3 +128,5 @@ Cross-file properties not enforced by `dart analyze`.
 - `lib/testing.dart` + `lib/src/testing/` – test doubles for this package's ports, opt-in and not barrel-exported.
 - `lib/src/workflow/definitions/*.yaml` – shipped built-ins; changes affect the contract test.
 - `lib/src/workflow/validation/` – split validator rule files.
+
+- **Execution-surface holds use the existing approval state.** `WorkflowGitPromotionHeld` and publish `held` persist `workflowExecutionSurfaceHoldKey`; only explicit web/API or channel-button resume consumes it into `workflowApprovedBranchesKey` under the run lock. Tool/null provenance is refused for this hold only. `workflow_output_contract.dart` reserves exactly those two host keys alongside envelope names; `WorkflowContext.merge` checks the whole output write set before mutation. Read approval markers only from exact context data, never variables or dotted traversal. Foreach retains completed child-step cursors; plain steps retain the settled task id to retry promotion without replay.

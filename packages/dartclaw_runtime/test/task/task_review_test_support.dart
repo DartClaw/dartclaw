@@ -1,3 +1,5 @@
+import 'dart:io';
+
 // Shared support doubles for the task-review suites (the task_review_service
 // unit tests and the channel-review integration test). These git-port and
 // worktree collaborators are dartclaw_runtime-owned, so they live package-local
@@ -96,4 +98,14 @@ class FakePrCreator extends PrCreator {
     String? notes,
     WorkflowPullRequest? pullRequest,
   }) async => result;
+}
+
+Future<File> installMarkerGitHook(String worktreePath, {String hooksPath = '.husky'}) async {
+  final hook = File('$worktreePath/$hooksPath/pre-commit')..parent.createSync(recursive: true);
+  hook.writeAsStringSync('#!/bin/sh\nprintf ran > hook-ran\n');
+  final mode = await Process.run('chmod', ['+x', hook.path]);
+  if (mode.exitCode != 0) throw StateError('Cannot make fixture hook executable: ${mode.stderr}');
+  final config = await runGit(['config', 'core.hooksPath', hooksPath], workingDirectory: worktreePath);
+  if (config.exitCode != 0) throw StateError('Cannot configure fixture hook: ${config.stderr}');
+  return File('$worktreePath/hook-ran');
 }

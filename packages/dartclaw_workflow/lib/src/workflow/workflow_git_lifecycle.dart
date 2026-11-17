@@ -5,6 +5,8 @@ import 'workflow_run_repository.dart';
 import 'package:logging/logging.dart';
 
 import 'workflow_context.dart';
+import 'workflow_output_contract.dart';
+import 'workflow_execution_surface_hold.dart';
 import 'workflow_git_port.dart' show WorkflowGitException;
 import 'workflow_turn_adapter.dart';
 
@@ -97,6 +99,13 @@ Future<String?> runDeterministicPublish({
   _log.info("Workflow '${run.id}': publishing branch '$branch' for project '$projectId'");
   try {
     final result = await publish(runId: run.id, projectId: projectId, branch: branch, pullRequest: pullRequest);
+    if (result.status == WorkflowPublishStatus.held) {
+      context[workflowExecutionSurfaceHoldKey] = WorkflowExecutionSurfaceHold(
+        branch: branch,
+        paths: result.heldPaths,
+        publish: true,
+      ).toJson();
+    }
     context['publish.status'] = result.status.toJson();
     context['publish.branch'] = result.branch;
     context['publish.remote'] = result.remote;
@@ -112,6 +121,7 @@ Future<String?> runDeterministicPublish({
         updatedAt: DateTime.now(),
       ),
     );
+    if (result.status == WorkflowPublishStatus.held) return null;
     if (result.status == WorkflowPublishStatus.failed) {
       _log.warning("Workflow '${run.id}': publish failed for branch '$branch': ${result.error ?? 'unknown error'}");
       return 'publish failed: ${result.error ?? 'unknown error'}';

@@ -187,7 +187,7 @@ extension WorkflowExecutorParallelAndOutcomeRunner on WorkflowExecutor {
     final awaitingApprovalRun = run.copyWith(
       status: WorkflowRunStatus.awaitingApproval,
       errorMessage: reason,
-      currentStepIndex: stepIndex + 1,
+      currentStepIndex: WorkflowExecutionSurfaceHold.read(context)?.publish == false ? stepIndex : stepIndex + 1,
       contextJson: {
         ...privateContextEntries(run.contextJson),
         ...context.toJson(),

@@ -7,6 +7,7 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:logging/logging.dart';
 import 'package:uuid/uuid.dart';
 
+import 'execution_surface.dart';
 import 'merge_executor.dart';
 import 'pr_creator.dart';
 import 'remote_push_service.dart';
@@ -38,6 +39,18 @@ final class ReviewSuccess extends ReviewResult {
   final Task task;
 
   const new(this.task);
+}
+
+/// An automatic accept is held until a person reviews [paths].
+final class ReviewExecutionSurfaceHold extends ReviewResult {
+  final String taskId;
+  final List<String> paths;
+
+  const new({required this.taskId, required this.paths});
+
+  String get message =>
+      'Execution surface changes require a person to review ${paths.join(', ')}. '
+      'Accept this task in the web UI or through the API; an agent tool cannot approve this hold.';
 }
 
 /// Review action failed because the merge produced conflicts.
@@ -138,7 +151,7 @@ class TaskReviewService {
   }
 
   /// Executes a review action for [taskId].
-  Future<ReviewResult> review(String taskId, String action, {String? comment, String trigger = 'user'}) async {
+  Future<ReviewResult> review(String taskId, String action, {String? comment, required String trigger}) async {
     return _withTaskLock(taskId, () => _reviewUnlocked(taskId, action, comment: comment, trigger: trigger));
   }
 
@@ -152,6 +165,7 @@ class TaskReviewService {
     final result = await review(taskId, action, comment: comment, trigger: trigger);
     return switch (result) {
       ReviewSuccess(:final task) => ChannelReviewSuccess(taskTitle: task.title, action: action),
+      ReviewExecutionSurfaceHold(:final message) => ChannelReviewError(message),
       ReviewMergeConflict(:final taskTitle) => ChannelReviewMergeConflict(taskTitle: taskTitle),
       ReviewNotFound(taskId: final missingTaskId) => ChannelReviewError(
         'No task found with ID ${_shortTaskId(missingTaskId)}.',
@@ -203,6 +217,43 @@ class TaskReviewService {
           targetStatus: targetStatus,
           currentStatus: oldStatus,
         );
+      }
+
+      if (targetStatus == TaskStatus.accepted) {
+        if (task.worktreeJson != null && !task.isWorkflowOwnedGitTask && trigger != 'user' && trigger != 'channel') {
+          final worktree = WorktreeInfo.fromJson(task.worktreeJson!);
+          var baseRef = _baseRef;
+          if (taskTargetsExternalProject(task)) {
+            final project = await _projectService?.get(taskProjectId(task)!);
+            if (project != null) {
+              baseRef = await executionSurfaceBaseRef(
+                worktreePath: worktree.path,
+                defaultBranch: project.defaultBranch,
+                processRunner: _runGit,
+              );
+            }
+          }
+          final paths = await executionSurfacePaths(
+            worktreePath: worktree.path,
+            baseRef: baseRef,
+            branch: worktree.branch,
+            processRunner: _runGit,
+          );
+          if (paths.isNotEmpty) {
+            await _tasks.updateFields(
+              taskId,
+              configJson: {
+                ...task.configJson,
+                executionSurfaceHoldKey: {'paths': paths},
+              },
+            );
+            return ReviewExecutionSurfaceHold(taskId: taskId, paths: paths);
+          }
+        }
+        if (task.configJson.containsKey(executionSurfaceHoldKey)) {
+          final config = {...task.configJson}..remove(executionSurfaceHoldKey);
+          task = await _tasks.updateFields(taskId, configJson: config);
+        }
       }
 
       if (targetStatus == TaskStatus.accepted && task.worktreeJson != null && !task.isWorkflowOwnedGitTask) {
@@ -376,6 +427,8 @@ class TaskReviewService {
       }
 
       final commitResult = await _git(worktreePath, [
+        '-c',
+        'core.hooksPath=/dev/null',
         'commit',
         '-m',
         'task(${task.id}): ${task.title}',
@@ -386,7 +439,11 @@ class TaskReviewService {
       }
     }
 
-    final baseRef = await _resolvePublishBaseRef(worktreePath, project.defaultBranch);
+    final baseRef = await executionSurfaceBaseRef(
+      worktreePath: worktreePath,
+      defaultBranch: project.defaultBranch,
+      processRunner: _runGit,
+    );
     final diffResult = await _git(worktreePath, ['diff', '--quiet', '$baseRef...HEAD'], action: 'verify publish diff');
     if (diffResult.exitCode > 1) {
       await _persistPushErrorArtifact(task.id, 'git diff verification failed: ${_stderr(diffResult)}');
@@ -398,19 +455,6 @@ class TaskReviewService {
     }
 
     return null;
-  }
-
-  Future<String> _resolvePublishBaseRef(String worktreePath, String defaultBranch) async {
-    final originRef = 'origin/$defaultBranch';
-    final originResult = await _git(worktreePath, [
-      'rev-parse',
-      '--verify',
-      originRef,
-    ], action: 'resolve publish base ref');
-    if (originResult.exitCode == 0) {
-      return originRef;
-    }
-    return defaultBranch;
   }
 
   Future<ProcessResult> _git(String workingDirectory, List<String> arguments, {required String action}) async {

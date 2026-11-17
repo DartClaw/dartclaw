@@ -192,6 +192,10 @@ The runtime also writes metadata keys automatically:
 - `<stepId>.tokenCount`
 - step-type-specific bookkeeping under `_loop.*`, `_approval.*`, and `_map.*`
 
+The host reserves `outputs`, `step_outcome`, `_workflow.git.execution_surface_hold`, and
+`_workflow.git.approved_branches` as declared output names. Step outputs cannot replace the two Git approval markers;
+ordinary underscore outputs and workflow variables remain available.
+
 Agent steps receive a workflow output contract automatically. A dedicated no-tools structured finalization turn after the main work turn emits a strict execution envelope `{ "outputs": { ... }, "step_outcome": { ... } }`. Declared model-derived keys appear under `outputs`; `step_outcome` is omitted when the step sets `emitsOwnOutcome: true`. The envelope is the only source for declared outputs: assistant prose, JSON fences and inline `<workflow-context>` blocks are inert text. A run persisted before the 0.25 envelope format must be re-run under 0.25.
 
 The finalization turn restarts the Claude process. A work turn that left subagents running in the background (Claude Code's `Agent` tool runs them that way by default) is held open until they report and the CLI's own notification turn ends, bounded by the step's turn timeout, so the restart cannot kill them; the step log then shows `Turn boundary held: N background task(s)` and the held turns' tokens count toward the step. A shell command left running in the background is not waited for. Skill prompts need no `run_in_background: false` workaround.
@@ -596,6 +600,13 @@ Key runtime behavior:
 - Dependency-aware `mapOver` / `foreach` collections validate ids and dependency metadata before dispatch; unknown IDs fail fast.
 - In promotion-aware `per-map-item` runs, dependents wait on the promoted set, not just the completed set. Promotion conflicts keep downstream items undispatched until retry / resume.
 - Publish runs deterministically at workflow completion (`publish.status`, `publish.branch`, `publish.remote`, `publish.pr_url`) rather than relying on task-accept side effects.
+- Promotion and publish stop at `awaitingApproval` when committed or pending changes touch an
+  [execution surface](tasks.md#review-workflow), before committing pending files, merging or pushing. The run names
+  the held paths. Review them, then resume in the web UI, through the HTTP API, or with a channel approval button.
+  This approves only that branch; a later story branch can hold again. Resume retries the promotion or publish
+  without rerunning completed work. `workflow.approvals: auto` and `auto-on-stall` do not release this hold.
+  The agent's `workflow_resume` tool and a provenance-free CLI resume cannot approve it. In Slack, click the approval
+  button or use the run page/API; asking the agent to resume adds a refused tool call and still needs that person action.
 - For GitHub-backed projects, deterministic publish uses the project's configured `github-token` credential for both branch push and PR creation. It does not depend on `gh auth login` or ambient SSH state.
 - When a run completes with blocked (recoverable) stories – e.g. an ordinary (unmarked) `needsInput` story with no open dependent – the PR body lists them under an **Unresolved items** heading, naming the blocked story ids, so a green-looking PR never silently omits a story. The settle digest reports the same blocked rows. (An *escalated* remediation exhaustion never reaches this completed-with-blocked state: it always pauses the run for review first, regardless of dependents.)
 - `cleanup.enabled` (default `true`) removes workflow-owned worktrees and deletes the workflow's local branches – the workflow-root branch (`dartclaw/workflow/<runToken>`), the integration branch (`.../integration`), and any per-task story branches – when the run reaches a terminal status (completed, cancelled, or failed). Set `false` to retain them for post-mortem inspection; operators are then responsible for manual cleanup. A publish failure preserves evidence regardless of this flag.

@@ -47,6 +47,7 @@ export 'task_review_service.dart'
         PushBackFeedbackDelivery,
         ReviewResult,
         ReviewSuccess,
+        ReviewExecutionSurfaceHold,
         ReviewMergeConflict,
         ReviewNotFound,
         ReviewInvalidTransition,

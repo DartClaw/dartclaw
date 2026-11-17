@@ -53,10 +53,76 @@ void main() {
       expect(ctx['c'], '3');
     });
 
+    for (final key in ['_workflow.git.execution_surface_hold', '_workflow.git.approved_branches']) {
+      test('step merge refuses host marker $key atomically', () {
+        final ctx = WorkflowContext(data: {'ordinary': 'before'});
+        expect(
+          () => ctx.merge({
+            'ordinary': 'after',
+            key: ['forged'],
+          }),
+          throwsA(anything),
+        );
+        expect(ctx.data, {'ordinary': 'before'});
+      });
+      test('variable $key cannot shadow host data', () {
+        final ctx = WorkflowContext(variables: {key: 'forged'});
+        expect(ctx[key], isNull);
+      });
+    }
+    test('ordinary private outputs remain supported', () {
+      final ctx = WorkflowContext();
+      ctx.merge({'_ordinary': 'value'});
+      expect(ctx['_ordinary'], 'value');
+    });
+
     test('merge overwrites existing keys', () {
       final ctx = WorkflowContext(data: {'key': 'old'});
       ctx.merge({'key': 'new'});
       expect(ctx['key'], 'new');
+    });
+
+    test('approval reads exact host data only', () {
+      expect(
+        workflowBranchIsApproved({
+          'variables': {'_workflow.git.approved_branches': 'story'},
+        }, 'story'),
+        isFalse,
+      );
+      expect(
+        workflowBranchIsApproved({
+          'data': {
+            '_workflow': {
+              'git': {
+                'approved_branches': ['story'],
+              },
+            },
+          },
+        }, 'story'),
+        isFalse,
+      );
+      expect(
+        workflowBranchIsApproved({
+          'data': {
+            '_workflow.git.approved_branches': ['story'],
+          },
+        }, 'story'),
+        isTrue,
+      );
+      expect(
+        workflowBranchIsApproved({
+          'data': {
+            '_workflow.git.approved_branches': ['other'],
+          },
+        }, 'story'),
+        isFalse,
+      );
+      expect(
+        () => workflowBranchIsApproved({
+          'data': {'_workflow.git.approved_branches': 'story'},
+        }, 'story'),
+        throwsFormatException,
+      );
     });
 
     test('loop iteration tracking', () {

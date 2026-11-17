@@ -121,6 +121,7 @@ export 'src/workflow/step_config_resolver.dart'
         globMatchStepId,
         resolveStepConfig,
         syntheticWorkflowSkillSteps; // retained: consumed by CLI validation/wiring and workflow barrel tests
+export 'src/workflow/workflow_execution_surface_hold.dart' show workflowBranchIsApproved;
 export 'src/workflow/workflow_context.dart' show WorkflowContext, unproducedKeysSystemPrefix;
 export 'src/workflow/workflow_definition_parser.dart' show WorkflowDefinitionParser;
 export 'src/workflow/workflow_definition_resolver.dart' show WorkflowDefinitionResolver;
@@ -208,6 +209,7 @@ export 'src/workflow/workflow_turn_adapter.dart'
         WorkflowExecuteTurn,
         WorkflowGitIntegrationBranchResult,
         WorkflowGitPromotionConflict,
+        WorkflowGitPromotionHeld,
         WorkflowGitPromotionError,
         WorkflowGitPromotionResult,
         WorkflowGitPromotionSerializeRemaining,

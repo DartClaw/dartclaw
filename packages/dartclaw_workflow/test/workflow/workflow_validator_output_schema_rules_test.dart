@@ -58,7 +58,12 @@ void main() {
   });
 
   test('rejects reserved execution-envelope key names as declared outputs', () {
-    for (final reserved in ['outputs', 'step_outcome']) {
+    for (final reserved in [
+      'outputs',
+      'step_outcome',
+      '_workflow.git.execution_surface_hold',
+      '_workflow.git.approved_branches',
+    ]) {
       final def = buildDef(
         steps: [
           WorkflowStep(
@@ -71,7 +76,7 @@ void main() {
       );
       final report = validator.validate(def);
       expect(
-        hasError(report.errors, messageContains: 'reserved execution-envelope key name'),
+        hasError(report.errors, messageContains: 'reserved host output key name'),
         isTrue,
         reason: 'reserved key "$reserved" must be rejected',
       );

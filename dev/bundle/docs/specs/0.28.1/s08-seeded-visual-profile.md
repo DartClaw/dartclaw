@@ -149,4 +149,4 @@ Paths are relative to the public repo root (`../dartclaw-public/` from the priva
 - TI05 renames `task_artifacts.name` in the disposable test namespace because the seed delegates SQL to the repositories. PostgreSQL returns `42703`, the transaction rolls back, and the test restores the column before the namespace is dropped.
 - The workflow fixtures keep committed task-session IDs at valid step indices of the current built-ins. Two historical sessions still describe a login-timeout investigation even though their seeded step tasks use the current workflow names. Routing: Note (P3, fixture continuity).
 - The task detail's existing sticky review bar wraps Push Back onto a second line at desktop width. The session remains scrollable and all controls are reachable. Routing: Note (P3, task review layout).
-- S09 owns the CHANGELOG entries for the PostgreSQL visual seed and the three workflow detail repairs.
+- S09 owns the CHANGELOG entries for the PostgreSQL visual seed and the four workflow detail repairs.

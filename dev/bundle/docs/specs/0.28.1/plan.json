@@ -167,9 +167,17 @@
       "dependsOn": [
         "S02"
       ],
-      "status": "pending",
+      "status": "done",
       "fis": "s05-agent-image-toolchain-recipe.md",
-      "completedTaskIds": [],
+      "completedTaskIds": [
+        "TI01",
+        "TI02",
+        "TI03",
+        "TI04",
+        "TI05",
+        "TI06",
+        "TI07"
+      ],
       "scope": "Document extending `dartclaw-agent` with a Dart and a Node toolchain and selecting it through `container.image`, and give the operator an actionable message naming a toolchain binary a containerized step could not find. With the recipe images, S02's scenario reaches each fixture's test command inside the container. A missing non-default `container.image` fails startup naming the build command and the recipe instead of building the stock image under that tag.",
       "sourceRefs": [
         "dev/bundle/docs/specs/0.28.1/prd.md#fr8-toolchain-image-recipe-and-missing-toolchain-error",
@@ -177,7 +185,11 @@
       ],
       "provenance": null,
       "assetRefs": [],
-      "sequencing": null
+      "sequencing": null,
+      "verified": {
+        "at": "2026-11-17T19:27Z",
+        "summary": "DARTCLAW_CONTAINER_DATA_DIR=/Users/tobias/.dartclaw bash dev/testing/profiles/container/coding.sh --baseline -> exit=0, codex/node: failed; install=1; test=1; Codex steps=2"
+      }
     },
     {
       "id": "S06",

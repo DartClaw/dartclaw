@@ -4,6 +4,8 @@
 # Requires Docker/Podman, Dart, git, curl, python3 and a host-held credential per
 # selected provider: DARTCLAW_CONTAINER_DATA_DIR names its DartClaw store, or use
 # ANTHROPIC_API_KEY / CODEX_API_KEY. The store is a credential source only.
+# Builds a Dart/Node recipe image per fixture; DARTCLAW_CODING_IMAGE selects an
+# already-built image for all fixtures (for example dartclaw-agent:latest).
 # Exit 0 means every selected install/test passed; --baseline permits only those
 # command failures. Missing credentials/runtime, placement or cleanup errors fail.
 # Do not run another DartClaw Codex server concurrently: its rollouts confound
@@ -114,6 +116,13 @@ fi
 "$RUNTIME" image inspect dartclaw-agent:latest >/dev/null 2>&1 ||
   "$RUNTIME" build -t dartclaw-agent:latest docker/ >"$RESULT_DIR/image-build.log" 2>&1
 
+if [ -z "${DARTCLAW_CODING_IMAGE:-}" ]; then
+  for fixture in "${FIXTURES[@]}"; do
+    "$RUNTIME" build -t "dartclaw-agent-coding-$fixture:latest" -f "$SCRIPT_DIR/images/$fixture.Dockerfile" \
+      "$SCRIPT_DIR/images" >"$RESULT_DIR/$fixture-image-build.log" 2>&1
+  done
+fi
+
 for provider in "${PROVIDERS[@]}"; do
   for fixture in "${FIXTURES[@]}"; do
     NAME="$provider-$fixture"
@@ -137,7 +146,8 @@ for provider in "${PROVIDERS[@]}"; do
         ln -s "$(cd "$(dirname "$SOURCE_CREDENTIAL")" && pwd)" "$DATA_DIR/credentials/$provider"
       fi
     fi
-    dart "$SCRIPT_DIR/coding_config.dart" "$provider" "$DATA_DIR" "$REMOTE" >"$RESULT_DIR/$NAME-definition-proof.json"
+    IMAGE="${DARTCLAW_CODING_IMAGE:-dartclaw-agent-coding-$fixture:latest}"
+    dart "$SCRIPT_DIR/coding_config.dart" "$provider" "$DATA_DIR" "$REMOTE" "$IMAGE" >"$RESULT_DIR/$NAME-definition-proof.json"
     (exec dart run apps/dartclaw_cli/bin/dartclaw.dart --config "$DATA_DIR/dartclaw.yaml" \
       serve --data-dir "$DATA_DIR" --source-dir "$REPO_ROOT") >"$RESULT_DIR/$NAME-server.log" 2>&1 &
     SERVER_PID=$!

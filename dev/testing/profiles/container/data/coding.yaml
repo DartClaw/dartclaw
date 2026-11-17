@@ -7,6 +7,7 @@ agent:
   model: __AGENT_MODEL__
 container:
   enabled: true
+  image: __IMAGE__
 gateway:
   auth_mode: none
 guards:

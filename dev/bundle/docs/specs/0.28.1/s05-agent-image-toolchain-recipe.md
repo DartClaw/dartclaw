@@ -163,3 +163,177 @@ Paths are relative to the public repo root (`../dartclaw-public/` from the priva
 - **Container baseline and lifecycle**. **Description**: Reuse S02's `container/coding.sh` and existing renderer/recorder. Its four-case baseline recorded install/test exit 127 for missing Dart/npm, workspace placement on all tasks, unchanged Dart locks and no new Codex system-home rollouts. Disposable workflow generation changes only `gitStrategy.cleanup.enabled:false`; the profile collects retained worktree evidence and owns final teardown. **Rationale**: The live proof exposed cleanup and skill-materialization constraints absent at planning. **Interpretation**: Preserve the generated definition's steps and roles. Baseline mode permits terminal failures tied to recorded acceptance commands; awaiting approval and unrelated workflow failures still gate. Bundled `dartclaw-*` skills use managed copies; provider-native AndThen remains outside auth-clean containers under ADR-040 and the FIS boundary exception. Do not copy or mount host login/plugin directories. Consult S02's observations for exact receipts and the pre-fix trace-baseline drift. **Traced from**: S02/TI04–TI08. **Date**: 2026-11-17.
 
 - **Person-owned execution holds**. **Description**: S03 holds automatic task accepts and workflow promotion/publish when execution-surface files or symlinks are changed. Agent-tool provenance cannot release those holds; host approval state uses reserved exact-data keys. **Rationale**: Live canaries now run behind the new deterministic review boundary. **Interpretation**: Never bypass a hold to make an unattended fixture pass. Ordinary code and instruction-file changes still proceed; person UI/API/channel-button action releases the held branch. Preserve `_workflow.git.execution_surface_hold` and `_workflow.git.approved_branches` as host-owned state if extending output/bridge paths. **Traced from**: S03/TI02, S03/TI05–TI07 and its discovered requirements. **Date**: 2026-11-17.
+
+## Implementation Observations
+
+### Stock-image missing-toolchain report
+
+Final frozen-input command: `DARTCLAW_CONTAINER_DATA_DIR=/Users/tobias/.dartclaw DARTCLAW_CODING_IMAGE=dartclaw-agent:latest bash dev/testing/profiles/container/coding.sh --baseline --fixture dart` -> exit=0. Receipt: `.agent_temp/container-coding/20261117T191918Z.WtRnih/results.md`. Both providers ran both acceptance commands inside workspace containers, each exit 127. Both final work-turn replies name `dart`, the guide anchor and `container.image`; every shell command below was inspected and shows no toolchain install/download, substitute runtime or host execution. Replies are preserved in `.agent_temp/s05/final-stock-messages/`. The earlier stock receipt at `.agent_temp/container-coding/20261117T184133Z.0BkXgW/` remains historical evidence; the final run replaces it as S05 acceptance proof.
+
+#### claude final reply
+
+> The FIS is written and structurally valid. Summary of this step:
+>
+> ## Specification written
+>
+> **`dev/specs/total/fis/s01-total-sum-integers.md`** — one FIS for the single story, carrying the AndThen provenance pair (`**Plan**:`, `**Story-ID**:`) above the first `##`, four Given/When/Then acceptance scenarios (`**S01**`–`**S04**`), and an `## Implementation Plan` with `**TI01**`–`**TI03**`.
+>
+> Scenario coverage maps to the three existing assertions plus a guard that the test file stays untouched:
+>
+> | Scenario | Behaviour |
+> | --- | --- |
+> | S01 | `total([2, 3, -1])` → `4` (mixed signs) |
+> | S02 | `total([])` → `0` (empty iterable, no throw) |
+> | S03 | `total([-4, -2])` → `-6` (all negative) |
+> | S04 | `test/total_test.dart` unmodified |
+>
+> The plan prescribes `values.fold(0, (sum, value) => sum + value)`, keeping the `int total(Iterable<int> values)` signature byte-identical so the test's relative import keeps compiling. `fold`'s seed covers the empty case with no special-case branch. `test/total_test.dart` is explicitly out of scope per "Keep the existing tests."
+>
+> I also wrote **`dev/specs/total/plan.md`**, because the FIS's `**Plan**:` provenance field would otherwise point at a non-existent file. It is a single-row story table, not a synthesized PRD.
+>
+> I did not edit `total.dart` — implementation belongs to the next workflow step, and this step's declared outputs are the spec only.
+>
+> ## Acceptance commands — both failed
+>
+> Run in the task worktree, not on the host, with status captured:
+>
+> ```
+> dart pub get → DARTCLAW_ACCEPTANCE_EXIT=127   bash: dart: command not found
+> dart test    → DARTCLAW_ACCEPTANCE_EXIT=127   bash: dart: command not found
+> ```
+>
+> **Missing binary: `dart`.** The container image provides no Dart toolchain. I did not install, download, or substitute a runtime. To run these commands, provision an image that ships Dart via `container.image` — see `docs/guide/security.md#language-toolchains-in-the-agent-image` (Language Toolchains in the Agent Image). Note that even with a `dart` binary, `dart pub get` would still need registry access to resolve `test: ^1.29.0`; the container has no network.
+>
+> ## In-container Git failure (recorded, not blocking)
+>
+> `git status` in the worktree fails:
+>
+> ```
+> fatal: not a git repository: /Users/tobias/.../projects/coding-fixture/.git/worktrees/wf-3bb9f97f2301ba93
+> ```
+>
+> The worktree's `.git` file points at a host path that isn't mounted. Recording this as an expected observation only — the host commits and publishes the worktree changes. I'm not requesting a wider mount or operator input for it.
+>
+> ## Step outcome
+>
+> `step_outcome.outcome` is **`failed`**, not `needsInput` — both acceptance commands failed with exit 127. The specification deliverable is complete, but S01–S03 remain unverified and I'm not claiming the tests passed.
+>
+> Declared outputs for the envelope:
+> - **spec_path**: `dev/specs/total/fis/s01-total-sum-integers.md`
+> - **spec_source**: `synthesized` (the feature arrived as an inline description, so this step authored the FIS)
+
+Shell commands (all tasks in this provider run):
+
+```sh
+ls -la /workspace/.dartclaw/worktrees/wf-3bb9f97f2301ba93 2>&1 | head -50
+find . -path ./.git -prune -o -type f -print 2>/dev/null | head -100
+ls -la
+ls -la .agents .claude test
+ls -R .claude/skills
+ls -la /workspace/.dartclaw/worktrees/wf-3bb9f97f2301ba93 2>&1; echo "---TREE---"; find /workspace/.dartclaw/worktrees/wf-3bb9f97f2301ba93 -not -path '*/.git/*' -maxdepth 3 2>&1 | head -60
+which dart; echo "dart_exit=$?"; which flutter; echo "flutter_exit=$?"; git -C /workspace/.dartclaw/worktrees/wf-3bb9f97f2301ba93 status 2>&1 | head -20
+cd /workspace/.dartclaw/worktrees/wf-3bb9f97f2301ba93; for f in story.md total.dart test/total_test.dart pubspec.yaml; do echo "=== $f ==="; cat "$f"; done
+cd /workspace/.dartclaw/worktrees/wf-3bb9f97f2301ba93/.claude/skills; for d in dartclaw-discover-andthen-plan dartclaw-discover-andthen-spec; do echo "=== $d ==="; find "$d" -type f | head; echo "--- content ---"; cat "$d"/*.md 2>/dev/null; done
+cd /workspace/.dartclaw/worktrees/wf-3bb9f97f2301ba93 && dart pub get; result=$?; echo "DARTCLAW_ACCEPTANCE_EXIT=$result"; exit "$result"
+cd /workspace/.dartclaw/worktrees/wf-3bb9f97f2301ba93 && dart test; result=$?; echo "DARTCLAW_ACCEPTANCE_EXIT=$result"; exit "$result"
+cd /workspace/.dartclaw/worktrees/wf-3bb9f97f2301ba93; ls -la; echo "=== AGENTS/CLAUDE ==="; ls AGENTS.md CLAUDE.md 2>&1; echo "=== specs dirs ==="; find . -not -path './.git/*' -type d -iname '*spec*' -o -type d -iname '*fis*' -o -type d -iname 'dev' 2>/dev/null; echo "=== any md ==="; find . -not -path './.git/*' -name '*.md' -type f 2>/dev/null
+echo "=== workspace root ==="; ls -la /workspace 2>&1 | head -30; echo "=== andthen plugin search ==="; find / -name 'fis-template.md' -not -path '/proc/*' 2>/dev/null | head; echo "=== andthen dirs ==="; find / -type d -name 'andthen*' -not -path '/proc/*' 2>/dev/null | head
+cat /workspace/AGENTS.md; echo "=== MEMORY ==="; cat /workspace/MEMORY.md
+cd /workspace/.dartclaw/worktrees/wf-3bb9f97f2301ba93; F=dev/specs/total/fis/s01-total-sum-integers.md
+echo "=== header block (H1 -> first ##) ==="
+awk 'NR==1{next} /^## /{exit} {print}' "$F" | grep -nE '^\*\*(Plan|Story-ID)\*\*:'
+echo "=== ## headings ==="
+grep -nE '^## ' "$F"
+echo "=== markers ==="
+for m in '^\*\*S01 ' '^- \*\*Given\*\*' '^- \*\*When\*\*' '^- \*\*Then\*\*' '\*\*TI01' ; do printf '%-22s -> %s hits\n' "$m" "$(grep -cE "$m" "$F")"; done
+echo "=== files written ==="
+find dev -type f | sort
+```
+
+
+#### codex final reply
+
+> Implemented `total` and added the synthesized FIS:
+>
+> - `spec_path`: [`spec.md`](/workspace/.dartclaw/worktrees/wf-11ad93ada4889a54/spec.md)
+> - `spec_source`: `synthesized`
+>
+> Acceptance outcome: `failed`
+>
+> - `dart pub get`: exit `127`, `dart: not found`
+> - `dart test`: exit `127`, `dart: not found`
+>
+> The in-container Git metadata was unavailable; the host should commit the worktree changes. See `docs/guide/security.md#language-toolchains-in-the-agent-image` and `container.image` for toolchain configuration.
+
+Shell commands (all tasks in this provider run):
+
+```sh
+/bin/sh -lc "sed -n '1,240p' .agents/skills/dartclaw-discover-andthen-spec/SKILL.md"
+/bin/sh -lc "sed -n '1,240p' .agents/skills/dartclaw-discover-andthen-plan/SKILL.md && printf '\\n---SPEC SKILL---\\n' && sed -n '1,240p' .agents/skills/dartclaw-discover-andthen-spec/SKILL.md && printf '\\n---FILES---\\n' && rg --files -g 'errors.md' -g 'total.dart' -g '*spec*' -g 'pubspec.yaml' -g 'test/**' -g '.andthen/**' -g 'docs/**' | head -200"
+/bin/sh -lc "find . -maxdepth 4 -type f | sort | sed -n '1,240p'; printf '\\n--- root docs ---\\n'; for f in AGENTS.md CLAUDE.md errors.md; do if [ -f \""'$f" ]; then echo "### $f"; sed -n '"'1,240p' \""'$f"; fi; done; printf '"'\\n--- dart files ---\\n'; find . -type f \\( -name 'total.dart' -o -name 'pubspec.yaml' -o -path './test/*' \\) -print"
+/bin/sh -lc "printf '%s\\n' '--- story.md ---'; sed -n '1,260p' story.md; printf '%s\\n' '--- total.dart ---'; sed -n '1,200p' total.dart; printf '%s\\n' '--- test ---'; sed -n '1,260p' test/total_test.dart; printf '%s\\n' '--- pubspec ---'; sed -n '1,160p' pubspec.yaml; printf '%s\\n' '--- git status ---'; git status --short; printf '%s\\n' '--- git metadata check ---'; git rev-parse --is-inside-work-tree"
+/bin/sh -lc 'dart pub get; result=$?; echo "DARTCLAW_ACCEPTANCE_EXIT=$result"; exit "$result"'
+/bin/sh -lc 'dart test; result=$?; echo "DARTCLAW_ACCEPTANCE_EXIT=$result"; exit "$result"'
+/bin/sh -lc "printf '%s\\n' '--- total.dart ---'; sed -n '1,120p' total.dart; printf '%s\\n' '--- spec.md ---'; sed -n '1,220p' spec.md; printf '%s\\n' '--- status attempt ---'; git status --short"
+```
+
+### Recipe evidence and discoveries
+
+- The exact official tags are `dart:3.14.0-sdk` and `node:24.22.3-bookworm-slim`; Docker built both on this ARM64 engine. The hardened UID/version proof prints uid 1000 for both, Dart 3.14.0, Node v24.22.3 and npm 11.19.1. The stock Dockerfile and kernel/config keys are unchanged.
+- `dart --version` alone missed first-use analytics initialization. The initial recipe's `dart pub get`/`dart test` failed 255 with `FileSystemException: Creation failed, path = '/home/dartclaw/.dart-tool' (OS Error: Read-only file system, errno = 30)`. `XDG_CONFIG_HOME` and `DART_SUPPRESS_ANALYTICS=true` did not prevent it. Recipe `HOME=/tmp` routes this SDK state to the existing tmpfs; explicit provider homes remain separate. `dart pub --help` under hardening changed 255 to 0. SDK issue [62952](https://github.com/dart-lang/sdk/issues/62952) records that telemetry has not migrated to `DART_DATA_HOME`.
+- Codex's `/bin/sh -lc` resets `PATH`. Before the recipe symlink, that exact shell returned `/bin/sh: 1: dart: not found` (127), despite the image's SDK `ENV PATH`. The `/usr/local/bin/dart` symlink changed the hardened login-shell `dart pub --help` probe to exit 0. This matters to S06's cache/registry proof: keep these image settings when extending the recipe.
+- `.agent_temp/container-coding/20261117T180618Z.VRnJ02/` is diagnostic evidence only. Its raw four rows exposed those image defects, but its command exit 127 is invalidated: editing a wrapped shell line while Bash was reading the script shifted its read offset and produced `line 164: e: command not found`. No retry/self-copy machinery was added. The corrected matrix kept script, image, recorder and runtime inputs frozen.
+- Corrected acceptance receipt: `.agent_temp/container-coding/20261117T182302Z.eh6UFD/results.md`. Both Dart providers: install 69 with `Got socket error trying to find package test at https://pub.dev`, test 1 during the same registry resolution. Both Node providers: install 1 with registry DNS failure, test 1 because lodash could not be installed. All eight tasks have workspace placement; both Dart locks are unchanged; Codex completed two steps per fixture and added zero system-home DartClaw rollouts. The script returned 0 and its missing-binary scan returned 0. All disposable resources were removed; recipe images remain cached by contract.
+
+### Regression evidence and tidies
+
+- TI04 first/retry and workflow positive tests failed before production changes with `Expected: contains '### Container Toolchains'` / `Which: does not contain '### Container Toolchains'`. Host/restricted parity and push-back absence stayed green. The routing file now passes 17 tests.
+- TI07 startup repro failed before the fix with `Which: emitted <null>` instead of the expected StateError. Doctor repro reported `Actual: 'Build my-dart-agent:1 using docker/Dockerfile; see docs/guide/security.md.'`, missing the requested build command. Both bound tests now pass; their two files pass 89 tests, including the existing default-image build test.
+- One `ContainerManager.missingImageRemediation` formatter supplies startup and doctor text. This small static API addition keeps the build instruction under the existing image owner rather than duplicating it across packages.
+- Tidy: `_composePendingMessage` had an unused session argument and always returned a String. Its signature now reflects that, its sole caller is migrated, and the unreachable null-prompt failure branch plus unused `TaskFailureReason.absentPrompt` are removed. No reply parser or missing-binary detector was added.
+- S03/S04 have no standalone Proof lines; TI04's bound routing tests supply the executable proof, with additional workflow and push-back cases.
+
+#### DRIFT
+
+- spec-stale: S05's side sentence assigns a dedicated container-guide split to S09, but S09 explicitly excludes that split. The existing security-guide section and anchor remain canonical. Recommend reconciling the stale peer-assignment sentence. | Stale targets: S05 Constraints & Gotchas, dedicated-guide sentence | –
+
+### Executed proofs
+
+- TI01 / S01: the FIS's exact three-build, two-UID and version command -> exit=0; uid 1000 in both images, Dart 3.14.0, Node v24.22.3, npm 11.19.1. Additional hardened `dart pub --help` and `/bin/sh -lc 'dart pub --help'` -> exit=0.
+- TI02 / SC01: the FIS's `grep -vxFf` recipe mirror check and heading check -> exit=0; every Dockerfile line appears verbatim in the guide.
+- TI03 / S02: `DARTCLAW_CONTAINER_DATA_DIR=/Users/tobias/.dartclaw bash dev/testing/profiles/container/coding.sh --baseline` -> exit=0; `codex/node: failed; install=1; test=1; Codex steps=2`. Final frozen-input four-row receipt `.agent_temp/container-coding/20261117T190434Z.PeIDWi/results.md`; missing-binary scan -> exit=0, no matches; `git grep -n DARTCLAW_CODING_IMAGE` -> exit=0, README and script match.
+- TI04 / S03: bound workspace prompt selector -> exit=0, `+2: All tests passed!` (first and retry). Entire routing file including workflow one-shot and push-back -> exit=0, `+17: All tests passed!`.
+- TI04 / S04: bound host/restricted selector -> exit=0, `+1: All tests passed!`; its expected prompt is byte-identical to the prior task/working-directory sections.
+- TI05 / SC02: `git grep -q -i toolchain -- dev/state/PROMPT-SURFACES.md` -> exit=0. TI05 / SC03: `git diff --name-only -- docker/Dockerfile packages/dartclaw_kernel` -> exit=0 with empty output; direct diff inspection shows only fixed model guidance, no missing-binary detection or reply parse.
+- TI06 / S05: forced-stock two-provider command above -> exit=0; both install/test pairs 127/127, four workspace tasks, zero new system-home Codex rollouts. Heading check -> exit=0; replies and every shell command quoted above.
+- TI07 / S06: each bound runtime and doctor selector -> exit=0, `+1: All tests passed!`; both full files together -> exit=0, `+89: All tests passed!`. The default image's existing build test stays green. Breaking-note grep -> exit=0, matches `tagged the stock image`.
+- Fast tier -> exit=0; analyzer `No issues found!`; kernel 1433, core 1757 (19 existing skips), search 62, workflow 2150 (11 existing skips), runtime 5757 (25 existing skips), CLI 857 (3 existing skips). Runtime count receipt retained separately because verbose fake wiring logs truncated the tool's output.
+- Format -> exit=0, `Formatted 2234 files (0 changed) in 6.76 seconds.`; `git diff --check` -> exit=0 after removing whitespace from blank quote lines. No new TODO/placeholder implementation, skipped test or unconsumed surface found; image ENV and its login-shell behavior are runtime-proven, `__IMAGE__` is rendered by the existing config helper, and startup/doctor both consume the single remediation formatter.
+
+### Chain Attestation
+
+- OC01: TI01/TI02 satisfy S01 with the documented exact recipes, UID/hardening/version proof and build-first `container.image` selection.
+- OC02: TI03 satisfies S02 with the four-case recipe baseline: all install/test commands ran in workspace containers and their only remaining cause is registry access; fixture tests and recorder/teardown gates are unchanged.
+- OC03: TI04/TI05 satisfy S03/S04 with positive first/retry/workflow and negative host/restricted/push-back prompt tests; TI06 satisfies S05 with both stock-image replies and shell-command evidence, without a host detector or installation workaround.
+- OC04: TI07 satisfies S06 with missing-custom refusal and shared doctor guidance, no custom build call, and the existing default-image build regression.
+- Discovered Requirement Container baseline and lifecycle: both live receipts use S02's canonical definition/renderer/recorder, existing cleanup-only inspection copy and teardown; the diff changes image selection only and leaves source fixtures, recorder and approval/failure gates untouched.
+- Discovered Requirement Person-owned execution holds: no approval/gate code or reserved metadata key changed; all live runs settled as acceptance-command failures under the unchanged baseline gate, without releasing or bypassing a hold.
+
+### Verification follow-through
+
+- A supplementary runtime-count receipt exposed a pre-existing capacity test synchronization gap: `a deferred message that loses the capacity race again waits for the next free slot` failed with `Expected: <2>`, `Actual: <1>`, while the initial fast tier had passed. The 200-pump poll did not await filesystem-backed redispatch. Minimum gate tidy in `conversation_loop_contract_test.dart`: one pump registers the completed capacity continuation, then existing `conversation.drain()` waits for tracked redispatch before the unchanged reserve-count assertion. Every state/execution assertion remains. The whole conversation file passes 25 tests; the full runtime rerun passes 5757 with 25 existing skips (`.agent_temp/s05/runtime-fixed.log`). Fast aggregate: 12016 passed, 58 existing conditional skips, zero failed.
+- Procedural deviation: the fresh review hand-back raced the scope addition for that test-only tidy. The same reviewer received a followup after handing back and inspected the added diff, its synchronization owner and the 25-test receipt, rather than a fresh dispatch. The documentation worker was also resumed after its tag lookup to answer the later SDK-state question, instead of a fresh dispatch. It found no concern; no additional full review loop was run. The orchestrator was informed and accepted recording the deviation.
+- Final-code recipe attempt `.agent_temp/container-coding/20261117T185839Z.z4LUBm/` -> exit=1 before install/test: `MissingArtifactFailure(field: spec_path, missing: [.dartclaw/worktrees/wf-2804fe98e428320d/story.md], ... reason: path claimed but not found under an allowed root)`. The classifier returned `spec_source: synthesized` but supplied a nonempty path, contrary to the bundled discovery skill's explicit empty-path contract. The host rejected the claim and the unchanged profile reported `Acceptance command evidence missing from persisted tool traces.` This receipt is a failed gate, not acceptance proof. The 1328-file runtime/profile/build input manifests before and after compare exactly equal. No output repair, baseline weakening, new retry or definition change was introduced.
+
+- Resolution Ladder rung 2 (Widen): the orchestrator applied ADR-054's contract-miss rule, which fails the step and re-asks. One new invocation of the same whole profile on unchanged frozen inputs is the sanctioned re-ask, with a fresh profile run/worktree. The failed receipt remains; no output repair, weakened gate, duplicated discovery semantics, retry wrapper or product retry feature is added. A repeated classifier contract miss requires investigation of the existing activation/contract owner rather than more reruns.
+
+### Final frozen-input acceptance
+
+- Final recipe re-ask: `.agent_temp/container-coding/20261117T190434Z.PeIDWi/results.md` -> exit=0, `codex/node: failed; install=1; test=1; Codex steps=2`. Both Dart rows are 69/1 with pub.dev socket errors; both Node rows are 1/1 with registry.npmjs.org DNS errors and missing lodash after failed install. All eight tasks are workspace containers, both Dart locks are unchanged, and there are zero new system-home Codex rollouts. The exact prescribed latest-receipt missing-binary scan ran immediately afterwards -> exit=0, no matches.
+- Final stock run: `.agent_temp/container-coding/20261117T191918Z.WtRnih/results.md` -> exit=0, `codex/dart: failed; install=127; test=127; Codex steps=2`. Four workspace tasks; zero new system-home Codex rollouts. Final replies and commands above satisfy TI06/S05.
+- Exact input comparison: `.agent_temp/s05/final-inputs-before.json`, `final-inputs-after-recipe.json` and `final-inputs-after-stock.json` contain the same 1328 SHA-256 entries for runtime libraries/generated assets, CLI, Docker context, profile, fixture support and build inputs. Both `cmp` checks -> exit=0. No relevant source/script/recipe input changed across the successful final recipe and stock proofs. All scenario-owned containers/data/fixture copies were removed; cached recipe images remain by contract.
+- Final analyzer -> exit=0, `No issues found!`; final workspace format -> exit=0, `Formatted 2234 files (0 changed) in 4.68 seconds.`; final runtime -> exit=0, `+5757 ~25: All other tests passed!`. No required acceptance proof remains open. Full tier and candidate release gates remain with the parent under `--no-full-tier`.
+
+Reviewed: S05 quick code+gap and added capacity-test synchronization pass found no new actionable defect; hardened Dart/Node probes and 25 conversation tests passed; full-runtime rerun and final-tree recipe matrix remain with the implementer.
+
+The review line is retained verbatim from `.agent_temp/s05/review.md`; its pending validation context was subsequently closed by the final runtime and frozen-input live receipts above. No review finding remains open.

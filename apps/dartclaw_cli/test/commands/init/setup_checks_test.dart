@@ -225,6 +225,29 @@ mcp_servers:
       expect(report.rows.map((r) => r.toJson()).toString(), isNot(contains('LITERAL-DOCTOR-SECRET')));
     });
 
+    test('container.image remediation names docker build for a custom image', () async {
+      writeConfig('container:\n  enabled: true\n  image: my-dart-agent:1\n');
+      final commands = <List<String>>[];
+
+      final report = await diagnose(runtimeCase: 'image', commands: commands);
+
+      final image = row(report, 'container.image');
+      expect(image.status, DiagnosticStatus.fail);
+      expect(
+        image.remediation,
+        allOf(
+          contains('docker build -t my-dart-agent:1 <context>'),
+          contains('docs/guide/security.md'),
+          contains('Language Toolchains in the Agent Image'),
+        ),
+      );
+      expect(commands.any((args) => args.first == 'build'), isFalse);
+
+      writeConfig('container:\n  enabled: true\n');
+      final stock = row(await diagnose(runtimeCase: 'image'), 'container.image');
+      expect(stock.remediation, contains('docker/Dockerfile'));
+    });
+
     test('S07 runtime, image and engine failures follow declared posture without building', () async {
       for (final declared in [false, true]) {
         for (final failure in <String?>[null, 'image', 'engine']) {

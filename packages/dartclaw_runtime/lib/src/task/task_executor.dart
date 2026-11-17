@@ -613,17 +613,11 @@ class TaskExecutor {
       );
       if (budgetOutcome == BudgetOutcome.exceeded) return;
 
-      final pendingMessage = await _composePendingMessage(task, session.id, workingDirectory: executionDirectory);
-      if (pendingMessage == null) {
-        _log.warning('Task ${task.id} had no message to execute; marking failed');
-        await _failureHandler.markFailedOrRetry(
-          task,
-          errorSummary: 'Task had no executable prompt',
-          kind: TaskFailureReason.absentPrompt,
-          retryable: false,
-        );
-        return;
-      }
+      final pendingMessage = await _composePendingMessage(
+        task,
+        runnerPolicy: runnerPolicy,
+        workingDirectory: executionDirectory,
+      );
       final modelOverride = _modelOverride(task);
       final effortOverride = _effortOverride(task);
       final tokenBudget = _tokenBudget(task);

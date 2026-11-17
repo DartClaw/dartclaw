@@ -642,9 +642,7 @@ class SetupChecks {
         summary: imageExists
             ? 'Container image ${config.container.image} exists.'
             : 'Container image ${config.container.image} is unavailable.',
-        remediation: imageExists
-            ? null
-            : 'Build ${config.container.image} using docker/Dockerfile; see docs/guide/security.md.',
+        remediation: imageExists ? null : ContainerManager.missingImageRemediation(binary, config.container.image),
       ),
     );
     String? architecture;

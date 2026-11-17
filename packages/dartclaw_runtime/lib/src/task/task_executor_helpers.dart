@@ -134,17 +134,31 @@ extension _TaskExecutorHelpers on TaskExecutor {
     );
   }
 
-  Future<String?> _composePendingMessage(Task task, String sessionId, {String? workingDirectory}) async {
+  Future<String> _composePendingMessage(
+    Task task, {
+    required ExecutionPolicy? runnerPolicy,
+    String? workingDirectory,
+  }) async {
     final goalContext = await _goalContextFor(task);
     final pushBackComment = TaskConfigView(task, log: TaskExecutor._log).pushBackComment;
     if (pushBackComment != null) {
       return _pushBackPrompt(pushBackComment, goalContext: goalContext, workingDirectory: workingDirectory);
     }
 
-    return _initialPrompt(task, goalContext: goalContext, workingDirectory: workingDirectory);
+    return _initialPrompt(
+      task,
+      runnerPolicy: runnerPolicy,
+      goalContext: goalContext,
+      workingDirectory: workingDirectory,
+    );
   }
 
-  String _initialPrompt(Task task, {String? goalContext, String? workingDirectory}) {
+  String _initialPrompt(
+    Task task, {
+    required ExecutionPolicy? runnerPolicy,
+    String? goalContext,
+    String? workingDirectory,
+  }) {
     final buffer = StringBuffer();
     if (task.retryCount > 0) {
       final lastError = TaskConfigView(task, log: TaskExecutor._log).lastError;
@@ -169,6 +183,23 @@ extension _TaskExecutorHelpers on TaskExecutor {
         ..writeln('`$workingDirectory`')
         ..writeln()
         ..writeln('Use this directory as the only workspace for this task.');
+    }
+
+    if (runnerPolicy?.containerProfile == 'workspace') {
+      buffer
+        ..writeln()
+        ..writeln('### Container Toolchains')
+        ..writeln(
+          'This workspace container has no direct network access. Language toolchains exist only when the '
+          'configured `container.image` provides them; DartClaw\'s default image provides none.',
+        )
+        ..writeln(
+          'If a build or test command\'s binary is missing, report the missing binary by name in your final reply '
+          'and point the operator to `docs/guide/security.md#language-toolchains-in-the-agent-image` '
+          '(Language Toolchains in the Agent Image) and `container.image`. '
+          'Stop work that requires the missing toolchain. Do not install or download a toolchain, '
+          'replace it with another runtime, or run the commands on the host.',
+        );
     }
 
     if (goalContext != null && goalContext.isNotEmpty) {

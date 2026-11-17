@@ -277,11 +277,18 @@ class ContainerManager implements ContainerExecutor, VolatileContainerGeneratedS
     }
   }
 
-  /// Ensure the container image exists (build or pull).
+  /// Ensures the image exists, building only the missing default image.
+  ///
+  /// Throws [StateError] when a custom image is missing or the default build fails.
   Future<void> ensureImage() async {
     if (await imageExists(_binary, config.image, runCommand: _run)) {
       _log.info('Container image ${config.image} found for $profileId');
       return;
+    }
+    if (config.image != const ContainerConfig().image) {
+      throw StateError(
+        'Container image ${config.image} is unavailable. ${missingImageRemediation(_binary, config.image)}',
+      );
     }
     _log.info('Building container image ${config.image} for $profileId...');
     final dockerContextDir = p.join(buildContextDir, 'docker');
@@ -290,6 +297,12 @@ class ContainerManager implements ContainerExecutor, VolatileContainerGeneratedS
       throw StateError('Failed to build Docker image: ${buildResult.stderr}');
     }
   }
+
+  /// Returns build guidance for an unavailable image and the selected runtime.
+  static String missingImageRemediation(String runtimeBinary, String image) => image == const ContainerConfig().image
+      ? 'Build $image using docker/Dockerfile; see docs/guide/security.md.'
+      : 'Build it first with `$runtimeBinary build -t $image <context>`; '
+            'see docs/guide/security.md § Language Toolchains in the Agent Image.';
 
   /// Inspects an image without pulling or building it. Propagates command failures.
   static Future<bool> imageExists(String runtimeBinary, String image, {RunCommand runCommand = Process.run}) async {

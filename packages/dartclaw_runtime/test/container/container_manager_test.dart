@@ -236,6 +236,37 @@ void main() {
       ]);
     });
 
+    test('ensureImage fails for a missing custom image', () async {
+      for (final binary in ['docker', 'podman']) {
+        final calls = <List<String>>[];
+        final manager = _manager(
+          config: ContainerConfig(image: 'my-dart-agent:1', runtimeBinary: binary),
+          run: (executable, arguments) async {
+            calls.add([executable, ...arguments]);
+            return ProcessResult(1, arguments.first == 'image' ? 1 : 0, '', 'missing');
+          },
+        );
+
+        await expectLater(
+          manager.ensureImage(),
+          throwsA(
+            isA<StateError>().having(
+              (error) => error.message,
+              'remediation',
+              allOf(
+                contains('$binary build -t my-dart-agent:1 <context>'),
+                contains('docs/guide/security.md'),
+                contains('Language Toolchains in the Agent Image'),
+              ),
+            ),
+          ),
+        );
+        expect(calls, [
+          [binary, 'image', 'inspect', 'my-dart-agent:1'],
+        ]);
+      }
+    });
+
     test('ensureImage throws when build fails', () async {
       final manager = _manager(
         run: (executable, arguments) async {

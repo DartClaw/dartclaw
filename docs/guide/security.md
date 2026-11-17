@@ -353,6 +353,67 @@ Container isolation is unavailable on native Windows even when Docker is install
 owner-only generated state require POSIX facilities, so an explicit `container.enabled: true` fails closed and directs
 the operator to a POSIX host or WSL; auto-detection never runs there at all. See the [Windows capability matrix](windows.md#capability-matrix).
 
+### Language Toolchains in the Agent Image
+
+The default `dartclaw-agent:latest` image contains the provider CLIs, git and curl, with no language toolchain.
+Extend it with the toolchain your project needs. These recipes copy exact versions from the official language
+images; pin and update those versions for your project.
+
+Dart (`dart.Dockerfile`):
+
+```dockerfile
+FROM dartclaw-agent:latest
+USER root
+COPY --from=dart:3.14.0-sdk /usr/lib/dart /usr/lib/dart
+# Login shells reset PATH; expose the SDK in their standard search path too.
+RUN ln -s /usr/lib/dart/bin/dart /usr/local/bin/dart
+# Dart initializes ~/.dart-tool even when analytics is suppressed.
+ENV DART_SDK=/usr/lib/dart \
+    PATH="/usr/lib/dart/bin:${PATH}" \
+    PUB_CACHE=/tmp/pub-cache \
+    HOME=/tmp
+USER dartclaw
+```
+
+Node (`node.Dockerfile`):
+
+```dockerfile
+FROM dartclaw-agent:latest
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends libatomic1 libstdc++6 \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=node:24.22.3-bookworm-slim /usr/local/ /usr/local/
+ENV PATH="/usr/local/bin:${PATH}" \
+    NPM_CONFIG_CACHE=/tmp/npm-cache
+USER dartclaw
+```
+
+Build the stock image from the DartClaw checkout, then your chosen recipe from the directory holding its Dockerfile:
+
+```bash
+docker build -t dartclaw-agent:latest docker/
+docker build -t my-dart-agent:1 -f dart.Dockerfile .
+# Or: docker build -t my-node-agent:1 -f node.Dockerfile .
+```
+
+Build first, then select the image and start DartClaw:
+
+```yaml
+container:
+  enabled: true
+  image: my-dart-agent:1
+```
+
+A missing custom image fails startup and `dartclaw doctor` names the build command and this section. Only the
+missing default `dartclaw-agent:latest` is built automatically from `docker/`.
+
+The recipes preserve uid 1000 and the provider CLIs' `PATH`. Image `ENV` sets writable caches and SDK configuration
+under `/tmp`, because the root filesystem is read-only. Dart uses `HOME=/tmp` for its first-use `~/.dart-tool`
+analytics state; the provider homes remain explicitly selected by DartClaw. DartClaw's `/tmp` is a 100 MiB `noexec` tmpfs; install SDKs
+at image build time, and size dependency use accordingly. A workspace container has no direct network access;
+a toolchain alone does not give package managers registry access. When a build or test binary is missing, workspace
+task prompts tell the agent to stop, name the binary and refer here and to `container.image`, without installing it.
+
 ### Hardening the primary agent for untrusted channels
 
 When a channel delivers untrusted content to the primary lane, tighten the default posture: set `agent.execution:

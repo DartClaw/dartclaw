@@ -136,8 +136,10 @@ not use it as a substitute for setup verification. Treat each VM as single-calle
 ## CI-Equivalent Gate
 
 Run this from the workspace root before pushing shared branches, before declaring a CI fix done, and after changes that
-touch package boundaries, tests, build tooling, workflow definitions, or cross-package behavior. It mirrors
-`.github/workflows/ci.yml`, with an added whitespace check.
+touch package boundaries, tests, build tooling, workflow definitions, or cross-package behavior. It is the local superset of
+GitHub `Checks`: `Check` runs dependencies, assets, format, analyze and architecture, and `PowerShell scripts` checks
+Windows scripts. Workspace tests, fitness, PostgreSQL and container posture are local release evidence. A failing
+test fails the local `tests` gate while GitHub stays green.
 
 ```bash
 dart pub get --enforce-lockfile
@@ -147,7 +149,7 @@ dart format --line-length=120 --output=none --set-exit-if-changed .
 dart analyze --fatal-infos
 bash dev/tools/test_workspace.sh
 # Proves plain PostgreSQL 14 first, then explicit pgvector/hybrid behavior.
-# The runner may provision disposable resources with Docker in CI or use supplied disposable endpoints.
+# The runner may provision disposable resources with Docker or use supplied disposable endpoints.
 bash dev/tools/postgres_contract.sh
 dart run dev/tools/arch_check.dart
 bash dev/tools/fitness/run_all.sh
@@ -159,10 +161,20 @@ git status --short
 into the server's static assets, so canonical CSS edits need no separate sync step.
 
 For release preparation, reuse completed review evidence with the input comparisons required by
-[Release Preparation](RELEASE_PREPARATION.md), and run only missing or affected checks. Obtain GitHub CI once on the
-final squash commit. For a **clean committed release candidate** missing that local coverage,
+[Release Preparation](RELEASE_PREPARATION.md), and run only missing or affected checks. Obtain `Check` and
+`PowerShell scripts` once on the exact final squash SHA; local results carry through the ledger's input comparison
+because the squash commit has the branch tip's Git tree. For a **clean committed release candidate** missing that local coverage,
 `bash dev/tools/release_check.sh --version <version> --local` runs these local gates plus release cleanup/version
-checks and the host build, retaining per-gate receipts. Add `--resume` to
+checks, the host build and the Lima `linux` gate, retaining per-gate receipts. Lima (`brew install lima`) creates
+`dartclaw-release-linux` from `dev/tools/lima/linux.yaml`, without host mounts, and transfers the same committed
+candidate. The guest runs the local gates (build included) with `--omit linux,ci`, then the root container posture
+profile. To select only that lane:
+
+```bash
+bash dev/tools/release_check.sh --version <version> --gate linux
+```
+
+Add `--resume` to
 reuse eligible results, `--status` to inspect them, or `--gate <id>` to rerun one gate. The dirty development checkout
 still uses the individual commands above. See [Release Preparation](RELEASE_PREPARATION.md) for scope and exit codes.
 PowerShell validation uses `dev/tools/check_powershell.ps1` both locally in Windows and in CI; PSScriptAnalyzer is required.
@@ -267,7 +279,7 @@ dart test --reporter=failures-only -x slow apps/dartclaw_cli
 # Run only slow CLI tests when validating build/release behavior.
 dart test --reporter=failures-only --run-skipped -t slow apps/dartclaw_cli
 
-# Test all packages exactly as CI does
+# Run the default workspace suites
 bash dev/tools/test_workspace.sh
 
 # Specific test directory

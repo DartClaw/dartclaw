@@ -78,10 +78,31 @@ if [ -f .agent_temp/ci-jobs.json ]; then cat .agent_temp/ci-jobs.json; exit 0; f
 if [ -f .agent_temp/skipped-ci ]; then
   echo '{"url":"https://example.test/run/42","jobs":[{"name":"Check","conclusion":"success"}]}'
 else
-  echo '{"url":"https://example.test/run/42","jobs":[{"name":"Check","conclusion":"success"},{"name":"Container boundary","conclusion":"success"},{"name":"PowerShell scripts","conclusion":"success"},{"name":"PostgreSQL contract","conclusion":"success"}]}'
+  echo '{"url":"https://example.test/run/42","jobs":[{"name":"Check","conclusion":"success"},{"name":"PowerShell scripts","conclusion":"success"}]}'
 fi
 ''');
-    for (final name in ['fake-gate', 'dart', 'gh']) {
+    file('dev/tools/lima/linux.yaml', 'mounts: []\n');
+    file('.agent_temp/bin/limactl', r'''#!/bin/sh
+printf '%s\n' "$*" >> .agent_temp/lima-calls
+case "$1" in
+  list) if [ -f .agent_temp/vm-present ]; then echo dartclaw-release-linux; fi ;;
+  create) touch .agent_temp/vm-present ;;
+  copy) if [ -f .agent_temp/fail-copy ]; then exit 6; fi; git bundle verify "$2" >/dev/null 2>&1 || exit 6; git bundle list-heads "$2" > .agent_temp/bundle-heads ;;
+  start) if [ -f .agent_temp/fail-vm ]; then echo 'VM unreachable' >&2; exit 8; fi ;;
+  shell)
+    case "$*" in
+      *mktemp*) echo /home/lima/.agent_temp/dartclaw-linux-fixture ;;
+      *release_check.sh*)
+        if [ -f .agent_temp/fail-linux-gate ]; then echo 'tests: failed (exit 7)' >&2; exit 7; fi
+        echo 'Local automated gates passed.' ;;
+      *profiles/container/run.sh*)
+        if [ -f .agent_temp/fail-posture ]; then echo 'Container posture failed' >&2; exit 9; fi
+        echo 'Container posture passed' ;;
+      *) echo "Linux candidate: $(git rev-parse HEAD) tree $(git rev-parse 'HEAD^{tree}')" ;;
+    esac ;;
+esac
+''');
+    for (final name in ['fake-gate', 'dart', 'gh', 'limactl']) {
       Process.runSync('chmod', ['755', file('.agent_temp/bin/$name').path]);
     }
     environment = {'PATH': '${p.join(fixture.path, '.agent_temp/bin')}:${Platform.environment['PATH']}'};
@@ -132,6 +153,129 @@ fi
     expect(all.stdout, contains('ci: missing'));
   });
 
+  test('linux gate fails naming brew install lima without limactl', () {
+    file('.agent_temp/bin/limactl').deleteSync();
+    environment['PATH'] = '${p.join(fixture.path, '.agent_temp/bin')}:/usr/bin:/bin';
+    final result = run(['--gate', 'linux']);
+    expect(result.exitCode, 1);
+    expect(result.stderr, contains('brew install lima'));
+    final receipt = jsonDecode(receipts('linux').single.readAsStringSync()) as Map<String, dynamic>;
+    expect(receipt['status'], 'failed');
+    expect(file('.agent_temp/lima-calls').existsSync(), isFalse);
+  });
+
+  test('local run includes the linux gate and the omission option skips it', () {
+    final result = run(['--local']);
+    expect(result.exitCode, 0, reason: '${result.stdout}\n${result.stderr}');
+    final output = result.stdout as String;
+    expect(output.indexOf('linux: running'), greaterThan(output.indexOf('whitespace: passed')));
+    expect(receipts('linux'), hasLength(1));
+    expect(file('.agent_temp/gh-calls').existsSync(), isFalse);
+    final calls = file('.agent_temp/lima-calls').readAsStringSync();
+    expect(calls, contains('--local --omit linux,ci'));
+    expect(calls, isNot(contains(' gh ')));
+    final omitted = run(['--local', '--omit', 'linux,ci']);
+    expect(omitted.exitCode, 0, reason: '${omitted.stdout}\n${omitted.stderr}');
+    expect(omitted.stdout, isNot(contains('linux:')));
+    expect(omitted.stdout, isNot(contains('ci:')));
+    expect(file('.agent_temp/lima-calls').readAsStringSync(), calls);
+    expect(file('.agent_temp/gh-calls').existsSync(), isFalse);
+    expect(run(['--local', '--omit', 'typo']).exitCode, 2);
+    expect(run(['--gate', 'linux', '--omit', 'linux']).exitCode, 2);
+  });
+
+  test('linux gate runs the candidate in the VM', () {
+    final result = run(['--gate', 'linux']);
+    expect(result.exitCode, 0, reason: '${result.stdout}\n${result.stderr}');
+    final receiptFile = receipts('linux').single;
+    final receipt = jsonDecode(receiptFile.readAsStringSync()) as Map<String, dynamic>;
+    expect(receipt['status'], 'passed');
+    final candidate = receipt['candidate'] as Map<String, dynamic>;
+    expect(file('.agent_temp/bundle-heads').readAsStringSync(), '${candidate['head']} HEAD\n');
+    final calls = file('.agent_temp/lima-calls').readAsLinesSync();
+    expect(calls.take(4), [
+      'list --format {{.Name}}',
+      'create --tty=false --name=dartclaw-release-linux dev/tools/lima/linux.yaml',
+      'start --tty=false dartclaw-release-linux',
+      'shell dartclaw-release-linux true',
+    ]);
+    final text = calls.join('\n');
+    expect(text.indexOf('git clone --quiet'), greaterThan(text.indexOf('copy ')));
+    expect(text, contains('git checkout --quiet --detach ${candidate['head']}'));
+    expect(text, contains('test "\$(git rev-parse HEAD^{tree})" = ${candidate['tree']}'));
+    expect(text, contains('DARTCLAW_NATIVE_ALLOW_DOWNLOAD=1 bash dev/tools/release_check.sh'));
+    expect(text, contains('--local --omit linux,ci'));
+    expect(
+      text.indexOf('sudo -E env "PATH=\$PATH" bash dev/testing/profiles/container/run.sh --ci'),
+      greaterThan(text.indexOf('release_check.sh')),
+    );
+    expect(file('.agent_temp/gh-calls').existsSync(), isFalse);
+    final log = File(p.join(receiptFile.parent.path, 'output.log')).readAsStringSync();
+    expect(log, contains('Linux candidate: ${candidate['head']} tree ${candidate['tree']}'));
+    expect(log, contains('Local automated gates passed.'));
+    expect(log, contains('Container posture passed'));
+  });
+
+  test('linux gate names the failing in-VM gate', () {
+    file('.agent_temp/fail-linux-gate', 'fail');
+    final result = run(['--gate', 'linux']);
+    expect(result.exitCode, 1);
+    expect(result.stderr, contains('tests: failed (exit 7)'));
+    expect(file('.agent_temp/lima-calls').readAsStringSync(), isNot(contains('profiles/container/run.sh')));
+    final receipt = jsonDecode(receipts('linux').single.readAsStringSync()) as Map<String, dynamic>;
+    expect(receipt['status'], 'failed');
+  });
+
+  test('linux gate names a failing container posture profile', () {
+    file('.agent_temp/fail-posture', 'fail');
+    final result = run(['--gate', 'linux']);
+    expect(result.exitCode, 1);
+    expect(result.stderr, contains('Container posture failed'));
+    final receipt = jsonDecode(receipts('linux').single.readAsStringSync()) as Map<String, dynamic>;
+    expect(receipt['status'], 'failed');
+  });
+
+  test('linux gate creates the VM once and reuses it', () {
+    expect(run(['--gate', 'linux']).exitCode, 0);
+    expect(run(['--gate', 'linux']).exitCode, 0);
+    final calls = file('.agent_temp/lima-calls').readAsLinesSync();
+    expect(calls.where((call) => call.startsWith('create ')), hasLength(1));
+    expect(calls.where((call) => call.startsWith('start ')), hasLength(2));
+    expect(receipts('linux'), hasLength(2));
+  });
+
+  test('linux gate uses disk-backed staging and cleans successful and failed attempts', () {
+    for (final failure in [null, 'fail-copy', 'fail-linux-gate', 'fail-posture']) {
+      if (failure != null) file('.agent_temp/$failure', 'fail');
+      final result = run(['--gate', 'linux']);
+      expect(result.exitCode, failure == null ? 0 : 1);
+      final latest = receipts('linux')..sort((a, b) => a.path.compareTo(b.path));
+      expect(File(p.join(latest.last.parent.path, 'candidate.bundle')).existsSync(), isFalse);
+      final calls = file('.agent_temp/lima-calls').readAsStringSync();
+      expect(calls, contains(r'mktemp -d "$HOME/.agent_temp/dartclaw-release.XXXXXXXX"'));
+      expect(
+        calls.trimRight(),
+        endsWith('shell dartclaw-release-linux sudo rm -rf -- /home/lima/.agent_temp/dartclaw-linux-fixture'),
+      );
+      if (failure != 'fail-copy') {
+        expect(calls, contains("export TMPDIR='/home/lima/.agent_temp/dartclaw-linux-fixture/repo/.agent_temp/tmp'"));
+        expect(calls, contains(r'mkdir -p "$TMPDIR"'));
+      }
+      if (failure != null) file('.agent_temp/$failure').deleteSync();
+      file('.agent_temp/lima-calls').deleteSync();
+    }
+  });
+
+  test('linux gate names the unreachable VM and its recreation command', () {
+    file('.agent_temp/vm-present', 'present');
+    file('.agent_temp/fail-vm', 'fail');
+    final result = run(['--gate', 'linux']);
+    expect(result.exitCode, 1);
+    expect(result.stderr, contains('VM dartclaw-release-linux could not be started or reached'));
+    expect(result.stderr, contains('limactl create --name=dartclaw-release-linux dev/tools/lima/linux.yaml'));
+    expect(file('.agent_temp/lima-calls').readAsStringSync(), isNot(contains('copy ')));
+  });
+
   test('quick mode cannot report complete automated coverage', () {
     final result = run(['--local', '--quick']);
     expect(result.exitCode, 3, reason: '${result.stdout}\n${result.stderr}');
@@ -177,6 +321,36 @@ fi
     expect(receipt['exitCode'], isNot(0));
   });
 
+  test('CI gate requires exactly the two remaining jobs', () {
+    const names = ['Check', 'PowerShell scripts'];
+    void writeJobs({String? missing, String? failing}) {
+      file(
+        '.agent_temp/ci-jobs.json',
+        jsonEncode({
+          'url': 'https://example.test/run/42',
+          'jobs': [
+            for (final name in names)
+              if (name != missing) {'name': name, 'conclusion': name == failing ? 'failure' : 'success'},
+          ],
+        }),
+      );
+    }
+
+    writeJobs();
+    final result = run(['--gate', 'ci']);
+    expect(result.exitCode, 0, reason: '${result.stdout}\n${result.stderr}');
+    final receipt = jsonDecode(receipts('ci').single.readAsStringSync()) as Map<String, dynamic>;
+    expect(receipt['ciRunUrl'], 'https://example.test/run/42');
+    for (final name in names) {
+      for (final missing in [true, false]) {
+        writeJobs(missing: missing ? name : null, failing: missing ? null : name);
+        final failure = run(['--gate', 'ci']);
+        expect(failure.exitCode, 1);
+        expect(failure.stderr, contains(name));
+      }
+    }
+  });
+
   test('CI evidence requires every named job and is refreshed on resume', () {
     expect(run(['--gate', 'ci']).exitCode, 0);
     final receipt = jsonDecode(receipts('ci').single.readAsStringSync()) as Map<String, dynamic>;
@@ -184,6 +358,20 @@ fi
     file('.agent_temp/skipped-ci', 'skip');
     expect(run(['--gate', 'ci', '--resume']).exitCode, 1);
     expect(receipts('ci'), hasLength(2));
+  });
+
+  test('CI workflow runs only the fast jobs', () {
+    final workflow = loadYaml(File(p.join(repo, '.github/workflows/ci.yml')).readAsStringSync()) as YamlMap;
+    final jobs = (workflow['jobs'] as YamlMap).values.cast<YamlMap>().toList();
+    expect(jobs.map((job) => job['name']), unorderedEquals(['Check', 'PowerShell scripts']));
+    for (final job in jobs) {
+      for (final step in (job['steps'] as YamlList).cast<YamlMap>()) {
+        final command = step['run'] as String? ?? '';
+        for (final heavy in ['test_workspace.sh', 'fitness/run_all.sh', 'postgres_contract.sh', 'container/run.sh']) {
+          expect(command, isNot(contains(heavy)), reason: '${job['name']} must leave $heavy to local gates');
+        }
+      }
+    }
   });
 
   test('every job advertised by the CI workflow is required by release qualification', () {

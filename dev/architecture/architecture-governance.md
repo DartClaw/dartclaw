@@ -21,8 +21,8 @@ locally and in CI.
 
 [![Governance layers](diagrams/governance-layers.svg)](diagrams/governance-layers.svg)
 
-Layers 1 to 3 run in that order in the CI Check job (format check first, workspace tests between layers 1 and 2), and
-the same commands run locally; a failing layer fails the build. `run_all.sh` stops at the first failing gate. It
+The CI Check job runs format, analysis and `arch_check.dart`. Local release gates run all three executable
+layers, with workspace tests before architecture and fitness; a failing layer fails its gate. `run_all.sh` stops at the first failing gate. It
 includes the schema and config-reference drift checks, version lockstep (`dev/tools/check_versions.sh`) and the Dart
 fitness tests (`bash dev/tools/run-fitness.sh`, i.e. `dart test dev/fitness/test/`). Layer 4 explains why a boundary
 exists and when it may change.
@@ -157,16 +157,18 @@ one-off cleanups.
 
 ## CI
 
-`.github/workflows/ci.yml` runs four jobs:
+`.github/workflows/ci.yml` runs two jobs:
 
 | Job | Runs |
 |---|---|
-| **Check** | Embedded-asset generation, format, `dart analyze --fatal-infos`, `dev/tools/test_workspace.sh`, `arch_check.dart`, `dev/tools/fitness/run_all.sh` |
+| **Check** | Dependencies, embedded-asset generation, format, `dart analyze --fatal-infos`, `arch_check.dart` |
 | **PowerShell scripts** | `dev/tools/check_powershell.ps1` on Windows |
-| **Container boundary** | Builds the in-container bridge and runs `dev/testing/profiles/container/run.sh --ci`, which boots a config declaring no `container:` section and asserts the posture resolved to container isolation. An absent runtime fails the job: the server's advisory downgrade exits zero and would otherwise read as a pass. It has no fork-PR condition because it needs no secret and issues no model turn |
-| **PostgreSQL contract** | `dev/tools/postgres_contract.sh` |
 
-**Check** is skipped for same-repo `pull_request` events, since the push already ran it.
+**Check** is skipped for same-repo `pull_request` events, since the push already ran it. Tests, fitness and
+PostgreSQL run through local release gates. The `linux` gate repeats the local gates, build included, on the same
+commit in a Lima Ubuntu arm64 VM, then runs the container posture profile as root. It shares no host directories
+and makes no GitHub API call. A test regression fails the local `tests` gate while GitHub stays green. See
+[Release Preparation](../guidelines/RELEASE_PREPARATION.md) for exact-SHA CI and ledger reuse on the final squash commit.
 
 ## Related Documents
 

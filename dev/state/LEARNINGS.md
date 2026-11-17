@@ -239,7 +239,7 @@
 - **`regenerate_fitness_baseline.dart` ratifies all accumulated drift, not just yours.** For a rename, hand-edit the path keys.
 - **A green live run can be resting on host state.** The host `~/.codex`, an untracked fixture overlay, and the enclosing repo's git config all leak in silently; seed the profile credential store and reset the fixture before trusting a green.
 - **A helper writing git config into a directory it did not create must use `git -C <dir>` and check for `.git` there first.** Git otherwise walks up and writes into the enclosing checkout's `.git/config`. Guard: `_requireFixtureRepoRoot` in `workflow_e2e_integration_test.dart`.
-- **`release_check.sh` is not CI.** Its gates run on the local host only; the Linux `Container boundary` job and the Windows release matrix exist solely on a pushed branch or tag – 0.25.0 shipped a tag that failed on Windows after it passed.
+- **Host evidence does not prove another OS.** The release check's Lima `linux` gate proves native Linux on the same committed candidate; the Windows release matrix remains a separate proof. 0.25.0 shipped a tag that failed on Windows after passing host checks.
 - **Four things this host silently covers that CI does not.** macOS Docker Desktop remaps uids; the system `libsqlite3` masks a skipped build hook; every dev box has `claude` on PATH; no `pwsh` exists, so no `.ps1` is ever parsed. "Passes locally" is zero evidence for container posture, bundled sqlite, provider-CLI absence, and PowerShell syntax.
 - **A `.ps1` string interpolating `$name:` needs `${name}`.** PowerShell reads `$exitCode:` as a drive-qualified variable – with no local parser, the first sight of it is a red tag build.
 - **`build_windows_test.ps1` drives the validation helpers against `.bat` stubs, never the real binary.** The FTS5 probe now seeds no corpus at all: `rebuild-index` on an empty workspace is the whole proof, and the canonical dialect stays `dartclaw_core`'s alone.
@@ -280,7 +280,7 @@
 - **An ordering test must fail at the step *between* the two writes.** A payload rejected during extraction can't tell "wiki write last" from "wiki write first".
 - **A report category no test asserts on can ship inverted for its whole life.** Wiki `orphan` had zero assertions and read the wrong direction of the link graph.
 - **`dev/fitness` test files fail at 1430 lines, 110% of the 1300-line target; the breach shows in the workspace gate only.** Put a new group in a sibling file with its own `setUp`.
-- **The `fast` tier skips `dev/fitness`.** Its barrel allowlist is line-keyed: one added `show` name in `dartclaw_runtime.dart` shifts 20 entries, red only in CI. Run `dart test dev/fitness` after barrel edits.
+- **The `fast` tier skips `dev/fitness`.** Its barrel allowlist is line-keyed: one added `show` name in `dartclaw_runtime.dart` shifts 20 entries, red only in the local fitness gate. Run `dart test dev/fitness` after barrel edits.
 - **The conversation-loop browser profile is outside CI.** Chat UI changes pass CI while its assertions drift – `q1-e11` had never run. Rerun it after touching chat markup.
 - **Stage an identity marker outside its fresh destination.** A crash that leaves the temporary file inside an otherwise empty home makes the retry correctly refuse that now-nonempty unmarked directory.
 

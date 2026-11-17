@@ -62,7 +62,7 @@ Agent frameworks usually ask the model to behave. DartClaw puts the boundaries i
 - **No credentials in the container.** The containerized agent has no network of its own. Its model calls travel through the host, which adds the credential on the way out and strips credential headers on the way back. No socket is mounted and no port is published.
 - **A fail-closed guard chain.** Command, file, network, and content guards check the agent's tool calls and block when in doubt. The content guard has a model classify what is handed to an agent and what it fetches from the web. Every block lands in the audit log.
 - **Runtime governance you switch on.** Per-sender rate limits, daily token budgets, loop detection, and `/stop`, `/pause`, `/resume` commands that the host, not the model, handles on every channel.
-- **Nothing fetched at runtime.** One compiled binary carries its web UI, templates, skills, and workflows. A bare install starts with no asset downloads and no first-run network request, and fitness checks in CI hold dependencies and package boundaries.
+- **Nothing fetched at runtime.** One compiled binary carries its web UI, templates, skills, and workflows. A bare install starts with no asset downloads and no first-run network request, and local fitness checks hold dependencies and package boundaries.
 
 Each provider keeps its own documented security posture. ACP agents, for example, run on the host without a container. The [Security guide](docs/guide/security.md) states what each mode does and does not protect.
 
@@ -254,6 +254,12 @@ dart analyze
 dart format --line-length=120 --output=none --set-exit-if-changed .
 bash dev/tools/test_workspace.sh                                      # the full test tier
 ```
+
+GitHub `Checks` runs `Check` (dependencies, assets, format, analyze, architecture) and `PowerShell scripts` only.
+Tests, fitness and PostgreSQL run locally; the release check's `linux` gate runs local gates and container posture
+in a Lima Ubuntu VM on the same commit. A test regression fails the local `tests` gate while GitHub stays green.
+The final squash SHA needs both GitHub jobs green; local evidence carries through the release ledger's input
+comparison because the squash commit has the branch tip's Git tree.
 
 PostgreSQL contract tests run against a disposable PostgreSQL 14+ service. [Key Development Commands](dev/guidelines/KEY_DEVELOPMENT_COMMANDS.md) lists the faster tiers, single-test runs, and the CI-equivalent gate. Contributor docs live under [`dev/`](dev/).
 

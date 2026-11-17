@@ -531,7 +531,7 @@ That holds only while every such test isolates what it touches. `dart test` runs
 ### All Packages
 
 ```bash
-# Test all packages exactly as CI does
+# Run the default workspace suites
 bash dev/tools/test_workspace.sh
 ```
 
@@ -545,13 +545,13 @@ dart test --run-skipped -t integration packages/dartclaw_core
 #### PostgreSQL contract
 
 ```bash
-# With Docker running, locally and in CI:
+# With Docker running, through local release gates (including Lima):
 bash dev/tools/postgres_contract.sh
 ```
 
 The script proves two separate resources: plain PostgreSQL 14 first with no `public.vector`, then a pgvector-capable
 database for explicit hybrid behavior. It removes disposable resources on success, failure or interruption. A
-container may provision test resources in CI, but that does not make a container engine the operator setup default.
+container may provision test resources for the local gates, but that does not make a container engine the operator setup default.
 
 Alternatively, supply the runner's documented disposable PostgreSQL URLs. Fixtures create/drop schemas, roles and
 databases and terminate test connections, so never point them at a retained deployment. The vector lane creates its
@@ -633,7 +633,7 @@ These are guidance targets, not enforcement gates. A package at 65% with well-ch
 
 ## Fitness Functions
 
-DartClaw ships a fitness suite at `dev/fitness/` – a dev-rooted workspace member that declares no production dependencies and imports none, so a repo-wide gate can never depend on the code it governs. It runs on every commit and catches the drift classes surfaced in earlier milestones.
+DartClaw ships a fitness suite at `dev/fitness/` – a dev-rooted workspace member that declares no production dependencies and imports none, so a repo-wide gate can never depend on the code it governs. It runs through the local `fitness` release gate and catches the drift classes surfaced in earlier milestones.
 
 Run locally: `bash dev/tools/run-fitness.sh`
 

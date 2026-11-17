@@ -47,9 +47,21 @@
       "id": "S01",
       "name": "Local-first verification gates",
       "dependsOn": [],
-      "status": "pending",
+      "status": "done",
       "fis": "s01-local-first-verification-gates.md",
-      "completedTaskIds": [],
+      "completedTaskIds": [
+        "TI01",
+        "TI02",
+        "TI03",
+        "TI04",
+        "TI05",
+        "TI06",
+        "TI07"
+      ],
+      "verified": {
+        "at": "2026-11-17T14:24Z",
+        "summary": "dart test --reporter=failures-only apps/dartclaw_cli/test/tool/release_check_test.dart -> exit=0, +23: All tests passed!"
+      },
       "scope": "Cut GitHub `Checks` to the fast `Check` job and `PowerShell scripts`, narrow the release check's `ci` gate to those jobs, and add the `linux` release gate that runs the local gates (`build` included) and the container posture profile inside a Lima VM on the same candidate. Rewrite the public release and development docs that name the four CI jobs or per-push heavy checks, so the squash-commit rule covers only the remaining jobs.",
       "sourceRefs": [
         "dev/bundle/docs/specs/0.28.1/prd.md#fr1-fast-github-check-heavy-gates-local",

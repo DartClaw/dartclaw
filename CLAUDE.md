@@ -101,7 +101,7 @@ Run from this checkout: `dev/tools/dartclaw-workflows/run.sh` – full documenta
 - Vendored third-party assets (e.g. highlight.js) live in `packages/dartclaw_runtime/lib/src/static/` – see its `VENDORS.md` for versions and upgrade instructions.
 - Never reference specific story IDs or titles in code, filenames, or user-facing docs (project/development documents are the exception).
 - Version-specific documents (qualification ledgers, milestone runbooks) live in the plan bundle `dev/bundle/docs/specs/<version>/` and canonically in private `docs/specs/<version>/`, never elsewhere in the public tree.
-- Tests must run on Linux CI and local macOS – prefer Dart APIs over platform-specific shell flags; see `TESTING-STRATEGY.md` for POSIX file-permission checks.
+- Tests must run in the local Linux lane and on macOS – prefer Dart APIs over platform-specific shell flags; see `TESTING-STRATEGY.md` for POSIX file-permission checks.
 - **Tech debt backlog is a last resort** – `dev/state/TECH-DEBT-BACKLOG.md` is reserved for items that **cannot** be resolved without further requirements input or an architecture decision. Fixable now with current understanding → fix now, or capture it in an active spec/FIS. Entries describing known cleanups invite rot and dilute signal.
 - **Timestamps** – always run `date '+%Y-%m-%d %H:%M %Z'` before writing one. Never guess; internal time may be the wrong timezone.
 
@@ -120,11 +120,13 @@ Run from this checkout: `dev/tools/dartclaw-workflows/run.sh` – full documenta
 
 See `dev/guidelines/KEY_DEVELOPMENT_COMMANDS.md` – read before/after modifying code.
 
-**Formatting is a hard CI gate**, and CI stops there before analyze/tests, so format drift hides later failures. Before committing, pushing, or declaring a CI fix done, run `dart format --line-length=120 --output=none --set-exit-if-changed .`. If it reports changed files, run `dart format --line-length=120` on them, include the formatting diff, then rerun the check.
+**Formatting is a hard CI gate**, and CI stops there before analysis, so format drift hides later failures. Before committing, pushing, or declaring a CI fix done, run `dart format --line-length=120 --output=none --set-exit-if-changed .`. If it reports changed files, run `dart format --line-length=120` on them, include the formatting diff, then rerun the check.
 
 Run the full CI-equivalent gate from `KEY_DEVELOPMENT_COMMANDS.md` before pushing shared branches, before declaring a CI fix done, and after changes touching package boundaries, tests, build tooling, workflow definitions, or cross-package behavior.
 For release preparation, the evidence-reuse procedure in `RELEASE_PREPARATION.md` satisfies this gate: retain completed
-review proof, verify unchanged inputs, and run affected checks. GitHub CI runs on the final squash commit.
+review proof, verify unchanged inputs, and run affected checks. GitHub `Checks` requires only `Check` and `PowerShell scripts` on the exact final squash SHA. Tests, fitness,
+PostgreSQL and container posture run through local gates and the Lima `linux` gate; local proof carries to the squash
+commit through the ledger's input comparison because its Git tree matches the branch tip.
 
 Example configs: `bash examples/run.sh` – defaults to `dev.yaml` (no auth, guards off), data in `.dartclaw-example/`. It needs `DARTCLAW_DATABASE_URL` pointing at a PostgreSQL 14+ database whose schema `doctor --fix` has bootstrapped once (`examples/README.md`). Pick a config with `bash examples/run.sh production --port 8080`.
 

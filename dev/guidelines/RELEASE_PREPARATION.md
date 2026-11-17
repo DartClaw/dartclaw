@@ -44,7 +44,8 @@ bash dev/tools/release_check.sh --version 0.27.0 --status
 | `architecture`, `fitness` | Package rules, schemas, architecture fitness | Host |
 | `build` | Both host release bundles through `build.sh` | Host |
 | `whitespace` | Whitespace errors in the candidate commit | Host |
-| `ci` | All four named jobs in the latest push-triggered Checks run | GitHub; always refreshed |
+| `linux` | Local gates, including `build`, then root container posture on the same commit | Lima Ubuntu arm64 VM; always refreshed |
+| `ci` | `Check` and `PowerShell scripts` in the latest push-triggered Checks run | GitHub; always refreshed |
 
 Release preparation owns coverage of these gates and reuses completed review proof where eligible. A story or spec
 never carries a task that re-runs a release gate. Runner receipts are bound to a single committed candidate;
@@ -63,7 +64,7 @@ CI receipts also retain the run ID, URL and job results in the log. Attempts are
 a failed retry never falls back to an older pass. Preserve the final evidence directory with the release record.
 
 Within the runner, `--resume` reuses only intact successful receipts for the same clean commit, commands and environment. Dependencies,
-assets, cleanup, database, build and CI run again because their outputs or external state can change independently of
+assets, cleanup, database, build, Linux and CI run again because their outputs or external state can change independently of
 Git. A changed commit, dirty checkout, changed environment or missing/modified evidence makes a receipt `stale`.
 An interrupted attempt remains `incomplete`. `--status` reports recorded results, not current external service health.
 Do not edit the shared checkout while checks run; candidate identity is checked before and after execution.
@@ -77,21 +78,37 @@ A milestone's qualification ledger lives in its plan bundle, not in the public t
 Unavailable environments needed for a selected claim
 remain holds; optional device and owner audits are deferred under the experimental-stage testing scope below.
 
-The final CI gate requires `Check`, `Container boundary`, `PowerShell scripts`, and `PostgreSQL contract` each green
-by name on the full HEAD SHA. It excludes pull-request runs whose Check job may intentionally skip. Local checks can
-run before pushing; GitHub is consulted only by `ci`. Linux-native container posture and native Windows x64 release
-qualification remain distinct from successful macOS checks.
+GitHub `Checks` runs only `Check` (dependencies, assets, format, analyze, architecture) and `PowerShell scripts`.
+The final CI gate requires both green by name on the full HEAD SHA and excludes pull-request runs whose Check job
+may intentionally skip. Tests, fitness, PostgreSQL and container posture run through local gates and the `linux`
+gate. A test regression fails the local `tests` gate while GitHub stays green. Local results carry to the final
+squash commit through the qualification ledger's input comparison: a squash commit has the branch tip's Git tree.
+GitHub is consulted only by `ci`. Native Windows x64 qualification remains separate.
 
 Use one final push-triggered Checks run. Inspect failures before retrying. For a confirmed infrastructure failure,
-rerun only the failed jobs in that run. A test failure requires diagnosis and focused local verification; if source
+rerun only the failed jobs in that run. A check failure requires diagnosis and focused local verification; if source
 changes, re-squash and push the corrected candidate, then obtain its exact-SHA checks. Do not repeat passed local
 gates or live journeys whose inputs are unchanged. A failure is never waived as flaky without evidence.
 
 ## Checks on this machine and its VMs
 
-Use the Mac for default suites, PostgreSQL, host builds, UI and live providers. Use Docker Desktop for its container
-conformance lane and the Ubuntu VM's own Docker Engine for the native Linux lane. Share a committed source snapshot,
-but keep `.dart_tool`, build outputs and test data separate per OS. A running VM is a prerequisite, not gate evidence.
+Use the Mac for default suites, PostgreSQL, host builds, UI and live providers. Docker Desktop supplies local
+container resources. The native Linux lane uses Lima, replacing the Parallels Ubuntu release lane; the
+[Parallels guide](PARALLELS_LINUX_AGENT_VM.md) remains for desktop-agent use. Install Lima with `brew install lima`.
+The `linux` gate creates `dartclaw-release-linux` from `dev/tools/lima/linux.yaml` once and reuses it. The template
+provides Ubuntu arm64, its own Docker Engine and Dart (pinned with the Check job). It shares no host directories: a
+Git bundle transfers the committed candidate into a clean guest checkout with the same HEAD and tree, keeping
+`.dart_tool`, build outputs and test data separate. A running VM is a prerequisite, not gate evidence.
+
+```bash
+bash dev/tools/release_check.sh --version 0.27.0 --gate linux
+```
+
+`--local` includes `linux` after the host gates. The guest runs `--local --omit linux,ci` to prevent recursion and
+GitHub API calls, then runs `sudo -E env "PATH=$PATH" bash dev/testing/profiles/container/run.sh --ci`. The guest
+sets `DARTCLAW_NATIVE_ALLOW_DOWNLOAD=1` for the build's checksum-pinned native archive; pinned release-asset downloads
+are allowed. The host receipt retains combined output and the candidate identity. Any failed guest gate stops the
+lane before the profile; a failed profile fails the lane. A broken VM error names the VM and its recreation command.
 
 The PowerShell parser and Error-severity analyzer have one entry point shared with CI:
 
@@ -107,7 +124,7 @@ wait for that matrix on every iteration.
 
 ## Repository protection setup
 
-The release cut requires all four named checks green on the pushed main commit. A required-check ruleset for `main`
+The release cut requires `Check` and `PowerShell scripts` green on the pushed main commit. A required-check ruleset for `main`
 is separate repository setup: enabling it would block the documented direct squash push until that exact commit has
 passed checks on another ref. Set it up with a direct-push-compatible sequence outside the release cut. No PR is
 required by this release workflow. Maintainers record milestone status in the private `docs/ROADMAP.md`.
@@ -166,7 +183,7 @@ Then bump in a single commit:
 
 `dev/tools/check_versions.sh` enforces every pin above except the schema `$id` — the pubspecs, `version.dart`, both
 Homebrew formulas, both Scoop manifests including each manifest's concrete install-time URL, and the CHANGELOG's top
-heading. The per-push fitness runner, release check `versions` gate and the tag workflow's *Verify release version lockstep*
+heading. The local fitness runner, release check `versions` gate and the tag workflow's *Verify release version lockstep*
 step all run it, so a drifted packaging pin or a heading left at `[Unreleased]` past the pin fails the build instead
 of shipping a formula or manifest naming assets that do not exist for that tag. The `$id` is held by the schema
 generator's `--check`, which the fitness suite runs.

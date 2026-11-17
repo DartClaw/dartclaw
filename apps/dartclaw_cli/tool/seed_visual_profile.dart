@@ -83,8 +83,7 @@ Future<void> seedVisualProfile({required DatabaseBackend backend, required Strin
   Future<void> insertTask(
     _TaskFixture fixture,
     DateTime settledAt, {
-    WorkflowRun? run,
-    WorkflowDefinition? definition,
+    ({String runId, WorkflowDefinition definition})? workflow,
   }) async {
     if (await tasks.getById(fixture.id) != null) {
       await writeArtifact(fixture);
@@ -98,8 +97,19 @@ Future<void> seedVisualProfile({required DatabaseBackend backend, required Strin
       startedAt: startedAt,
       completedAt: settledAt,
     );
-    final stepIndex = definition == null ? null : _stepIndex(definition, fixture.stepId!);
-    final step = stepIndex == null ? null : definition!.steps[stepIndex];
+    WorkflowStepExecution? stepExecution;
+    if (workflow != null) {
+      final stepIndex = _stepIndex(workflow.definition, fixture.stepId!);
+      final step = workflow.definition.steps[stepIndex];
+      stepExecution = WorkflowStepExecution(
+        taskId: fixture.id,
+        agentExecutionId: execution.id,
+        workflowRunId: workflow.runId,
+        stepIndex: stepIndex,
+        stepId: step.id,
+        stepType: step.taskType.toJson(),
+      );
+    }
     final task =
         Task(
               id: fixture.id,
@@ -108,8 +118,8 @@ Future<void> seedVisualProfile({required DatabaseBackend backend, required Strin
               acceptanceCriteria: fixture.acceptanceCriteria,
               createdAt: createdAt,
               agentExecutionId: execution.id,
-              workflowRunId: run?.id,
-              stepIndex: stepIndex,
+              workflowRunId: stepExecution?.workflowRunId,
+              stepIndex: stepExecution?.stepIndex,
             )
             .transition(TaskStatus.queued, now: createdAt)
             .transition(TaskStatus.running, now: startedAt)
@@ -117,17 +127,8 @@ Future<void> seedVisualProfile({required DatabaseBackend backend, required Strin
 
     await executions.create(execution);
     await tasks.insert(task);
-    if (step != null) {
-      await steps.create(
-        WorkflowStepExecution(
-          taskId: task.id,
-          agentExecutionId: execution.id,
-          workflowRunId: run!.id,
-          stepIndex: stepIndex!,
-          stepId: step.id,
-          stepType: step.taskType.toJson(),
-        ),
-      );
+    if (stepExecution != null) {
+      await steps.create(stepExecution);
     }
     await writeArtifact(fixture, createdAt: settledAt);
   }
@@ -155,8 +156,7 @@ Future<void> seedVisualProfile({required DatabaseBackend backend, required Strin
         await insertTask(
           task,
           settledAt.subtract(Duration(minutes: fixture.tasks.length - taskIndex)),
-          run: run,
-          definition: definition,
+          workflow: (runId: run.id, definition: definition),
         );
       }
     }

@@ -51,7 +51,7 @@ SetupChecks _passingChecks() => SetupChecks(
   configParseable: (_) async => true,
   writeProbeFile: (_) {},
   portFree: (_, _) async => true,
-  providerVerified: (_, _, _) async => true,
+  providerVerified: (_, _, _, {required hostExecution}) async => null,
 );
 
 SetupChecks _preflightFailureChecks() => SetupChecks(
@@ -60,7 +60,7 @@ SetupChecks _preflightFailureChecks() => SetupChecks(
   configParseable: (_) async => true,
   writeProbeFile: (_) {},
   portFree: (_, _) async => true,
-  providerVerified: (_, _, _) async => true,
+  providerVerified: (_, _, _, {required hostExecution}) async => null,
 );
 
 /// `configParseable` is post-write-only, so this fails verification without
@@ -72,7 +72,7 @@ SetupChecks _postWriteFailureChecks() => SetupChecks(
   configParseable: (_) async => false,
   writeProbeFile: (_) {},
   portFree: (_, _) async => true,
-  providerVerified: (_, _, _) async => true,
+  providerVerified: (_, _, _, {required hostExecution}) async => null,
 );
 
 SetupChecks _unverifiedChecks() => SetupChecks(
@@ -81,7 +81,7 @@ SetupChecks _unverifiedChecks() => SetupChecks(
   configParseable: (_) async => true,
   writeProbeFile: (_) {},
   portFree: (_, _) async => true,
-  providerVerified: (_, _, _) async => false,
+  providerVerified: (_, _, _, {required hostExecution}) async => 'not verified',
 );
 
 InitCommand _nonInteractiveCmd({
@@ -118,14 +118,14 @@ class _RecordingChecks extends SetupChecks {
   final List<List<String>> providerCalls = [];
   final List<String> configCalls = [];
 
-  new({Future<bool> Function(String, String, String)? providerVerified})
+  new({ProviderCredentialCheck? providerVerified})
     : super(
         databaseReadiness: _databaseReady,
         probeBinary: (_) async => (outcome: BinaryProbeOutcome.responded, version: null),
         configParseable: (_) async => true,
         writeProbeFile: (_) {},
         portFree: (_, _) async => true,
-        providerVerified: providerVerified ?? ((_, _, _) async => true),
+        providerVerified: providerVerified ?? ((_, _, _, {required hostExecution}) async => null),
       );
 
   @override
@@ -287,7 +287,7 @@ void main() {
     test('workflow non-interactive flow resolves minimal standalone setup state', () async {
       final captured = <SetupState>[];
       final output = <String>[];
-      final checks = _RecordingChecks(providerVerified: (_, _, _) async => true);
+      final checks = _RecordingChecks(providerVerified: (_, _, _, {required hostExecution}) async => null);
       final cmd = _nonInteractiveCmd(captureInto: captured, outputCapture: output, setupChecks: checks);
       final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(cmd);
 
@@ -390,7 +390,7 @@ void main() {
           configParseable: (_) async => true,
           writeProbeFile: (_) {},
           portFree: (_, port) async => port != 3333,
-          providerVerified: (_, _, _) async => true,
+          providerVerified: (_, _, _, {required hostExecution}) async => null,
         ),
         loadConfig: (_) => null,
         writeLine: (_) {},
@@ -453,7 +453,7 @@ void main() {
     test('workflow track with a custom instance dir prints the --config next-step form', () async {
       final captured = <SetupState>[];
       final output = <String>[];
-      final checks = _RecordingChecks(providerVerified: (_, _, _) async => true);
+      final checks = _RecordingChecks(providerVerified: (_, _, _, {required hostExecution}) async => null);
       final cmd = _nonInteractiveCmd(captureInto: captured, outputCapture: output, setupChecks: checks);
       final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(cmd);
 
@@ -605,7 +605,7 @@ void main() {
 
     test('explicit-config rerun preserves selected config target through apply and verify', () async {
       final captured = <SetupState>[];
-      final checks = _RecordingChecks(providerVerified: (_, _, _) async => true);
+      final checks = _RecordingChecks(providerVerified: (_, _, _, {required hostExecution}) async => null);
       final config = DartclawConfig(
         server: const ServerConfig(name: 'Existing', dataDir: '/tmp/existing', port: 4444),
         agent: const AgentConfig(provider: 'codex', model: 'gpt-5'),
@@ -708,7 +708,7 @@ void main() {
         configParseable: (_) async => true,
         writeProbeFile: (_) {},
         portFree: (_, _) async => true,
-        providerVerified: (_, _, _) async => true,
+        providerVerified: (_, _, _, {required hostExecution}) async => null,
       );
       for (final launch in ['foreground', 'background', 'service']) {
         final applied = <SetupState>[];
@@ -770,7 +770,10 @@ void main() {
 
     test('multi-provider verification checks every configured provider', () async {
       final output = <String>[];
-      final checks = _RecordingChecks(providerVerified: (providerId, _, _) async => providerId == 'claude');
+      final checks = _RecordingChecks(
+        providerVerified: (providerId, _, _, {required hostExecution}) async =>
+            providerId == 'claude' ? null : 'not verified',
+      );
       final cmd = _nonInteractiveCmd(outputCapture: output, setupChecks: checks);
       final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(cmd);
 

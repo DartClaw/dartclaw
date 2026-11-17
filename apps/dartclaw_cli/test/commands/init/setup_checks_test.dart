@@ -29,7 +29,7 @@ SetupChecks _postWrite({
     configParseable: (_) async => configParseable,
     writeProbeFile: (_) {},
     portFree: (_, _) async => portFree,
-    providerVerified: (_, _, _) async => providerVerified,
+    providerVerified: (_, _, _, {required hostExecution}) async => providerVerified ? null : 'not verified',
   );
 }
 
@@ -82,7 +82,7 @@ void main() {
           return free;
         },
         writeProbeFile: (_) {},
-        providerVerified: realCredentials ? null : (_, _, _) async => true,
+        providerVerified: realCredentials ? null : (_, _, _, {required hostExecution}) async => null,
         serverHealth: (_, _) async => health,
         runCommand: (binary, args) async {
           commands?.add(args);
@@ -276,7 +276,7 @@ mcp_servers:
         probeBinary: (_) async => (outcome: BinaryProbeOutcome.responded, version: null),
         portFree: (_, _) async => false,
         writeProbeFile: (_) {},
-        providerVerified: (_, _, _) async => true,
+        providerVerified: (_, _, _, {required hostExecution}) async => null,
         runCommand: (_, _) async => ProcessResult(1, 1, '', ''),
       );
       Future<DiagnosticReport> run() => checks.diagnose(
@@ -305,7 +305,7 @@ mcp_servers:
         probeBinary: (_) async => (outcome: BinaryProbeOutcome.responded, version: null),
         portFree: (_, _) async => false,
         writeProbeFile: (_) {},
-        providerVerified: (_, _, _) async => true,
+        providerVerified: (_, _, _, {required hostExecution}) async => null,
         runCommand: (_, args) async => ProcessResult(0, 0, args.first == 'ps' ? 'dartclaw-orphan' : 'amd64', ''),
       );
       for (final malformed in [false, true]) {
@@ -348,7 +348,7 @@ mcp_servers:
         probeBinary: (_) async => (outcome: BinaryProbeOutcome.responded, version: null),
         portFree: (_, _) async => true,
         writeProbeFile: (_) {},
-        providerVerified: (_, _, _) async => true,
+        providerVerified: (_, _, _, {required hostExecution}) async => null,
         runCommand: (_, _) async => ProcessResult(1, 1, '', ''),
       ).diagnose(configPath: config.path, environment: environment);
 
@@ -487,7 +487,7 @@ mcp_servers:
         configParseable: (_) async => true,
         writeProbeFile: (_) {},
         portFree: (_, _) async => true,
-        providerVerified: (_, _, _) async => true,
+        providerVerified: (_, _, _, {required hostExecution}) async => null,
         databaseReadiness: (_, {required bootstrap, required environment}) async {
           bootstrapRequested = bootstrap;
           return const [
@@ -547,9 +547,9 @@ mcp_servers:
         configParseable: (_) async => true,
         writeProbeFile: (_) {},
         portFree: (_, _) async => true,
-        providerVerified: (_, _, _) async {
+        providerVerified: (_, _, _, {required hostExecution}) async {
           providerChecks++;
-          return true;
+          return null;
         },
         databaseReadiness: (_, {required bootstrap, required environment}) async => const [
           DiagnosticRow(
@@ -639,7 +639,7 @@ mcp_servers:
             configParseable: (_) async => true,
             writeProbeFile: (_) {},
             portFree: (_, _) async => true,
-            providerVerified: (_, _, _) async => true,
+            providerVerified: (_, _, _, {required hostExecution}) async => null,
           ).verify(
             configPath: configPath,
             providerIds: const ['claude'],
@@ -675,7 +675,7 @@ mcp_servers:
             configParseable: (_) async => true,
             writeProbeFile: (_) {},
             portFree: (_, _) async => true,
-            providerVerified: (_, _, _) async => true,
+            providerVerified: (_, _, _, {required hostExecution}) async => null,
           ).verify(
             configPath: configPath,
             providerIds: const ['claude'],
@@ -744,7 +744,8 @@ mcp_servers:
         configParseable: (_) async => true,
         writeProbeFile: (_) {},
         portFree: (_, _) async => true,
-        providerVerified: (providerId, _, _) async => providerId == 'claude',
+        providerVerified: (providerId, _, _, {required hostExecution}) async =>
+            providerId == 'claude' ? null : 'not verified',
       );
 
       final result = await checks.verify(
@@ -776,7 +777,7 @@ mcp_servers:
             probeBinary: (_) async => (outcome: BinaryProbeOutcome.responded, version: null),
             configParseable: (_) async => true,
             portFree: (_, _) async => true,
-            providerVerified: (_, _, _) async => true,
+            providerVerified: (_, _, _, {required hostExecution}) async => null,
           ).verify(
             configPath: _params.configPath,
             providerIds: _params.providerIds,
@@ -800,7 +801,7 @@ mcp_servers:
         configParseable: (_) async => true,
         writeProbeFile: (_) {},
         portFree: (_, _) async => true,
-        providerVerified: (_, _, _) async => true,
+        providerVerified: (_, _, _, {required hostExecution}) async => null,
       );
 
       final result = await checks.verify(
@@ -871,6 +872,155 @@ mcp_servers:
 
       expect(result.configuredButUnverified, isTrue);
       expect(result.network?.message, contains('claude'));
+    });
+
+    group('doctor judges the credential at the placement serve will use', () {
+      late String loggedInClaude;
+      late Map<String, String> environment;
+
+      setUp(() {
+        // An absolute path: `runCommand` answers the container probe only and
+        // never reaches the vendor login probe, which spawns this directly.
+        loggedInClaude = p.join(root.path, 'claude');
+        File(loggedInClaude).writeAsStringSync(
+          '#!/bin/sh\ncase "\$1" in\n  --version) echo "2.1.0 (Claude Code)" ;;\n  auth) echo \'{"loggedIn":true}\' ;;\nesac\n',
+        );
+        Process.runSync('chmod', ['+x', loggedInClaude]);
+        environment = {'HOME': p.join(root.path, 'home'), 'PATH': ''};
+        for (final child in ['workspace', 'sessions', 'logs']) {
+          Directory(p.join(root.path, 'data', child)).createSync(recursive: true);
+        }
+      });
+
+      tearDown(DartclawConfig.clearStoredCredentialProvider);
+
+      void writeConfigFor({String containerBody = '', String claudeKey = 'claude', String extraProviders = ''}) =>
+          File(configPath).writeAsStringSync(
+            'data_dir: ${p.join(root.path, 'data')}\n'
+            'providers:\n'
+            '  $claudeKey:\n'
+            '    executable: $loggedInClaude\n'
+            '$extraProviders'
+            '$containerBody',
+          );
+
+      SetupChecks checks({required bool runtime}) => SetupChecks(
+        databaseReadiness: _databaseReady,
+        probeBinary: (_) async => (outcome: BinaryProbeOutcome.responded, version: '2.1.80'),
+        portFree: (_, _) async => true,
+        writeProbeFile: (_) {},
+        runCommand: (_, _) async => ProcessResult(1, runtime ? 0 : 1, '', ''),
+      );
+
+      Future<DiagnosticReport> diagnose({bool runtime = true}) => checks(runtime: runtime).diagnose(
+        configPath: configPath,
+        environment: environment,
+        platformCapabilities: PlatformCapabilities(operatingSystem: 'linux', environment: environment),
+      );
+
+      DiagnosticRow credentialRow(DiagnosticReport report, [String providerId = 'claude']) =>
+          report.rows.singleWhere((row) => row.id == 'provider.$providerId.credential');
+
+      test('S06 an inferred posture warns that serve will start without isolation', () async {
+        writeConfigFor();
+
+        final row = credentialRow(await diagnose());
+
+        expect(row.status, DiagnosticStatus.warn);
+        expect(
+          row.summary,
+          allOf(contains('cannot be used inside a container'), contains('without container isolation')),
+        );
+        expect(
+          row.remediation,
+          allOf(contains('claude setup-token'), contains('dartclaw auth claude'), contains('ANTHROPIC_API_KEY')),
+        );
+      });
+
+      test('verify judges host placement only, so the state doctor warns about still verifies', () async {
+        writeConfigFor();
+
+        final result =
+            await SetupChecks(
+              databaseReadiness: _databaseReady,
+              probeBinary: (_) async => (outcome: BinaryProbeOutcome.responded, version: null),
+              configParseable: (_) async => true,
+              writeProbeFile: (_) {},
+              portFree: (_, _) async => true,
+              runCommand: (_, _) async => ProcessResult(1, 0, '', ''),
+            ).verify(
+              configPath: configPath,
+              providerIds: const ['claude'],
+              instanceDir: p.join(root.path, 'data'),
+              port: 3333,
+            );
+
+        expect(result.success, isTrue);
+      });
+
+      test('a mixed-case provider key still gets the downgrade warning', () async {
+        // The config loader normalizes provider keys, so the row is `claude`
+        // whatever the YAML spelled; this pins that the downgrade warning
+        // survives the spelling.
+        writeConfigFor(claudeKey: 'Claude');
+
+        final row = credentialRow(await diagnose());
+
+        expect(row.status, DiagnosticStatus.warn);
+        expect(row.summary, contains('without container isolation'));
+      });
+
+      test(
+        'a secondary provider with no container credential warns that its containerized runs are rejected',
+        () async {
+          writeConfigFor(extraProviders: '  codex:\n    executable: codex\n');
+          SubscriptionCredentialStore.open(
+            credentialsDir: credentialsDir,
+            environment: environment,
+          ).storeClaudeSetupToken('sk-ant-oat01-STORED');
+
+          final report = await diagnose();
+
+          expect(
+            credentialRow(report).status,
+            DiagnosticStatus.pass,
+            reason: 'the default provider keeps containers on',
+          );
+          final codex = credentialRow(report, 'codex');
+          expect(codex.status, DiagnosticStatus.warn);
+          expect(codex.summary, contains('its containerized runs will be rejected'));
+          expect(codex.remediation, contains('codex login'));
+        },
+      );
+
+      test('S07 an explicit request fails with the same remediation', () async {
+        writeConfigFor(containerBody: 'container:\n  enabled: true\n');
+
+        final row = credentialRow(await diagnose());
+
+        expect(row.status, DiagnosticStatus.fail);
+        expect(row.remediation, allOf(contains('claude setup-token'), contains('dartclaw auth claude')));
+      });
+
+      test('S08 a host-only install passes on the CLI login', () async {
+        writeConfigFor(containerBody: 'container:\n  enabled: false\n');
+        final declaredFalse = credentialRow(await diagnose());
+        writeConfigFor();
+        final noRuntime = credentialRow(await diagnose(runtime: false));
+
+        expect(declaredFalse.status, DiagnosticStatus.pass);
+        expect(noRuntime.status, DiagnosticStatus.pass);
+      });
+
+      test('a stored setup-token keeps the inferred posture passing', () async {
+        writeConfigFor();
+        SubscriptionCredentialStore.open(
+          credentialsDir: credentialsDir,
+          environment: environment,
+        ).storeClaudeSetupToken('sk-ant-oat01-STORED');
+
+        expect(credentialRow(await diagnose()).status, DiagnosticStatus.pass);
+      });
     });
   });
 }

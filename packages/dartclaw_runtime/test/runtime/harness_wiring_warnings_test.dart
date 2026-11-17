@@ -6,49 +6,14 @@ import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_runtime/src/runtime/harness_wiring.dart';
 import 'package:dartclaw_runtime/src/runtime/security_wiring.dart';
 import 'package:dartclaw_runtime/src/runtime/storage_wiring.dart';
-import 'package:dartclaw_runtime/dartclaw_runtime.dart' show ContainerAuthorityLease, GatewayPrincipal;
 import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:logging/logging.dart';
 import 'package:test/test.dart';
 
-import 'fake_container_authority.dart';
 import 'harness_wiring_fixture.dart';
 
 Never _unexpectedExit(int code) {
   throw StateError('Unexpected exit($code) during harness wiring test');
-}
-
-/// Stands in for a host that found a container runtime: the real posture needs
-/// Docker, and the warning under test reads `containersEnabled` alone.
-///
-/// Profiles and authority acquisition are faked too so an `execution: container`
-/// primary reaches the end of wiring instead of failing on the missing runtime.
-class _ContainerCapableSecurityWiring extends SecurityWiring {
-  new({
-    required super.config,
-    required super.dataDir,
-    required super.runtimeCwd,
-    required super.eventBus,
-    required super.exitFn,
-    required super.auditLogger,
-  });
-
-  @override
-  bool get containersEnabled => true;
-
-  @override
-  Set<String> get availableContainerProfiles => const {'workspace', 'restricted'};
-
-  @override
-  Future<ContainerAuthorityLease> acquireContainerAuthority(
-    GatewayPrincipal principal, {
-    Set<String> allowedMcpTools = const {},
-    String? artifactsDir,
-    String? workspaceDir,
-    String? executionDir,
-    bool useOwnerWorkspace = true,
-    bool volatileGeneratedState = false,
-  }) async => FakeContainerAuthorityLease();
 }
 
 /// The posture warnings `HarnessWiring.wire()` emits, split out of
@@ -227,7 +192,7 @@ void main() {
       final subscription = Logger('HarnessWiring').onRecord.listen(records.add);
       try {
         storage = await wireTestStorage(config: config, eventBus: eventBus, exitFn: _unexpectedExit);
-        final capable = _ContainerCapableSecurityWiring(
+        final capable = ContainerCapableSecurityWiring(
           config: config,
           dataDir: tempDir.path,
           runtimeCwd: tempDir.path,

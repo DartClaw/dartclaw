@@ -107,18 +107,65 @@ class ProviderValidator {
     }
   }
 
+  /// The one credential-admission rule: whether [provider] may run at the given
+  /// placement on the credential state [registry] holds.
+  ///
+  /// Returns `null` when admitted, else the [credentialRemediationFor] message.
+  /// A provider is admitted on whichever credential `providers.<id>.auth`
+  /// selects. When nothing is configured at all, the binary's own login
+  /// (`claude auth status`, the Codex auth file) still counts on the host, since
+  /// DartClaw presents nothing in that case and there is no promise to break. A
+  /// *forced* selection is never rescued that way, and neither is container
+  /// placement: the container runs the CLI shipped in the image and is handed
+  /// only a host-presentable credential, so the host's login cannot stand in
+  /// for one.
+  ///
+  /// [binaryFound] is whether the host binary answered its version probe; a
+  /// login is only credited to a binary that runs. [homePath] overrides `$HOME`
+  /// for testing. [credentialsDir] lets the message name the store it searched.
+  /// [loginProbe] replaces [probeAuthStatus], the only thing that reads the
+  /// binary's login, and runs only where the rule would rescue on it.
+  static Future<String?> credentialRefusalFor({
+    required String providerId,
+    required ProviderEntry provider,
+    required CredentialRegistry registry,
+    required bool hostExecution,
+    bool binaryFound = true,
+    String? homePath,
+    String? credentialsDir,
+    Future<bool> Function(String executable, {String? providerId, String? homePath})? loginProbe,
+  }) async {
+    if (provider.options['credentials_required'] == false) return null;
+
+    final family = ProviderIdentity.resolveFamily(
+      providerId,
+      executable: provider.executable,
+      options: provider.options,
+    );
+    final resolution = registry.resolve(providerId, family: family);
+    if (resolution.isPresent) return null;
+
+    // Only "nothing is configured" leaves room for the binary's own login: a
+    // forced auth selection that cannot be satisfied must not be rescued by a
+    // credential the operator did not choose.
+    final reason = resolution.reason!;
+    final rescuable = reason == CredentialUnavailableReason.noneConfigured && hostExecution && binaryFound;
+    if (rescuable &&
+        await (loginProbe ?? probeAuthStatus)(provider.executable, providerId: providerId, homePath: homePath)) {
+      _log.info("Provider '$providerId': using binary's own authentication");
+      return null;
+    }
+    // No 'Provider <id>:' prefix here: unlike the binary-probe message, the
+    // remediation already opens by naming the provider.
+    return credentialRemediationFor(reason, providerId: providerId, family: family, credentialsDir: credentialsDir);
+  }
+
   /// Validates all configured providers.
   ///
   /// Missing binary/credential entries for the default provider are errors;
   /// the same problems for secondary providers are warnings.
   ///
-  /// Credentials resolve through [CredentialRegistry.resolve], so a provider is
-  /// admitted on whichever credential `providers.<id>.auth` selects. When
-  /// nothing is configured at all, the binary's own login (`claude auth status`,
-  /// the Codex auth file) still counts — DartClaw presents nothing in that case,
-  /// so there is no promise to break. A *forced* selection is never rescued that
-  /// way: an absent forced credential refuses even with the other credential
-  /// present and the CLI logged in.
+  /// Credentials are admitted by [credentialRefusalFor].
   ///
   /// [isHostExecution] reports whether this deployment's resolved execution for
   /// a provider places it on the host. Container execution runs the CLI shipped
@@ -169,44 +216,20 @@ class ProviderValidator {
         _log.info("Provider '$providerId': container execution, host binary not probed");
       }
 
-      if (provider.options['credentials_required'] == false) {
-        continue;
-      }
-
-      final family = ProviderIdentity.resolveFamily(
-        providerId,
-        executable: provider.executable,
-        options: provider.options,
+      final refusal = await credentialRefusalFor(
+        providerId: providerId,
+        provider: provider,
+        registry: registry,
+        hostExecution: hostExecution,
+        binaryFound: version != null,
+        homePath: homePath,
+        credentialsDir: credentialsDir,
       );
-      final resolution = registry.resolve(providerId, family: family);
-      if (resolution.isPresent) {
-        continue;
-      }
-
-      // Only "nothing is configured" leaves room for the binary's own login: a
-      // forced auth selection that cannot be satisfied must not be rescued by a
-      // credential the operator did not choose.
-      final reason = resolution.reason!;
-      final rescuable = reason == CredentialUnavailableReason.noneConfigured && hostExecution;
-      final binaryAuthed =
-          rescuable &&
-          version != null &&
-          await probeAuthStatus(provider.executable, providerId: providerId, homePath: homePath);
-      if (binaryAuthed) {
-        _log.info("Provider '$providerId': using binary's own authentication");
-      } else {
-        // No 'Provider <id>:' prefix here: unlike the binary-probe message, the
-        // remediation already opens by naming the provider.
-        final message = credentialRemediationFor(
-          reason,
-          providerId: providerId,
-          family: family,
-          credentialsDir: credentialsDir,
-        );
+      if (refusal != null) {
         if (isDefaultProvider) {
-          errors.add(message);
+          errors.add(refusal);
         } else {
-          warnings.add(message);
+          warnings.add(refusal);
         }
       }
     }

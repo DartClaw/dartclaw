@@ -18,7 +18,10 @@ import 'package:dartclaw_runtime/dartclaw_runtime.dart'
         dartclawVersion,
         defaultProviderExecutable,
         formatUptime,
+        inferredPostureCredentialGap,
+        primaryRunsInContainer,
         resolveChannelConfig,
+        resolveContainerPosture,
         resolveDatabaseDsn,
         resolveProviderTarget;
 import 'package:dartclaw_slack/dartclaw_slack.dart' show SlackConfig, SlackWebApiClient;
@@ -151,6 +154,36 @@ class SetupVerificationResult {
   bool get failed => outcome == VerificationOutcome.localFailure;
 }
 
+/// Why [providerId]'s credential is not admitted at the given placement, or
+/// `null` when it is — [ProviderValidator.credentialRefusalFor]'s answer.
+typedef ProviderCredentialCheck = Future<String?> Function(
+  String providerId,
+  String providerBinary,
+  String configPath, {
+  required bool hostExecution,
+});
+
+/// Where `serve` will place each provider, and the downgrade it will take
+/// because of the default provider's missing container credential.
+class _ServePlacement {
+  /// Every provider on the host, which is all `init`'s verification judges.
+  const new host() : defaultProviderId = '', hostExecution = _allHost, downgrade = null;
+
+  const new({required this.defaultProviderId, required this.hostExecution, required this.downgrade});
+
+  /// Normalized id of `agent.provider`, the provider whose gap `serve` refuses on.
+  final String defaultProviderId;
+
+  final bool Function(String providerId) hostExecution;
+
+  /// The default provider and remediation [inferredPostureCredentialGap] answers
+  /// when an inferred posture will decline containers; every provider then runs
+  /// on the host.
+  final ({String providerId, String remediation})? downgrade;
+
+  static bool _allHost(String _) => true;
+}
+
 /// The setup checks `dartclaw init` runs, over one set of check primitives.
 ///
 /// Three stages: [preflight] runs before anything is
@@ -165,7 +198,7 @@ class SetupChecks {
   final void Function(Directory probeDir) _writeProbeFile;
   final DartclawConfig Function(String configPath) _loadConfig;
   final Future<bool> Function(String configPath) _configParseable;
-  final Future<bool> Function(String providerId, String providerBinary, String configPath)? _providerVerified;
+  final ProviderCredentialCheck? _providerVerified;
   final RunCommand _runCommand;
   final Future<Map<String, dynamic>?> Function(DartclawConfig config, String? serverOverride)? _serverHealth;
   final DatabaseReadinessCheck _databaseReadiness;
@@ -177,7 +210,7 @@ class SetupChecks {
     void Function(Directory probeDir)? writeProbeFile,
     DartclawConfig Function(String configPath)? loadConfig,
     Future<bool> Function(String configPath)? configParseable,
-    Future<bool> Function(String providerId, String providerBinary, String configPath)? providerVerified,
+    ProviderCredentialCheck? providerVerified,
     RunCommand? runCommand,
     Future<Map<String, dynamic>?> Function(DartclawConfig config, String? serverOverride)? serverHealth,
     DatabaseReadinessCheck? databaseReadiness,
@@ -317,7 +350,7 @@ class SetupChecks {
 
     final networkRows = await _runNetwork(configPath: configPath, providerTargets: localCheck.providerTargets);
     final network = NetworkVerificationResult(
-      reachable: networkRows.every((row) => row.status == DiagnosticStatus.pass),
+      reachable: networkRows.every((row) => row.status != DiagnosticStatus.fail),
       skipped: false,
       messages: networkRows.where((row) => row.status != DiagnosticStatus.pass).map((row) => row.summary).toList(),
     );
@@ -485,8 +518,21 @@ class SetupChecks {
           ),
         )
         .toList();
+    // One probe of the container runtime feeds both the provider rows and the container rows.
+    DartclawConfig resolved = config;
+    try {
+      resolved = await resolveContainerPosture(config, platformCapabilities: capabilities, runCommand: _runCommand);
+    } on FormatException {
+      // `serve` refuses this combination; the declared view is what is left to judge.
+    }
     rows.addAll(
-      await _runNetwork(configPath: configPath, providerTargets: available, environment: env, redactErrors: true),
+      await _runNetwork(
+        configPath: configPath,
+        providerTargets: available,
+        environment: env,
+        redactErrors: true,
+        placement: await _servePlacement(resolved, configPath, env),
+      ),
     );
     for (final target in local.providerTargets.where((target) => !available.contains(target))) {
       rows.add(
@@ -497,7 +543,7 @@ class SetupChecks {
         ),
       );
     }
-    rows.addAll(await _containerRows(config, capabilities, serverRunning: server != null));
+    rows.addAll(await _containerRows(resolved, capabilities, serverRunning: server != null));
     final slack = resolveChannelConfig<SlackConfig>(config, ChannelType.slack);
     if (slack.enabled) {
       var credentials = config.credentials;
@@ -536,6 +582,7 @@ class SetupChecks {
       DiagnosticRow(id: id, status: DiagnosticStatus.skip, summary: 'Config could not be loaded.'),
   ];
 
+  /// [config] carries the posture [resolveContainerPosture] settled.
   Future<List<DiagnosticRow>> _containerRows(
     DartclawConfig config,
     PlatformCapabilities capabilities, {
@@ -560,7 +607,12 @@ class SetupChecks {
       }
       return rows;
     }
-    final binary = await ContainerManager.detectRuntime(runCommand: _runCommand);
+    // An inferred posture is enabled exactly when a runtime answered, so the
+    // resolved config already says which. An explicit one keeps the default
+    // runtime name whether or not anything answered, so it asks again.
+    final binary = declared == null
+        ? (config.container.enabled ? config.container.runtimeBinary : null)
+        : await ContainerManager.detectRuntime(runCommand: _runCommand);
     if (binary == null) {
       rows.add(
         DiagnosticRow(
@@ -944,29 +996,51 @@ class SetupChecks {
     required List<_ProviderTarget> providerTargets,
     Map<String, String>? environment,
     bool redactErrors = false,
+    _ServePlacement placement = const _ServePlacement.host(),
   }) async {
-    final verify =
+    final check =
         _providerVerified ??
-        ((id, binary, path) => _defaultProviderVerified(id, binary, path, environment: environment));
+        ((id, binary, path, {required hostExecution}) =>
+            _defaultCredentialRefusal(id, binary, path, hostExecution: hostExecution, environment: environment));
     final rows = <DiagnosticRow>[];
     for (final target in providerTargets) {
+      final id = target.providerId;
+      final hostExecution = placement.downgrade != null || placement.hostExecution(id);
+      String? refusal;
       String? failure;
       try {
-        if (!await verify(target.providerId, target.providerBinary, configPath)) {
-          failure = '${target.providerId}: credentials or login are not verified yet.';
-        }
+        refusal = await check(id, target.providerBinary, configPath, hostExecution: hostExecution);
       } catch (e) {
-        failure = redactErrors
-            ? '${target.providerId}: provider verification failed.'
-            : '${target.providerId}: provider verification error: $e';
+        failure = redactErrors ? '$id: provider verification failed.' : '$id: provider verification error: $e';
+      }
+      final isDefault = ProviderIdentity.normalize(id) == placement.defaultProviderId;
+      var status = DiagnosticStatus.pass;
+      var summary = '$id: credentials or login verified.';
+      String? remediation;
+      if (failure != null) {
+        status = DiagnosticStatus.fail;
+        summary = failure;
+        remediation = 'Run dartclaw auth $id or dartclaw secrets set.';
+      } else if (refusal != null && hostExecution) {
+        status = DiagnosticStatus.fail;
+        summary = '$id: credentials or login are not verified yet.';
+        remediation = 'Run dartclaw auth $id or dartclaw secrets set.';
+      } else if (refusal != null) {
+        // Container placement stands, so no downgrade absorbs the gap: it
+        // refuses `serve` for the default provider and only warns for others.
+        status = isDefault ? DiagnosticStatus.fail : DiagnosticStatus.warn;
+        summary = isDefault
+            ? '$id: no credential a container can use, so `serve` will refuse to start.'
+            : '$id: no credential a container can use, so its containerized runs will be rejected.';
+        remediation = refusal;
+      } else if (placement.downgrade?.providerId == ProviderIdentity.normalize(id)) {
+        status = DiagnosticStatus.warn;
+        summary =
+            '$id: a CLI login cannot be used inside a container, so `serve` will start without container isolation.';
+        remediation = '${placement.downgrade!.remediation} Or set container.enabled: false to run on the host.';
       }
       rows.add(
-        DiagnosticRow(
-          id: 'provider.${target.providerId}.credential',
-          status: failure == null ? DiagnosticStatus.pass : DiagnosticStatus.fail,
-          summary: failure ?? '${target.providerId}: credentials or login verified.',
-          remediation: failure == null ? null : 'Run dartclaw auth ${target.providerId} or dartclaw secrets set.',
-        ),
+        DiagnosticRow(id: 'provider.$id.credential', status: status, summary: summary, remediation: remediation),
       );
     }
     return rows;
@@ -1043,39 +1117,54 @@ class SetupChecks {
     }
   }
 
-  /// Verification resolves the same credential admission will, so an instance
-  /// whose only credential is a stored subscription token is not reported as
-  /// unverified. The vendor login is consulted only for `noneConfigured` —
-  /// mirroring [ProviderValidator], where a forced-but-absent selection is
-  /// never rescued by a credential the operator did not choose.
-  static Future<bool> _defaultProviderVerified(
+  /// Verification asks [ProviderValidator.credentialRefusalFor], the rule
+  /// admission applies, against the credential state `serve` would see: a stored
+  /// subscription token counts, and the vendor login only where nothing is
+  /// configured and the provider runs on the host.
+  static Future<String?> _defaultCredentialRefusal(
     String providerId,
     String providerBinary,
     String configPath, {
+    required bool hostExecution,
     Map<String, String>? environment,
   }) async {
     final env = environment ?? Platform.environment;
     final config = loadCliConfig(configPath: configPath, env: env);
-    final registry = CredentialRegistry(
-      credentials: config.credentials,
-      env: env,
-      providers: config.providers,
-      subscriptions: _storedSubscriptions(config, env),
+    return ProviderValidator.credentialRefusalFor(
+      providerId: providerId,
+      provider: config.providers[providerId] ?? ProviderEntry(executable: providerBinary),
+      registry: _credentialRegistry(config, env),
+      hostExecution: hostExecution,
+      homePath: env['HOME'],
+      credentialsDir: config.credentialsDir,
     );
-    final family = ProviderIdentity.resolveFamily(
-      providerId,
-      options: config.providers[providerId]?.options ?? const {},
-      executable: providerBinary,
-    );
-    final resolution = registry.resolve(providerId, family: family);
-    if (resolution.isPresent) {
-      return true;
-    }
-    if (resolution.reason != CredentialUnavailableReason.noneConfigured) {
-      return false;
-    }
-    return ProviderValidator.probeAuthStatus(providerBinary, providerId: providerId, homePath: env['HOME']);
   }
+
+  /// What `serve` will do with the posture [resolved] settled on: the downgrade
+  /// [inferredPostureCredentialGap] predicts, else each provider's placement.
+  Future<_ServePlacement> _servePlacement(DartclawConfig resolved, String configPath, Map<String, String> env) async {
+    ({String providerId, String remediation})? downgrade;
+    try {
+      downgrade = await inferredPostureCredentialGap(
+        resolved,
+        registry: _credentialRegistry(loadCliConfig(configPath: configPath, env: env), env),
+      );
+    } on Object {
+      // An unreadable credential state is reported by the provider rows themselves.
+    }
+    return _ServePlacement(
+      defaultProviderId: ProviderIdentity.normalize(resolved.agent.provider),
+      hostExecution: (providerId) => !primaryRunsInContainer(resolved, providerId),
+      downgrade: downgrade,
+    );
+  }
+
+  static CredentialRegistry _credentialRegistry(DartclawConfig config, Map<String, String> env) => CredentialRegistry(
+    credentials: config.credentials,
+    env: env,
+    providers: config.providers,
+    subscriptions: _storedSubscriptions(config, env),
+  );
 
   /// An unusable store is no store: verification must report on the credential
   /// state, not fail the run, and every other refusal path already tells the

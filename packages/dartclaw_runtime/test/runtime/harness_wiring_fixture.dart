@@ -7,8 +7,10 @@ import 'package:dartclaw_runtime/src/runtime/security_wiring.dart';
 import 'package:dartclaw_runtime/src/runtime/storage_wiring.dart';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
-import 'package:dartclaw_runtime/dartclaw_runtime.dart' show DartclawServer;
+import 'package:dartclaw_runtime/dartclaw_runtime.dart' show ContainerAuthorityLease, DartclawServer, GatewayPrincipal;
 import 'package:path/path.dart' as p;
+
+import 'fake_container_authority.dart';
 
 import 'package:dartclaw_testing/dartclaw_testing.dart'
     show FakeAgentHarness, InMemoryTemporalKnowledgeGraphService, openPreparedTaskBackend, seedCanonicalMemory;
@@ -123,4 +125,37 @@ final class TurnContextHarness extends FakeAgentHarness implements HarnessTurnCo
 
   @override
   void setTurnContext(HarnessTurnContext? context) => activeTurnContext = context;
+}
+
+/// Stands in for a host that found a container runtime: the real posture needs
+/// Docker, and the warning under test reads `containersEnabled` alone.
+///
+/// Profiles and authority acquisition are faked too so an `execution: container`
+/// primary reaches the end of wiring instead of failing on the missing runtime.
+class ContainerCapableSecurityWiring extends SecurityWiring {
+  new({
+    required super.config,
+    required super.dataDir,
+    required super.runtimeCwd,
+    required super.eventBus,
+    required super.exitFn,
+    required super.auditLogger,
+  });
+
+  @override
+  bool get containersEnabled => true;
+
+  @override
+  Set<String> get availableContainerProfiles => const {'workspace', 'restricted'};
+
+  @override
+  Future<ContainerAuthorityLease> acquireContainerAuthority(
+    GatewayPrincipal principal, {
+    Set<String> allowedMcpTools = const {},
+    String? artifactsDir,
+    String? workspaceDir,
+    String? executionDir,
+    bool useOwnerWorkspace = true,
+    bool volatileGeneratedState = false,
+  }) async => FakeContainerAuthorityLease();
 }

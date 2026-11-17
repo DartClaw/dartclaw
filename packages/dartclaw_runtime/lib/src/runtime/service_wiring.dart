@@ -982,6 +982,7 @@ class _RuntimeAssembly {
       eventBus: ctx.eventBus,
       exitFn: exitFn,
       platformCapabilities: platformCapabilities,
+      environment: _environment,
       configNotifier: ctx.configNotifier,
       messageRedactor: ctx.messageRedactor,
       auditLogger: ctx.auditLogger,
@@ -1124,6 +1125,7 @@ class _RuntimeAssembly {
       defaultProvider: config.agent.provider,
       executions: harness.executions,
       credentialsDir: config.credentialsDir,
+      isHostExecution: harness.isHostExecution,
     );
     await providerStatus.probe();
     return providerStatus;

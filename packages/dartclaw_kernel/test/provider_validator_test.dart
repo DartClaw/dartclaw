@@ -521,6 +521,116 @@ void main() {
       expect(result.errors.single, allOf(contains('auto'), contains('subscription'), contains('api_key')));
     });
 
+    // ── credentialRefusalFor — the one admission rule ────────────
+
+    group('credentialRefusalFor', () {
+      final codexEntry = ProviderEntry(executable: Platform.resolvedExecutable);
+      const noCredentials = CredentialsConfig.defaults();
+
+      void loggedInCodex() => _writeCodexAuth(tmpDir, {
+        'tokens': {'access_token': 'test-token'},
+      });
+
+      test('container placement with only the binary login is refused with the remediation', () async {
+        loggedInCodex();
+
+        final refusal = await ProviderValidator.credentialRefusalFor(
+          providerId: 'codex',
+          provider: codexEntry,
+          registry: CredentialRegistry(credentials: noCredentials),
+          hostExecution: false,
+          homePath: tmpDir.path,
+          credentialsDir: '/data/credentials',
+        );
+
+        expect(
+          refusal,
+          credentialRemediationFor(
+            CredentialUnavailableReason.noneConfigured,
+            providerId: 'codex',
+            family: 'codex',
+            credentialsDir: '/data/credentials',
+          ),
+        );
+        expect(refusal, allOf(contains('codex login'), contains('/data/credentials')));
+      });
+
+      test('host placement with nothing configured is admitted on the binary login', () async {
+        loggedInCodex();
+
+        final refusal = await ProviderValidator.credentialRefusalFor(
+          providerId: 'codex',
+          provider: codexEntry,
+          registry: CredentialRegistry(credentials: noCredentials),
+          hostExecution: true,
+          homePath: tmpDir.path,
+        );
+
+        expect(refusal, isNull);
+      });
+
+      test('host placement is refused when the binary login is absent or the binary did not run', () async {
+        final loggedOut = await ProviderValidator.credentialRefusalFor(
+          providerId: 'codex',
+          provider: codexEntry,
+          registry: CredentialRegistry(credentials: noCredentials),
+          hostExecution: true,
+          homePath: tmpDir.path,
+        );
+        loggedInCodex();
+        final binaryMissing = await ProviderValidator.credentialRefusalFor(
+          providerId: 'codex',
+          provider: codexEntry,
+          registry: CredentialRegistry(credentials: noCredentials),
+          hostExecution: true,
+          binaryFound: false,
+          homePath: tmpDir.path,
+        );
+
+        expect(loggedOut, contains('has no credential configured'));
+        expect(binaryMissing, contains('has no credential configured'));
+      });
+
+      test('a forced selection is never rescued by the binary login', () async {
+        loggedInCodex();
+        final forced = ProviderEntry(executable: Platform.resolvedExecutable, auth: ProviderAuth.subscription);
+
+        final refusal = await ProviderValidator.credentialRefusalFor(
+          providerId: 'codex',
+          provider: forced,
+          registry: CredentialRegistry(
+            credentials: noCredentials,
+            providers: ProvidersConfig(entries: {'codex': forced}),
+          ),
+          hostExecution: true,
+          homePath: tmpDir.path,
+        );
+
+        expect(refusal, contains('auth: subscription'));
+      });
+
+      test('a stored credential admits either placement', () async {
+        final registry = CredentialRegistry(
+          credentials: noCredentials,
+          subscriptions: const {'codex': CredentialEntry.subscription(token: 'codex-subscription-token')},
+        );
+
+        for (final hostExecution in [true, false]) {
+          expect(
+            await ProviderValidator.credentialRefusalFor(
+              providerId: 'codex',
+              provider: codexEntry,
+              registry: registry,
+              hostExecution: hostExecution,
+              homePath: tmpDir.path,
+            ),
+            isNull,
+            reason: 'hostExecution: $hostExecution',
+          );
+        }
+      });
+    });
+
     // ── validate — happy path ────────────────────────────────────
 
     test('validate returns empty lists when all providers are valid', () async {

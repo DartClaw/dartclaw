@@ -1,0 +1,27 @@
+{
+  "schemaVersion": "2",
+  "prd": null,
+  "overview": {
+    "summary": "An inferred container posture falls back to advisory mode when the default provider has no container-usable credential; doctor predicts it."
+  },
+  "stories": [
+    {
+      "id": "S01",
+      "name": "Inferred posture credential fallback",
+      "dependsOn": [],
+      "status": "done",
+      "fis": "s01-inferred-posture-credential-fallback.md",
+      "completedTaskIds": [
+        "TI01",
+        "TI02",
+        "TI03",
+        "TI04",
+        "TI05",
+        "TI06",
+        "TI07"
+      ],
+      "scope": "Downgrade an inferred container posture to advisory mode when the default provider lacks a container-usable credential, keep explicit container.enabled: true fail-closed, and make dartclaw doctor report the same outcome through the single credential-admission rule.",
+      "sourceRefs": []
+    }
+  ]
+}

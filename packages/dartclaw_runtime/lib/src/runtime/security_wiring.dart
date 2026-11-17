@@ -36,6 +36,7 @@ class SecurityWiring implements Reconfigurable {
     required EventBus eventBus,
     required ExitFn exitFn,
     PlatformCapabilities? platformCapabilities,
+    Map<String, String>? environment,
     ConfigNotifier? configNotifier,
     MessageRedactor? messageRedactor,
     McpProtocolHandler Function()? mcpHandlerRef,
@@ -52,6 +53,7 @@ class SecurityWiring implements Reconfigurable {
        _eventBus = eventBus,
        _exitFn = exitFn,
        _platformCapabilities = platformCapabilities ?? PlatformCapabilities(),
+       _environment = environment ?? Platform.environment,
        _configNotifier = configNotifier,
        _messageRedactorForRegistration = messageRedactor;
 
@@ -67,6 +69,10 @@ class SecurityWiring implements Reconfigurable {
   final EventBus _eventBus;
   final ExitFn _exitFn;
   final PlatformCapabilities _platformCapabilities;
+
+  /// The environment credentials resolve against: the one [HarnessWiring] admits
+  /// the primary on, so a container refusal and a harness refusal read one state.
+  final Map<String, String> _environment;
   final ConfigNotifier? _configNotifier;
   final MessageRedactor? _messageRedactorForRegistration;
 
@@ -336,24 +342,14 @@ class SecurityWiring implements Reconfigurable {
   /// Wires container isolation, answering the refusal that stopped it or
   /// `null` once every profile is registered.
   ///
-  /// The requested-vs-inferred asymmetry lives here and nowhere else: an
-  /// operator who declared `container.enabled: true` gets every refusal
-  /// fail-closed, while an inferred posture logs the same diagnosis and hands
-  /// it back for advisory mode.
+  /// Two sites decide requested-vs-inferred, each keyed on what the operator
+  /// declared. `refuse` covers every probe-time refusal: an explicit
+  /// `container.enabled: true` logs it and exits non-zero, an inferred posture
+  /// logs the same diagnosis and hands it back for advisory mode. The default
+  /// provider's missing container credential is decided before it, by
+  /// `inferredPostureCredentialGap`, which answers only for an inferred posture
+  /// and so never reaches `refuse`.
   Future<String?> _wireContainers() async {
-    // Containerized Claude is mediated by the host adapter, which presents
-    // either a stored subscription credential or a host-held API key — never
-    // anything the container holds. This is a warning, not a startup failure: a
-    // deployment may legitimately run only Codex or only host Claude. The
-    // rejection itself happens at authority registration.
-    if (!_resolveCredential(ProviderIdentity.claude).isPresent) {
-      _log.warning(
-        'No host-held Claude credential is configured – containerized Claude executions will be rejected. '
-        'Run "claude setup-token" and store it with "dartclaw auth claude", set ANTHROPIC_API_KEY, '
-        'or select execution: host for Claude agents.',
-      );
-    }
-
     final profiles = [
       SecurityProfile.workspace(
         workspaceDir: config.workspaceDir,
@@ -418,6 +414,35 @@ class SecurityWiring implements Reconfigurable {
       if (remediation != null) _log.severe(remediation);
       if (config.container.declaredEnabled == true) _exitFn(1);
       return reason;
+    }
+
+    // A default provider with no credential a container can use downgrades here,
+    // before the image build, so a deployment that will downgrade never builds
+    // one. `inferredPostureCredentialGap` answers only for an inferred posture,
+    // so an explicit `true` falls through to the refusal HarnessWiring raises at
+    // primary admission; and it is decided there, not in `refuse`, so it logs no
+    // severe record. The sweep still runs when a runtime answers: labelled
+    // orphans of an earlier serve are this data dir's to reclaim either way.
+    final gap = await inferredPostureCredentialGap(config, registry: _credentialRegistry());
+    if (gap != null) {
+      if (await probe.isRuntimeAvailable()) {
+        await ContainerManager.reclaimOwnedContainers(_dataDir, runtimeBinary: runtime);
+      }
+      return 'provider ${gap.providerId} has no credential a container can use. ${gap.remediation} '
+          'Or set container.enabled: false to run on the host without isolation';
+    }
+
+    // Containerized Claude is mediated by the host adapter, which presents
+    // either a stored subscription credential or a host-held API key — never
+    // anything the container holds. This is a warning, not a startup failure: a
+    // deployment may legitimately run only Codex or only host Claude. The
+    // rejection itself happens at authority registration.
+    if (!_resolveCredential(ProviderIdentity.claude).isPresent) {
+      _log.warning(
+        'No host-held Claude credential is configured – containerized Claude executions will be rejected. '
+        'Run "claude setup-token" and store it with "dartclaw auth claude", set ANTHROPIC_API_KEY, '
+        'or select execution: host for Claude agents.',
+      );
     }
 
     if (!await probe.isRuntimeAvailable()) {
@@ -598,12 +623,17 @@ class SecurityWiring implements Reconfigurable {
   ///
   /// [family] is the provider's resolved credential family, so an alias reads
   /// its own `auth` first and inherits the family's only when it sets none.
-  CredentialResolution _resolveCredential(String providerId, {String? family}) => CredentialRegistry(
+  CredentialResolution _resolveCredential(String providerId, {String? family}) =>
+      _credentialRegistry().resolve(providerId, family: family);
+
+  /// A registry over the current credential state, rebuilt per use so a stored
+  /// token re-issued since wiring is seen.
+  CredentialRegistry _credentialRegistry() => CredentialRegistry(
     credentials: config.credentials,
-    env: Platform.environment,
+    env: _environment,
     providers: config.providers,
     subscriptions: _subscriptionCredentials(),
-  ).resolve(providerId, family: family);
+  );
 
   /// Announces a credential the host cannot present, at the point of refusal.
   ///

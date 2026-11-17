@@ -2,6 +2,7 @@ export 'bridge_binary.dart' show BridgeBinaryProvisioner;
 export 'container_authority.dart' show ContainerAuthorityLease, ContainerAuthorityProvider;
 export 'container_health_monitor.dart' show ContainerHealthMonitor;
 export 'container_posture.dart' show resolveContainerPosture;
+export 'inferred_posture_credential_gap.dart' show inferredPostureCredentialGap, primaryRunsInContainer;
 
 export 'package:dartclaw_core/dartclaw_core.dart' show containerGeneratedStatePath;
 

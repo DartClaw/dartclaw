@@ -48,7 +48,7 @@ utilities used across package boundaries. Barrel: `lib/dartclaw_kernel.dart`, wi
   and leaves no `.bak`. Edits are surgical only outside the written paths: a subtree written whole loses its comments.
 - `HarnessConfig.sections` retains raw harness sections. The adapter package owns parsing its section.
 - Credential selection stays in `CredentialRegistry`; subscription credential files remain core-owned and are injected
-  as a snapshot. Remediation text comes only from `credentialRemediationFor` / `credentialRenewalFor`.
+  as a snapshot. Remediation text comes only from `credentialRemediationFor` / `credentialRenewalFor`. Admission, including the binary-login rescue, is one rule, `ProviderValidator.credentialRefusalFor` (host or container placement); `validate`, `dartclaw_runtime`'s `ProviderStatusService` and `inferredPostureCredentialGap`, and `dartclaw_cli`'s `SetupChecks` all ask it, and none probes the binary's login itself. The spawn-time host gates (`HarnessWiring._credentialRefusalFor`, `prepareCodexSubscriptionHome`) only decline to refuse `noneConfigured` on the host.
 - Named credentials stored on disk reach `credentials:` through `DartclawConfig.registerStoredCredentialProvider(Map<String, CredentialEntry> Function(String credentialsDir))`,
   mirroring `registerExtensionParser` (test-only `clearStoredCredentialProvider` clears it). `load` invokes the closure on
   **every** call unless `resolveStoredCredentials: false` requests the declared view, passing `credentialsDirFor(server.dataDir)`, and `_parseCredentials` merges the result with the **store

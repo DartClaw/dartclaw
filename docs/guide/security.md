@@ -315,6 +315,13 @@ Declaring the key opts out of that inference in either direction:
 | `true` | isolated | **startup fails** — an explicit request is refused, never downgraded |
 | `false` | advisory mode | advisory mode |
 
+A container cannot use the `claude` or `codex` CLI login on the host, so isolating the default provider needs a
+credential DartClaw can present: a Claude setup-token stored with `dartclaw auth claude`, `ANTHROPIC_API_KEY`, or the
+Codex equivalent. With none, an unset `container.enabled` starts in advisory mode and the warning names the provider,
+while `true` **fails startup** with the same remediation. `dartclaw doctor` reports it before `serve` as a `warn` on
+`provider.<id>.credential` (`fail` under `true`). `agent.execution: host` and `container.enabled: false` need no such
+credential.
+
 **The table describes `dartclaw serve`.** The posture is resolved once at server startup, so the zero-server lane —
 `dartclaw workflow run --standalone` and the other `--standalone` verbs — uses the posture as written in the file, with
 no probe. An undeclared section there means **not isolated**, which is what it meant before 0.25. If you run standalone

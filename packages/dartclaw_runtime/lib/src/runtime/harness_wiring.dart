@@ -383,6 +383,19 @@ class HarnessWiring {
   ExecutionCoordinator get executions => _executions;
   ExecutionPolicyResolver get policyResolver => _policyResolver;
 
+  /// Whether this deployment places [providerId] on the host, the placement
+  /// credential admission is judged at — by [ProviderValidator] at startup and
+  /// by the provider status surface after it.
+  bool isHostExecution(String providerId) {
+    try {
+      return !_policyResolver.resolveForPrimary(providerId: providerId).isContainer;
+    } on ExecutionPolicyException {
+      // A profile with no host equivalent under a host posture is refused at
+      // authority registration; credential-wise it is the host.
+      return true;
+    }
+  }
+
   /// `agent.provider`, normalized – the provider a definition without one inherits.
   String get defaultProviderId => _defaultProviderId;
   ProviderExecutionInventory get executionInventory => _executionInventory;
@@ -728,15 +741,7 @@ class HarnessWiring {
           registry: _credentialRegistry(),
           defaultProvider: defaultProviderId,
           credentialsDir: config.credentialsDir,
-          isHostExecution: (providerId) {
-            try {
-              return !_policyResolver.resolveForPrimary(providerId: providerId).isContainer;
-            } on ExecutionPolicyException {
-              // A profile with no host equivalent under a host posture is
-              // refused at authority registration; here it validates as host.
-              return true;
-            }
-          },
+          isHostExecution: isHostExecution,
         );
         validation.warnings.forEach(warn);
         if (validation.errors.isNotEmpty) {

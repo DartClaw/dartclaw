@@ -56,7 +56,7 @@ void main() {
             databaseReadiness: databaseReadiness ?? _databaseReady,
             probeBinary: (_) async => (outcome: BinaryProbeOutcome.responded, version: '2.1.80'),
             portFree: (_, _) async => true,
-            providerVerified: realCredentials ? null : (_, _, _) async => true,
+            providerVerified: realCredentials ? null : (_, _, _, {required hostExecution}) async => null,
             runCommand: (_, _) async => ProcessResult(0, 1, '', ''),
           ),
           writeLine: lines.add,

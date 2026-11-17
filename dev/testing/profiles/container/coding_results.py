@@ -4,6 +4,7 @@ import difflib
 import json
 import pathlib
 import re
+import shlex
 import subprocess
 import sys
 import time
@@ -29,12 +30,37 @@ def dartclaw_rollouts():
     return found
 
 
+def runs_acceptance_command(arguments, command):
+    # Trace previews are truncated and filenames can contain the command text.
+    # The declared shell argument and fixed acceptance argv own recognition.
+    try:
+        payload = json.loads(arguments)
+    except (TypeError, ValueError):
+        raise RuntimeError('Shell tool arguments are not the declared command object.') from None
+    if not isinstance(payload, dict) or not isinstance(payload.get('command'), str):
+        raise RuntimeError('Shell tool arguments are not the declared command object.')
+
+    def words(script):
+        lexer = shlex.shlex(script, posix=True, punctuation_chars=';&|()\n')
+        lexer.whitespace = ' \t\r'
+        lexer.whitespace_split = True
+        return list(lexer)
+
+    tokens = words(payload['command'])
+    # Codex records the shell wrapper as argv; its -c payload is the script.
+    if len(tokens) == 3 and pathlib.PurePosixPath(tokens[0]).name in ('sh', 'bash', 'dash', 'zsh') and tokens[1] in ('-c', '-lc'):
+        tokens = words(tokens[2])
+    expected = shlex.split(command)
+    boundaries = (';', '&&', '||', '|', '&', '(', ')', '\n')
+    return any(tokens[index:index + len(expected)] == expected
+               for index in range(len(tokens)) if index == 0 or tokens[index - 1] in boundaries)
+
+
 def command_result(calls, command):
     for call in reversed(calls):
         if call.get('name') not in COMMAND_TOOLS:
             continue
-        arguments = (call.get("context") or "") + "\n" + (call.get("arguments") or "")
-        if command not in arguments:
+        if not runs_acceptance_command(call.get('arguments'), command):
             continue
         result = call.get("result") or ""
         exits = re.findall(r"(?m)^DARTCLAW_ACCEPTANCE_EXIT=(\d+)\s*$", result)

@@ -11,10 +11,11 @@ library;
 /// mis-provisioned bridge binary — the surface fails closed.
 const int bridgeProtocolVersion = 1;
 
-/// The two independent host services a pipe can be bound to.
+/// The independent host services a pipe can be bound to.
 enum BridgeSurface {
   provider,
-  mcp;
+  mcp,
+  registry;
 
   static BridgeSurface? fromWire(String value) {
     for (final surface in BridgeSurface.values) {

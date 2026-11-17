@@ -10,8 +10,45 @@ import 'package:test/test.dart';
 
 import 'gateway_test_support.dart';
 
+import 'package:dartclaw_runtime/src/container/gateway/pub_registry_adapter.dart';
+
 void main() {
   group('HostGateway registration', () {
+    test('grants the registry surface to workspace authorities and never restricted', () async {
+      final gateway = HostGateway(
+        providerAdapters: {'claude': _EchoAdapter()},
+        registryAdapters: [PubRegistryAdapter()],
+      );
+      final unconfigured = HostGateway(providerAdapters: {'claude': _EchoAdapter()});
+      addTearDown(gateway.dispose);
+      addTearDown(unconfigured.dispose);
+      expect(gateway.register(principal: principal()).requiredSurfaces, {
+        BridgeSurface.provider,
+        BridgeSurface.registry,
+      });
+      expect(gateway.registryClientEnvironment(principal()), {'PUB_HOSTED_URL': 'http://127.0.0.1:8082/pub'});
+      for (final profile in ['restricted', 'future-profile']) {
+        final subject = principal(profile: profile);
+        expect(gateway.register(principal: subject).requiredSurfaces, {BridgeSurface.provider});
+        expect(gateway.registryClientEnvironment(subject), isEmpty);
+      }
+      expect(unconfigured.register(principal: principal()).requiredSurfaces, {BridgeSurface.provider});
+      expect(unconfigured.registryClientEnvironment(principal()), isEmpty);
+    });
+
+    test('refuses to attach a registry pipe to an authority without the grant', () async {
+      final gateway = HostGateway(
+        providerAdapters: {'claude': _EchoAdapter()},
+        registryAdapters: [PubRegistryAdapter()],
+      );
+      addTearDown(gateway.dispose);
+      final authority = gateway.register(principal: principal(profile: 'restricted'));
+      final channel = FakeBridgeChannel();
+      addTearDown(channel.close);
+      expect(() => authority.requiredSurfaces.add(BridgeSurface.registry), throwsUnsupportedError);
+      expect(() => gateway.attach(authority, BridgeSurface.registry, channel), throwsStateError);
+    });
+
     test('rejects a provider it cannot mediate rather than admitting it unmediated', () {
       final gateway = HostGateway(providerAdapters: {'claude': _EchoAdapter()});
 

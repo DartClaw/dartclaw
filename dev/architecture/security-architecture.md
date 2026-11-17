@@ -14,11 +14,11 @@ DartClaw spawns provider CLI binaries (`claude`, `codex`) and ACP agent binaries
 |--------|-----------------|
 | **Prompt injection** via channels, web pages, search results, MCP results | `ContentScan`/`ContentGuard` on logical-agent results, search results, `web_fetch` bodies and `public` outbound MCP results. The guard chain and container bound what an injected instruction can do. Inbound channel text is not classified on arrival |
 | **Command injection** (`rm -rf /`, fork bombs, shell escapes) | `CommandGuard` (best-effort regex), container isolation |
-| **Data exfiltration** (curl POST, base64 pipes) | `NetworkGuard`, container `--network none`, `EgressGuard` for outbound MCP |
+| **Data exfiltration** (curl POST, base64 pipes) | `NetworkGuard`, container `--network none`, `EgressGuard` for outbound MCP; registry egress accepts GET/HEAD only to adapter-pinned origins |
 | **Credential theft** | Host-owned provider mediation (no credential in the container), `FileGuard`, mount scoping, `SafeProcess` env sanitization, `MessageRedactor` |
 | **SSRF** from `web_fetch` or MCP | DNS-pinned address checks in `WebFetchTool`, `network_class: public` transport policy |
 | **Unauthorized access** | `authMiddleware`, `/mcp` bearer resolution, channel DM/group gates, webhook signatures |
-| **Supply chain** | No Node.js/npm in the host chain, minimal dependencies, pinned Codex binary with sha256 in the image |
+| **Supply chain** | No Node.js/npm in the host chain, minimal dependencies, pinned Codex binary with sha256 in the image; public dependencies enter workspace containers through the read-only registry surface and can change their worktree |
 | **Container escape** | `--cap-drop ALL`, read-only rootfs, `no-new-privileges`, non-root user |
 | **Cross-agent contamination** | One container per execution authority, per-profile mounts |
 | **Cost overrun, rate abuse, runaway loops** | Runtime governance: token budget, rate limits, loop detection ([Runtime Governance](#runtime-governance)) |
@@ -277,6 +277,7 @@ docker create --name dartclaw-<fnv1a8(dataDir)>-<profile>-<epoch><n> \
   -v <data dir>/containers/<name>:/home/dartclaw/.dartclaw:rw   # per-authority generated state
   -v <artifacts dir>:/artifacts:rw      # only with an artifacts contract
   -e ANTHROPIC_BASE_URL=http://127.0.0.1:<provider bridge port>
+  -e PUB_HOSTED_URL=http://127.0.0.1:8082/pub  # workspace only
   dartclaw-agent:latest sleep infinity
 ```
 
@@ -337,11 +338,12 @@ Research source scope is authenticated independently of placement: owner calls (
 
 ### Host-Owned Provider Mediation
 
-The agent needs provider API access but must never hold the credential. The host runs a `HostGateway`; every live container authority registers with it and receives one bridge pipe per surface (`provider`, plus `mcp` when it was granted host MCP tools). The pipe, not any frame the container sends, determines principal, upstream, credential, and tool policy.
+The agent needs provider API access but must never hold the credential. The host runs a `HostGateway`; every live container authority registers with it and receives one bridge pipe per surface (`provider`, `mcp` when granted host MCP tools, and `registry` for `workspace` only). The pipe, not any frame the container sends, determines principal, upstream, credential, and tool policy.
 
 [![Security: host-owned credential mediation](diagrams/security-host-gateway.svg)](diagrams/security-host-gateway.svg)
 
 - The only host objects mediation adds are the read-only bridge binary, the per-authority generated-state directory (the container home), and a host-owned `/artifacts` for executions with an artifacts contract. There is no socket mount, published port, or network attachment.
+- The `registry` surface listens at `http://127.0.0.1:8082`. `PubRegistryAdapter` pins `https://pub.dev` under `/pub`; `PUB_HOSTED_URL` is set at container creation only for `workspace`. Every other profile, including `restricted`, has no registry pipe or client environment. GET/HEAD only, credential headers stripped both ways, redirects limited to five hops inside the pinned set, decoded metadata download URLs rewritten to loopback, archives streamed unchanged. Each routed request records authority, ecosystem, path (no query) and status; policy refusals name the ecosystem and rule and also fire the normal block event. Shared framing, capacity and late streamed-cap failures keep their transport-level reasons. The existing 64 MiB cap stays: an advertised oversize artifact is refused with the byte count, and an unadvertised overrun aborts the connection.
 - Provider credentials never exist in the container's environment, filesystem, arguments, or generated configuration. The Claude container env carries only a placeholder key.
 - Each adapter pins its upstream origin and request paths (`/v1/messages`, `/v1/messages/count_tokens`; `/v1/responses`), and there is no knob to retarget a credentialed adapter.
 - The host HTTP client negotiates gzip response compression itself rather than forwarding the container's `Accept-Encoding`. It decodes the response before forwarding bytes without encoding headers, including provider refusals.

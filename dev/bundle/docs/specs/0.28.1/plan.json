@@ -198,9 +198,22 @@
         "S02",
         "S05"
       ],
-      "status": "pending",
+      "status": "done",
       "fis": "s06-registry-bridge-surface-with-pub.md",
-      "completedTaskIds": [],
+      "completedTaskIds": [
+        "TI01",
+        "TI02",
+        "TI03",
+        "TI04",
+        "TI05",
+        "TI06",
+        "TI07",
+        "TI08",
+        "TI09",
+        "TI10",
+        "TI11",
+        "TI12"
+      ],
       "scope": "Add the `registry` bridge surface per ADR-062 with its pub adapter: plain HTTP to the in-container loopback mirror, host-side HTTPS to pinned origins, GET and HEAD only, no credentials, metadata URL rewriting, audit records and `GuardBlockEvent` on refusal, granted to `workspace` and never `restricted`. `dart pub get` succeeds in S02's Dart fixture container with `network:none` unchanged. Security architecture and guide updates ship in the same change. A containerized `pub get` rewriting a committed `pubspec.lock` to the mirror URL is the accepted, documented consequence (ADR-062 Negative row, guide).",
       "sourceRefs": [
         "dev/bundle/docs/specs/0.28.1/prd.md#fr9-read-only-package-registry-egress",
@@ -209,7 +222,11 @@
       ],
       "provenance": null,
       "assetRefs": [],
-      "sequencing": null
+      "sequencing": null,
+      "verified": {
+        "at": "2026-11-17T20:50Z",
+        "summary": "DARTCLAW_CONTAINER_DATA_DIR=/Users/tobias/.dartclaw DARTCLAW_CODING_IMAGE=sha256:21ea2b45e305a4afba1e0b8a800f6bef03390eb5a432a2d73c745b088b21f0d5 bash dev/testing/profiles/container/coding.sh --fixture dart -> exit=0, codex/dart: completed; install=0; test=0; Codex steps=5"
+      }
     },
     {
       "id": "S07",

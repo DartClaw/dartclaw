@@ -180,6 +180,31 @@ void main() {
   });
 
   group('ContainerManager', () {
+    test('registry client environment is set only for a granted authority', () async {
+      final creations = <List<String>>[];
+      final state = _tempStateDir();
+      for (final environment in [
+        <String, String>{},
+        {'PUB_HOSTED_URL': 'http://127.0.0.1:8082/pub'},
+      ]) {
+        await _manager(
+          generatedStateDir: state,
+          registryClientEnvironment: environment,
+          run: (_, arguments) async {
+            if (arguments.first == 'create') creations.add(arguments);
+            return ProcessResult(1, arguments.first == 'inspect' ? 1 : 0, '', '');
+          },
+        ).start();
+      }
+      final granted = creations.last.toList();
+      final index = granted.indexOf('PUB_HOSTED_URL=http://127.0.0.1:8082/pub');
+      expect(index, greaterThan(0));
+      expect(granted[index - 1], '-e');
+      granted.removeRange(index - 1, index + 1);
+      expect(granted, creations.first);
+      expect(granted[granted.indexOf('--network') + 1], 'none');
+    });
+
     test('isRuntimeAvailable returns true on zero exit code', () async {
       final manager = _manager(run: (executable, arguments) async => ProcessResult(1, 0, '', ''));
 
@@ -973,6 +998,7 @@ ContainerManager _manager({
   String? generatedStateDir,
   String? artifactsDir,
   bool hasMcpBridge = false,
+  Map<String, String> registryClientEnvironment = const {},
 }) {
   return ContainerManager(
     ownerLabel: 'dartclaw.data-dir=/home/user/.dartclaw',
@@ -983,6 +1009,7 @@ ContainerManager _manager({
     generatedStateDir: generatedStateDir ?? _tempStateDir(),
     artifactsDir: artifactsDir,
     hasMcpBridge: hasMcpBridge,
+    registryClientEnvironment: registryClientEnvironment,
     localPathAllowlist: localPathAllowlist,
     bridgeBinaryPath: '/tmp/dartclaw-bridge',
     buildContextDir: buildContextDir,

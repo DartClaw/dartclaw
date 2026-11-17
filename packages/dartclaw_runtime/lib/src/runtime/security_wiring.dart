@@ -8,6 +8,7 @@ import 'package:logging/logging.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 
+import '../container/gateway/pub_registry_adapter.dart';
 import 'container_authority_cleanup_owner.dart';
 
 /// Constructs and exposes security-layer services.
@@ -188,6 +189,7 @@ class SecurityWiring implements Reconfigurable {
       containerName,
       generatedStateDir: p.join(_dataDir, 'containers', containerName),
       hasMcpBridge: allowedMcpTools.isNotEmpty,
+      registryClientEnvironment: gateway.registryClientEnvironment(principal),
       artifactsDir: artifactsDir,
       workspaceDir: workspaceDir,
       executionDir: executionDir,
@@ -368,6 +370,7 @@ class SecurityWiring implements Reconfigurable {
       required String generatedStateDir,
       String? artifactsDir,
       bool hasMcpBridge = false,
+      Map<String, String> registryClientEnvironment = const {},
       String? workspaceDir,
       String? executionDir,
       bool useOwnerWorkspace = true,
@@ -393,6 +396,7 @@ class SecurityWiring implements Reconfigurable {
       volatileGeneratedState: volatileGeneratedState,
       artifactsDir: artifactsDir,
       hasMcpBridge: hasMcpBridge,
+      registryClientEnvironment: registryClientEnvironment,
       localPathAllowlist: config.projects.localPathAllowlist,
       bridgeBinaryPath: _bridgeBinaryPath,
       buildContextDir: _sourceCheckoutDir,
@@ -475,6 +479,7 @@ class SecurityWiring implements Reconfigurable {
             containerName, {
             required generatedStateDir,
             required hasMcpBridge,
+            required registryClientEnvironment,
             required artifactsDir,
             required workspaceDir,
             required executionDir,
@@ -486,6 +491,7 @@ class SecurityWiring implements Reconfigurable {
             generatedStateDir: generatedStateDir,
             artifactsDir: artifactsDir,
             hasMcpBridge: hasMcpBridge,
+            registryClientEnvironment: registryClientEnvironment,
             workspaceDir: workspaceDir,
             executionDir: executionDir,
             useOwnerWorkspace: useOwnerWorkspace,
@@ -495,6 +501,20 @@ class SecurityWiring implements Reconfigurable {
     _containerHealthMonitor = ContainerHealthMonitor(eventBus: _eventBus)..start();
     _gateway = HostGateway(
       providerAdapters: buildProviderAdapters(),
+      registryAdapters: [PubRegistryAdapter()],
+      onRegistryRequest: (authority, ecosystem, path, status, served) => _auditLogger.writeEntry(
+        AuditEntry(
+          timestamp: DateTime.now(),
+          guard: 'host-gateway',
+          hook: 'bridge',
+          verdict: served ? 'pass' : 'block',
+          principal: authority,
+          server: ecosystem,
+          tool: path,
+          decision: served ? 'allow' : 'deny',
+          reason: 'status=$status',
+        ),
+      ),
       mcpHandler: _mcpHandlerRef,
       onDenied: _auditGatewayDenial,
       onCredentialRefused: _reportCredentialRefusal,
@@ -893,6 +913,7 @@ typedef _ContainerTemplate = ContainerManager Function(
   required String generatedStateDir,
   required String? artifactsDir,
   required bool hasMcpBridge,
+  required Map<String, String> registryClientEnvironment,
   required String? workspaceDir,
   required String? executionDir,
   required bool useOwnerWorkspace,

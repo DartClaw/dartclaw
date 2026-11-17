@@ -9,6 +9,8 @@ import 'gateway_models.dart';
 import 'gateway_pipe.dart';
 import 'mcp_bridge_surface.dart';
 import 'provider_adapter.dart';
+import 'registry_adapter.dart';
+import 'registry_bridge_surface.dart';
 
 /// Reports a host-side refusal for auditing. Carries no request content.
 typedef GatewayDenialSink = void Function(GatewayPrincipal principal, String reason);
@@ -34,9 +36,10 @@ final class GatewayAuthority {
   new _({
     required this.id,
     required this.principal,
-    required this.requiredSurfaces,
+    required Set<BridgeSurface> requiredSurfaces,
     required Set<String> allowedMcpTools,
-  }) : allowedMcpTools = Set.unmodifiable(allowedMcpTools);
+  }) : requiredSurfaces = Set.unmodifiable(requiredSurfaces),
+       allowedMcpTools = Set.unmodifiable(allowedMcpTools);
 
   final String id;
   final GatewayPrincipal principal;
@@ -75,11 +78,15 @@ final class HostGateway {
   new({
     required Map<String, ProviderMediator> providerAdapters,
     McpProtocolHandler Function()? mcpHandler,
+    List<RegistryAdapter> registryAdapters = const [],
+    RegistryAuditSink? onRegistryRequest,
     GatewayDenialSink? onDenied,
     CredentialRefusalSink? onCredentialRefused,
     GatewayAuthorityTeardown? onCredentialUnusable,
     this.limits = BridgeLimits.defaults,
   }) : _providerAdapters = Map.unmodifiable(providerAdapters),
+       _registryAdapters = List.unmodifiable(registryAdapters),
+       _onRegistryRequest = onRegistryRequest,
        _mcpHandler = mcpHandler,
        _onDenied = onDenied,
        _onCredentialRefused = onCredentialRefused,
@@ -90,6 +97,9 @@ final class HostGateway {
   final BridgeLimits limits;
 
   final Map<String, ProviderMediator> _providerAdapters;
+  final List<RegistryAdapter> _registryAdapters;
+  final RegistryAuditSink? _onRegistryRequest;
+  final Map<String, RegistryBridgeSurface> _registrySurfaces = {};
 
   /// Resolved lazily: the MCP registry is built after this gateway, while
   /// authorities are created later still.
@@ -104,6 +114,14 @@ final class HostGateway {
   bool _disposed = false;
 
   int get liveAuthorityCount => _authorities.length;
+
+  bool _grantsRegistry(GatewayPrincipal principal) =>
+      principal.containerProfile == 'workspace' && _registryAdapters.isNotEmpty;
+
+  /// Environment inherited by every process in a granted authority's container.
+  Map<String, String> registryClientEnvironment(GatewayPrincipal principal) => _grantsRegistry(principal)
+      ? {for (final adapter in _registryAdapters) ...adapter.clientEnvironment(RegistryBridgeSurface.mirrorBase)}
+      : const {};
 
   /// Registers a new authority. The returned handle owns its pipes' lifetime.
   ///
@@ -130,7 +148,11 @@ final class HostGateway {
     if (allowedMcpTools.isNotEmpty && _mcpHandler == null) {
       throw StateError('Host gateway has no MCP registry, so bridged MCP tools cannot be authorized');
     }
-    final surfaces = <BridgeSurface>{BridgeSurface.provider, if (allowedMcpTools.isNotEmpty) BridgeSurface.mcp};
+    final surfaces = <BridgeSurface>{
+      BridgeSurface.provider,
+      if (allowedMcpTools.isNotEmpty) BridgeSurface.mcp,
+      if (_grantsRegistry(principal)) BridgeSurface.registry,
+    };
     final authority = GatewayAuthority._(
       id: 'authority-${_nextAuthorityId++}',
       principal: principal,
@@ -150,6 +172,9 @@ final class HostGateway {
   GatewayPipe attach(GatewayAuthority authority, BridgeSurface surface, BridgeChannel channel) {
     if (authority.isRevoked || !_authorities.containsKey(authority.id)) {
       throw StateError('Gateway authority ${authority.id} is revoked');
+    }
+    if (surface == BridgeSurface.registry && !authority.requiredSurfaces.contains(surface)) {
+      throw StateError('Gateway authority ${authority.id} has no registry grant');
     }
     if (authority._pipes.containsKey(surface)) {
       throw StateError('Gateway authority ${authority.id} already owns a ${surface.name} pipe');
@@ -184,6 +209,7 @@ final class HostGateway {
       }
     }
     authority._pipes.clear();
+    await _registrySurfaces.remove(authority.id)?.dispose();
     _log.fine('Revoked gateway authority ${authority.id}');
   }
 
@@ -219,6 +245,15 @@ final class HostGateway {
   }
 
   GatewaySurfaceHandler _handlerFor(GatewayAuthority authority, BridgeSurface surface) => switch (surface) {
+    BridgeSurface.registry => _registrySurfaces.putIfAbsent(
+      authority.id,
+      () => RegistryBridgeSurface(
+        adapters: _registryAdapters,
+        authorityId: authority.id,
+        limits: limits,
+        onRequest: _onRegistryRequest,
+      ),
+    ),
     BridgeSurface.provider => _providerAdapters[authority.principal.providerId]!,
     BridgeSurface.mcp => McpBridgeSurface(
       handler: _mcpHandler!,

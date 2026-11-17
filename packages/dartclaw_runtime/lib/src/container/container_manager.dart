@@ -108,6 +108,9 @@ class ContainerManager implements ContainerExecutor, VolatileContainerGeneratedS
   /// if an MCP bridge exists to configure a client against.
   final bool hasMcpBridge;
 
+  /// Client variables supplied by the host gateway for granted registry access.
+  final Map<String, String> registryClientEnvironment;
+
   final String buildContextDir;
   @override
   final String workingDir;
@@ -124,13 +127,15 @@ class ContainerManager implements ContainerExecutor, VolatileContainerGeneratedS
     this.volatileGeneratedState = false,
     this.artifactsDir,
     this.hasMcpBridge = false,
+    Map<String, String> registryClientEnvironment = const {},
     this.localPathAllowlist = const [],
     this.bridgeBinaryPath,
     required this.buildContextDir,
     this.workingDir = '/project',
     RunCommand? runCommand,
     StartCommand? startCommand,
-  }) : _ownerLabel = ownerLabel,
+  }) : registryClientEnvironment = Map.unmodifiable(registryClientEnvironment),
+       _ownerLabel = ownerLabel,
        _run = runCommand ?? Process.run,
        _start = startCommand ?? Process.start;
 
@@ -370,6 +375,7 @@ class ContainerManager implements ContainerExecutor, VolatileContainerGeneratedS
       // outputs where the host reads them back from, inside the boundary.
       if (_artifactsMount case final mount?) ...['-v', mount],
       '-e', 'ANTHROPIC_BASE_URL=$providerBridgeUrl',
+      ...registryClientEnvironment.entries.expand((entry) => ['-e', '${entry.key}=${entry.value}']),
       config.image,
       volatileGeneratedState ? 'cat' : 'sleep',
       if (!volatileGeneratedState) 'infinity',

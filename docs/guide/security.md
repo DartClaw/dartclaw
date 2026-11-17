@@ -411,7 +411,14 @@ The recipes preserve uid 1000 and the provider CLIs' `PATH`. Image `ENV` sets wr
 under `/tmp`, because the root filesystem is read-only. Dart uses `HOME=/tmp` for its first-use `~/.dart-tool`
 analytics state; the provider homes remain explicitly selected by DartClaw. DartClaw's `/tmp` is a 100 MiB `noexec` tmpfs; install SDKs
 at image build time, and size dependency use accordingly. A workspace container has no direct network access;
-a toolchain alone does not give package managers registry access. When a build or test binary is missing, workspace
+Dart dependencies use the host's read-only `registry` surface: `PUB_HOSTED_URL=http://127.0.0.1:8082/pub`
+is set at container creation for `workspace` only. The host pins `https://pub.dev`, accepts GET/HEAD, strips
+credentials and rewrites pinned archive URLs to the loopback mirror. `restricted` gets neither this environment
+nor the pipe. The existing 64 MiB response cap still applies; larger artifacts fail visibly.
+
+A containerized `dart pub get` ignores a committed `pubspec.lock` whose hosted `url` names `https://pub.dev`
+instead of the mirror, writes one naming `http://127.0.0.1:8082/pub`, and re-resolves dependencies, possibly to newer
+versions. This lockfile change is an accepted consequence of the mirror. When a build or test binary is missing, workspace
 task prompts tell the agent to stop, name the binary and refer here and to `container.image`, without installing it.
 
 ### Hardening the primary agent for untrusted channels
@@ -563,7 +570,12 @@ Container (network:none)                          Host
    host-owned directory mounted at `/artifacts`. There is no socket mount, no published port, and no network attachment.
 3. The bridge listens on container loopback and forwards bounded, framed traffic to the host over the `docker exec -i`
    pipe the host opened. It chooses no destination and holds no credential.
-4. On the host, the adapter bound to that pipe pins the upstream origin, drops any client-supplied credential header,
+4. `workspace` also gets a separate `registry` pipe on loopback port 8082 for public pub packages. It accepts GET/HEAD
+   only to pinned origins, strips credential headers in both directions, and audits each routed request and refusal.
+   Policy refusals name the ecosystem and rule; shared framing, capacity and late streamed-cap failures keep generic
+   bridge reasons.
+   `restricted` has no registry access.
+5. On the host, the provider adapter bound to its pipe pins the upstream origin, drops any client-supplied credential header,
    and injects the host-held credential before forwarding over HTTPS. The answer is filtered the same way on the way
    back: the pipe is the only channel into the container, so credential-bearing response headers (`authorization`,
    `x-api-key`, `proxy-authenticate`, `set-cookie`) are dropped before anything is written back — an upstream or error
@@ -816,7 +828,9 @@ inherits the data directory's ACLs. See [Scheduling § Shell jobs](scheduling.md
 - **No shared token** – containers receive no shared operator MCP bearer; the execution-scoped pipe is the identity
 - **Pinned destination** – the adapter owns the upstream origin and the allowed request paths, so a container cannot
   name where its traffic goes
-- **Sole egress** – `network:none` means the host-owned pipe is the only way out of the container. The pipe refuses any
+- **Sole egress** – `network:none` means host-owned pipes are the only way out of the container. `workspace` has a
+  read-only `registry` surface for public pub packages, pinned to `https://pub.dev`, with GET/HEAD only and no
+  credentials; `restricted` never receives it. The provider pipe refuses any
   request declaring a provider-side network tool (web search/fetch, remote MCP connectors), which would otherwise run at
   the provider where `network:none` cannot reach it. The container's web path is instead the bridged canonical
   `web_search` / `web_fetch` grant: those run host-side, under the SSRF and private-range policy, NetworkGuard's domain

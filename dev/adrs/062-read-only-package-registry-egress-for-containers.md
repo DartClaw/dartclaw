@@ -63,6 +63,9 @@ Add a third bridge surface, `registry`, served by a host-side registry mirror.
   `package.json` or lockfiles.
 - Registry metadata reveals which packages a task fetched; the audit log records them.
 - Very large artifacts (some prebuilt binaries) exceed the 64 MiB response cap.
+- A containerized `pub get` ignores a committed `pubspec.lock` whose hosted `url` differs from the mirror, writes
+  one naming `http://127.0.0.1:8082/pub`, and re-resolves dependencies, possibly to newer versions. This drift is
+  accepted; no host-side lockfile normalization or review hold is added.
 
 ## Alternatives Considered
 
@@ -79,13 +82,17 @@ Add a third bridge surface, `registry`, served by a host-side registry mirror.
 
 ## Implementation Notes
 
-- Bridge: add `BridgeSurface.registry`; the bridge binary exports the per-ecosystem environment variables pointing at
-  its loopback port. Verify whether the handshake needs a `bridgeProtocolVersion` bump or whether an unknown surface
-  already fails closed on both sides.
-- Host: a `RegistryBridgeSurface` beside `McpBridgeSurface`, with one adapter per ecosystem; `register` grants the
-  surface for `workspace` authorities.
-- To verify in the first story: pub's archive download origin and redirect chain from `pub.dev`, and whether npm's
-  default registry-host replacement already covers tarball URLs.
+- Bridge: `BridgeSurface.registry` uses loopback port 8082. Client environment is set at container creation by
+  `ContainerManager`, from the same positive `workspace` grant that selects the pipe. A bridge process cannot
+  export variables to a sibling provider process. The protocol version stays 1: only the surface enum grows,
+  no framing or handshake layout changes. A stale binary refuses `--surface=registry` and acquisition fails closed.
+- Host: `RegistryBridgeSurface` owns methods, header stripping, pinned redirects (at most five hops), limits,
+  metadata rewriting and audit. Each `RegistryAdapter` owns its routes, exact origin pins, metadata detection and
+  client variables; `SecurityWiring` registers each in one line.
+- Pub pins `https://pub.dev` only. Execution-time metadata for `test` 1.33.0 named a pub.dev archive; its HEAD
+  request returned 200 with zero redirects. The repository protocol permits redirects, so any later download
+  origin must be added as an exact pin after observation, never a wildcard. Decoded JSON metadata URLs are
+  rewritten to `/pub`; archive bytes are untouched. npm's registry-host replacement proof remains the next story's.
 - Docs in the same change: `dev/architecture/security-architecture.md` (§ Host-Owned Provider Mediation, threat
   table), `docs/guide/security.md` (the "Sole egress" bullet), and its diagram.
 

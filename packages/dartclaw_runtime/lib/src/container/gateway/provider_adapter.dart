@@ -8,6 +8,7 @@ import 'package:logging/logging.dart';
 import '../../codex_rejection.dart';
 import '../../task/codex_refresh_authority.dart' show CodexSubscriptionCredential;
 import 'gateway_models.dart';
+import 'bridge_headers.dart';
 
 /// What the gateway needs from a provider surface: it answers requests and owns
 /// an upstream client it must release.
@@ -263,7 +264,7 @@ abstract base class ProviderAdapter implements ProviderMediator {
       // Lowercased here rather than relying on the caller: the strip is this
       // adapter's own guarantee, and a producer that handed over raw header
       // casing would otherwise forward `X-Api-Key` untouched.
-      if (_droppedRequestHeaders.contains(entry.key.toLowerCase())) continue;
+      if (droppedRequestHeaders.contains(entry.key.toLowerCase())) continue;
       for (final value in entry.value) {
         outbound.headers.add(entry.key, value);
       }
@@ -273,7 +274,7 @@ abstract base class ProviderAdapter implements ProviderMediator {
   Map<String, List<String>> _responseHeaders(HttpClientResponse response) {
     final headers = <String, List<String>>{};
     response.headers.forEach((name, values) {
-      if (_droppedResponseHeaders.contains(name.toLowerCase())) return;
+      if (droppedResponseHeaders.contains(name.toLowerCase())) return;
       headers[name] = values;
     });
     return headers;
@@ -305,64 +306,6 @@ abstract base class ProviderAdapter implements ProviderMediator {
     final separator = target.indexOf('?');
     return separator == -1 ? null : target.substring(separator + 1);
   }
-
-  /// Client-supplied headers that must never reach the provider: credentials
-  /// the container should not be able to choose, routing headers that could
-  /// redirect the request, hop-by-hop headers the host re-derives, and any
-  /// framing the host did not apply — the body is forwarded as the plain JSON
-  /// the tool check read, so a declared encoding would describe other bytes.
-  static const _droppedRequestHeaders = {
-    'authorization',
-    // HttpClient negotiates gzip itself; forwarding br/zstd would leave encoded bytes it cannot decompress.
-    'accept-encoding',
-    'content-encoding',
-    'x-api-key',
-    'openai-api-key',
-    'api-key',
-    'proxy-authorization',
-    'cookie',
-    // The account the credential belongs to: the host sets it from the token it
-    // presents, and when that token carries none the container's own value
-    // would otherwise be the one the backend read.
-    'chatgpt-account-id',
-    'host',
-    'connection',
-    'keep-alive',
-    'transfer-encoding',
-    'upgrade',
-    'te',
-    'trailer',
-    'content-length',
-    'forwarded',
-    'x-forwarded-host',
-    'x-forwarded-for',
-    'x-forwarded-proto',
-  };
-
-  /// Upstream response headers that must never be written back down the pipe.
-  ///
-  /// The pipe is the only channel that enters a `network:none` container, so a
-  /// credential-bearing header an upstream, intermediary, or error page
-  /// reflected back would be handed straight into the boundary the rest of this
-  /// adapter exists to keep it out of. Dropped whether or not any known
-  /// upstream reflects one.
-  static const _droppedResponseHeaders = {
-    'authorization',
-    'x-api-key',
-    'proxy-authenticate',
-    // The client decoded the body on the way in (`autoUncompress`), so keeping
-    // the encoding headers would describe bytes that no longer exist.
-    'content-encoding',
-    'content-md5',
-    'connection',
-    'keep-alive',
-    'transfer-encoding',
-    'upgrade',
-    'te',
-    'trailer',
-    'content-length',
-    'set-cookie',
-  };
 }
 
 /// Anthropic Messages mediation for containerized Claude.

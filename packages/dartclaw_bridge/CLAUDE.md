@@ -21,6 +21,7 @@
   reverse direction does not exist: nothing here may know about sessions, providers, credentials, or policy.
 
 ## Conventions
+- The `provider`, `mcp` and `registry` surfaces share protocol version 1; the enum name in the handshake binds each pipe.
 - The bridge parses HTTP only far enough to produce frames. It never chooses an upstream, injects a credential, or
   interprets a body — the host binds destination and policy to the pipe. Keep it that way; a "small convenience" here
   moves authority into the container.

@@ -12,29 +12,35 @@ import coding_results
 from coding_results import baseline_error, command_result, git_commands, lockfile_after_run
 
 
+def _shell_call(command, result, *, name='shell', **metadata):
+    return {'name': name, 'arguments': json.dumps({'command': command}), 'result': result, **metadata}
+
+
 class AcceptanceCommandEvidenceTest(unittest.TestCase):
     def test_hashing_dart_sources_is_not_a_later_test_attempt(self):
-        success = {'name': 'shell', 'arguments': json.dumps({'command': '/bin/sh -lc \'dart test; result=$?; echo "DARTCLAW_ACCEPTANCE_EXIT=$result"; exit "$result"\''}),
-                   'result': 'All tests passed!\nDARTCLAW_ACCEPTANCE_EXIT=0\n'}
-        hashing = {'name': 'shell', 'arguments': json.dumps({'command': '/bin/sh -lc "sha256sum total.dart test/total_test.dart pubspec.lock"'}),
-                   'result': 'actual file hashes\n'}
+        success = _shell_call(
+            '/bin/sh -lc \'dart test; result=$?; echo "DARTCLAW_ACCEPTANCE_EXIT=$result"; exit "$result"\'',
+            'All tests passed!\nDARTCLAW_ACCEPTANCE_EXIT=0\n',
+        )
+        hashing = _shell_call(
+            '/bin/sh -lc "sha256sum total.dart test/total_test.dart pubspec.lock"',
+            'actual file hashes\n',
+        )
         self.assertEqual(command_result([success, hashing], 'dart test')['exit'], 0)
 
     def test_command_identity_respects_shell_boundaries(self):
-        success = {'name': 'shell', 'arguments': json.dumps({'command': 'dart test'}),
-                   'result': 'DARTCLAW_ACCEPTANCE_EXIT=0\n'}
+        success = _shell_call('dart test', 'DARTCLAW_ACCEPTANCE_EXIT=0\n')
         for script in ['echo dart test', 'printf "%s" "dart test"', 'sha256sum total.dart test/total_test.dart']:
             with self.subTest(script=script):
-                other = {'name': 'shell', 'arguments': json.dumps({'command': script}), 'result': 'not an acceptance command'}
+                other = _shell_call(script, 'not an acceptance command')
                 self.assertEqual(command_result([success, other], 'dart test')['exit'], 0)
         for script in ['dart test', 'cd /project && dart test', '/bin/sh -lc "dart test"', 'echo ready\ndart test']:
             with self.subTest(script=script):
-                attempted = {**success, 'arguments': json.dumps({'command': script}), 'result': 'terminated without marker'}
+                attempted = _shell_call(script, 'terminated without marker')
                 self.assertIsNone(command_result([success, attempted], 'dart test')['exit'])
 
     def test_malformed_shell_arguments_cannot_reuse_earlier_evidence(self):
-        success = {'name': 'shell', 'arguments': json.dumps({'command': 'dart test'}),
-                   'result': 'DARTCLAW_ACCEPTANCE_EXIT=0\n'}
+        success = _shell_call('dart test', 'DARTCLAW_ACCEPTANCE_EXIT=0\n')
         for arguments in [None, 'not JSON', '[]', '{}', '{"command": []}']:
             with self.subTest(arguments=arguments), self.assertRaisesRegex(RuntimeError, 'declared command object'):
                 command_result([success, {'name': 'shell', 'arguments': arguments}], 'dart test')
@@ -132,35 +138,35 @@ class AcceptanceCommandEvidenceTest(unittest.TestCase):
 
     def test_final_recorded_attempt_decides_the_outcome(self):
         calls = [
-            {'name': 'shell', 'arguments': json.dumps({'command': 'dart pub get'}), 'result': 'unreachable\nDARTCLAW_ACCEPTANCE_EXIT=1\n'},
-            {'name': 'shell', 'arguments': json.dumps({'command': 'dart pub get'}), 'result': 'installed\nDARTCLAW_ACCEPTANCE_EXIT=0\n'},
-            {'name': 'shell', 'arguments': json.dumps({'command': 'dart test'}), 'result': 'failed\nDARTCLAW_ACCEPTANCE_EXIT=1\n'},
+            _shell_call('dart pub get', 'unreachable\nDARTCLAW_ACCEPTANCE_EXIT=1\n'),
+            _shell_call('dart pub get', 'installed\nDARTCLAW_ACCEPTANCE_EXIT=0\n'),
+            _shell_call('dart test', 'failed\nDARTCLAW_ACCEPTANCE_EXIT=1\n'),
         ]
         self.assertEqual(command_result(calls, 'dart pub get')['exit'], 0)
         self.assertEqual(command_result(calls, 'dart test')['exit'], 1)
 
     def test_report_writes_cannot_supply_or_override_command_evidence(self):
-        success = {'name': 'Bash', 'arguments': json.dumps({'command': 'dart test'}), 'result': 'DARTCLAW_ACCEPTANCE_EXIT=0\n'}
+        success = _shell_call('dart test', 'DARTCLAW_ACCEPTANCE_EXIT=0\n', name='Bash')
         report = {'name': 'Write', 'arguments': '{"content":"dart test"}', 'result': 'report written'}
         self.assertEqual(command_result([success, report], 'dart test')['exit'], 0)
         self.assertIsNone(command_result([{**report, 'result': 'DARTCLAW_ACCEPTANCE_EXIT=0\n'}], 'dart test')['exit'])
 
     def test_latest_invalid_attempt_does_not_reuse_an_earlier_success(self):
-        success = {'name': 'shell', 'arguments': json.dumps({'command': 'dart test'}), 'result': 'DARTCLAW_ACCEPTANCE_EXIT=0\n'}
+        success = _shell_call('dart test', 'DARTCLAW_ACCEPTANCE_EXIT=0\n')
         for result in [
-            {'name': 'shell', 'arguments': json.dumps({'command': 'dart test'}), 'result': 'terminated before exit marker'},
-            {'name': 'shell', 'arguments': json.dumps({'command': 'dart test'}), 'result': 'DARTCLAW_ACCEPTANCE_EXIT=1\n', 'isTruncated': True},
-            {'name': 'shell', 'arguments': json.dumps({'command': 'dart test'}), 'result': 'DARTCLAW_ACCEPTANCE_EXIT=1\nDARTCLAW_ACCEPTANCE_EXIT=0\n'},
+            _shell_call('dart test', 'terminated before exit marker'),
+            _shell_call('dart test', 'DARTCLAW_ACCEPTANCE_EXIT=1\n', isTruncated=True),
+            _shell_call('dart test', 'DARTCLAW_ACCEPTANCE_EXIT=1\nDARTCLAW_ACCEPTANCE_EXIT=0\n'),
         ]:
             with self.subTest(result=result):
                 self.assertIsNone(command_result([success, result], 'dart test')['exit'])
 
     def test_missing_ambiguous_or_truncated_evidence_never_becomes_success(self):
         for call in [
-            {'name': 'shell', 'arguments': json.dumps({'command': 'dart test'}), 'result': 'All tests passed'},
-            {'name': 'shell', 'arguments': json.dumps({'command': 'dart test'}), 'result': 'DARTCLAW_ACCEPTANCE_EXIT=0\n', 'isTruncated': True},
-            {'name': 'shell', 'arguments': json.dumps({'command': 'dart test'}), 'result': 'DARTCLAW_ACCEPTANCE_EXIT=1\nDARTCLAW_ACCEPTANCE_EXIT=0\n'},
-            {'name': 'shell', 'arguments': json.dumps({'command': 'echo dart'}), 'result': 'DARTCLAW_ACCEPTANCE_EXIT=0\n'},
+            _shell_call('dart test', 'All tests passed'),
+            _shell_call('dart test', 'DARTCLAW_ACCEPTANCE_EXIT=0\n', isTruncated=True),
+            _shell_call('dart test', 'DARTCLAW_ACCEPTANCE_EXIT=1\nDARTCLAW_ACCEPTANCE_EXIT=0\n'),
+            _shell_call('echo dart', 'DARTCLAW_ACCEPTANCE_EXIT=0\n'),
         ]:
             with self.subTest(call=call):
                 self.assertIsNone(command_result([call], 'dart test')['exit'])

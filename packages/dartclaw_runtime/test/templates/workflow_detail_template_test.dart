@@ -29,6 +29,7 @@ void main() {
       WorkflowRunStatus.pending: (
         label: 'Pending',
         badgeClass: 'status-badge-pending',
+        metricColor: 'accent',
         terminal: false,
         progressOverride: null,
         meterFillClass: '',
@@ -39,6 +40,7 @@ void main() {
       WorkflowRunStatus.running: (
         label: 'Running',
         badgeClass: 'status-badge-running',
+        metricColor: 'accent',
         terminal: false,
         progressOverride: null,
         meterFillClass: '',
@@ -49,6 +51,7 @@ void main() {
       WorkflowRunStatus.paused: (
         label: 'Paused',
         badgeClass: 'status-badge-paused',
+        metricColor: 'warning',
         terminal: false,
         progressOverride: null,
         meterFillClass: 'meter-fill--warning',
@@ -59,6 +62,7 @@ void main() {
       WorkflowRunStatus.awaitingApproval: (
         label: 'Awaiting approval',
         badgeClass: 'status-badge-awaiting-approval',
+        metricColor: 'warning',
         terminal: false,
         progressOverride: null,
         meterFillClass: 'meter-fill--warning',
@@ -69,6 +73,7 @@ void main() {
       WorkflowRunStatus.completed: (
         label: 'Completed',
         badgeClass: 'status-badge-completed',
+        metricColor: 'accent',
         terminal: true,
         progressOverride: 100,
         meterFillClass: '',
@@ -79,6 +84,7 @@ void main() {
       WorkflowRunStatus.failed: (
         label: 'Failed',
         badgeClass: 'status-badge-failed',
+        metricColor: 'error',
         terminal: true,
         progressOverride: null,
         meterFillClass: 'meter-fill--error',
@@ -89,6 +95,7 @@ void main() {
       WorkflowRunStatus.cancelled: (
         label: 'Cancelled',
         badgeClass: 'status-badge-cancelled',
+        metricColor: 'warning',
         terminal: true,
         progressOverride: null,
         meterFillClass: 'meter-fill--warning',
@@ -208,6 +215,33 @@ void main() {
   }
 
   group('workflowDetailPageTemplate', () {
+    test('workflow status uses the matching metric tone', () {
+      for (final (status, label, color) in [
+        ('completed', 'Completed', 'accent'),
+        ('failed', 'Failed', 'error'),
+        ('awaitingApproval', 'Awaiting approval', 'warning'),
+      ]) {
+        final html = workflowDetailPageTemplate(
+          sidebarData: emptySidebar,
+          navItems: const [],
+          run: makeRun(status: status),
+          steps: makeSteps(),
+          contextEntries: const [],
+          loopInfo: const [],
+        );
+        expect(
+          html,
+          matches(
+            RegExp(
+              'class="card card-metric card-metric--$color">\\s*<div class="metric-value t-metric">$label</div>'
+              r'\s*<div class="metric-label"[^>]*>Status</div>',
+            ),
+          ),
+          reason: status,
+        );
+      }
+    });
+
     test('renders the workflow run identifier', () {
       const runId = '123e4567-e89b-12d3-a456-426614174000';
       final html = workflowDetailPageTemplate(
@@ -744,7 +778,9 @@ void main() {
       );
       expect(html, contains('research_output'));
       expect(html, contains('Some research findings'));
-      expect(html, contains('workflow-context-viewer'));
+      expect(html, contains('<button type="button" class="workflow-context-header" data-context-toggle=""'));
+      expect(html, contains('aria-expanded="false" aria-controls="workflow-context"'));
+      expect(html, contains('id="workflow-context" class="workflow-context-body" hidden'));
     });
 
     test('no context viewer when contextEntries is empty', () {

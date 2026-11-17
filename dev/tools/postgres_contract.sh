@@ -88,7 +88,8 @@ run_plain_lane() {
     cd "$root_dir/apps/dartclaw_cli"
     dart test --run-skipped -t integration --reporter=failures-only --concurrency=1 \
       test/commands/postgres_sanctioned_clients_live_test.dart \
-      test/commands/rebuild_index_command_postgres_live_test.dart
+      test/commands/rebuild_index_command_postgres_live_test.dart \
+      test/tool/seed_visual_profile_live_test.dart
   )
 
   dart run "$root_dir/dev/tools/contract_groups_check.dart" \

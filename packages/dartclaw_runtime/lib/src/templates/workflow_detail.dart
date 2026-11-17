@@ -22,6 +22,7 @@ import 'topbar.dart';
 typedef WorkflowRunPresentation = ({
   String label,
   String badgeClass,
+  String metricColor,
   bool terminal,
   int? progressOverride,
   String meterFillClass,
@@ -58,6 +59,7 @@ WorkflowRunPresentation workflowRunPresentation(WorkflowRunStatus status) {
   return (
     label: status == WorkflowRunStatus.awaitingApproval ? 'Awaiting approval' : titleCase(status.name),
     badgeClass: 'status-badge-$slug',
+    metricColor: failed ? 'error' : (warning ? 'warning' : 'accent'),
     terminal: completed || failed || status == WorkflowRunStatus.cancelled,
     progressOverride: completed ? 100 : null,
     meterFillClass: failed ? 'meter-fill--error' : (warning ? 'meter-fill--warning' : ''),
@@ -189,7 +191,7 @@ String workflowDetailPageTemplate({
   final startedAt = run['startedAt'];
   final durationDisplay = _formatDuration(startedAt, run['completedAt']);
   final metricsHtml = [
-    metricCardTemplate(color: 'accent', value: presentation.label, label: 'Status'),
+    metricCardTemplate(color: presentation.metricColor, value: presentation.label, label: 'Status'),
     metricCardTemplate(color: 'info', value: _formatTimeAgo(run['startedAt']), label: 'Started'),
     metricCardTemplate(
       color: 'warning',

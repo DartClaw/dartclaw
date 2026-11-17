@@ -263,9 +263,18 @@
       "id": "S08",
       "name": "Seeded visual profile",
       "dependsOn": [],
-      "status": "pending",
+      "status": "done",
       "fis": "s08-seeded-visual-profile.md",
-      "completedTaskIds": [],
+      "completedTaskIds": [
+        "TI01",
+        "TI02",
+        "TI03",
+        "TI04",
+        "TI05",
+        "TI06",
+        "TI07",
+        "TI08"
+      ],
       "scope": "`visual/run.sh` seeds its PostgreSQL through the server's storage layer with tasks (accepted, failed, review) and workflow runs (completed, failed, awaiting approval with a pending approval message, each with step tasks), so Tasks and Workflows render seeded content again; a test fails when the seed stops matching the schema, and the profile's docs describe only data it has.",
       "sourceRefs": [
         "dev/bundle/docs/specs/0.28.1/prd.md#fr10-seeded-visual-profile",
@@ -273,7 +282,11 @@
       ],
       "provenance": null,
       "assetRefs": [],
-      "sequencing": null
+      "sequencing": null,
+      "verified": {
+        "at": "2026-11-17T23:24Z",
+        "summary": "cd apps/dartclaw_cli && dart test --run-skipped -t integration test/tool/seed_visual_profile_live_test.dart -> exit=0, 00:01 +3: All tests passed!"
+      }
     },
     {
       "id": "S09",

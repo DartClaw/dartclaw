@@ -182,30 +182,14 @@ import { updateRunningWorkflowsSection } from './sidebar_sections.js';
     document.body.dataset.workflowDetailToggleInit = '1';
 
     document.addEventListener('click', (event) => {
-      const stepToggle = event.target.closest('[data-step-toggle]');
-      if (stepToggle) {
-        const stepCard = stepToggle.closest('.pipeline-step');
-        const detail = stepCard && stepCard.querySelector('.workflow-step-detail');
-        if (!detail) return;
-        const isHidden = detail.hidden;
-        detail.hidden = !isHidden;
-        stepToggle.setAttribute('aria-expanded', String(isHidden));
-        const icon = stepToggle.querySelector('.icon');
-        if (icon) {
-          icon.classList.toggle('icon-chevron-up', isHidden);
-          icon.classList.toggle('icon-chevron-down', !isHidden);
-        }
-        return;
-      }
-
-      const contextToggle = event.target.closest('[data-context-toggle]');
-      if (!contextToggle) return;
-      const viewer = contextToggle.closest('.workflow-context-viewer');
-      const body = viewer && viewer.querySelector('.workflow-context-body');
+      const toggle = event.target.closest('[data-step-toggle], [data-context-toggle]');
+      if (!toggle) return;
+      const body = document.getElementById(toggle.getAttribute('aria-controls'));
       if (!body) return;
       const isHidden = body.hidden;
       body.hidden = !isHidden;
-      const icon = contextToggle.querySelector('.icon');
+      toggle.setAttribute('aria-expanded', String(isHidden));
+      const icon = toggle.querySelector('.icon');
       if (icon) {
         icon.classList.toggle('icon-chevron-up', isHidden);
         icon.classList.toggle('icon-chevron-down', !isHidden);

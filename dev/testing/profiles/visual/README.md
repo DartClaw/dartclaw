@@ -29,14 +29,17 @@ The `plain` profile is intentionally minimal, but that means some major pages ar
 
 ## Seeded Coverage
 
-The profile inherits the stable seeded data from `plain` and adds just enough configuration to keep the full dashboard shell visible:
+The launcher copies the committed fixtures to a writable data directory, then seeds PostgreSQL before starting the server.
 
-- seeded sessions with real message history
-- seeded tasks and task-detail routes
+- committed chat sessions, message history, task artifacts and a canonical memory workspace
+- standalone Tasks in `accepted`, `failed` and `review`, with detail pages and linked task sessions
+- Workflows with the built-in definitions and runs in `completed`, `failed` and `awaitingApproval`, with step tasks and a pending plan approval message
 - scheduled prompt jobs plus one scheduled task template so `Health`, `Memory`, and `Tasks` remain visible
 - one config-defined project (`visual-demo`) so `/projects` renders meaningful content
-- workflow management enabled so `/workflows` shows the built-in workflow definitions
-- WhatsApp, Signal, and Google Chat enabled in config so the sidebar channels entry, `/settings` channel cards, `/settings/channels/<type>` detail pages, and the `/whatsapp/pairing` + `/signal/pairing` routes all render their disconnected/unpaired UI. Their executables point at unresolvable paths and their ports at values no other profile uses, so each channel's connect attempt fails and no sidecar process is launched when the server starts. The ports matter: the sidecar managers attach to an already-reachable service before spawning, so reusing the `channels` profile's ports would let this profile connect for real. Startup therefore logs two expected `SEVERE` records (`Failed to spawn GOWA process` / `Failed to connect channel whatsapp`, and the signal-cli equivalents) — that is the profile working as intended, not a failure.
+- WhatsApp, Signal and Google Chat enabled in config so the sidebar, channel settings and pairing pages render in
+  disconnected or unpaired states. WhatsApp and Signal use unused ports because their sidecar managers attach to
+  a reachable service before spawning. Their configured executables are deliberately absent, so each logs an expected
+  spawn failure and connection failure at startup.
 
 ## Scope Boundary
 

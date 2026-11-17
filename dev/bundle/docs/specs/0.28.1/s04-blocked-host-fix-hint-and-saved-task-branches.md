@@ -127,3 +127,7 @@ Paths are relative to the public repo root (`../dartclaw-public/` from the priva
 - **TI04** The docs state the behavior: one sentence in `docs/guide/projects-and-git.md` saying where a cancelled task's work is kept (unmerged commits on `dartclaw/task-<id>`, uncommitted changes in the worktree directory), `task-execution-architecture.md` § 5.1 `cleanup` bullet (squash accept force-deletes the task branch), and CHANGELOG § 0.28.1: one entry for the hint and one Fixed entry for the squash-accept branch (no story IDs).
   - **Verify**: `cmd: git grep -n "dartclaw/task-" -- docs/guide/projects-and-git.md` – the sentence is present; `cmd: git grep -n -i "squash" -- CHANGELOG.md dev/architecture/task-execution-architecture.md` – both name the squash-accept branch deletion.
   - **SATISFIES**: S04, S06
+
+## Discovered Requirements
+
+- **Preserve review ownership during cleanup**. **Description**: S03 made `TaskReviewService.review` require an explicit trigger and added a held result before merge/push. Execution-surface holds require a person; an agent tool remains automatic even in an admin chat. **Rationale**: The accept path changed after this FIS was authored. **Interpretation**: Keep the hold and hook-free commit gates ahead of the successful local squash cleanup; a held accept must retain its branch. Use explicit person provenance in manual-accept tests and preserve host-owned workflow approval markers if touching those paths. **Traced from**: S03/TI02, S03/TI03, S03/TI07. **Date**: 2026-11-17.

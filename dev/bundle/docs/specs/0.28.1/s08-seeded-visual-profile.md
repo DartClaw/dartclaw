@@ -137,3 +137,7 @@ Paths are relative to the public repo root (`../dartclaw-public/` from the priva
 ## Final Validation Checklist
 
 - Run `bash dev/testing/profiles/visual/run.sh`, then with the token from `dev/testing/profiles/visual/data/gateway_token` open `/tasks`, each seeded task's detail, `/workflows` and each seeded run's detail (visual validation per `dev/guidelines/VISUAL-VALIDATION-WORKFLOW.md`). Every state in S01 and S02 is visible, no page shows a missing-state fallback, the awaiting run shows its approval message, `/tasks/8e7eeab8-8e32-4f14-8687-0378f4591b2e` renders, and server startup logs no schema or seed error.
+
+## Discovered Requirements
+
+- **Seed authority**. **Description**: S03 exposes an execution-surface task hold through internal `configJson` and protects workflow approval markers from step outputs; public task input still rejects client underscore keys. **Rationale**: The seed runs after those ownership guards exist. **Interpretation**: Use the server storage layer as specified. If a fixture needs an internal task hold, write it through host-owned storage, never client input or model-result merge. Do not add a new seeded state: the existing accepted/failed/review and completed/failed/awaitingApproval scope remains. **Traced from**: S03/TI04, S03/TI07. **Date**: 2026-11-17.

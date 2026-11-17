@@ -200,3 +200,7 @@ The executed copies of the story FIS files, with their `## Implementation Observ
 ## Final Validation Checklist
 
 - Render `system-containers.svg` and `tasks-accept-flow.svg` in both themes per `diagrams/README.md` and look at them: no clipped text, no edge through a box, the new node and decision legible.
+
+## Discovered Requirements
+
+- **Package instruction fitness wording**. **Description**: Update `apps/dartclaw_cli/CLAUDE.md:6` (dependency check "fails CI"), `packages/dartclaw_testing/CLAUDE.md:6` ("now fails CI rather than review") and `packages/dartclaw_workflow/CLAUDE.md:45` ("A CI fitness gate") to name the local fitness gate. **Rationale**: S01 moved fitness out of GitHub Checks; these generic claims were outside its explicit documentation work areas. **Interpretation**: Include these mechanical wording corrections in this story's cross-cutting documentation coherence pass; gate behavior is unchanged. **Traced from**: S01/TI07. **Date**: 2026-11-17.

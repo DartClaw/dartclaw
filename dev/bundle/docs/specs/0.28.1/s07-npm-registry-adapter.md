@@ -194,6 +194,8 @@ Paths are relative to the public repo root (`../dartclaw-public/` from the priva
 
 - **Make the existing fixture contract visible before review chooses tools**. **Description**: In the third matrix the provider selected an unrelated review skill, reached inaccessible Git metadata, and requested approval before reading the generated FIS. **Rationale**: The FIS already carries both qualification provisions. Additional wording inside that file has no effect if the reviewer exits before opening it. **Interpretation**: Seed a short fixture-only pointer through the normal provider project instruction files before the disposable project's first commit. It orders review and ship to open the generated FIS before selecting tools. The story and FIS remain the authority for the fixture protocol. Preserve the normal workflow, artifacts, model decision, approvals, provider homes and mounts. **Traced from**: TI07, run `8b4921f8-9913-43d3-9a35-4d1656073c5c` and plan session Resolution Ladder rungs 2 and 4. **Date**: 2026-11-17.
 
+- **Inherited host allowlist is a separate concern**. **Description**: A post-completion positive scan found `registry.npmjs.org` already in `packages/dartclaw_kernel/lib/src/network_guard.dart:104` before S07. TI01's quoted `packages/*/lib` pathspec selects no paths, so its empty output is not namespace evidence. **Rationale**: SC01's repository-wide literal prohibition overlooked the existing host allowlist, while SC02 explicitly forbids kernel changes and ADR-062 separates registry pins from NetworkGuard policy. **Interpretation**: Resolution Ladder rung 2 preserves the host allowlist and reads SC01 as the new registry ecosystem knowledge owner. A shell-expanded fixed-string scan verifies the only new matches are in NpmRegistryAdapter; the kernel match is unchanged. Record the immutable criterion/proof mismatch as spec-stale and recommend canonical reconciliation, without changing runtime policy or weakening refusal tests. **Traced from**: S07/SC01, TI01 and SC02; mandatory simplification pass. **Date**: 2026-11-18.
+
 ## Implementation Observations
 
 ### Adapter, cache and bound tests
@@ -312,3 +314,9 @@ Each selector was run through the documented run-one-test command. The path pref
 - Inherited lifecycle: the exact profile captured actual phases, worktree artifacts, fixture and image hashes and teardown, distinguishing installed provider skills from the auth-clean fixture's available tools.
 - Inherited person-owned execution holds: the three red attempts preserved model-requested approval and strict command evidence. The fixture repairs changed evidence visibility and command instructions, and the unchanged workflow and guards enforce mandatory person-owned decisions.
 - Inherited toolchain settings: actual recipe images retain their S05 layers and config, and the pinned npm probe and measured caches support the existing toolchain recipes within the 100 MiB tmpfs.
+
+- Post-completion proof correction: `git grep -n -i -F -e npm_config -e registry.npmjs.org -- packages/*/lib` returns the unchanged kernel allowlist line plus three NpmRegistryAdapter lines. The same expanded scan at `d33b3e1ef^` returns only the kernel line. The quoted pathspec's inner grep exits 1 with no matches. The actual positive path-set comparison, not that empty grep, verifies new ecosystem ownership. No source or live-proof input changed; the earlier namespace-verification claim is limited by this correction.
+
+#### DRIFT
+
+- spec-stale: SC01's all-package literal ban overlooks the inherited NetworkGuard host allowlist, and TI01's quoted pathspec is vacuous | Stale targets: SC01 and TI01 Verify in this FIS and its canonical copy | –

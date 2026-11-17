@@ -151,6 +151,10 @@ The task executor requests a worker for the task's exact provider and effective 
 `restricted` task will only run on a `restricted`-profile runner. Workers start lazily; each task container is
 dedicated to that task execution and destroyed when its turn ends.
 
+`GET /api/tasks/<id>` reports the execution's resolved container profile under
+`agentExecution.containerJson`, for example `{"profile":"workspace"}`. That field is absent for host execution.
+Workflow work and finalizer turns also retain their tool arguments and results in `GET /api/traces?taskId=<id>`.
+
 A container task can only run on a provider whose container execution DartClaw mediates – `claude` and `codex`.
 An ACP provider runs on the host only: set the scalar `tasks.execution: host`, or the task lane is refused before it
 starts rather than quietly running unisolated. A declared container profile cannot be combined with host execution.

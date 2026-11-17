@@ -149,6 +149,12 @@ void main() {
     expect((await first.workflowService.get(run.id))?.status, WorkflowRunStatus.completed);
     await first.shutdown();
 
+    final checkpoint = await FileExecutionStore.open(config.standaloneExecutionPath);
+    final persistedTraces = await TurnTraceService.file(checkpoint).query();
+    await checkpoint.close();
+    expect(persistedTraces.traces, hasLength(1));
+    expect(persistedTraces.traces.single.provider, 'claude');
+
     final second = await (await stage()).completeForLifecycle();
     addTearDown(second.shutdown);
     expect((await second.workflowService.get(run.id))?.status, WorkflowRunStatus.completed);

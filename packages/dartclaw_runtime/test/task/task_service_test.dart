@@ -295,6 +295,23 @@ void main() {
   });
 
   group('updateFields', () {
+    test('persists container placement on the agent execution', () async {
+      final task = await service.create(id: 'placement', title: 'Task', description: 'Work', provider: 'codex');
+      await service.updateFields(task.id, sessionId: 'placement-session');
+      await service.updateFields(task.id, containerJson: '{"profile":"workspace"}');
+
+      final execution = await agentExecutions.get(task.agentExecutionId!);
+      expect(execution?.containerJson, '{"profile":"workspace"}');
+      expect(execution?.sessionId, 'placement-session');
+      expect(execution?.provider, 'codex');
+      expect((await service.get(task.id))?.agentExecution?.containerJson, '{"profile":"workspace"}');
+
+      await service.updateFields(task.id, title: 'Updated');
+      expect((await service.get(task.id))?.agentExecution?.containerJson, '{"profile":"workspace"}');
+      await service.updateFields(task.id, containerJson: null);
+      expect((await agentExecutions.get(task.agentExecutionId!))?.containerJson, isNull);
+    });
+
     test('updates title', () async {
       await repo.insert(_task());
 

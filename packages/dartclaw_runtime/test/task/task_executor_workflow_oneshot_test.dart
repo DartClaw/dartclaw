@@ -9,7 +9,7 @@ import 'package:dartclaw_runtime/src/turn_manager.dart' show TurnManager;
 import 'package:dartclaw_runtime/src/turn_runner.dart' show TurnRunner, TurnRunnerCancellation;
 import 'package:dartclaw_runtime/src/turn_wait_status.dart' show TurnCancelReason;
 import 'package:dartclaw_testing/dartclaw_testing.dart'
-    show FakeAgentHarness, InMemoryTaskEventService, InMemoryWorkflowStepExecutionRepository;
+    show FakeAgentHarness, InMemoryTaskEventService, InMemoryTurnTraceService, InMemoryWorkflowStepExecutionRepository;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show WorkflowTaskConfig, executionEnvelopeMarkerKey, executionEnvelopeVersion, verdictPreset;
 import 'package:fake_async/fake_async.dart';
@@ -296,6 +296,34 @@ void main() {
     expect(sessionCost['turn_count'], 4);
     expect(sessionCost['input_tokens'], 1000);
     expect(sessionCost['output_tokens'], 100);
+  });
+
+  test('workflow turn traces retain work and finalizer results', () async {
+    final traces = InMemoryTurnTraceService();
+    addTearDown(traces.dispose);
+    executor = context.buildExecutor(
+      turnManager: TurnManager.fromCoordinator(turnLimits: const TurnLimitsConfig.defaults(), coordinator: executions),
+      traceService: traces,
+    );
+    await createStep('traced-step', structuredSchema: _summaryEnvelopeSchema);
+    await executor.pollOnce();
+    await harness.turnInvoked.timeout(const Duration(seconds: 3));
+    harness.emit(ToolUseEvent(toolId: 'install', toolName: 'Bash', input: {'command': 'dart pub get'}));
+    harness.emit(ToolResultEvent(toolId: 'install', output: 'DARTCLAW_ACCEPTANCE_EXIT=127\n', isError: true));
+    await pumpEventQueue();
+    harness.completeSuccess(const TurnResult(inputTokens: 100, providerSessionId: 'native'));
+    await harness.turnInvoked.timeout(const Duration(seconds: 3));
+    harness.completeSuccess(TurnResult(inputTokens: 10, structuredOutput: _finalizerEnvelopeOutput));
+    await executor.drain();
+
+    expect((await context.tasks.get('traced-step'))?.status, TaskStatus.review);
+    final recorded = await traces.query(taskId: 'traced-step');
+    expect(recorded.traces, hasLength(2));
+    expect(recorded.summary.totalInputTokens, 110);
+    final call = recorded.traces.expand((trace) => trace.toolCalls).single;
+    expect(call.result, 'DARTCLAW_ACCEPTANCE_EXIT=127\n');
+    expect(call.arguments, contains('dart pub get'));
+    expect(call.success, isFalse);
   });
 
   test('failed final ledger write leaves a sticky workflow receipt before the next follow-up', () async {
@@ -667,7 +695,11 @@ void main() {
     final factory = HarnessFactory()
       ..register(
         'claude',
-        (_) => FakeAgentHarness(supportsStructuredOutput: true, supportsProviderSessionResume: true),
+        (_) => FakeAgentHarness(
+          supportsStructuredOutput: true,
+          supportsProviderSessionResume: true,
+          supportsSessionContinuity: true,
+        ),
       );
     final eventService = await useEventRecorder(harnessFactory: factory);
     await createStep('missing-session', structuredSchema: _summaryEnvelopeSchema);
@@ -678,6 +710,48 @@ void main() {
     final failure = (await eventService.listForTask('missing-session'))
         .singleWhere((event) => event.kind.name == 'structuredOutputValidationFailed');
     expect(failure.details['failureReason'], 'missing_provider_session');
+  });
+
+  for (final continuity in [true, false]) {
+    test('non-durable finalizer requires live session continuity ($continuity)', () async {
+      harness = FakeAgentHarness(supportsOutputSchemaConstraint: true, supportsSessionContinuity: continuity);
+      await createStep('live-finalizer', structuredSchema: _summaryEnvelopeSchema);
+      await executor.pollOnce();
+      await harness.turnInvoked.timeout(const Duration(seconds: 3));
+      final requestedDurableSession = harness.lastRequestProviderSessionResume;
+      final sessionId = harness.lastSessionId;
+      harness.emit(DeltaEvent('Work completed'));
+      harness.completeSuccess(const TurnResult());
+      final finalizerInvoked = await Future.any([
+        harness.turnInvoked.then((_) => true),
+        executor.drain().then((_) => false),
+      ]);
+      if (finalizerInvoked) {
+        expect(harness.lastSessionId, sessionId);
+        expect(harness.lastProviderSessionId, isNull);
+        expect(harness.lastRequestProviderSessionResume, isFalse);
+        harness.emit(DeltaEvent(jsonEncode(_finalizerEnvelopeOutput)));
+        harness.completeSuccess(const TurnResult());
+      }
+      await executor.drain();
+
+      expect(requestedDurableSession, isFalse);
+      expect(finalizerInvoked, continuity);
+      expect((await context.tasks.get('live-finalizer'))?.status, continuity ? TaskStatus.review : TaskStatus.failed);
+    });
+  }
+
+  test('non-durable workflow refuses an explicit persisted provider session', () async {
+    harness = FakeAgentHarness(supportsOutputSchemaConstraint: true, supportsSessionContinuity: true);
+    await createStep('unsupported-resume', structuredSchema: _summaryEnvelopeSchema, providerSessionId: 'persisted');
+    await executor.pollOnce();
+    final invoked = await Future.any([harness.turnInvoked.then((_) => true), executor.drain().then((_) => false)]);
+    if (invoked) {
+      harness.completeSuccess(const TurnResult(stopReason: 'error', error: 'Unexpected provider call'));
+    }
+    await executor.drain();
+    expect(invoked, isFalse);
+    expect((await context.tasks.get('unsupported-resume'))?.status, TaskStatus.failed);
   });
 
   test('one same-session re-ask recovers a missing envelope', () async {

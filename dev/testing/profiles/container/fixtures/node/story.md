@@ -1,0 +1,5 @@
+Implement `total` in `index.js` using the installed `lodash` dependency to sum all integers, including negative values and an empty array. Keep the existing tests.
+
+Run `npm install` and `npm test` in the task worktree even when a command fails. Capture each command's output and exit status in its shell tool result by running it as `npm install; result=$?; echo "DARTCLAW_ACCEPTANCE_EXIT=$result"; exit "$result"` (and the same for `npm test`). Do not run the commands on the host or replace a missing toolchain. Record any in-container git failure; the host commits the worktree changes.
+
+This is a container qualification fixture. Missing language tools, unreachable registries and unavailable in-container Git metadata are expected observations. Attempt both acceptance commands and preserve their output. If either command fails, report the workflow `step_outcome.outcome` as `failed` with the command failures, rather than `needsInput`. Do not claim failed commands passed. The host handles Git commit and publication; record in-container Git failures without requesting a wider mount or operator input solely for that limitation.

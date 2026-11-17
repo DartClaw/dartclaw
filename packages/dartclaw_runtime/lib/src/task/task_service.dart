@@ -255,6 +255,7 @@ class TaskService implements WorkflowTaskService {
   ///
   /// Use [clearSessionId] to explicitly clear the session ID (e.g., on retry).
   /// Use [retryCount] to update the retry attempt counter.
+  /// Omitting [containerJson] retains placement; passing `null` clears it.
   Future<Task> updateFields(
     String taskId, {
     String? title,
@@ -262,6 +263,7 @@ class TaskService implements WorkflowTaskService {
     String? acceptanceCriteria,
     Map<String, dynamic>? configJson,
     Object? sessionId = _sentinel,
+    Object? containerJson = _sentinel,
     Map<String, dynamic>? worktreeJson,
     String? projectId,
     int? retryCount,
@@ -273,13 +275,20 @@ class TaskService implements WorkflowTaskService {
 
     final resolvedSessionId = identical(sessionId, _sentinel) ? task.sessionId : sessionId as String?;
     final currentExecution = task.agentExecution;
+    final resolvedContainerJson = identical(containerJson, _sentinel)
+        ? currentExecution?.containerJson
+        : containerJson as String?;
     final fallbackExecutionId = task.agentExecutionId ?? 'legacy-ae:${task.id}';
-    final nextExecution = identical(sessionId, _sentinel)
+    final nextExecution = identical(sessionId, _sentinel) && identical(containerJson, _sentinel)
         ? currentExecution
-        : currentExecution?.copyWith(sessionId: resolvedSessionId) ??
-              (resolvedSessionId == null
+        : currentExecution?.copyWith(sessionId: resolvedSessionId, containerJson: resolvedContainerJson) ??
+              (resolvedSessionId == null && resolvedContainerJson == null
                   ? null
-                  : AgentExecution(id: fallbackExecutionId, sessionId: resolvedSessionId));
+                  : AgentExecution(
+                      id: fallbackExecutionId,
+                      sessionId: resolvedSessionId,
+                      containerJson: resolvedContainerJson,
+                    ));
 
     final updated = task.copyWith(
       title: title,

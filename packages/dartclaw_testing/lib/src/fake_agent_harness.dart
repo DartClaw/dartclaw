@@ -15,6 +15,7 @@ class FakeAgentHarness extends AgentHarness {
   final bool _supportsOutputSchemaConstraint;
   final bool _supportsNoWorkTools;
   final bool _supportsProviderSessionResume;
+  final bool _supportsSessionContinuity;
   WorkerState _state;
   Completer<TurnResult>? _turnCompleter;
   Completer<void> _turnInvokedCompleter = Completer<void>();
@@ -35,6 +36,7 @@ class FakeAgentHarness extends AgentHarness {
     bool supportsOutputSchemaConstraint = false,
     bool supportsNoWorkTools = false,
     bool supportsProviderSessionResume = false,
+    bool supportsSessionContinuity = false,
     StreamController<BridgeEvent>? eventsController,
   }) : _promptStrategy = promptStrategy,
        _state = initialState,
@@ -47,6 +49,7 @@ class FakeAgentHarness extends AgentHarness {
        _supportsOutputSchemaConstraint = supportsOutputSchemaConstraint,
        _supportsNoWorkTools = supportsNoWorkTools,
        _supportsProviderSessionResume = supportsProviderSessionResume,
+       _supportsSessionContinuity = supportsSessionContinuity,
        _eventsController = eventsController ?? StreamController<BridgeEvent>.broadcast();
 
   /// Whether [start] has been called.
@@ -133,6 +136,9 @@ class FakeAgentHarness extends AgentHarness {
 
   @override
   bool get supportsProviderSessionResume => _supportsProviderSessionResume;
+
+  @override
+  bool get supportsSessionContinuity => _supportsSessionContinuity;
 
   @override
   WorkerState get state => _state;

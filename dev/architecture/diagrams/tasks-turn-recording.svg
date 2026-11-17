@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 632" width="1000" height="632" role="img" aria-labelledby="title desc">
   <title id="title">Turn outcome to task events, traces and runner metrics</title>
-  <desc id="desc">A turn's TurnOutcome reaches two consumers. TaskExecutor awaits tokenUpdate and toolCalled events into task_events, then persists a turn trace without awaiting it. ExecutionCoordinator forwards every runner turn as turnSettled to RunnerObserver, which fires runner state events. Workflow-owned tasks skip the TaskExecutor block.</desc>
+  <desc id="desc">TaskExecutor awaits tokenUpdate and toolCalled events for ordinary tasks and persists their trace asynchronously. Workflow turns await the same trace writer through a per-turn callback. ExecutionCoordinator forwards every runner turn as turnSettled to RunnerObserver.</desc>
   <style>
 
     svg { --bg:#f6f7f9; --card:#ffffff; --ink:#1e2030; --ink2:#4c4f69; --ink3:#6c6f85; --rule:#ccd0da; --edge:#8c8fa1; --hi:#1e66f5; --on:#ffffff; --panel:#1e1e2e; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
@@ -91,10 +91,10 @@
 
   <text class="kick" x="24" y="32">DATA FLOW · TurnOutcome → TaskEventRecorder</text>
   <text class="title" x="24" y="58">Turn outcome to task events, traces and runner metrics</text>
-  <text class="lede" x="24" y="80">Recording happens when the turn completes, not while it streams. Events are awaited, the trace is not.</text>
+  <text class="lede" x="24" y="80">Ordinary tasks await events and write traces asynchronously. Workflow turns await the same trace writer.</text>
 
   <g class="k-host"><rect class="band" x="16" y="236" width="470" height="132" rx="14"/><text class="kick" x="32" y="258">RUNNER METRICS · EVERY RUNNER TURN</text></g>
-  <g class="k-host"><rect class="band" x="530" y="96" width="454" height="398" rx="14"/><text class="kick" x="546" y="118">TaskExecutor · ORDINARY TASK TURNS ONLY</text></g>
+  <g class="k-host"><rect class="band" x="530" y="96" width="454" height="398" rx="14"/><text class="kick" x="546" y="118">TaskExecutor · TASK TURN RECORDING</text></g>
 
   <g class="edges">
     <g class="e  f-harness t-runner"><path d="M174,171 H248"/><text class="el" x="211" y="164" text-anchor="middle">BridgeEvents</text></g>
@@ -102,8 +102,8 @@
     <g class="e  f-runner t-coord"><path d="M360,212 V268"/><text class="el" x="368" y="228" text-anchor="start">terminal outcome</text></g>
     <g class="e  f-coord t-observer"><path d="M248,308 H176"/><text class="el" x="212" y="301" text-anchor="middle">turnSettled</text></g>
     <g class="e  f-observer t-bus"><path d="M99,352 V406"/><text class="el" x="107" y="388" text-anchor="start">RunnerStateChangedEvent</text></g>
-    <g class="e main f-exec t-recorder"><path d="M650,212 V268"/><text class="el" x="658" y="242" text-anchor="start">awaited</text></g>
-    <g class="e dash f-exec t-trace"><path d="M865,212 V268"/><text class="el" x="873" y="242" text-anchor="start">unawaited</text></g>
+    <g class="e main f-exec t-recorder"><path d="M650,212 V268"/><text class="el" x="658" y="242" text-anchor="start">ordinary tasks</text></g>
+    <g class="e f-exec t-trace"><path d="M865,212 V268"/><text class="el" x="873" y="232" text-anchor="start">workflow: await</text><text class="el" x="873" y="248" text-anchor="start">task: async</text></g>
     <g class="e  f-recorder t-events"><path d="M690,352 V406"/><text class="el" x="698" y="380" text-anchor="start">insert</text></g>
     <g class="e  f-recorder t-bus"><path d="M580,352 V380 H430 V406"/><text class="el" x="480" y="373" text-anchor="middle">after insert</text></g>
     <g class="e  f-trace t-turns"><path d="M865,352 V406"/><text class="el" x="873" y="380" text-anchor="start">insert</text></g>
@@ -127,9 +127,9 @@
   <a href="../task-execution-architecture.md#34-execution-core"><g class="n solid k-host" id="exec">
     <rect class="box" x="546" y="130" width="422" height="82" rx="9"/>
     <text class="name mono-name" x="558" y="153">TaskExecutor</text>
-    <text class="sub" x="558" y="171">after waitForOutcome and waitForExecutionSettled</text>
-    <text class="sub" x="558" y="187">record, step 9 of _executeCore</text>
-    <g class="d"><text class="p1" x="36" y="584"><tspan class="b">TaskExecutor</tspan> · token and tool events are awaited before the trace write starts, so durable events precede the best-effort trace</text><text class="p2" x="36" y="604">Workflow-owned turns skip this block: no tokenUpdate or toolCalled events and no trace. Runner metrics still come from the coordinator.</text></g>
+    <text class="sub" x="558" y="171">ordinary task outcome or workflow per-turn callback</text>
+    <text class="sub" x="558" y="187">one _persistTrace writer for both paths</text>
+    <g class="d"><text class="p1" x="36" y="584"><tspan class="b">TaskExecutor</tspan> · ordinary task token and tool events precede its best-effort trace; workflow turns call the same writer</text><text class="p2" x="36" y="604">Workflow steps skip tokenUpdate/toolCalled events and await a trace for each work, follow-up and finalizer turn.</text></g>
   </g></a>
   <a href="../control-protocol.md#62-execution-allocation"><g class="n tint k-host" id="coord">
     <rect class="box" x="250" y="270" width="220" height="82" rx="9"/>
@@ -160,8 +160,9 @@
     <rect class="box" x="762" y="270" width="206" height="82" rx="9"/>
     <g class="step"><circle cx="782" cy="292" r="10"/><text x="782" y="296">2</text></g>
     <text class="name mono-name" x="800" y="293">TurnTraceService</text>
-    <text class="sub" x="800" y="311">_persistTrace, unawaited;</text>
-    <text class="sub" x="800" y="327">failure is only logged</text>
+    <text class="sub" x="774" y="311">workflow: awaited</text>
+    <text class="sub" x="774" y="327">ordinary task: unawaited</text>
+    <text class="sub" x="774" y="343">failure is logged</text>
     <g class="d"><text class="p1" x="36" y="584"><tspan class="b">TurnTraceService</tspan> · TaskExecutor._persistTrace builds the TurnTrace from the outcome; the only producer; failed turns are traced too</text><text class="p2" x="36" y="604">model is the task's override, not the resolved model; tool calls are stored as a JSON envelope (records, count, failedCount, truncated).</text></g>
   </g></a>
   <a href="../task-execution-architecture.md#73-observability-pipeline"><g class="n tint k-host" id="bus">

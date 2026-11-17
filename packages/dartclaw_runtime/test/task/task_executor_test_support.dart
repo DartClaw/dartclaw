@@ -383,6 +383,7 @@ final class WorkflowTaskExecutorTestContext {
     HarnessFactory? harnessFactory,
     EventBus? eventBus,
     ExecutionPolicyResolver? policyResolver,
+    TurnTraceService? traceService,
     Duration pollInterval = const Duration(milliseconds: 10),
     String? currentDirectory,
   }) {
@@ -398,6 +399,7 @@ final class WorkflowTaskExecutorTestContext {
       onAutoAccept: onAutoAccept,
       limits: limits,
       policyResolver: policyResolver,
+      traceService: traceService,
       pollInterval: pollInterval,
       currentDirectory: currentDirectory,
     );

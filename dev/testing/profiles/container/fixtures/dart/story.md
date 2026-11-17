@@ -1,0 +1,5 @@
+Implement `total` in `total.dart` to sum all integers, including negative values and an empty iterable. Keep the existing tests.
+
+Run `dart pub get` and `dart test` in the task worktree even when a command fails. Capture each command's output and exit status in its shell tool result by running it as `dart pub get; result=$?; echo "DARTCLAW_ACCEPTANCE_EXIT=$result"; exit "$result"` (and the same for `dart test`). Do not run the commands on the host or replace a missing toolchain. Record any in-container git failure; the host commits the worktree changes.
+
+This is a container qualification fixture. Missing language tools, unreachable registries and unavailable in-container Git metadata are expected observations. Attempt both acceptance commands and preserve their output. If either command fails, report the workflow `step_outcome.outcome` as `failed` with the command failures, rather than `needsInput`. Do not claim failed commands passed. The host handles Git commit and publication; record in-container Git failures without requesting a wider mount or operator input solely for that limitation.

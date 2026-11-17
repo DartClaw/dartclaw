@@ -44,6 +44,7 @@ final class WorkspaceSkillLinker {
   final WorkspaceGitDirResolver _gitDirResolver;
   final bool _symlinksEnabled;
 
+  /// Copies managed payloads when [symlinksEnabled] is false, so they remain readable without the source directory.
   new({
     WorkspaceLinkFactory? linkFactory,
     WorkspaceDirectoryCopier? directoryCopier,
@@ -101,7 +102,7 @@ final class WorkspaceSkillLinker {
     final destination = FileSystemEntity.typeSync(destinationPath, followLinks: false);
     if (destination == FileSystemEntityType.link) {
       final link = Link(destinationPath);
-      if (p.normalize(p.absolute(link.targetSync())) == p.normalize(targetPath)) return;
+      if (_symlinksEnabled && p.normalize(p.absolute(link.targetSync())) == p.normalize(targetPath)) return;
       link.deleteSync();
     } else if (destination != FileSystemEntityType.notFound) {
       final managed = _hasManagedMarker(destinationPath);
@@ -119,7 +120,7 @@ final class WorkspaceSkillLinker {
     }
 
     Directory(p.dirname(destinationPath)).createSync(recursive: true);
-    if (Platform.isWindows && !_symlinksEnabled) {
+    if (!_symlinksEnabled) {
       copyFallback();
       _writeManagedMarker(destinationPath, sourcePath);
       return;

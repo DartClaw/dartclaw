@@ -77,9 +77,19 @@
       "id": "S02",
       "name": "Live containerized workflow proof",
       "dependsOn": [],
-      "status": "pending",
+      "status": "done",
       "fis": "s02-live-containerized-workflow-proof.md",
-      "completedTaskIds": [],
+      "completedTaskIds": [
+        "TI01",
+        "TI02",
+        "TI03",
+        "TI04",
+        "TI05",
+        "TI06",
+        "TI07",
+        "TI08",
+        "TI09"
+      ],
       "scope": "Walking skeleton of the containerized coding flow: run `implement-story` live with its agent steps in `workspace` containers against a Dart and a Node fixture, with Claude Code and with Codex, as one re-runnable scenario; record container placement in `agent_executions.container_json`; record which install and test commands fail; fix any defect in the container step path that is not a missing toolchain or registry access, adding no writable mount beyond the task's own worktree. Recheck once, with the stored-subscription Codex home in effect, host and container mode, where DartClaw's Codex rollouts land, and fix any spawn that ignores it.",
       "sourceRefs": [
         "dev/bundle/docs/specs/0.28.1/prd.md#fr3-live-containerized-workflow-step",
@@ -88,7 +98,11 @@
       ],
       "provenance": null,
       "assetRefs": [],
-      "sequencing": "First of the containerized-coding stories by roadmap order: its recorded failures are the acceptance baseline for S05–S07."
+      "sequencing": "First of the containerized-coding stories by roadmap order: its recorded failures are the acceptance baseline for S05–S07.",
+      "verified": {
+        "at": "2026-11-17T16:22Z",
+        "summary": "DARTCLAW_CONTAINER_DATA_DIR=/Users/tobias/.dartclaw bash dev/testing/profiles/container/coding.sh --baseline -> exit=0, codex/node: failed; install=127; test=127; Codex steps=2"
+      }
     },
     {
       "id": "S03",

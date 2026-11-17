@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
@@ -446,6 +447,11 @@ class TaskExecutor {
     Project? project;
     GitStatusSnapshot? readOnlyProjectStatusBeforeTurn;
     try {
+      final containerProfile = runnerPolicy?.containerProfile;
+      task = (await _tasks.updateFields(
+        task.id,
+        containerJson: containerProfile == null ? null : jsonEncode({'profile': containerProfile}),
+      )).copyWith(workflowStepExecution: task.workflowStepExecution);
       // Resolve project for this task.
       final projectService = _projectService;
       if (projectService != null) {
@@ -648,6 +654,19 @@ class TaskExecutor {
             allowedTools: _allowedTools(task),
             readOnly: _isReadOnlyTask(task),
             provenance: provenance,
+            onTurnCompleted: (outcome) async {
+              final traceService = _traceService;
+              if (traceService != null) {
+                await _persistTrace(
+                  traceService,
+                  outcome: outcome,
+                  taskId: task.id,
+                  runnerId: runnerIndex,
+                  model: modelOverride,
+                  provider: workflowProvider,
+                );
+              }
+            },
           );
         } on StateError catch (error, stackTrace) {
           // A workflow turn failure must win even when dispose

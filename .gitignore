@@ -15,6 +15,7 @@ build/
 pubspec.lock
 !/pubspec.lock
 !/dev/tools/mascot_favicon/pubspec.lock
+!/dev/testing/profiles/container/fixtures/dart/pubspec.lock
 
 # IDE
 .idea/

@@ -42,6 +42,7 @@ At `dartclaw serve` startup, and before `dartclaw workflow run --standalone`, Da
 - `<dataDir>/.claude/skills/` for Claude Code
 
 Configured project workspaces receive links or managed fallback copies for those exact DartClaw-native skill directories only.
+Task worktrees receive managed copies, so their bundled skills remain readable inside a container without mounting the host cache.
 
 ## Diagnostics
 

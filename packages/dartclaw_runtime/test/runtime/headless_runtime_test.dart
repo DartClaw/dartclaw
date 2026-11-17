@@ -107,6 +107,27 @@ void main() {
     }
   });
 
+  test('task worktree native skills remain readable without the host cache', () async {
+    final repository = fixture.seedGitRepo('portable-skills');
+    const name = 'dartclaw-discover-andthen-spec';
+    for (final root in ['.claude', '.agents']) {
+      File(p.join(tempDir.path, root, 'skills', name, 'SKILL.md'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('# Native skill\n');
+    }
+    await fixture.withWiredRuntime(
+      fixture.config(),
+      runtimeCwd: repository.path,
+      body: (runtime) async {
+        final worktree = await runtime.worktreeManager.create('portable-skills', baseRef: 'main');
+        for (final root in ['.claude', '.agents']) {
+          Directory(p.join(tempDir.path, root)).renameSync(p.join(tempDir.path, '$root-hidden'));
+          expect(File(p.join(worktree.path, root, 'skills', name, 'SKILL.md')).readAsStringSync(), '# Native skill\n');
+        }
+      },
+    );
+  });
+
   test('skill bootstrap does not create remote project clone directories before initialization', () async {
     final builtInSkillsSource = seedDcNativeSkillsSource(p.join(tempDir.path, 'built-in-skills'));
     final cfg = fixture.config(

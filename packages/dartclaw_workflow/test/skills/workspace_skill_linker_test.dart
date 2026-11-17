@@ -53,6 +53,22 @@ void main() {
       expect(linkWrites, writesAfterFirstRun);
     });
 
+    test('disabling symlinks replaces existing links with self-contained skill copies', () {
+      const names = ['dartclaw-discover-andthen-spec'];
+      WorkspaceSkillLinker().materialize(dataDir: dataDir, workspaceDir: workspaceDir, skillNames: names);
+      final expected = File(p.join(dataDir, '.claude', 'skills', names.single, 'SKILL.md')).readAsStringSync();
+
+      WorkspaceSkillLinker(symlinksEnabled: false)
+          .materialize(dataDir: dataDir, workspaceDir: workspaceDir, skillNames: names);
+      Directory(dataDir).renameSync('$dataDir-hidden');
+
+      for (final root in ['.claude', '.agents']) {
+        final directory = p.join(workspaceDir, root, 'skills', names.single);
+        expect(FileSystemEntity.typeSync(directory, followLinks: false), FileSystemEntityType.directory);
+        expect(File(p.join(directory, 'SKILL.md')).readAsStringSync(), expected);
+      }
+    });
+
     test('git exclude patterns are written once and non-git workspaces are ignored', () {
       final gitDir = Directory(p.join(workspaceDir, '.git'))..createSync(recursive: true);
       final linker = WorkspaceSkillLinker(

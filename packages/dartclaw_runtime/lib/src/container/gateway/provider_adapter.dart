@@ -313,6 +313,8 @@ abstract base class ProviderAdapter implements ProviderMediator {
   /// the tool check read, so a declared encoding would describe other bytes.
   static const _droppedRequestHeaders = {
     'authorization',
+    // HttpClient negotiates gzip itself; forwarding br/zstd would leave encoded bytes it cannot decompress.
+    'accept-encoding',
     'content-encoding',
     'x-api-key',
     'openai-api-key',

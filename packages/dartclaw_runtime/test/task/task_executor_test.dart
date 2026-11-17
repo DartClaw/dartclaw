@@ -158,6 +158,29 @@ void main() {
     expect(File(artifacts.single.path).readAsStringSync(), '# Output');
   });
 
+  for (final policy in [const ExecutionPolicy.container('workspace'), const ExecutionPolicy.host()]) {
+    test('records container placement on the agent execution (${policy.mode.name})', () async {
+      worker.responseText = 'Completed.';
+      final selectedExecutor = ctx.buildExecutor(policyResolver: ExecutionPolicyResolver.forStandalonePolicy(policy));
+      addTearDown(selectedExecutor.stop);
+      final task = await tasks.create(
+        id: 'placement-${policy.mode.name}',
+        title: 'Placement task',
+        description: 'Complete the work.',
+        autoStart: true,
+      );
+      if (!policy.isContainer) {
+        await tasks.updateFields(task.id, containerJson: '{"profile":"workspace"}');
+      }
+      await selectedExecutor.pollOnce();
+      await selectedExecutor.drain();
+      final execution = await agentExecutions.get(task.agentExecutionId!);
+      final settled = await tasks.get(task.id);
+      expect(settled?.status, TaskStatus.review, reason: settled?.configJson.toString());
+      expect(execution?.containerJson, policy.isContainer ? '{"profile":"workspace"}' : isNull);
+    });
+  }
+
   test('reuses the same session and injects push-back feedback on rerun', () async {
     worker.responseText = 'Initial output';
     await tasks.create(

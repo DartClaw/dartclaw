@@ -108,7 +108,8 @@ class TaskWiring {
   late DiffGenerator _diffGenerator;
   late ArtifactCollector _artifactCollector;
   late RunnerObserver _runnerObserver;
-  late final WorkspaceSkillLinker _workspaceSkillLinker = WorkspaceSkillLinker();
+  // Only the worktree is mounted into a task container; links to the host skill cache would dangle.
+  late final WorkspaceSkillLinker _workspaceSkillLinker = WorkspaceSkillLinker(symlinksEnabled: false);
   late TaskExecutor _taskExecutor;
   late ChannelReviewHandler _reviewHandler;
   bool _postServerWired = false;
@@ -214,6 +215,7 @@ class TaskWiring {
         worktreeManager: _worktreeManager,
         taskFileGuard: _taskFileGuard,
         eventRecorder: _storage.taskEventRecorder,
+        traceService: _storage.traceService,
         workflowStepExecutionRepository: _storage.workflowStepExecutionRepository,
         workflowRunRepository: _storage.workflowRunRepository,
         projectService: _project?.projectService,

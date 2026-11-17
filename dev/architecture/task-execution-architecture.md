@@ -18,7 +18,7 @@ Design invariants:
 - **Optimistic locking.** Every status change is a compare-and-set on status and version.
 - **One execution authority.** Task code requests a provider-neutral lease from `ExecutionCoordinator` and never manages worker pools, caches, or containers.
 - **Budgets fail open on error.** A throwing pre-turn budget check lets the turn proceed (see [Budgets](#10-budgets)).
-- **Event recording is awaited, trace persistence is not.** Task events are durable before the status they describe is published; turn traces are fire-and-forget.
+- **Task events are awaited.** Ordinary task trace writes are fire-and-forget; workflow steps await a best-effort trace write for each work, follow-up and finalizer turn before advancing.
 
 ---
 
@@ -37,6 +37,8 @@ The server stores tasks in PostgreSQL; a standalone (no-server) run stores them 
 ### 2.2 Task
 
 `Task` (`dartclaw_core/lib/src/task/task.dart`) is an immutable value object. `configJson` and `worktreeJson` are recursively frozen at construction; `copyWith` uses a sentinel to tell "not provided" from explicit `null`. Session, provider, model, and token budget are not task columns: `Task.sessionId`, `.provider`, `.model`, and `.maxTokens` resolve through the linked `AgentExecution` row, and `workflowRunId`/`stepIndex` through `WorkflowStepExecution` ([ADR-021](../adrs/021-agent-execution-primitive.md)). `TaskService.get`/`list` hydrate both rows in the joined storage query.
+
+At execution start, `TaskExecutor` writes the resolved container profile to the linked execution's `container_json` (`{"profile":"workspace"}`); host execution leaves it null. The task API exposes this as `agentExecution.containerJson`.
 
 `configJson` is the open-ended part of the contract. Keys the executor and review path read:
 
@@ -146,7 +148,7 @@ Tasks and workflow steps are polled, so they never block inside `acquire`. `Exec
 4. **Preconditions.** `requiredInputPath` must exist; read-only tasks snapshot `git status`; the task session must exist and not be archived.
 5. **Pre-turn budget check** ([Budgets](#10-budgets)); a warning becomes a system message.
 6. **Prompt.** `_composePendingMessage`: retry context from `lastError` when `retryCount > 0`, or the push-back prompt when `pushBackComment` is set; then title, description, working directory, goal context, acceptance criteria.
-7. **Workflow branch.** `WorkflowOneShotRunner` drives the complete prompt chain (initial prompt, follow-ups, optional no-tools structured-output finalizer) on the leased runner through `StepTurnRunner`, checking the budget before each prompt, writing token breakdown and provider session ID onto the step row, and firing `WorkflowCliTurnProgressEvent`. It records structured-output events but no `tokenUpdate`/`toolCalled` events and no turn trace. Wire formats and the envelope are in [Workflow Architecture](workflow-architecture.md).
+7. **Workflow branch.** `WorkflowOneShotRunner` drives the complete prompt chain (initial prompt, follow-ups, optional no-tools structured-output finalizer) on the leased runner through `StepTurnRunner`, checking the budget before each prompt, writing token breakdown and provider session ID onto the step row, and firing `WorkflowCliTurnProgressEvent`. Each turn calls back into `TaskExecutor._persistTrace` before advancing. It records structured-output events but no `tokenUpdate`/`toolCalled` events. Wire formats and the envelope are in [Workflow Architecture](workflow-architecture.md).
 8. **Turn (ordinary tasks).** Insert the user message and clear `pushBackComment`. A task-scoped `BehaviorFileService` is used for workflow workspaces and project-bound tasks. Prompt scope is `restricted` for the `restricted` container profile, otherwise `task`. Then `reserveAdmittedTurn` (agent name `task`), `executeTurn`, `waitForOutcome`, `waitForExecutionSettled`. Turn internals are in [Control Protocol §6.3](control-protocol.md#63-reserve-execute-settle).
 9. **Record.** Awaited: one `tokenUpdate` event and one `toolCalled` event per retained `ToolCallRecord`. Then `unawaited` trace persistence ([Turn Traces](#8-turn-traces)).
 10. **Settle a completed turn.** Fail if a read-only task mutated its checkout (compared against the step-4 snapshot, taken in the execution directory so a worktree task is checked in its worktree); skip if the task was cancelled meanwhile; collect artifacts and record `artifactCreated`; fail non-retryably if `outcome.totalTokens` exceeds the task's token budget; transition to the post-completion status; call `onAutoAccept` when it is set, the status is `review`, and the task is not workflow-owned (workflow git promotion owns publish and merge there).
@@ -332,7 +334,7 @@ Events are recorded when the turn completes, not while it streams, so a long sin
 
 `TurnTrace` (`dartclaw_core/lib/src/turn/turn_trace.dart`) is a per-turn record: `id`, `sessionId`, `taskId?`, `runnerId?`, `model?`, `provider?`, start and end time, the four token counts, `isError`/`errorType`, and bounded `toolCalls` with exact `toolCallCount`, `failedToolCallCount`, and `toolCallsTruncated`. `totalTokens`, `effectiveTokens` (cache-weighted), and `durationMs` are derived.
 
-`TaskExecutor._persistTrace` is the only producer, and only for ordinary task turns: it runs `unawaited` after the task events are recorded and logs a warning on failure. Workflow-owned turns and interactive turns have no trace, although the model allows a null `taskId`. `model` is the task's override, not the resolved model.
+`TaskExecutor._persistTrace` is the only producer. Ordinary tasks invoke it `unawaited` after their events are recorded; workflow-owned tasks await it through `WorkflowOneShotRunner`'s per-turn callback, retaining work and finalizer tool results before the next turn. A failed write logs a warning. Interactive turns have no trace, although the model allows a null `taskId`. `model` is the task's override, not the resolved model.
 
 `TurnTraceService` (`storage/turn_trace_service.dart`) stores to the `turns` table, with the tool-call list in a JSON envelope (`records`, `count`, `failedCount`, `truncated`; legacy bare arrays still decode). `query` filters on `taskId`, `sessionId`, `runnerId`, `model`, `provider`, `since`, `until`, orders newest first, and clamps `limit` to 500. `GET /api/traces` and `GET /api/traces/<id>` (`api/trace_routes.dart`) expose it; the summary (token, duration, tool-call totals, trace count) covers the full filtered set, not the page.
 

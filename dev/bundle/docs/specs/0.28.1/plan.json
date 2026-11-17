@@ -1,0 +1,211 @@
+{
+  "schemaVersion": "2",
+  "prd": "dev/bundle/docs/specs/0.28.1/prd.md",
+  "overview": {
+    "summary": "0.28.1 patch: heavy verification leaves GitHub CI for local release-check gates with a Lima Linux lane, containerized coding steps are proven live and made able to install pub and npm dependencies and run tests behind a review-gated merge path, and the visual testing profile seeds tasks and workflow runs again."
+  },
+  "sharedDecisions": [
+    {
+      "title": "Containerized coding scenario",
+      "description": "S02 delivers the live containerized coding scenario as one documented command, `dev/testing/profiles/container/coding.sh` in the existing `container` testing profile (no new profile), with a Dart and a Node fixture project each carrying a story for `implement-story`, runnable per provider (Claude Code, Codex). S05, S06 and S07 rerun that command as their acceptance proof and add no second scenario; S02's recorded failures are their baseline. Exit status is the verdict without `--baseline`; a story whose fixture cannot pass yet runs it with `--baseline` and records the result: S05 runs both fixtures with `--baseline`, S06 runs the Dart fixture without it, and S07 runs both fixtures with both providers without it as FR9's final proof.",
+      "stories": [
+        "S02",
+        "S05",
+        "S06",
+        "S07"
+      ]
+    },
+    {
+      "title": "Registry ecosystem adapter seam",
+      "description": "S06 builds the `registry` bridge surface with one adapter per ecosystem, each owning its client environment variables (a map), its pinned origins (download origins included) and its metadata URL rewriting, and ships pub through it. S07 adds npm as a second adapter without changing the surface, the bridge protocol or the grant rule.",
+      "stories": [
+        "S06",
+        "S07"
+      ]
+    }
+  ],
+  "bindingConstraints": [
+    {
+      "featureId": "FR9",
+      "anchor": "dev/bundle/docs/specs/0.28.1/prd.md#constraints"
+    },
+    {
+      "featureId": "FR5",
+      "anchor": "dev/bundle/docs/specs/0.28.1/prd.md#fr5-execution-surface-review-downgrade"
+    },
+    {
+      "featureId": "FR1",
+      "anchor": "dev/bundle/docs/specs/0.28.1/prd.md#constraints"
+    },
+    {
+      "featureId": "FR3",
+      "anchor": "dev/bundle/docs/specs/0.28.1/prd.md#fr3-live-containerized-workflow-step"
+    }
+  ],
+  "stories": [
+    {
+      "id": "S01",
+      "name": "Local-first verification gates",
+      "dependsOn": [],
+      "status": "pending",
+      "fis": "s01-local-first-verification-gates.md",
+      "completedTaskIds": [],
+      "scope": "Cut GitHub `Checks` to the fast `Check` job and `PowerShell scripts`, narrow the release check's `ci` gate to those jobs, and add the `linux` release gate that runs the local gates (`build` included) and the container posture profile inside a Lima VM on the same candidate. Rewrite the public release and development docs that name the four CI jobs or per-push heavy checks, so the squash-commit rule covers only the remaining jobs.",
+      "sourceRefs": [
+        "dev/bundle/docs/specs/0.28.1/prd.md#fr1-fast-github-check-heavy-gates-local",
+        "dev/bundle/docs/specs/0.28.1/prd.md#fr2-linux-lane-on-lima",
+        "dev/bundle/docs/specs/0.28.1/prd.md#decisions-log",
+        "dev/bundle/docs/specs/0.28.1/prd.md#edge-cases"
+      ],
+      "provenance": null,
+      "assetRefs": [],
+      "sequencing": null
+    },
+    {
+      "id": "S02",
+      "name": "Live containerized workflow proof",
+      "dependsOn": [],
+      "status": "pending",
+      "fis": "s02-live-containerized-workflow-proof.md",
+      "completedTaskIds": [],
+      "scope": "Walking skeleton of the containerized coding flow: run `implement-story` live with its agent steps in `workspace` containers against a Dart and a Node fixture, with Claude Code and with Codex, as one re-runnable scenario; record container placement in `agent_executions.container_json`; record which install and test commands fail; fix any defect in the container step path that is not a missing toolchain or registry access, adding no writable mount beyond the task's own worktree. Recheck once, with the stored-subscription Codex home in effect, host and container mode, where DartClaw's Codex rollouts land, and fix any spawn that ignores it.",
+      "sourceRefs": [
+        "dev/bundle/docs/specs/0.28.1/prd.md#fr3-live-containerized-workflow-step",
+        "dev/bundle/docs/specs/0.28.1/prd.md#fr4-codex-home-recheck",
+        "dev/bundle/docs/specs/0.28.1/prd.md#evidence--context"
+      ],
+      "provenance": null,
+      "assetRefs": [],
+      "sequencing": "First of the containerized-coding stories by roadmap order: its recorded failures are the acceptance baseline for S05–S07."
+    },
+    {
+      "id": "S03",
+      "name": "Execution-surface review downgrade",
+      "dependsOn": [],
+      "status": "pending",
+      "fis": "s03-execution-surface-review-downgrade.md",
+      "completedTaskIds": [],
+      "scope": "One fixed execution-surface path list, checked against the change set of every automatic task accept, every automatic workflow promotion and every workflow publish; a hit, or any added symlink, holds the change for review with the matched paths named on the task detail page and in the task API. The check runs before the host's commit sweep, and host commit sweeps in agent worktrees run with git hooks disabled. `CLAUDE.md` and `AGENTS.md` are off the list; no config knob.",
+      "sourceRefs": [
+        "dev/bundle/docs/specs/0.28.1/prd.md#fr5-execution-surface-review-downgrade",
+        "dev/bundle/docs/research/devvm-2026-11/research.md#v3--flag-agent-written-execution-surface-files-before-accept-p1-security"
+      ],
+      "provenance": null,
+      "assetRefs": [],
+      "sequencing": null
+    },
+    {
+      "id": "S04",
+      "name": "Blocked-host fix hint and saved task branches",
+      "dependsOn": [],
+      "status": "pending",
+      "fis": "s04-blocked-host-fix-hint-and-saved-task-branches.md",
+      "completedTaskIds": [],
+      "scope": "NetworkGuard's block reason names the config key that would allow the host. FR7 closes on its verify-first evidence: a real-git test pins that cancel and cleanup keep a task's unmerged commits and uncommitted work, the guide says where they are kept, and a successful squash accept deletes its task branch instead of leaving it behind.",
+      "sourceRefs": [
+        "dev/bundle/docs/specs/0.28.1/prd.md#fr6-blocked-host-message-names-the-fix",
+        "dev/bundle/docs/specs/0.28.1/prd.md#fr7-saved-branches-on-cancel-and-cleanup",
+        "dev/bundle/docs/research/devvm-2026-11/research.md#v4--blocked-host-message-names-the-fix-p2-small",
+        "dev/bundle/docs/research/devvm-2026-11/research.md#v5--keep-unmerged-task-commits-on-cancel-p3-verify-first"
+      ],
+      "provenance": null,
+      "assetRefs": [],
+      "sequencing": null
+    },
+    {
+      "id": "S05",
+      "name": "Agent image toolchain recipe",
+      "dependsOn": [
+        "S02"
+      ],
+      "status": "pending",
+      "fis": "s05-agent-image-toolchain-recipe.md",
+      "completedTaskIds": [],
+      "scope": "Document extending `dartclaw-agent` with a Dart and a Node toolchain and selecting it through `container.image`, and give the operator an actionable message naming a toolchain binary a containerized step could not find. With the recipe images, S02's scenario reaches each fixture's test command inside the container. A missing non-default `container.image` fails startup naming the build command and the recipe instead of building the stock image under that tag.",
+      "sourceRefs": [
+        "dev/bundle/docs/specs/0.28.1/prd.md#fr8-toolchain-image-recipe-and-missing-toolchain-error",
+        "dev/bundle/docs/research/devvm-2026-11/research.md#v2--project-toolchain-in-the-agent-image-p1-pairs-with-v1"
+      ],
+      "provenance": null,
+      "assetRefs": [],
+      "sequencing": null
+    },
+    {
+      "id": "S06",
+      "name": "Registry bridge surface with pub",
+      "dependsOn": [
+        "S02",
+        "S05"
+      ],
+      "status": "pending",
+      "fis": "s06-registry-bridge-surface-with-pub.md",
+      "completedTaskIds": [],
+      "scope": "Add the `registry` bridge surface per ADR-062 with its pub adapter: plain HTTP to the in-container loopback mirror, host-side HTTPS to pinned origins, GET and HEAD only, no credentials, metadata URL rewriting, audit records and `GuardBlockEvent` on refusal, granted to `workspace` and never `restricted`. `dart pub get` succeeds in S02's Dart fixture container with `network:none` unchanged. Security architecture and guide updates ship in the same change. A containerized `pub get` rewriting a committed `pubspec.lock` to the mirror URL is the accepted, documented consequence (ADR-062 Negative row, guide).",
+      "sourceRefs": [
+        "dev/bundle/docs/specs/0.28.1/prd.md#fr9-read-only-package-registry-egress",
+        "dev/bundle/docs/research/devvm-2026-11/research.md#v1--package-registry-egress-over-the-host-gateway-p1-owner-decision",
+        "dev/bundle/docs/research/devvm-2026-11/research.md#5-docker-sandboxes-sbx-as-an-alternative-added-2026-11-10"
+      ],
+      "provenance": null,
+      "assetRefs": [],
+      "sequencing": null
+    },
+    {
+      "id": "S07",
+      "name": "npm registry adapter",
+      "dependsOn": [
+        "S06"
+      ],
+      "status": "pending",
+      "fis": "s07-npm-registry-adapter.md",
+      "completedTaskIds": [],
+      "scope": "Add the npm adapter to the `registry` surface, serving packuments unmodified because npm's own registry-host replacement routes tarballs through the mirror, so `npm install` succeeds in S02's Node fixture container; close FR9: S02's scenario passes on both fixtures with both providers, ADR-062's \"Response URLs\" row is reworded to the no-direct-connection invariant, and ADR-062 moves to Accepted.",
+      "sourceRefs": [
+        "dev/bundle/docs/specs/0.28.1/prd.md#fr9-read-only-package-registry-egress"
+      ],
+      "provenance": null,
+      "assetRefs": [],
+      "sequencing": null
+    },
+    {
+      "id": "S08",
+      "name": "Seeded visual profile",
+      "dependsOn": [],
+      "status": "pending",
+      "fis": "s08-seeded-visual-profile.md",
+      "completedTaskIds": [],
+      "scope": "`visual/run.sh` seeds its PostgreSQL through the server's storage layer with tasks (accepted, failed, review) and workflow runs (completed, failed, awaiting approval with a pending approval message, each with step tasks), so Tasks and Workflows render seeded content again; a test fails when the seed stops matching the schema, and the profile's docs describe only data it has.",
+      "sourceRefs": [
+        "dev/bundle/docs/specs/0.28.1/prd.md#fr10-seeded-visual-profile",
+        "dev/bundle/docs/specs/0.28.1/prd.md#data-requirements"
+      ],
+      "provenance": null,
+      "assetRefs": [],
+      "sequencing": null
+    },
+    {
+      "id": "S09",
+      "name": "Documentation and state closeout",
+      "dependsOn": [
+        "S01",
+        "S02",
+        "S03",
+        "S04",
+        "S05",
+        "S06",
+        "S07",
+        "S08"
+      ],
+      "status": "pending",
+      "fis": "s09-documentation-and-state-closeout.md",
+      "completedTaskIds": [],
+      "scope": "Bring the public cross-cutting docs in line with what the milestone shipped: architecture deep-dives touched by the container, bridge, task and release changes and their \"Current through\" markers and figures, the DECISIONS index for ADR-062, Ubiquitous Language for the `registry` surface, user-guide index coherence, CHANGELOG § 0.28.1 completeness, and LEARNINGS for non-obvious traps the stories recorded.",
+      "sourceRefs": [
+        "dev/bundle/docs/specs/0.28.1/prd.md#scope"
+      ],
+      "provenance": "Workspace rule that plans carry an explicit doc-update story (private CLAUDE.md § Keeping Internal Documentation in Sync); the PRD has no FR for it.",
+      "assetRefs": [],
+      "sequencing": null
+    }
+  ]
+}

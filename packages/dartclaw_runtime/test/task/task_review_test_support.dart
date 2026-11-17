@@ -50,11 +50,13 @@ class RecordingWorktreeManager extends WorktreeManager {
 
   final List<String> cleanedTaskIds = [];
   final List<String?> cleanedProjectIds = [];
+  final List<bool> forceDeleteBranches = [];
 
   @override
-  Future<void> cleanup(String taskId, {Project? project}) async {
+  Future<void> cleanup(String taskId, {Project? project, bool forceDeleteBranch = false}) async {
     cleanedTaskIds.add(taskId);
     cleanedProjectIds.add(project?.id);
+    forceDeleteBranches.add(forceDeleteBranch);
   }
 }
 

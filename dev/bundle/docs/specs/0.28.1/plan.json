@@ -138,9 +138,14 @@
       "id": "S04",
       "name": "Blocked-host fix hint and saved task branches",
       "dependsOn": [],
-      "status": "pending",
+      "status": "done",
       "fis": "s04-blocked-host-fix-hint-and-saved-task-branches.md",
-      "completedTaskIds": [],
+      "completedTaskIds": [
+        "TI01",
+        "TI02",
+        "TI03",
+        "TI04"
+      ],
       "scope": "NetworkGuard's block reason names the config key that would allow the host. FR7 closes on its verify-first evidence: a real-git test pins that cancel and cleanup keep a task's unmerged commits and uncommitted work, the guide says where they are kept, and a successful squash accept deletes its task branch instead of leaving it behind.",
       "sourceRefs": [
         "dev/bundle/docs/specs/0.28.1/prd.md#fr6-blocked-host-message-names-the-fix",
@@ -150,7 +155,11 @@
       ],
       "provenance": null,
       "assetRefs": [],
-      "sequencing": null
+      "sequencing": null,
+      "verified": {
+        "at": "2026-11-17T17:57Z",
+        "summary": "dart test --reporter=failures-only packages/dartclaw_runtime/test/task/worktree_manager_test.dart packages/dartclaw_runtime/test/task/task_review_service_test.dart -> exit=0, +89: All tests passed!"
+      }
     },
     {
       "id": "S05",

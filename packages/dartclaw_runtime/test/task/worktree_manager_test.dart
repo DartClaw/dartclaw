@@ -166,6 +166,83 @@ void main() {
       expect((branchResult.stdout as String).trim(), isEmpty);
     });
 
+    test('cleanup keeps unmerged work', () async {
+      final manager = WorktreeManager(dataDir: dataDir, projectDir: projectDir);
+      final clean = await manager.create('cancel-committed');
+      File(p.join(clean.path, 'saved.txt')).writeAsStringSync('keep this commit');
+      expect((await runGit(['add', 'saved.txt'], workingDirectory: clean.path)).exitCode, 0);
+      expect((await runGit(['commit', '-m', 'saved work'], workingDirectory: clean.path)).exitCode, 0);
+      final commit = await runGit(['rev-parse', 'HEAD'], workingDirectory: clean.path);
+      expect(commit.exitCode, 0);
+
+      await manager.cleanup('cancel-committed');
+
+      expect(Directory(clean.path).existsSync(), isFalse);
+      final saved = await runGit(['rev-parse', clean.branch], workingDirectory: projectDir);
+      expect(saved.exitCode, 0);
+      expect(saved.stdout, commit.stdout);
+      expect(
+        (await runGit(['merge-base', '--is-ancestor', clean.branch, 'main'], workingDirectory: projectDir)).exitCode,
+        1,
+      );
+
+      final dirty = await manager.create('cancel-dirty');
+      final changes = File(p.join(dirty.path, 'README.md'))..writeAsStringSync('keep these uncommitted changes');
+      await manager.cleanup('cancel-dirty');
+
+      expect(Directory(dirty.path).existsSync(), isTrue);
+      expect(changes.readAsStringSync(), 'keep these uncommitted changes');
+      expect((await runGit(['rev-parse', '--verify', dirty.branch], workingDirectory: projectDir)).exitCode, 0);
+      expect(
+        (await runGit(['symbolic-ref', '--short', 'HEAD'], workingDirectory: dirty.path)).stdout.toString().trim(),
+        dirty.branch,
+      );
+    });
+
+    test('forceDeleteBranch deletes only the exact owned branch and preserves dirty work', () async {
+      final manager = WorktreeManager(dataDir: dataDir, projectDir: projectDir);
+      final owned = await manager.create('force-owned');
+      File(p.join(owned.path, 'result.txt')).writeAsStringSync('accepted work');
+      expect((await runGit(['add', 'result.txt'], workingDirectory: owned.path)).exitCode, 0);
+      expect((await runGit(['commit', '-m', 'accepted work'], workingDirectory: owned.path)).exitCode, 0);
+
+      await manager.cleanup('force-owned', forceDeleteBranch: true);
+
+      expect(Directory(owned.path).existsSync(), isFalse);
+      expect(
+        (await runGit(['branch', '--list', owned.branch], workingDirectory: projectDir)).stdout.toString().trim(),
+        isEmpty,
+      );
+
+      expect((await runGit(['branch', 'wf/integration', 'main'], workingDirectory: projectDir)).exitCode, 0);
+      final attached = await manager.create('force-attached', baseRef: 'wf/integration', createBranch: false);
+      await manager.cleanup('force-attached', forceDeleteBranch: true);
+
+      expect(Directory(attached.path).existsSync(), isFalse);
+      expect((await runGit(['rev-parse', '--verify', attached.branch], workingDirectory: projectDir)).exitCode, 0);
+
+      final dirty = await manager.create('force-dirty');
+      final changes = File(p.join(dirty.path, 'README.md'))..writeAsStringSync('uncommitted');
+      await manager.cleanup('force-dirty', forceDeleteBranch: true);
+      expect(changes.readAsStringSync(), 'uncommitted');
+      expect((await runGit(['rev-parse', '--verify', dirty.branch], workingDirectory: projectDir)).exitCode, 0);
+    });
+
+    test('forceDeleteBranch does not delete a colliding task branch', () async {
+      expect((await runGit(['branch', 'dartclaw/task-collide', 'main'], workingDirectory: projectDir)).exitCode, 0);
+      final manager = WorktreeManager(dataDir: dataDir, projectDir: projectDir);
+      final colliding = await manager.create('collide');
+      expect(colliding.branch, 'dartclaw/task-collide-2');
+
+      await manager.cleanup('collide', forceDeleteBranch: true);
+
+      expect((await runGit(['rev-parse', '--verify', colliding.branch], workingDirectory: projectDir)).exitCode, 0);
+      expect(
+        (await runGit(['rev-parse', '--verify', 'dartclaw/task-collide'], workingDirectory: projectDir)).exitCode,
+        0,
+      );
+    });
+
     test('cleanup() logs warning on failure (does not throw)', () async {
       final manager = WorktreeManager(dataDir: dataDir, projectDir: projectDir);
 
@@ -367,6 +444,26 @@ void main() {
         () => manager.create('task-1'),
         throwsA(isA<WorktreeException>().having((e) => e.gitStderr, 'gitStderr', contains('not a valid ref'))),
       );
+    });
+
+    test('forceDeleteBranch leaves default cleanup commands unchanged', () async {
+      final runner = RecordingGitRunner();
+      final manager = WorktreeManager(
+        dataDir: '/tmp/test-data',
+        projectDir: '/tmp/default-project',
+        processRunner: runner.run,
+      );
+
+      await manager.cleanup('task-1');
+
+      expect(runner.calls.map((call) => call.arguments).toList(), [
+        ['worktree', 'remove', p.join('/tmp/test-data', 'worktrees', 'task-1')],
+        ['branch', '--delete', 'dartclaw/task-task-1'],
+      ]);
+      expect(runner.calls.map((call) => call.workingDirectory).toList(), [
+        '/tmp/default-project',
+        '/tmp/default-project',
+      ]);
     });
 
     test('create without a project runs git in projectDir', () async {

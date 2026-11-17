@@ -208,7 +208,7 @@ Task completes --> enters review state
 
 For **`_local` tasks**, the flow is the same except: no auto-fetch, the worktree branches from `tasks.worktree.base_ref`
 (`git branch` then `git worktree add`), and accept performs a local merge (via `MergeExecutor`) instead of pushing to a
-remote.
+remote. After a successful local squash accept, cleanup force-deletes the task's own `dartclaw/task-<taskId>` branch.
 
 ### Where Worktrees Live
 
@@ -226,6 +226,8 @@ The exact path is `<data_dir>/workspace/.dartclaw/worktrees/<taskId>/`, keyed by
 ### Branch Naming
 
 Each task with a worktree gets a branch named `dartclaw/task-<taskId>`. If that name is taken (e.g., from a previous failed cleanup), DartClaw appends a suffix: `dartclaw/task-<taskId>-2`, `-3`, etc., up to 100 attempts.
+
+Cancelling or cleaning up a task keeps unmerged commits on `dartclaw/task-<taskId>` and uncommitted changes in the worktree directory shown above.
 
 ### Stale Worktree Reaping
 

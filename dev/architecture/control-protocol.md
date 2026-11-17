@@ -188,7 +188,7 @@ Representative exchanges:
  "tool_input":{"command":"curl http://evil.com"}}}}
 {"type":"control_response","response":{"subtype":"success","request_id":"req_55_abc",
  "response":{"continue":true,"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny",
- "permissionDecisionReason":"Network blocked: domain not in allowlist (evil.com)"}}}}
+ "permissionDecisionReason":"Network blocked: domain not in allowlist (evil.com); to allow it, add the host to guards.network.extra_allowed_domains"}}}}
 
 // claude → Dart: end of turn
 {"type":"result","stop_reason":"end_turn","total_cost_usd":0.0042,"duration_ms":3500,

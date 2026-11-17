@@ -526,7 +526,9 @@ void main() {
       final response = fake.sentMessages.singleWhere((message) => message['id'] == 'fetch-blocked');
       expect(response['result'], {
         'approved': false,
-        'reason': 'Network blocked: domain not in allowlist (example.com)',
+        'reason':
+            'Network blocked: domain not in allowlist (example.com); to allow it, add the host to '
+            'guards.network.extra_allowed_domains',
       });
     });
 

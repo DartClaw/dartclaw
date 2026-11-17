@@ -155,46 +155,44 @@ class NetworkGuard extends Guard {
     final allowedDomains = agentDomains == null ? config.allowedDomains : {...config.allowedDomains, ...agentDomains};
 
     if (toolName == 'shell') {
-      return _evaluateBash(toolInput['command'] as String? ?? '', allowedDomains);
+      return _evaluateBash(toolInput['command'] as String? ?? '', allowedDomains, context.agentId);
     }
 
     if (toolName == 'web_fetch') {
-      return _evaluateWebFetch(toolInput['url'] as String? ?? '', allowedDomains);
+      return _evaluateWebFetch(toolInput['url'] as String? ?? '', allowedDomains, context.agentId);
     }
 
     return GuardVerdict.pass();
   }
 
-  GuardVerdict _evaluateBash(String command, Set<String> allowedDomains) {
+  GuardVerdict _evaluateBash(String command, Set<String> allowedDomains, String? agentId) {
     if (command.isEmpty) return GuardVerdict.pass();
 
-    // Check exfiltration patterns first (command-structure checks)
     for (final pattern in config.exfilPatterns) {
       if (pattern.hasMatch(command)) {
         return GuardVerdict.block('Network blocked: exfiltration pattern detected');
       }
     }
 
-    // Extract URLs and check domains
     final urls = _extractUrlsFromBash(command);
     for (final url in urls) {
-      final verdict = _checkUrl(url, allowedDomains);
+      final verdict = _checkUrl(url, allowedDomains, agentId);
       if (verdict != null) return verdict;
     }
 
     return GuardVerdict.pass();
   }
 
-  GuardVerdict _evaluateWebFetch(String url, Set<String> allowedDomains) {
+  GuardVerdict _evaluateWebFetch(String url, Set<String> allowedDomains, String? agentId) {
     if (url.isEmpty) return GuardVerdict.pass();
-    return _checkUrl(url, allowedDomains) ?? GuardVerdict.pass();
+    return _checkUrl(url, allowedDomains, agentId) ?? GuardVerdict.pass();
   }
 
   // -------------------------------------------------------------------------
   // URL checking
   // -------------------------------------------------------------------------
 
-  GuardVerdict? _checkUrl(String urlString, Set<String> allowedDomains) {
+  GuardVerdict? _checkUrl(String urlString, Set<String> allowedDomains, String? agentId) {
     // Prepend scheme if missing (for IP detection)
     var toParse = urlString;
     if (!toParse.contains('://')) toParse = 'http://$toParse';
@@ -204,14 +202,15 @@ class NetworkGuard extends Guard {
 
     final host = uri.host;
 
-    // Block all direct IP addresses
     if (_isIpAddress(host)) {
       return GuardVerdict.block('Network blocked: direct IP address ($host)');
     }
 
-    // Check domain against allowlist
     if (!_isDomainAllowed(host, allowedDomains)) {
-      return GuardVerdict.block('Network blocked: domain not in allowlist ($host)');
+      final key = agentId == null
+          ? 'guards.network.extra_allowed_domains'
+          : 'guards.network.agent_overrides.$agentId.extra_domains';
+      return GuardVerdict.block('Network blocked: domain not in allowlist ($host); to allow it, add the host to $key');
     }
 
     return null;

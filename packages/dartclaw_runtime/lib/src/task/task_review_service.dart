@@ -202,6 +202,7 @@ class TaskReviewService {
 
     Task? task;
     TaskStatus? oldStatus;
+    var forceDeleteBranch = false;
 
     try {
       task = await _tasks.get(taskId);
@@ -264,7 +265,6 @@ class TaskReviewService {
           if (earlyFailure != null) return earlyFailure;
           // null means push succeeded — continue to transition
         } else if (_mergeExecutor != null) {
-          // Existing local merge flow (unchanged).
           final worktreeInfo = WorktreeInfo.fromJson(task.worktreeJson!);
           final strategy = _mergeStrategy == 'merge' ? MergeStrategy.merge : MergeStrategy.squash;
           final mergeResult = await _mergeExecutor.merge(
@@ -283,6 +283,7 @@ class TaskReviewService {
               details: details,
             );
           }
+          forceDeleteBranch = mergeResult is MergeSuccess && strategy == MergeStrategy.squash;
         } else {
           return const ReviewActionFailed(
             'Merge infrastructure is not available. Use the web UI or configure merge support.',
@@ -328,7 +329,13 @@ class TaskReviewService {
           task.worktreeJson != null &&
           !(targetStatus == TaskStatus.accepted && task.isWorkflowOwnedGitTask)) {
         final cleanupProject = await _cleanupProjectForTask(task);
-        await cleanupWorktree(_worktreeManager, _taskFileGuard, taskId, project: cleanupProject);
+        await cleanupWorktree(
+          _worktreeManager,
+          _taskFileGuard,
+          taskId,
+          project: cleanupProject,
+          forceDeleteBranch: forceDeleteBranch,
+        );
       }
 
       return ReviewSuccess(updated);

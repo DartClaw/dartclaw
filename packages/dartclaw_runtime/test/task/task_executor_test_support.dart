@@ -669,7 +669,7 @@ class CapturingWorktreeManager extends WorktreeManager {
   }
 
   @override
-  Future<void> cleanup(String taskId, {Project? project}) async {}
+  Future<void> cleanup(String taskId, {Project? project, bool forceDeleteBranch = false}) async {}
 }
 
 /// A [WorktreeManager] whose create() blocks on [_gate] — used to prove
@@ -698,7 +698,7 @@ class BlockingWorktreeManager extends WorktreeManager {
   }
 
   @override
-  Future<void> cleanup(String taskId, {Project? project}) async {}
+  Future<void> cleanup(String taskId, {Project? project, bool forceDeleteBranch = false}) async {}
 }
 
 /// A [WorktreeManager] that always returns a fixed [path] — used to point the
@@ -724,7 +724,7 @@ class StaticPathWorktreeManager extends WorktreeManager {
   }
 
   @override
-  Future<void> cleanup(String taskId, {Project? project}) async {}
+  Future<void> cleanup(String taskId, {Project? project, bool forceDeleteBranch = false}) async {}
 }
 
 /// Captures the prompt scope / behavior override / directory the executor

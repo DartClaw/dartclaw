@@ -316,20 +316,22 @@ class WorktreeManager {
     return result.exitCode == 0;
   }
 
-  /// Removes worktree directory and deletes the branch.
+  /// Removes the worktree and attempts branch deletion.
+  ///
+  /// [forceDeleteBranch] discards only the exact task-owned branch after its
+  /// commits have been integrated; attached branches are preserved in that mode.
   ///
   /// When [project] is provided, uses the project's [localPath] as the git
   /// working directory for removal. Falls back to the constructor-provided
   /// [projectDir] when [project] is null.
   ///
   /// Logs warnings on failure but does not throw — cleanup is best-effort.
-  Future<void> cleanup(String taskId, {Project? project}) async {
+  Future<void> cleanup(String taskId, {Project? project, bool forceDeleteBranch = false}) async {
     final info = _worktrees[taskId];
     final worktreePath = info?.path ?? p.join(_worktreesDir, taskId);
     final branch = normalizeGitRefOperand(info?.branch ?? 'dartclaw/task-$taskId', label: 'worktree branch');
     final effectiveProjectDir = project?.localPath ?? _projectDir;
 
-    // Remove worktree
     final removeResult = await _runGit(['worktree', 'remove', worktreePath], workingDirectory: effectiveProjectDir);
     if (removeResult.exitCode != 0) {
       _log.warning(
@@ -338,13 +340,18 @@ class WorktreeManager {
       );
     }
 
-    // Delete branch
-    final branchResult = await _runGit(['branch', '--delete', branch], workingDirectory: effectiveProjectDir);
-    if (branchResult.exitCode != 0) {
-      _log.warning(
-        'Failed to delete branch $branch for task $taskId: '
-        '${(branchResult.stderr as String).trim()}',
-      );
+    if (!forceDeleteBranch || branch == 'dartclaw/task-$taskId') {
+      final branchResult = await _runGit([
+        'branch',
+        forceDeleteBranch ? '-D' : '--delete',
+        branch,
+      ], workingDirectory: effectiveProjectDir);
+      if (branchResult.exitCode != 0) {
+        _log.warning(
+          'Failed to delete branch $branch for task $taskId: '
+          '${(branchResult.stderr as String).trim()}',
+        );
+      }
     }
 
     _worktrees.remove(taskId);

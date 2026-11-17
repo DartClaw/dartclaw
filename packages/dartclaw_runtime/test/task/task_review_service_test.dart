@@ -175,39 +175,43 @@ void main() {
       expect(capturedComment, 'fix the tests');
     });
 
-    test('runs merge and cleans up worktrees for accepted worktree-backed tasks', () async {
-      await putTaskInReview(
-        tasks,
-        'task-1',
-        title: 'Fix login',
-        worktreeJson: const {
-          'path': '/tmp/worktree',
-          'branch': 'dartclaw/task-task-1',
-          'createdAt': '2026-03-13T10:00:00.000Z',
-        },
-      );
-      final mergeExecutor = RecordingMergeExecutor(
-        result: const MergeSuccess(commitSha: 'abc123', commitMessage: 'task(task-1): Fix login'),
-      );
-      final worktreeManager = RecordingWorktreeManager();
-      final taskFileGuard = RecordingTaskFileGuard()..register('task-1', '/tmp/worktree');
-      final service = TaskReviewService(
-        tasks: tasks,
+    for (final strategy in ['squash', 'merge']) {
+      test('$strategy accept cleans up worktree-backed tasks', () async {
+        await putTaskInReview(
+          tasks,
+          'task-1',
+          title: 'Fix login',
+          worktreeJson: const {
+            'path': '/tmp/worktree',
+            'branch': 'dartclaw/task-task-1',
+            'createdAt': '2026-03-13T10:00:00.000Z',
+          },
+        );
+        final mergeExecutor = RecordingMergeExecutor(
+          result: const MergeSuccess(commitSha: 'abc123', commitMessage: 'task(task-1): Fix login'),
+        );
+        final worktreeManager = RecordingWorktreeManager();
+        final taskFileGuard = RecordingTaskFileGuard()..register('task-1', '/tmp/worktree');
+        final service = TaskReviewService(
+          tasks: tasks,
 
-        mergeExecutor: mergeExecutor,
-        worktreeManager: worktreeManager,
-        taskFileGuard: taskFileGuard,
-      );
+          mergeExecutor: mergeExecutor,
+          mergeStrategy: strategy,
+          worktreeManager: worktreeManager,
+          taskFileGuard: taskFileGuard,
+        );
 
-      final result = await service.review('task-1', 'accept', trigger: 'user');
+        final result = await service.review('task-1', 'accept', trigger: 'user');
 
-      expect(result, const TypeMatcher<ReviewSuccess>());
-      expect(mergeExecutor.callCount, 1);
-      expect(worktreeManager.cleanedTaskIds, ['task-1']);
-      expect(taskFileGuard.deregisteredTaskIds, ['task-1']);
-      expect(taskFileGuard.hasRegistration('task-1'), isFalse);
-      expect((await tasks.get('task-1'))!.status, TaskStatus.accepted);
-    });
+        expect(result, const TypeMatcher<ReviewSuccess>());
+        expect(mergeExecutor.callCount, 1);
+        expect(worktreeManager.cleanedTaskIds, ['task-1']);
+        expect(worktreeManager.forceDeleteBranches, [strategy == 'squash']);
+        expect(taskFileGuard.deregisteredTaskIds, ['task-1']);
+        expect(taskFileGuard.hasRegistration('task-1'), isFalse);
+        expect((await tasks.get('task-1'))!.status, TaskStatus.accepted);
+      });
+    }
 
     test('rejects accepting worktree-backed tasks when merge support is unavailable', () async {
       await putTaskInReview(
@@ -473,6 +477,104 @@ void main() {
     });
   });
 
+  group('squash accept deletes the task branch', () {
+    late Directory repo;
+    late Directory data;
+    late WorktreeManager worktrees;
+
+    Future<ProcessResult> git(List<String> args, {String? dir}) async {
+      final result = await runGit(args, workingDirectory: dir ?? repo.path);
+      if (result.exitCode != 0) throw StateError('${args.join(' ')}: ${result.stderr}');
+      return result;
+    }
+
+    setUp(() async {
+      repo = await initGitRepo();
+      data = await Directory.systemTemp.createTemp('review_cleanup_');
+      await git(['config', 'user.email', 'fixture@example.com']);
+      await git(['config', 'user.name', 'Fixture']);
+      worktrees = WorktreeManager(dataDir: data.path, projectDir: repo.path);
+    });
+    tearDown(() async {
+      await data.delete(recursive: true);
+      await repo.delete(recursive: true);
+    });
+
+    Future<WorktreeInfo> reviewWorktree({String? attachedBranch}) async {
+      if (attachedBranch != null) await git(['branch', attachedBranch, 'main']);
+      final worktree = await worktrees.create(
+        'cleanup-task',
+        baseRef: attachedBranch,
+        createBranch: attachedBranch == null,
+      );
+      File(p.join(worktree.path, 'README.md')).writeAsStringSync('task change\n');
+      await git(['add', 'README.md'], dir: worktree.path);
+      await git(['commit', '-m', 'task changes'], dir: worktree.path);
+      await putTaskInReview(tasks, 'cleanup-task', title: 'Save the changes', worktreeJson: worktree.toJson());
+      return worktree;
+    }
+
+    TaskReviewService reviewService({String strategy = 'squash'}) => TaskReviewService(
+      tasks: tasks,
+      worktreeManager: worktrees,
+      mergeExecutor: MergeExecutor(projectDir: repo.path),
+      mergeStrategy: strategy,
+      dataDir: data.path,
+    );
+
+    test('lands the squash commit and removes the owned branch', () async {
+      final worktree = await reviewWorktree();
+      final branchTip = (await git(['rev-parse', worktree.branch])).stdout;
+
+      expect(await reviewService().review('cleanup-task', 'accept', trigger: 'user'), isA<ReviewSuccess>());
+
+      expect((await git(['show', 'main:README.md'])).stdout, 'task change\n');
+      expect((await git(['rev-parse', 'main'])).stdout, isNot(branchTip));
+      expect(
+        (await git(['log', '-1', '--format=%s', 'main'])).stdout.toString().trim(),
+        'task(cleanup-task): Save the changes',
+      );
+      expect((await git(['branch', '--list', worktree.branch])).stdout.toString().trim(), isEmpty);
+      expect(Directory(worktree.path).existsSync(), isFalse);
+    });
+
+    test('keeps the branch and review state on conflict', () async {
+      final worktree = await reviewWorktree();
+      File(p.join(repo.path, 'README.md')).writeAsStringSync('base change\n');
+      await git(['add', 'README.md']);
+      await git(['commit', '-m', 'base changes']);
+      final baseTip = (await git(['rev-parse', 'main'])).stdout;
+
+      expect(await reviewService().review('cleanup-task', 'accept', trigger: 'user'), isA<ReviewMergeConflict>());
+
+      expect((await tasks.get('cleanup-task'))!.status, TaskStatus.review);
+      expect((await git(['rev-parse', 'main'])).stdout, baseTip);
+      expect((await git(['branch', '--list', worktree.branch])).stdout.toString().trim(), isNotEmpty);
+      expect(Directory(worktree.path).existsSync(), isTrue);
+    });
+
+    test('keeps an attached branch even when already merged', () async {
+      final worktree = await reviewWorktree(attachedBranch: 'wf/integration');
+      await git(['merge', '--ff-only', worktree.branch]);
+      final branchTip = (await git(['rev-parse', worktree.branch])).stdout;
+
+      expect(await reviewService().review('cleanup-task', 'accept', trigger: 'user'), isA<ReviewSuccess>());
+
+      expect((await git(['rev-parse', worktree.branch])).stdout, branchTip);
+      expect(Directory(worktree.path).existsSync(), isFalse);
+    });
+
+    test('merge strategy retains the non-force deletion path', () async {
+      final worktree = await reviewWorktree();
+      expect(
+        await reviewService(strategy: 'merge').review('cleanup-task', 'accept', trigger: 'user'),
+        isA<ReviewSuccess>(),
+      );
+      expect((await git(['show', 'main:README.md'])).stdout, 'task change\n');
+      expect((await git(['branch', '--list', worktree.branch])).stdout.toString().trim(), isEmpty);
+    });
+  });
+
   group('execution-surface hold', () {
     late Directory repo;
     late Directory data;
@@ -518,12 +620,15 @@ void main() {
           final service = TaskReviewService(
             tasks: tasks,
             mergeExecutor: MergeExecutor(projectDir: repo.path),
+            worktreeManager: worktrees,
           );
           final result = await service.review('surface-task', 'accept', trigger: trigger);
           expect(result, isNot(isA<ReviewSuccess>()));
           expect((await git(['rev-parse', 'main'])).stdout, before);
           final held = (await tasks.get('surface-task'))!;
           expect(held.status, TaskStatus.review);
+          expect(Directory(worktree.path).existsSync(), isTrue);
+          expect((await git(['branch', '--list', worktree.branch])).stdout.toString().trim(), isNotEmpty);
           expect(held.configJson['_executionSurfaceHold'], {
             'paths': ['.claude/settings.json'],
           });
@@ -648,6 +753,7 @@ void main() {
       expect(prArtifact.name, 'Pull Request');
       expect(prArtifact.path, 'https://github.com/u/r/pull/42');
       expect(worktreeManager.cleanedTaskIds, contains('task-proj'));
+      expect(worktreeManager.forceDeleteBranches, [false]);
       expect(worktreeManager.cleanedProjectIds, contains('my-app'));
     });
 
@@ -845,6 +951,7 @@ void main() {
       expect(result, const TypeMatcher<ReviewSuccess>());
       expect((await tasks.get('task-reject-cleanup'))!.status, TaskStatus.rejected);
       expect(worktreeManager.cleanedTaskIds, contains('task-reject-cleanup'));
+      expect(worktreeManager.forceDeleteBranches, [false]);
       expect(worktreeManager.cleanedProjectIds, contains('my-app'));
     });
 

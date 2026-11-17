@@ -131,3 +131,38 @@ Paths are relative to the public repo root (`../dartclaw-public/` from the priva
 ## Discovered Requirements
 
 - **Preserve review ownership during cleanup**. **Description**: S03 made `TaskReviewService.review` require an explicit trigger and added a held result before merge/push. Execution-surface holds require a person; an agent tool remains automatic even in an admin chat. **Rationale**: The accept path changed after this FIS was authored. **Interpretation**: Keep the hold and hook-free commit gates ahead of the successful local squash cleanup; a held accept must retain its branch. Use explicit person provenance in manual-accept tests and preserve host-owned workflow approval markers if touching those paths. **Traced from**: S03/TI02, S03/TI03, S03/TI07. **Date**: 2026-11-17.
+
+- **Protect attached branches on opt-in squash cleanup**. **Description**: The new force cleanup skips branch deletion for any name other than exactly `dartclaw/task-<taskId>`. **Rationale**: S07's attached-branch guarantee conflicts with the Architecture Decision and Constraints fallback to non-force deletion; real Git deletes an already-merged attached branch under that fallback. **Interpretation**: Resolution Ladder rung 2 (Widen), confirmed by the plan runner: read S07 as the new force path, leaving the default and merge cleanup commands unchanged under SC01. **Traced from**: TI03/S07/SC01. **Date**: 2026-11-17.
+
+## Implementation Observations
+
+ASSUMPTION: S07 protects attached branches on the new `forceDeleteBranch: true` path only; `false` retains existing non-force behavior. A requirement to change default or merge cleanup would require a separate amendment.
+
+#### DRIFT
+
+- spec-stale: S07's attached branch “never deleted” applies only to the new force path, because SC01 freezes default cleanup | Stale targets: S07 Then; Architecture Decision; Constraints & Gotchas fallback-to-nonforce sentence | –
+- spec-stale: S03 requires explicit review provenance and preserves its execution-surface hold before cleanup | Stale targets: TI03's pre-S03 accept path detail | –
+
+### Execution evidence
+
+- TI01/S01-S03: `dart test --reporter=failures-only packages/dartclaw_kernel/test/network_guard_test.dart --name hint` -> exit=0, `+3: All tests passed!` Agent/global hints failed first: actual reason lacked `; to allow ...`; direct-IP/exfil reasons remained byte-identical.
+- TI01: `dart test --reporter=failures-only packages/dartclaw_core/test/harness/codex_approval_flow_test.dart --name 'routes exact own-MCP web fetch approval arguments through NetworkGuard'` -> exit=0, `+1: All tests passed!`
+- TI01: `test -z "$(git grep -nF 'allowlist (evil.com)"' -- dev docs ':!dev/bundle')"` -> exit=0, no stale example reason.
+- TI02/S04-S05: `dart test --reporter=failures-only packages/dartclaw_runtime/test/task/worktree_manager_test.dart --name 'cleanup keeps unmerged work'` -> exit=0, `+1: All tests passed!` Passed before production cleanup changed.
+- TI03/S06-S07: `dart test --reporter=failures-only packages/dartclaw_runtime/test/task/task_review_service_test.dart --name 'squash accept deletes the task branch'` -> exit=0, `+4: All tests passed!` Failing-first owned branch: `Expected: empty`, `Actual: 'dartclaw/task-cleanup-task'`; merged attached branch: `fatal: ambiguous argument 'wf/integration': unknown revision or path not in the working tree.`
+- TI03/S07/SC01: `dart test --reporter=failures-only packages/dartclaw_runtime/test/task/worktree_manager_test.dart --name forceDeleteBranch` -> exit=0, `+3: All tests passed!` Includes exact owned name, already-merged attachment, collision suffix, dirty work, and unchanged default argv.
+- TI03: `dart test --reporter=failures-only packages/dartclaw_runtime/test/task/worktree_manager_test.dart packages/dartclaw_runtime/test/task/task_review_service_test.dart` -> exit=0, `+89: All tests passed!` Includes explicit person triggers, held branches, workflow ownership, project-backed no-force cleanup, and hook-free sweeps.
+- TI04: `git grep -n "dartclaw/task-" -- docs/guide/projects-and-git.md` -> exit=0, cancellation sentence names the surviving branch and worktree; `git grep -n -i "squash" -- CHANGELOG.md dev/architecture/task-execution-architecture.md` -> exit=0, both describe squash-accept cleanup.
+- Fast tier (`KEY_DEVELOPMENT_COMMANDS.md`, `--no-full-tier`) -> exit=0: assets generated; analyzer `No issues found!`; kernel `+1433`, core `+1757 ~19`, search `+62`, workflow `+2150 ~11`, runtime `+5751 ~25`, CLI `+856 ~3`, all tests passed. 58 pre-existing conditional skips; no story proof skipped. Full tier belongs to the plan runner; no release/build/live gate added or run.
+- Format: `dart format --line-length=120 --output=none --set-exit-if-changed .` -> exit=0, `Formatted 2234 files (0 changed)`; `git diff --check` -> exit=0.
+- Direct checks: no new stub/TODO/skip/suppression; `forceDeleteBranch` is wired service -> cleanup helper -> manager and all five overrides were migrated. Falsifiability mutations removing force deletion, attached-name protection, or the non-force default each failed their owning proofs, then code was restored and all proofs passed.
+- Tidies: removed stale unchanged-flow comment from `TaskReviewService`; removed control-flow narration from edited NetworkGuard helpers and WorktreeManager cleanup. No additional machinery or durable learning was justified.
+
+### Chain Attestation
+
+- OC01: S01-S03 -> TI01 -> exact hint tests and Codex approval denial prove per-agent/global remediation with unchanged IP/exfiltration reasons; control-protocol example follows it.
+- OC02: S04-S05 -> TI02 and TI04 -> unchanged real-Git cleanup pins clean unmerged commits on their branch and dirty changes in their worktree; the guide names both locations.
+- OC03: S06-S07 and SC01 -> TI03/TI04 -> real-Git accepts land squash commits and delete only the exact owned branch, conflicts/holds keep branches, the opt-in path retains merged attached branches, and default/merge/project/workflow paths preserve their existing behavior; architecture and changelog describe it.
+- Prior discovered requirement (S03): explicit person provenance in manual accepts, held automatic accepts retaining branch/worktree, and existing hook-free sweep tests remain green in the 89-test focused run.
+
+Reviewed: fresh independent reviewer ran quick code + gap against S04; 0 findings, 0 fixes, 0 open Notes. Independently reran runtime proofs (+89), hints (+3), Codex denial (+1), and diff checks, all exit 0.

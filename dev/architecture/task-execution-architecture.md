@@ -202,7 +202,7 @@ Tasks with `needsWorktree: true` get a git worktree, a structured diff for revie
 - **Local** (`_local`): `git branch` then `git worktree add` from `tasks.worktree.base_ref` (default `main`).
 - **Attach mode** (`createBranch: false`, workflow-shared worktrees): checks out an existing ref; detaches only when another worktree already holds the branch.
 - Branch name `dartclaw/task-<taskId>`, suffixed `-2`…`-100` on collision. `create` first reconciles existing state (adopts a matching registered worktree, removes a mismatched one, prunes a dangling one), and a failed workflow-skill materialization rolls the worktree back.
-- `cleanup` removes the worktree and branch, best-effort (warnings, no throw). `cleanupWorktree` also deregisters the `TaskFileGuard` entry.
+- `cleanup` removes the worktree and branch, best-effort (warnings, no throw). Default non-force cleanup preserves unmerged commits and dirty worktrees. After a successful local squash accept, `forceDeleteBranch` force-deletes only the exact task-owned `dartclaw/task-<taskId>` branch and preserves attached branches. `cleanupWorktree` passes this option through and deregisters the `TaskFileGuard` entry.
 - `detectStaleWorktrees` runs once at startup (`tasks.worktree.stale_timeout_hours`, default 24). A directory older than the threshold whose task is missing or terminal is reaped; one whose task is still active is left with a warning.
 
 ### 5.2 TaskFileGuard

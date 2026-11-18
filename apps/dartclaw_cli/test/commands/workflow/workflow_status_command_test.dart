@@ -316,7 +316,13 @@ void main() {
 
         final text = output.join('\n');
         expect(text, contains(hold.message));
-        expect(text, contains('After review, run `dartclaw resume run-ap --candidate ${hold.candidate}` to approve'));
+        expect(output, contains('  Candidate:   ${hold.candidate}'));
+        expect(
+          output,
+          contains(
+            '  Actions:     After review, run `dartclaw resume run-ap --candidate ${hold.candidate}` to approve',
+          ),
+        );
         expect(text, isNot(contains('`dartclaw resume run-ap`')));
       });
 

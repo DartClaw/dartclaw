@@ -235,8 +235,10 @@ class WorkflowStatusCommand extends WorkflowConnectedCommand {
         writeLine('  Actions:     Run `${commandPrefix(this)} resume $runId` to approve');
       } else {
         final candidate = scrubAgentReportedText(hold.candidate);
-        writeLine('  Candidate    $candidate');
-        writeLine('  After review, run `${commandPrefix(this)} resume $runId --candidate $candidate` to approve');
+        writeLine('  Candidate:   $candidate');
+        writeLine(
+          '  Actions:     After review, run `${commandPrefix(this)} resume $runId --candidate $candidate` to approve',
+        );
       }
       writeLine('               Run `${commandPrefix(this)} cancel $runId` to reject');
     } else if (run['status'] == 'paused') {

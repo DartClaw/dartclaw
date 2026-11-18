@@ -21,6 +21,10 @@ void main() {
     await expectNodeHarness(_harness + _httpError, [(await chat).absolute.uri.toString()]);
   });
 
+  test('a 200 status whose body fails to decode shows a warning and keeps Stop', () async {
+    await expectNodeHarness(_harness + _decodeError, [(await chat).absolute.uri.toString()]);
+  });
+
   test('a late success leaves a newer status failure visible', () async {
     await expectNodeHarness(_harness + _lateSuccess, [(await chat).absolute.uri.toString()]);
   });
@@ -221,6 +225,19 @@ turnStatus = healthyTurn;
 await advance(2500);
 assert.deepEqual(warnings(), [], 'a healthy status should clear the warning');
 assert.equal(stopButton.disabled, false, 'a healthy cancellable status should enable Stop again');
+chat.disconnect();
+''';
+
+const _decodeError = r'''
+turnStatus = healthyTurn;
+await startStreaming();
+assert.deepEqual(warnings(), []);
+assert.equal(stopButton.disabled, false, 'healthy status should enable Stop');
+
+turnStatus = () => ({ ok: true, json: async () => { throw new SyntaxError('bad'); } });
+await advance(2500);
+assert.deepEqual(warnings(), [chatWarning], 'an undecodable 200 should show a status warning');
+assert.equal(stopButton.disabled, false, 'an undecodable 200 should keep the last known Stop state');
 chat.disconnect();
 ''';
 

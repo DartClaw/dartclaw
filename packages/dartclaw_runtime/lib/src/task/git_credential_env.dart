@@ -132,13 +132,18 @@ Map<String, String> _buildGitHubTokenEnv(
   try {
     Directory(p.dirname(scriptPath)).createSync(recursive: true);
     secureWriteFileSync(File(tokenFilePath), token);
+    // Matching git's whole prompt prefix ("Username for '<url>': ") answers
+    // only the canonical github.com host, so a repo-configured push URL on
+    // another host, even one embedding a github.com URL in its path, never
+    // receives the token.
     _writeOwnerOnlyScript(
       scriptPath,
       [
         '#!/bin/sh',
         'case "\$1" in',
-        "  *Username*) printf '%s\\n' 'x-access-token' ;;",
-        "  *) cat '$tokenFilePath' ;;",
+        "  \"Password for 'https://x-access-token@github.com\"[/\\']*) cat '$tokenFilePath' ;;",
+        "  \"Username for 'https://github.com\"[/\\']*) printf '%s\\n' 'x-access-token' ;;",
+        '  *) exit 1 ;;',
         'esac',
         '',
       ].join('\n'),

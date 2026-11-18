@@ -415,7 +415,7 @@ Use two PostgreSQL roles: an administrator provisions the database, runtime role
 | Transport | Injected |
 |-----------|----------|
 | SSH | `GIT_SSH_COMMAND=ssh -i <key> -o BatchMode=yes -o StrictHostKeyChecking=accept-new` |
-| HTTPS (GitHub token) | Remote rewritten to canonical HTTPS; `GIT_ASKPASS` script answers `x-access-token` and the token |
+| HTTPS (GitHub token) | Remote rewritten to canonical HTTPS; `GIT_ASKPASS` script answers `x-access-token` and the token only to prompts for `https://github.com` and refuses every other host, so a `remote.origin.pushurl` elsewhere receives no credential and the push fails as `PushAuthFailure` |
 | HTTPS (other) | `GIT_ASKPASS` script that prints the secret |
 
 The askpass scripts read the secret from a helper file in `<data_dir>/projects/` (`.git-askpass-<ref>.key|.token`); the file is written mode 0600 and the script 0700 (`secureWriteFileSync`). The project service and push service delete these files at `dispose()` (shutdown), the workflow git port after each operation. Protect the data directory accordingly.

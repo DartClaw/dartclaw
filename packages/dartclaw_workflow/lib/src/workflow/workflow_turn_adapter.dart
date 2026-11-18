@@ -36,10 +36,19 @@ class WorkflowGitPromotionSuccess extends WorkflowGitPromotionResult {
 
 /// Promotion stopped before commits or merge until a person approves [candidate].
 class WorkflowGitPromotionHeld extends WorkflowGitPromotionResult {
+  /// Execution-surface paths in the candidate that need a person's review.
   final List<String> paths;
+
+  /// Identity of the reviewed source, base and operation; approval must match it.
   final String candidate;
+
+  /// Integration branch the promotion would merge into, when known.
   final String? destination;
+
+  /// Worktree holding the source branch, when it is checked out.
   final String? worktreePath;
+
+  /// Worktree holding [destination], when it is checked out.
   final String? destinationWorktreePath;
 
   const new(this.paths, {required this.candidate, this.destination, this.worktreePath, this.destinationWorktreePath});
@@ -110,7 +119,11 @@ class WorkflowGitPublishResult {
 
   /// Identity of the Git candidate that requires review when [status] is held.
   final String? heldCandidate;
+
+  /// Remote ref (`<remote>/<branch>`) the held publish would push to, when known.
   final String? heldDestination;
+
+  /// Worktree whose contents make up [heldCandidate], when known.
   final String? heldWorktreePath;
 
   const new({

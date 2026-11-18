@@ -315,7 +315,9 @@ void main() {
         await runner.run(['status', 'run-ap']);
 
         final text = output.join('\n');
-        expect(text, contains(hold.message));
+        expect(text, contains('promote branch work/story'));
+        expect(text, contains('Destination work/integration'));
+        expect(output, contains('                 .github/workflows/check.yml'));
         expect(output, contains('  Candidate:   ${hold.candidate}'));
         expect(
           output,
@@ -324,6 +326,46 @@ void main() {
           ),
         );
         expect(text, isNot(contains('`dartclaw resume run-ap`')));
+      });
+
+      test('connected execution-surface hold lists every path before the approve command', () async {
+        final hold = WorkflowExecutionSurfaceHold(
+          branch: 'work/story',
+          paths: [for (var i = 0; i < 50; i++) '.claude/skills/${'long-skill-name-' * 4}$i/SKILL.md'],
+          candidate: 'current-candidate-id',
+        );
+        final transport = FakeApiTransport(
+          sendResponses: [
+            jsonResponse(200, {
+              'id': 'run-ap',
+              'definitionName': 'demo-wf',
+              'status': 'awaitingApproval',
+              'startedAt': '2026-06-01T10:00:00Z',
+              'isApprovalPaused': true,
+              'pendingApprovalStepId': 'promote',
+              'contextJson': {workflowExecutionSurfaceHoldKey: hold.toJson()},
+            }),
+          ],
+        );
+        final output = <String>[];
+        final runner = CommandRunner<void>('dartclaw', 'test')
+          ..addCommand(
+            WorkflowStatusCommand(
+              connection: ApiWorkflowConnection(
+                apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
+              ),
+              writeLine: output.add,
+            ),
+          );
+
+        await runner.run(['status', 'run-ap']);
+
+        final actions = output.indexWhere((line) => line.startsWith('  Actions:'));
+        expect(actions, isNonNegative);
+        for (final path in hold.paths) {
+          final index = output.indexOf('                 $path');
+          expect(index, allOf(isNonNegative, lessThan(actions)), reason: path);
+        }
       });
 
       test('needsInput hold on a non-approval step still surfaces its reason (context-key parity)', () async {

@@ -12,20 +12,26 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         TaskStatus,
         TaskStatusChangedEvent,
         WorkflowApprovalRequestedEvent,
+        WorkflowApprovalResolver,
+        WorkflowApprovalSource,
         WorkflowContext,
         WorkflowDefinition,
+        WorkflowExecutionSurfaceHold,
         WorkflowGitException,
         WorkflowGitPublishResult,
         WorkflowPublishStatus,
         WorkflowPullRequest,
         WorkflowGitStrategy,
         WorkflowRun,
+        WorkflowService,
         WorkflowStep,
+        WorkflowTaskType,
         WorkflowTurnAdapter,
         WorkflowTurnOutcome,
         WorkflowVariable,
         WorkflowWorktreeBinding,
-        SessionService;
+        SessionService,
+        workflowApprovedCandidate;
 import 'package:test/test.dart';
 
 import 'workflow_executor_test_support.dart';
@@ -456,6 +462,80 @@ void main() {
       expect(finalRun?.status, WorkflowRunStatus.failed);
       expect(finalRun?.errorMessage, contains('"pull_request"'));
       expect(received, isEmpty);
+    });
+  });
+
+  group('resolving a publish hold keeps the final step status', () {
+    const definition = WorkflowDefinition(
+      name: 'publish-hold-status',
+      description: 'Publish hold resolution',
+      gitStrategy: WorkflowGitStrategy(publish: true),
+      steps: [
+        WorkflowStep(id: 'prepare', name: 'Prepare', taskType: WorkflowTaskType.bash, prompts: ['true']),
+      ],
+    );
+    const variables = {'PROJECT': 'my-project', 'BRANCH': 'feature/test'};
+
+    Future<(WorkflowRun, WorkflowService, List<String?>)> heldRun() async {
+      final approvedCandidates = <String?>[];
+      final adapter = standardTurnAdapter(
+        publishWorkflowBranch: ({required runId, required projectId, required branch, pullRequest}) async {
+          final approved = workflowApprovedCandidate((await h.repository.getById(runId))!.contextJson);
+          approvedCandidates.add(approved);
+          return WorkflowGitPublishResult(
+            status: approved == null ? WorkflowPublishStatus.held : WorkflowPublishStatus.success,
+            branch: branch,
+            remote: 'origin',
+            prUrl: '',
+            heldPaths: const ['.mcp.json'],
+            heldCandidate: 'candidate-1',
+          );
+        },
+      );
+      final context = WorkflowContext(variables: variables);
+      final run = h
+          .makeRun(definition)
+          .copyWith(contextJson: {'_workflow.approvals': 'manual', ...context.toJson()}, variablesJson: variables);
+      await h.repository.insert(run);
+      await h.makeExecutor(turnAdapter: adapter).execute(run, definition, context);
+      final held = (await h.repository.getById(run.id))!;
+      expect(held.status, WorkflowRunStatus.awaitingApproval);
+      expect(held.contextJson['data'], containsPair('prepare.status', 'success'));
+      final service = executionSurfaceService(h, adapter);
+      addTearDown(service.dispose);
+      return (held, service, approvedCandidates);
+    }
+
+    test('approving the reviewed candidate records the approval, not a new step status', () async {
+      final (held, service, approvedCandidates) = await heldRun();
+
+      await service.resume(
+        held.id,
+        resolver: const WorkflowApprovalResolver(source: WorkflowApprovalSource.web),
+        executionSurfaceCandidate: WorkflowExecutionSurfaceHold.read(held.contextJson)!.candidate,
+      );
+      await waitForExecutionSurfaceStatus(h, WorkflowRunStatus.completed);
+
+      final data = (await h.repository.getById(held.id))!.contextJson['data'] as Map<String, dynamic>;
+      expect(data, containsPair('prepare.status', 'success'));
+      expect(data, containsPair('prepare.approval.status', 'approved'));
+      expect(approvedCandidates, [null, 'candidate-1']);
+    });
+
+    test('cancelling the hold records the rejection, not a new step status', () async {
+      final (held, service, _) = await heldRun();
+
+      await service.cancel(
+        held.id,
+        feedback: 'no',
+        resolver: const WorkflowApprovalResolver(source: WorkflowApprovalSource.web),
+      );
+
+      final cancelled = (await h.repository.getById(held.id))!;
+      expect(cancelled.status, WorkflowRunStatus.cancelled);
+      final data = cancelled.contextJson['data'] as Map<String, dynamic>;
+      expect(data, containsPair('prepare.status', 'success'));
+      expect(data, containsPair('prepare.approval.status', 'rejected'));
     });
   });
 }

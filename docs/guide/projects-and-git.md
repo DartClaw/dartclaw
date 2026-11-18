@@ -315,7 +315,7 @@ of prompting.
 
 | Credential | Environment |
 |------------|-------------|
-| `github-token` entry, GitHub remote | Remote rewritten to its canonical HTTPS URL; `GIT_ASKPASS` helper script that reads the token from a file under `<data_dir>/projects/` |
+| `github-token` entry, GitHub remote | Remote rewritten to its canonical HTTPS URL; `GIT_ASKPASS` helper script that reads the token from a file under `<data_dir>/projects/` and answers only prompts for `https://github.com`, so a `remote.origin.pushurl` on another host gets no credential and the push fails as an authentication failure |
 | `api-key` entry, SSH remote | `GIT_SSH_COMMAND=ssh -i <entry value> -o BatchMode=yes -o StrictHostKeyChecking=accept-new` (the entry's value is the private-key path) |
 | `api-key` entry, HTTPS remote | `GIT_ASKPASS` helper script that prints the entry's value from a file under `<data_dir>/projects/` |
 | None, SSH remote | `GIT_SSH_COMMAND=ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new` |

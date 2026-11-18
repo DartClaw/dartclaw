@@ -19,7 +19,6 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowStep,
         workflowContextValue;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show FileWorkflowRunRepository, WorkflowRunRepository;
-import 'package:dartclaw_runtime/dartclaw_runtime.dart' show scrubAgentReportedText;
 
 import '../config_loader.dart';
 import '../connected_command_support.dart' hide truncate;
@@ -227,9 +226,16 @@ class WorkflowStatusCommand extends WorkflowConnectedCommand {
       writeLine('  Approval:    Step "$pendingStepId" is awaiting approval');
       final contextJson = Map<String, dynamic>.from((run['contextJson'] as Map?) ?? const {});
       final hold = WorkflowExecutionSurfaceHold.read(contextJson);
-      final approvalMessage = hold?.message ?? contextJson['$pendingStepId.approval.message']?.toString();
-      if (approvalMessage != null && approvalMessage.isNotEmpty) {
-        writeLine('  Request:     ${scrubAgentReportedText(approvalMessage)}');
+      if (hold != null) {
+        // Every path is printed, never the capped message: the candidate approves all of them.
+        final lines = executionSurfaceHoldLines(hold);
+        writeLine('  Request:     ${lines.first}');
+        for (final line in lines.skip(1)) {
+          writeLine('               $line');
+        }
+      } else if (contextJson['$pendingStepId.approval.message']?.toString() case final message?
+          when message.isNotEmpty) {
+        writeLine('  Request:     ${scrubAgentReportedText(message)}');
       }
       if (hold == null) {
         writeLine('  Actions:     Run `${commandPrefix(this)} resume $runId` to approve');

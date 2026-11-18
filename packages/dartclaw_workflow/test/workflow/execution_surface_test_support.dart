@@ -176,6 +176,10 @@ void executionSurfacePromotionTests({required bool foreach}) {
         );
         expect(held.errorMessage, contains('Destination worktree ${initialHold.destinationWorktreePath}.'));
         expect(held.errorMessage, contains('.vscode/settings.json'));
+        // An issued, unconsumed button must not outlive the hold it was issued for.
+        final unconsumedButton = await _approvalButton(service, held);
+        held = (await h.repository.getById(run.id))!;
+        expect(WorkflowApprovalInteraction.of(held)?.nonce, unconsumedButton.nonce);
         // Simulate restart after the task checkpoint landed but before the
         // executor recorded the pending approval.
         final checkpoint = Map<String, dynamic>.of(held.contextJson)
@@ -187,6 +191,15 @@ void executionSurfacePromotionTests({required bool foreach}) {
         await waitForExecutionSurfaceStatus(h, WorkflowRunStatus.awaitingApproval);
         held = (await h.repository.getById(run.id))!;
         expect(WorkflowExecutionSurfaceHold.read(held.contextJson)!.candidate, initialCandidate);
+        expect(WorkflowApprovalInteraction.of(held), isNull);
+        await expectLater(
+          service.resume(
+            run.id,
+            resolver: const WorkflowApprovalResolver(source: WorkflowApprovalSource.button),
+            expect: unconsumedButton,
+          ),
+          throwsA(_refusedWith(WorkflowApprovalRefusal.invalidNonce)),
+        );
       }
       if (!foreach && policy == 'manual') {
         final staleButton = await _approvalButton(service, held);

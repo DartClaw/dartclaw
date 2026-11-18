@@ -473,8 +473,13 @@ class WorkflowService {
         'Execution surface changes require a person. Review the changes and resume this run in the web UI or through the API.',
       );
     }
-    if (hold == null ||
-        pendingApprovalStepId == null ||
+    if (hold == null) {
+      throw const WorkflowApprovalRefused(
+        WorkflowApprovalRefusal.invalidNonce,
+        'This run has no pending execution-surface review. Resume it without a candidate.',
+      );
+    }
+    if (pendingApprovalStepId == null ||
         (candidate != null && candidate != hold.candidate) ||
         (source == WorkflowApprovalSource.web && candidate == null) ||
         (source == WorkflowApprovalSource.button && expect == null)) {
@@ -1272,7 +1277,9 @@ class WorkflowService {
     final approvalStatus = approved ? 'approved' : 'rejected';
     final context = await _loadResumeContext(run, null);
     final executionHold = WorkflowExecutionSurfaceHold.read(run.contextJson);
-    context['$stepId.status'] = stepStatus;
+    // An execution-surface hold reviews Git delivery after the step settled;
+    // the step keeps its own status.
+    if (executionHold == null) context['$stepId.status'] = stepStatus;
     context['$stepId.approval.status'] = approvalStatus;
     context['$stepId.approval.resolved_at'] = resolvedAt;
     if (!approved && feedback != null) {
@@ -1287,7 +1294,7 @@ class WorkflowService {
         if (executionHold != null) workflowExecutionSurfaceHoldKey,
       },
       extraFlat: {
-        '$stepId.status': stepStatus,
+        if (executionHold == null) '$stepId.status': stepStatus,
         '$stepId.approval.status': approvalStatus,
         '$stepId.approval.resolved_at': resolvedAt,
         if (!approved) '$stepId.approval.feedback': ?feedback,

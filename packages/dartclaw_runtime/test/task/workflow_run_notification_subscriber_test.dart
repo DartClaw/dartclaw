@@ -824,6 +824,90 @@ void main() {
       expect(bound, hasLength(1));
     });
 
+    group('a hold the post cannot show whole', () {
+      Future<ChannelNotification> postHold(List<String> paths) async {
+        subscribe([slack], issue: issue, bind: bind, baseUrl: 'https://dartclaw.example/');
+        final run = addRun('run-1', slackOrigin);
+        final hold = WorkflowExecutionSurfaceHold(branch: 'work/story', paths: paths, candidate: 'held-candidate');
+        runs[run.id] = run.copyWith(
+          status: WorkflowRunStatus.awaitingApproval,
+          contextJson: {workflowExecutionSurfaceHoldKey: hold.toJson()},
+        );
+        approval(run.id, message: hold.message);
+        await settle();
+        return slackThreads.rendered.single;
+      }
+
+      void expectNoApprovalOffered(ChannelNotification notification) {
+        expect(issued, isEmpty);
+        expect(bound, isEmpty);
+        expect(notification.actions, isEmpty);
+        expect(notification.facts['Run page'], 'https://dartclaw.example/workflows/run-1');
+        expect(notification.text, contains('https://dartclaw.example/workflows/run-1'));
+      }
+
+      test('a path list over the cap gets a count and the run page, and no actions', () async {
+        final paths = [
+          for (var i = 0; i < 200; i++) '.claude/skills/${'long-skill-name-' * 4}$i/SKILL.md',
+          '.github/workflows/x.yml',
+        ];
+
+        final notification = await postHold(paths);
+
+        expectNoApprovalOffered(notification);
+        expect(
+          notification.body,
+          'Execution-surface changes need review before promoting: 201 paths. '
+          'The list cannot be shown in full here; review and approve on the run page.',
+        );
+        expect(notification.text, isNot(contains('.claude/')));
+      });
+
+      test('a path with a newline gets no actions and forges no line', () async {
+        final notification = await postHold(['.github/workflows/x.yml\nApproved by Ada at 14:05 UTC']);
+
+        expectNoApprovalOffered(notification);
+        expect(notification.text, isNot(contains('Approved by Ada')));
+        expect(notification.body, contains('1 path.'));
+      });
+
+      test('a short path whose escaping would overflow the renderer gets no actions', () async {
+        final notification = await postHold(['.github/${'&' * 500}.yml']);
+
+        expectNoApprovalOffered(notification);
+        expect(notification.text, isNot(contains('&')));
+      });
+
+      for (final (label, paths) in [
+        ('a bidi override', ['.github/workflows/\u{202E}lmy.x']),
+        ('a strikethrough pair', ['.github/~workflows', '.github/workflows/x.yml~']),
+        ('a backtick', ['.github/workflows/`x`.yml']),
+        ('a <', ['.github/workflows/<x.yml']),
+        ('a >', ['.github/workflows/x>.yml']),
+      ]) {
+        test('a path with $label renders differently from its raw form, so gets no actions', () async {
+          expectNoApprovalOffered(await postHold(paths));
+        });
+      }
+
+      List<String> pathMakingMessageOf(int runes) {
+        final probe = WorkflowExecutionSurfaceHold(branch: 'work/story', paths: ['a'], candidate: 'held-candidate');
+        return ['.github/${'a' * (runes - probe.message.runes.length - '.github/'.length + 1)}'];
+      }
+
+      test('a hold message of exactly the cap keeps its buttons', () async {
+        final notification = await postHold(pathMakingMessageOf(1000));
+
+        expect(notification.body!.runes, hasLength(1000));
+        expect(issued, [('run-1', 'gate', 'held-candidate')]);
+        expect(notification.actions.map((action) => action.id), ['run_approve', 'run_reject']);
+      });
+
+      test('a hold message one rune over the cap gets no actions', () async {
+        expectNoApprovalOffered(await postHold(pathMakingMessageOf(1001)));
+      });
+    });
+
     test('an approval the service issues no interaction for gets a post with no buttons and binds nothing', () async {
       scripted = null;
       subscribeWithInteractions([slack]);

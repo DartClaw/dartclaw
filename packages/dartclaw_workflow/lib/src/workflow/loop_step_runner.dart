@@ -652,7 +652,10 @@ extension WorkflowExecutorLoopStepRunner on WorkflowExecutor {
 
       if (nested == null) {
         await _persistContext(run.id, context);
-        run = run.copyWith(contextJson: context.toJson(), updatedAt: DateTime.now());
+        run = run.copyWith(
+          contextJson: {...privateContextEntries(run.contextJson), ...context.toJson()},
+          updatedAt: DateTime.now(),
+        );
         await _repository.updateOwned(run);
         onRunUpdated(run);
       } else {
@@ -857,7 +860,7 @@ String? _loopResidualFindingsDetail(WorkflowContext context) {
   final rawCount = context['gating_findings_count'];
   final count = rawCount is int ? rawCount : int.tryParse('$rawCount');
   final rawPath = context['review_report_path'];
-  final path = rawPath is String && rawPath.trim().isNotEmpty ? _sanitizeAgentReportedText(rawPath) : null;
+  final path = rawPath is String && rawPath.trim().isNotEmpty ? scrubAgentReportedText(rawPath) : null;
   final countText = count != null && count > 0 ? '$count gating finding${count == 1 ? ' remains' : 's remain'}' : null;
   if (countText == null && path == null) return null;
   if (countText == null) return 'Residual findings report: $path';

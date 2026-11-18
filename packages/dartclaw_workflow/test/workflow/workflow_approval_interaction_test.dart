@@ -261,6 +261,29 @@ void main() {
       expect(resolvedEvents, isEmpty);
     });
 
+    test('a candidate sent to a run with no execution-surface hold is refused as such', () async {
+      await pendingRun('run-1');
+
+      await expectLater(
+        service.resume(
+          'run-1',
+          resolver: const WorkflowApprovalResolver(source: WorkflowApprovalSource.web),
+          executionSurfaceCandidate: 'candidate-1',
+        ),
+        throwsA(
+          isA<WorkflowApprovalRefused>()
+              .having((e) => e.reason, 'reason', WorkflowApprovalRefusal.invalidNonce)
+              .having(
+                (e) => e.message,
+                'message',
+                'This run has no pending execution-surface review. Resume it without a candidate.',
+              ),
+        ),
+      );
+      expect((await harness.repository.getById('run-1'))!.status, WorkflowRunStatus.awaitingApproval);
+      expect(resolvedEvents, isEmpty);
+    });
+
     test('a post not yet bound cannot resolve, and a bound one can once', () async {
       await pendingRun('run-1');
       final interaction = (await service.issueApprovalInteraction('run-1', 'gate'))!;

@@ -180,7 +180,9 @@ class PrCreator {
     final parts = <String>['_Created by DartClaw task ${task.id}_'];
     final notesSection = _notesSection(notes);
     if (notesSection != null) parts.add(notesSection);
-    parts.add('---\n${_scrubBody(body).trim()}');
+    // An authored body is agent output bound for an off-machine sink. The block scrub keeps Markdown, because the
+    // body's tables are what a PR viewer parses.
+    parts.add('---\n${scrubAgentReportedBlock(body).trim()}');
     return parts.join('\n\n');
   }
 
@@ -192,15 +194,7 @@ class PrCreator {
     return '### Unresolved items\n```\n${notes.trim()}\n```';
   }
 
-  // An authored body is agent output bound for an off-machine sink. Terminal
-  // escapes and control characters go; Markdown stays, because the body's
-  // tables are what a PR viewer parses. Newlines and tabs are kept.
-  static String _scrubBody(String value) => value
-      .replaceAll('\r\n', '\n')
-      .replaceAll(RegExp(r'\x1B\[[0-9;]*[A-Za-z]'), '')
-      .replaceAll(RegExp(r'[\x00-\x08\x0B-\x1F\x7F-\x9F]'), '');
-
-  static String _scrubTitle(String value) => _scrubBody(value).replaceAll(RegExp(r'\s+'), ' ').trim();
+  static String _scrubTitle(String value) => scrubAgentReportedBlock(value).replaceAll(RegExp(r'\s+'), ' ').trim();
 
   Future<({int statusCode, String body})> _request(
     String method,

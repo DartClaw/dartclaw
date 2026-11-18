@@ -603,8 +603,9 @@ Key runtime behavior:
 - Promotion and publish stop at `awaitingApproval` when committed or pending changes touch an
   [execution surface](tasks.md#review-workflow), before committing pending files, merging or pushing. The run shows
   the operation, destination, relevant worktrees and held paths. In connected mode, review the changes and approve
-  through the run page, the HTTP API or a channel approval button. Approval covers the Git revisions and pending files
-  for that operation and destination. Resume retries delivery without rerunning completed work. A changed candidate
+  through the run page, the HTTP API or a channel approval button. A channel post offers approval only when it shows
+  the whole path list; otherwise it gives the path count and the run page. Approval covers the Git revisions and
+  pending files for that operation and destination. Resume retries delivery without rerunning completed work. A changed candidate
   that still touches an execution surface prompts a fresh review. Agent tools and automatic approval policies cannot release the hold.
   See [standalone recovery](#standalone-cli-zero-server) for runs without a server.
 - Workflow publish requires one push URL for the displayed remote. To inspect the configured destination before

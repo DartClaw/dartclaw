@@ -1,5 +1,6 @@
 import 'package:dartclaw_core/dartclaw_core.dart' show humanizeDuration;
-import 'package:dartclaw_runtime/dartclaw_runtime.dart' show WriteLine, scrubAgentReportedText;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart' show scrubAgentReportedText;
+import 'package:dartclaw_runtime/dartclaw_runtime.dart' show WriteLine;
 
 import 'live_status_line.dart';
 

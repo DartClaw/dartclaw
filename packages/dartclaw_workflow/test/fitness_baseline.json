@@ -999,7 +999,6 @@
       "packages/dartclaw_workflow/lib/src/workflow/foreach_iteration_runner.dart::#top::_isPromotionFailure": 2,
       "packages/dartclaw_workflow/lib/src/workflow/foreach_iteration_runner.dart::#top::_foreachEscalatedHold": 11,
       "packages/dartclaw_workflow/lib/src/workflow/foreach_iteration_runner.dart::#top::_foreachBlockerDetail": 6,
-      "packages/dartclaw_workflow/lib/src/workflow/foreach_iteration_runner.dart::#top::_sanitizeAgentReportedText": 2,
       "packages/dartclaw_workflow/lib/src/workflow/foreach_iteration_runner.dart::#top::_completedForeachSubStepIds": 4,
       "packages/dartclaw_workflow/lib/src/workflow/foreach_iteration_runner.dart::#top::_completedForeachSubStepsByIndex": 7,
       "packages/dartclaw_workflow/lib/src/workflow/foreach_iteration_runner.dart::#top::_writeCompletedForeachSubStepIds": 2,

@@ -19,6 +19,8 @@ import 'channel_notification_delivery.dart';
 
 const _maxPostedTextLength = 1000;
 
+final _rendersDifferently = RegExp('[&<>~*`\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFEFF]');
+
 typedef _Event = WorkflowChatNotificationEvent;
 
 /// Issues an interaction for a pending step and its displayed execution-surface candidate, if any.
@@ -47,7 +49,8 @@ typedef BindApprovalPost = Future<bool> Function(
 /// and a run never posts to both places.
 ///
 /// On a channel that threads, an approval post carries Approve and Reject for the interaction issued
-/// with [IssueApprovalInteraction], bound to the post once sent. Every resolution of that approval,
+/// with [IssueApprovalInteraction], bound to the post once sent. An execution-surface hold whose text the post cannot
+/// show whole gets a path count and the run page instead, and no buttons. Every resolution of that approval,
 /// whichever surface made it, and a run that ends with it unresolved, edit the bound post once to say
 /// what happened and carry no buttons.
 ///
@@ -190,7 +193,7 @@ class WorkflowRunNotificationSubscriber {
       }
       final threadId = origin.threadId;
       if (threadId != null) {
-        final interaction = await _issue(run, event, hold?.candidate);
+        final interaction = await _issue(run, event, hold);
         final post = await _delivery.sendInThread(
           channel,
           threads,
@@ -215,7 +218,7 @@ class WorkflowRunNotificationSubscriber {
       return;
     }
 
-    final interaction = await _issue(run, event, hold?.candidate);
+    final interaction = await _issue(run, event, hold);
     final response = threads.render(_withActions(notification, interaction, run));
     final channelType = channel.type.name;
     final binding = store.lookupByRun(run.id).where((b) => b.channelType == channelType).firstOrNull;
@@ -259,17 +262,18 @@ class WorkflowRunNotificationSubscriber {
     }
   }
 
-  /// The interaction to put on an approval post, or `null` for any other post, an approval that is not pending
-  /// (one the policy auto-resolved included) and a failed issue.
+  /// The interaction to put on an approval post, or `null` for any other post, a [hold] the post cannot show whole,
+  /// an approval that is not pending (one the policy auto-resolved included) and a failed issue.
   Future<WorkflowApprovalInteraction?> _issue(
     WorkflowRun run,
     WorkflowLifecycleEvent event,
-    String? executionSurfaceCandidate,
+    WorkflowExecutionSurfaceHold? hold,
   ) async {
     final issue = _issueInteraction;
     if (issue == null || event is! WorkflowApprovalRequestedEvent) return null;
+    if (hold != null && !_showsWhole(hold)) return null;
     try {
-      return await issue(run.id, event.stepId, executionSurfaceCandidate: executionSurfaceCandidate);
+      return await issue(run.id, event.stepId, executionSurfaceCandidate: hold?.candidate);
     } catch (error, stackTrace) {
       _log.warning('Failed to issue the approval interaction of workflow run ${run.id}', error, stackTrace);
       return null;
@@ -449,7 +453,14 @@ class WorkflowRunNotificationSubscriber {
     switch (event) {
       case WorkflowApprovalRequestedEvent(:final stepId, :final message):
         facts['Step'] = stepId;
-        body = _truncate(hold?.message ?? message);
+        body = switch (hold) {
+          null => _truncate(message),
+          _ when _showsWhole(hold) => hold.message,
+          _ =>
+            'Execution-surface changes need review before ${hold.publish ? 'publishing' : 'promoting'}: '
+                '${hold.paths.length} path${hold.paths.length == 1 ? '' : 's'}. '
+                'The list cannot be shown in full here; review and approve on the run page.',
+        };
         final link = publicPageUrl(_baseUrl, '/workflows/${run.id}');
         if (link != null) facts['Run page'] = link;
         final revision = workflowRevisionState(run);
@@ -501,6 +512,16 @@ class WorkflowRunNotificationSubscriber {
       createdAt: run.startedAt,
       updatedAt: event.timestamp,
     );
+  }
+
+  // Renderers escape and then clip again with the buttons attached (a Slack section clips at 3000 after `&` becomes
+  // `&amp;`; a Google Chat card body truncates at 2000 after HTML escaping), and mrkdwn styling or bidi reordering can
+  // make a listed path look removed, so a hold is offered for approval only when its whole text shows as written.
+  // A mid-word `_` does not format, and snake_case paths are common.
+  bool _showsWhole(WorkflowExecutionSurfaceHold hold) {
+    final message = hold.message;
+    return scrubAgentReportedText(message, maxLength: _maxPostedTextLength) == message &&
+        !message.contains(_rendersDifferently);
   }
 
   String _truncate(String text) {

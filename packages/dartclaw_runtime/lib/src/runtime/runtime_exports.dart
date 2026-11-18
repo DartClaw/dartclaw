@@ -1,4 +1,3 @@
-export 'agent_text_scrub.dart' show scrubAgentReportedText;
 export 'project_definition_paths.dart' show configuredProjectDirectories, configuredProjectDirectory;
 export 'provider_resolution.dart'
     show

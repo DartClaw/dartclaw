@@ -17,6 +17,8 @@ const String executionEnvelopeOutputsKey = 'outputs';
 /// envelope. Reserved as a declared-output key name.
 const String executionEnvelopeStepOutcomeKey = 'step_outcome';
 
+/// Host-written key of the pending execution-surface hold; read it from the top
+/// level of `WorkflowRun.contextJson`, never from its `data` map.
 const workflowExecutionSurfaceHoldKey = '_workflow.git.execution_surface_hold';
 const workflowApprovedCandidateKey = '_workflow.git.approved_candidate';
 

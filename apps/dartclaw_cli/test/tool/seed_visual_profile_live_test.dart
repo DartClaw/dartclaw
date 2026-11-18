@@ -198,6 +198,17 @@ void main() {
       final firstRuns = await runs.list();
       final firstArtifacts = [for (final task in firstTasks) ...await tasks.listArtifactsByTask(task.id)];
       expect(firstArtifacts, isNotEmpty);
+      final missingArtifact = File(firstArtifacts.first.path);
+      await missingArtifact.delete();
+      await expectLater(
+        seedVisualProfile(backend: backend, dataDir: firstDataDir.path, now: now),
+        throwsA(isA<FileSystemException>().having((error) => error.path, 'missing artifact', missingArtifact.path)),
+      );
+      final artifactsAfterFailure = [for (final task in firstTasks) ...await tasks.listArtifactsByTask(task.id)];
+      expect(
+        artifactsAfterFailure.map((artifact) => artifact.toJson()),
+        unorderedEquals(firstArtifacts.map((artifact) => artifact.toJson())),
+      );
       await firstDataDir.delete(recursive: true);
       await seedVisualProfile(backend: backend, dataDir: dataDir, now: now.add(const Duration(days: 1)));
 

@@ -123,6 +123,7 @@ if [ -z "${DARTCLAW_CODING_IMAGE:-}" ]; then
   done
 fi
 
+matrix_status=0
 for provider in "${PROVIDERS[@]}"; do
   for fixture in "${FIXTURES[@]}"; do
     NAME="$provider-$fixture"
@@ -160,8 +161,10 @@ for provider in "${PROVIDERS[@]}"; do
       sleep 1
     done
     curl -sf http://localhost:3343/health >/dev/null || { echo 'FAIL: scenario server not ready' >&2; exit 1; }
-    python3 "$SCRIPT_DIR/coding_results.py" "$provider" "$fixture" "$DATA_DIR" "$PROJECT" "$REMOTE" "$RESULT_DIR" "$BASELINE"
+    python3 "$SCRIPT_DIR/coding_results.py" "$provider" "$fixture" "$DATA_DIR" "$PROJECT" "$REMOTE" "$RESULT_DIR" "$BASELINE" ||
+      matrix_status=1
     cleanup_server
     DATA_DIR=""
   done
 done
+exit "$matrix_status"

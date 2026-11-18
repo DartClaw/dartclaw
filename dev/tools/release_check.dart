@@ -7,7 +7,7 @@ const _usage = '''Usage: bash dev/tools/release_check.sh --version <version> [op
   --status      Show recorded results without executing gates.
   --gate <id>   Run or inspect one gate; prerequisites run when needed.
   --omit <ids>  Omit comma-separated gates (the Linux guest omits linux,ci).
-  --quick, -q   Omit workspace tests; always reports incomplete coverage.
+  --quick, -q   Skip workspace tests and the Linux gate. Reports incomplete coverage.
 Exit codes: 0 = selected gates passed, 1 = failure, 2 = usage, 3 = incomplete.
 Automated success is not release approval. See dev/guidelines/RELEASE_PREPARATION.md.
 ''';
@@ -152,7 +152,7 @@ Future<int> _run(List<String> args) async {
     var failed = false;
     var incomplete = quick;
     for (final id in selected) {
-      if (quick && id == 'tests') {
+      if (quick && (id == 'tests' || id == 'linux')) {
         stdout.writeln('$id: skipped (--quick)');
         continue;
       }
@@ -425,7 +425,8 @@ class _ReleaseCheck {
     ]);
     final bundle = File('${attempt.path}/candidate.bundle');
     try {
-      command(['git', 'bundle', 'create', bundle.path, 'HEAD']);
+      // The guest's doc-cuts gate compares the candidate against local main.
+      command(['git', 'bundle', 'create', bundle.path, 'HEAD', 'refs/heads/main']);
       await lima(['copy', bundle.path, '$vm:$guest/candidate.bundle']);
       final head = candidate['head']! as String;
       final tree = candidate['tree']! as String;
@@ -439,9 +440,10 @@ class _ReleaseCheck {
         'bash',
         '-lc',
         'set -eu\n'
-            'git clone --quiet ${_shellQuote('$guest/candidate.bundle')} $checkout\n'
+            'git clone --quiet --origin origin ${_shellQuote('$guest/candidate.bundle')} $checkout\n'
             'cd $checkout\n'
             'git checkout --quiet --detach $head\n'
+            'git branch --force main refs/remotes/origin/main\n'
             'test "\$(git rev-parse HEAD)" = $head\n'
             'test "\$(git rev-parse HEAD^{tree})" = $tree\n'
             'echo Linux candidate: $head tree $tree',

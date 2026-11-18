@@ -227,14 +227,14 @@ The exact path is `<data_dir>/workspace/.dartclaw/worktrees/<taskId>/`, keyed by
 
 Each task with a worktree gets a branch named `dartclaw/task-<taskId>`. If that name is taken (e.g., from a previous failed cleanup), DartClaw appends a suffix: `dartclaw/task-<taskId>-2`, `-3`, etc., up to 100 attempts.
 
-Cancelling or cleaning up a task keeps unmerged commits on `dartclaw/task-<taskId>` and uncommitted changes in the worktree directory shown above.
+Cancelling or cleaning up a task leaves unmerged commits on its task branch and uncommitted changes in its worktree directory. Save any uncommitted changes you need before [startup reaping](#stale-worktree-reaping) removes the worktree.
 
 ### Stale Worktree Reaping
 
 On startup, `WorktreeManager.detectStaleWorktrees()` scans the worktrees directory for entries older than
 `tasks.worktree.stale_timeout_hours` (default 24). A stale worktree whose task is missing or terminal (`accepted`,
-`rejected`, `cancelled`, `failed`) is removed; its `dartclaw/task-*` branch stays. One whose task is still active is
-left in place with a warning.
+`rejected`, `cancelled`, `failed`) is removed, including any uncommitted changes. Its `dartclaw/task-*` branch stays. A
+worktree whose task is still active stays in place with a warning.
 
 ## What Happens on Task Accept
 

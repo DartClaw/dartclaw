@@ -57,13 +57,13 @@ Future<void> seedVisualProfile({required DatabaseBackend backend, required Strin
       if (existing == null ||
           existing.taskId != fixture.id ||
           existing.name != name ||
-          existing.kind != ArtifactKind.document ||
-          existing.path == path) {
+          existing.kind != ArtifactKind.document) {
         return;
       }
       createdAt = existing.createdAt;
     }
     if (!File(path).existsSync()) throw FileSystemException('Visual profile artifact not found', path);
+    if (existing?.path == path) return;
     // PostgreSQL can outlive the launcher's temporary copy of the fixture files.
     if (existing != null) {
       await tasks.deleteArtifact(existing.id);

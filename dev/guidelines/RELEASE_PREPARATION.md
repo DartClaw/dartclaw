@@ -70,9 +70,9 @@ An interrupted attempt remains `incomplete`. `--status` reports recorded results
 Do not edit the shared checkout while checks run; candidate identity is checked before and after execution.
 
 Exit codes: **0** means the selected automated gates passed, **1** means failure, **2** means invalid arguments, and
-**3** means missing/stale/incomplete coverage. `--quick` skips only workspace tests and always exits 3 on an otherwise
-successful run. `--gate` and `--local` success do not imply full release readiness. Select manual/live/platform checks
-for changed surfaces and claims in this release. Do not run the whole inventory as a routine release gate.
+**3** means missing/stale/incomplete coverage. `--quick` reports and skips the workspace `tests` gate and the composite
+`linux` gate and exits 3 on an otherwise successful run. `--gate` and `--local` results cover only the selected
+automated gates. Select only the manual, live, and platform checks relevant to changed surfaces and claims in this release.
 
 A milestone's qualification ledger lives in its plan bundle, not in the public tree, and never adds release gates.
 Unavailable environments needed for a selected claim
@@ -96,9 +96,11 @@ Use the Mac for default suites, PostgreSQL, host builds, UI and live providers. 
 container resources. The native Linux lane uses Lima, replacing the Parallels Ubuntu release lane; the
 [Parallels guide](PARALLELS_LINUX_AGENT_VM.md) remains for desktop-agent use. Install Lima with `brew install lima`.
 The `linux` gate creates `dartclaw-release-linux` from `dev/tools/lima/linux.yaml` once and reuses it. The template
-provides Ubuntu arm64, its own Docker Engine and Dart (pinned with the Check job). It shares no host directories: a
-Git bundle transfers the committed candidate into a clean guest checkout with the same HEAD and tree, keeping
-`.dart_tool`, build outputs and test data separate. A running VM is a prerequisite, not gate evidence.
+provides Ubuntu arm64, its own Docker Engine and Dart (pinned with the Check job). The VM shares no host directories.
+A Git bundle transfers the candidate `HEAD` and the host's `refs/heads/main`. The runner verifies the candidate's
+commit and tree in a clean guest checkout and installs the bundled ref as local `main` for `doc-cuts`.
+The guest keeps its own `.dart_tool`, build outputs and test data. Gate evidence comes from the checks inside the
+running VM.
 
 ```bash
 bash dev/tools/release_check.sh --version 0.27.0 --gate linux

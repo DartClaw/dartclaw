@@ -38,6 +38,9 @@ ALLOWED_FILES=(
   # task-config key) defined here as a module const and consumed only through
   # the typed accessor workflowApprovalPolicyFromRun.
   'packages/dartclaw_workflow/lib/src/workflow/workflow_approval_policy.dart'
+  # Host approval state and its output reservation share the same keys so
+  # a step cannot write a pending hold or an approved branch.
+  'packages/dartclaw_workflow/lib/src/workflow/workflow_output_contract.dart'
 )
 
 rg_scan() {

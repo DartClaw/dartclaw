@@ -75,7 +75,7 @@ Shell and Dart scripts under [`dev/tools/fitness/`](../tools/fitness/), run by `
 
 | Script | Enforces |
 |---|---|
-| `check_no_workflow_private_config.sh` | `_workflow*` task-config keys are read only from an allowlist of workflow-package files, behind `WorkflowTaskConfig` |
+| `check_no_workflow_private_config.sh` | `_workflow*` literals appear only in allowlisted workflow files. `WorkflowTaskConfig` exposes task-config reads. Run-context approval literals live in their owning modules, including the output contract that reserves host approval keys. |
 | `check_no_framework_coupling.sh` | Zero `andthen` literals in `dartclaw_workflow/lib/src` outside built-in definition YAML ([ADR-041](../adrs/041-framework-agnostic-workflow-engine-generic-output-validation.md)) |
 | `check_no_prose_parsing.sh` | The retired prose-parsing constructs stay deleted (below) |
 | `check_css_comment_state.sh` | Served CSS has balanced comments |

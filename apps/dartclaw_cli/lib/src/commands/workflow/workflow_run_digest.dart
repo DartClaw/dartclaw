@@ -1,9 +1,11 @@
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' show Task, humanizeSpan;
-import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowDefinition, WorkflowRun, stepStatusFromTask;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart'
+    show WorkflowDefinition, WorkflowExecutionSurfaceHold, WorkflowRun, stepStatusFromTask;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' show scrubAgentReportedText;
 
 import 'live_status_line.dart';
+import 'standalone_execution_surface_recovery.dart';
 
 /// One per-step row in a settle-time [WorkflowRunDigest].
 class WorkflowRunDigestRow {
@@ -59,6 +61,7 @@ class WorkflowRunDigest {
 
   /// Concrete next-action commands for this run id and settle state.
   final List<String> nextActions;
+  final WorkflowExecutionSurfaceHold? executionSurfaceHold;
 
   const new({
     required this.runId,
@@ -67,6 +70,7 @@ class WorkflowRunDigest {
     required this.tokenUsageComplete,
     required this.rows,
     required this.nextActions,
+    this.executionSurfaceHold,
   });
 
   Map<String, dynamic> toJson() => {
@@ -77,6 +81,10 @@ class WorkflowRunDigest {
     'tokenUsageComplete': tokenUsageComplete,
     'steps': rows.map((row) => row.toJson()).toList(),
     'nextActions': nextActions,
+    if (executionSurfaceHold case final hold?) ...{
+      'executionSurfaceHold': hold.toJson(),
+      'recovery': standaloneExecutionSurfaceRecoveryLines(hold),
+    },
   };
 }
 
@@ -88,6 +96,7 @@ WorkflowRunDigest buildWorkflowRunDigest({
   required WorkflowRun run,
   required WorkflowDefinition definition,
   required List<Task> childTasks,
+  WorkflowExecutionSurfaceHold? executionSurfaceHold,
 }) {
   final contextData = switch (run.contextJson['data']) {
     final Map<String, dynamic> data => data,
@@ -164,7 +173,8 @@ WorkflowRunDigest buildWorkflowRunDigest({
     totalTokens: run.totalTokens,
     tokenUsageComplete: run.tokenUsageComplete,
     rows: rows,
-    nextActions: _nextActions(commandPrefix, run.id, run.status),
+    nextActions: executionSurfaceHold == null ? _nextActions(commandPrefix, run.id, run.status) : const [],
+    executionSurfaceHold: executionSurfaceHold,
   );
 }
 
@@ -224,6 +234,9 @@ List<String> renderWorkflowRunDigestLines(WorkflowRunDigest digest, {bool color 
     for (final action in digest.nextActions) {
       lines.add(line([StyledSpan('  $action', ansiCyan)]));
     }
+  }
+  if (digest.executionSurfaceHold case final hold?) {
+    lines.addAll(standaloneExecutionSurfaceRecoveryLines(hold));
   }
   return lines;
 }

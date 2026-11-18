@@ -22,7 +22,7 @@ import 'package:dartclaw_core/dartclaw_core.dart'
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' show TaskService;
 import 'package:dartclaw_testing/dartclaw_testing.dart' show InMemoryTaskRepository, flushAsync;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show WorkflowDefinition, WorkflowRun, WorkflowService, WorkflowStep;
+    show WorkflowDefinition, WorkflowExecutionSurfaceHold, WorkflowRun, WorkflowService, WorkflowStep;
 import 'package:test/test.dart';
 
 import '../../helpers/fake_exit.dart';
@@ -336,7 +336,12 @@ void main() {
 
     /// Fires the full progress vocabulary in a fixed order, then settles the
     /// run at an approval pause.
-    Future<void> driveFixture({required bool jsonOutput, int? stepTokens = 7, int? iterationTokens = 5}) async {
+    Future<WorkflowRun> driveFixture({
+      required bool jsonOutput,
+      int? stepTokens = 7,
+      int? iterationTokens = 5,
+      WorkflowExecutionSurfaceHold? hold,
+    }) async {
       final driveFuture = driveStandaloneWorkflowRun(
         service: service,
         taskService: taskService,
@@ -409,7 +414,7 @@ void main() {
         WorkflowApprovalRequestedEvent(
           runId: run.id,
           stepId: 'mapped',
-          message: 'approve the plan',
+          message: hold?.message ?? 'approve the plan',
           timeoutSeconds: 60,
           timestamp: DateTime(2026, 7, 1, 12),
         ),
@@ -419,6 +424,7 @@ void main() {
       service.settledRun = run.copyWith(
         status: WorkflowRunStatus.awaitingApproval,
         updatedAt: DateTime(2026, 7, 1, 13),
+        contextJson: {...run.contextJson, if (hold != null) '_workflow.git.execution_surface_hold': hold.toJson()},
       );
       eventBus.fire(
         WorkflowRunStatusChangedEvent(
@@ -429,7 +435,7 @@ void main() {
           timestamp: DateTime(2026, 7, 1, 13),
         ),
       );
-      await driveFuture;
+      return driveFuture;
     }
 
     test('TI01 the --json frame sequence is renderer-authored, in order', () async {
@@ -489,6 +495,36 @@ void main() {
         '  dartclaw workflow resume run-1 --standalone',
         '  dartclaw workflow cancel run-1 --standalone',
       ]);
+    });
+
+    test('standalone settle reports the held Git operation without offering resume or cancel', () async {
+      final hold = WorkflowExecutionSurfaceHold(
+        branch: 'dartclaw/workflow/story',
+        paths: ['.github/workflows/check.yml'],
+        candidate: 'review-candidate',
+        destination: 'dartclaw/workflow/integration',
+        worktreePath: '/workspace/story',
+        destinationWorktreePath: '/workspace/integration',
+      );
+      final settled = await driveFixture(jsonOutput: false, hold: hold);
+
+      expect(standaloneWorkflowExitCode(settled.status), 2);
+      final text = stdoutLines.join('\n');
+      expect(text, contains('promote branch dartclaw/workflow/story'));
+      expect(text, contains('Destination dartclaw/workflow/integration'));
+      expect(text, contains('Source worktree /workspace/story'));
+      expect(text, contains('Destination worktree /workspace/integration'));
+      expect(text, contains('.github/workflows/check.yml'));
+      expect(text, contains('save your work before cancelling'));
+      expect(text, contains('start a fresh run in connected mode'));
+      expect(text, isNot(contains('workflow resume run-1')));
+      expect(text, isNot(contains('workflow cancel run-1')));
+
+      stdoutLines.clear();
+      await driveFixture(jsonOutput: true, hold: hold);
+      final digest = jsonDecode(stdoutLines.last) as Map<String, dynamic>;
+      expect(digest['executionSurfaceHold'], hold.toJson());
+      expect(digest['nextActions'], isEmpty);
     });
   });
 }

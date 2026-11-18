@@ -91,6 +91,32 @@ void main() {
       expect(gitArgs, ['status --porcelain', 'rev-parse main']);
     });
 
+    test('a checked-out target at a different revision cannot merge', () async {
+      Future<ProcessResult> concurrentCheckout(String executable, List<String> arguments, {String? workingDirectory}) {
+        if (arguments.join(' ') == 'checkout main') responses['rev-parse HEAD'] = pr('other-base\n');
+        return mockRunner(executable, arguments, workingDirectory: workingDirectory);
+      }
+
+      executor = MergeExecutor(projectDir: '/project', gitPort: _ProcessRunnerGitPortForTest(concurrentCheckout));
+      responses['rev-parse main'] = pr('reviewed-base\n');
+      responses['rev-parse HEAD'] = pr('original-head\n');
+      responses['current-branch'] = pr('original\n');
+
+      await expectLater(
+        executor.merge(
+          branch: 'reviewed-source',
+          baseRef: 'main',
+          taskId: 't1',
+          taskTitle: 'Fix bug',
+          expectedBaseSha: 'reviewed-base',
+        ),
+        throwsA(isA<PreMergeInvariantException>().having((error) => error.reason, 'reason', isA<TargetShaMismatch>())),
+      );
+      final gitArgs = calls.map((c) => c.args.join(' ')).toList();
+      expect(gitArgs, contains('checkout original'));
+      expect(gitArgs.any((args) => args.startsWith('merge ')), isFalse);
+    });
+
     test('PreMergeInvariantException reason is switch-exhaustive', () {
       const error = PreMergeInvariantException(
         reason: UncleanIndex(modified: ['lib/main.dart']),

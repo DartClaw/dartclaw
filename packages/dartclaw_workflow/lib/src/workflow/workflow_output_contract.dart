@@ -18,14 +18,14 @@ const String executionEnvelopeOutputsKey = 'outputs';
 const String executionEnvelopeStepOutcomeKey = 'step_outcome';
 
 const workflowExecutionSurfaceHoldKey = '_workflow.git.execution_surface_hold';
-const workflowApprovedBranchesKey = '_workflow.git.approved_branches';
+const workflowApprovedCandidateKey = '_workflow.git.approved_candidate';
 
 /// Output names reserved for the envelope or host-owned approval state.
 const Set<String> reservedEnvelopeOutputKeys = {
   executionEnvelopeOutputsKey,
   executionEnvelopeStepOutcomeKey,
   workflowExecutionSurfaceHoldKey,
-  workflowApprovedBranchesKey,
+  workflowApprovedCandidateKey,
 };
 
 class ReservedWorkflowOutput implements Exception {

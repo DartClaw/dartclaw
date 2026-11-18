@@ -77,6 +77,7 @@
 | [060](../adrs/060-postgresql-only-storage.md) | PostgreSQL server storage and standalone workflow files | Accepted 2026-09-20; amended 2026-09-29 (standalone uses files; partially supersedes ADR-045/048/050) | Storage / standalone workflows / native setup / optional hybrid search |
 | [061](../adrs/061-credential-files-unreadable-by-default.md) | Credential files unreadable by default for every harness | Accepted 2026-10-16 | Security / FileGuard defaults |
 | [062](../adrs/062-read-only-package-registry-egress-for-containers.md) | Read-only package-registry egress for containerized executions | Accepted 2026-11-17 (`registry` surface for `workspace` only, GET/HEAD to pinned pub and npm origins) | Security / container egress |
+| [063](../adrs/063-workflow-git-candidate-approval.md) | Scope workflow Git approval to the reviewed candidate | Accepted 2026-11-18 | Security / workflow Git and operator approval |
 
 ## Superseded
 

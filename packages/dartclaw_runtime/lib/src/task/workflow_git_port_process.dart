@@ -1,9 +1,9 @@
 import 'package:dartclaw_core/dartclaw_core.dart' show RepoLock;
-import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show GitStatus, WorkflowGitCommit, WorkflowGitException, WorkflowGitMergeStrategy, WorkflowGitPort;
 import 'package:path/path.dart' as p;
 
+import 'host_worktree_git.dart';
 import 'remote_push_service.dart';
 import 'worktree_manager.dart';
 
@@ -121,8 +121,6 @@ final class WorkflowGitPortProcess implements WorkflowGitPort {
   }) async {
     return _withRepoLock(worktreePath, () async {
       final args = <String>[
-        '-c',
-        'core.hooksPath=/dev/null',
         if (authorName != null && authorName.trim().isNotEmpty) ...['-c', 'user.name=$authorName'],
         if (authorEmail != null && authorEmail.trim().isNotEmpty) ...['-c', 'user.email=$authorEmail'],
         'commit',
@@ -218,7 +216,7 @@ final class WorkflowGitPortProcess implements WorkflowGitPort {
   }
 
   Future<_GitProcessResult> _git(List<String> args, {required String workingDirectory}) async {
-    final result = await runGit(args, workingDirectory: workingDirectory);
+    final result = await runHostWorktreeGit(args, workingDirectory: workingDirectory);
     return _GitProcessResult(
       exitCode: result.exitCode,
       stdout: result.stdout as String,

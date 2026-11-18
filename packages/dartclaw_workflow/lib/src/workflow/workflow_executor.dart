@@ -38,7 +38,7 @@ import 'workflow_context.dart';
 import 'workflow_output_contract.dart';
 import 'workflow_execution_surface_hold.dart';
 import 'workflow_context_persistence.dart';
-import 'workflow_approval_interaction.dart' show workflowRevisionContextKey;
+import 'workflow_approval_interaction.dart' show workflowApprovalInteractionContextKey, workflowRevisionContextKey;
 import 'workflow_approval_policy.dart';
 import 'workflow_failure.dart';
 import 'workflow_artifact_committer.dart' as workflow_artifact_committer;
@@ -1007,7 +1007,7 @@ class WorkflowExecutor {
         await _failRun(run, publishError, cleanupWorkflowGit: false);
         return;
       }
-      final hold = WorkflowExecutionSurfaceHold.read(context);
+      final hold = context.executionSurfaceHold;
       if (hold != null) {
         final current = (await _repository.getById(run.id)) ?? run;
         final finalStep =

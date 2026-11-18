@@ -38,7 +38,7 @@
           Pause
         </button>
         <button tl:if="${canResume}" type="button" class="btn btn-primary"
-                tl:attr="hx-post='/api/workflows/runs/' + ${runId} + '/resume'"
+                tl:attr="hx-post=${resumeUrl}"
                 hx-swap="none">
           Resume
         </button>
@@ -55,7 +55,7 @@
         </button>
         <!-- Approval controls: shown for awaitingApproval holds -->
         <button tl:if="${canApprove}" type="button" class="btn btn-primary"
-                tl:attr="hx-post='/api/workflows/runs/' + ${runId} + '/resume'"
+                tl:attr="hx-post=${resumeUrl}"
                 hx-swap="none">
           Approve
         </button>

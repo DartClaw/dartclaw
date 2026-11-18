@@ -306,7 +306,9 @@ An agent can write executable configuration inside its mounted repository. Mergi
 carry hooks, provider or MCP settings, workflow files or symlinks beyond the container boundary. Automatic task accept
 and workflow promotion/publish therefore hold [execution surface changes](tasks.md#review-workflow) for a person's
 review. Host commit sweeps use `-c core.hooksPath=/dev/null` so a repository hook cannot execute during preparation.
-Explicit person acceptance or workflow resume releases the held branch; agent tools cannot approve these holds.
+An operator can accept a held task. Connected workflow approval covers the reviewed Git candidate, operation and
+destination. If a later candidate still changes an execution surface, DartClaw asks for a new review. Agent tools
+cannot approve these holds.
 
 
 **As of 0.25 this is the default posture.** A config that declares no `container:` section is resolved once at startup:

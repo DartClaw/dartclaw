@@ -14,7 +14,14 @@ import 'package:dartclaw_testing/dartclaw_testing.dart'
         InMemoryTaskRepository,
         InMemoryWorkflowStepExecutionRepository;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show WorkflowDefinition, WorkflowPersistencePorts, WorkflowRun, WorkflowService, WorkflowStep, WorkflowTaskType;
+    show
+        WorkflowDefinition,
+        WorkflowPersistencePorts,
+        WorkflowRun,
+        WorkflowService,
+        WorkflowStep,
+        WorkflowTaskType,
+        workflowApprovedCandidate;
 import 'package:dartclaw_workflow/testing.dart' show InMemoryWorkflowRunRepository;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -179,12 +186,11 @@ void main() {
             run.copyWith(
               contextJson: {
                 ...run.contextJson,
-                'data': {
-                  '_workflow.git.execution_surface_hold': {
-                    'branch': 'held-branch',
-                    'paths': ['.mcp.json'],
-                    'publish': publish,
-                  },
+                '_workflow.git.execution_surface_hold': {
+                  'branch': 'held-branch',
+                  'paths': ['.mcp.json'],
+                  'publish': publish,
+                  'candidate': 'reviewed-tree',
                 },
               },
             ),
@@ -203,7 +209,7 @@ void main() {
           expect(payload.toString(), contains('API'));
           final held = (await repository.getById('held'))!;
           expect(held.status, WorkflowRunStatus.awaitingApproval);
-          expect((held.contextJson['data'] as Map)['_workflow.git.approved_branches'], isNull);
+          expect(workflowApprovedCandidate(held.contextJson), isNull);
         },
       );
     }

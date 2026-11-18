@@ -39,7 +39,7 @@ ALLOWED_FILES=(
   # the typed accessor workflowApprovalPolicyFromRun.
   'packages/dartclaw_workflow/lib/src/workflow/workflow_approval_policy.dart'
   # Host approval state and its output reservation share the same keys so
-  # a step cannot write a pending hold or an approved branch.
+  # a step cannot write a pending hold or an approved Git candidate.
   'packages/dartclaw_workflow/lib/src/workflow/workflow_output_contract.dart'
 )
 

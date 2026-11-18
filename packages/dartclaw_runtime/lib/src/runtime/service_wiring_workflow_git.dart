@@ -72,7 +72,7 @@ Future<ProcessResult> _fetchRemoteTrackingRefWithProjectAuth(
   try {
     final refspec = 'refs/heads/$branch:refs/remotes/$remote/$branch';
     final args = _gitArgsWithRemoteOverride(remoteUrl, plan.remoteUrl, ['fetch', '--no-tags', remote, refspec]);
-    return await runGit(args, plan: plan, workingDirectory: projectDir);
+    return await runHostWorktreeGit(args, plan: plan, workingDirectory: projectDir);
   } finally {
     for (final path in tempFiles) {
       try {

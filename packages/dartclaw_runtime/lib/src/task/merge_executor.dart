@@ -113,6 +113,7 @@ class MergeExecutor {
 
       try {
         // 4. Merge
+        await _assertExpectedBase(ref: 'HEAD', expectedBaseSha: expectedBaseSha);
         MergeResult result;
         if (effectiveStrategy == MergeStrategy.squash) {
           result = await _squashMerge(branch, commitMessage);
@@ -280,13 +281,17 @@ class MergeExecutor {
       }
     }
 
+    await _assertExpectedBase(ref: baseRef, expectedBaseSha: expectedBaseSha);
+  }
+
+  Future<void> _assertExpectedBase({required String ref, required String? expectedBaseSha}) async {
     final expected = expectedBaseSha?.trim();
     if (expected != null && expected.isNotEmpty) {
-      final actual = await _revParse(baseRef, failureMessage: 'Failed to verify target branch SHA');
+      final actual = await _revParse(ref, failureMessage: 'Failed to verify target branch SHA');
       if (actual != expected) {
         throw PreMergeInvariantException(
           reason: TargetShaMismatch(expected: expected, actual: actual),
-          detail: 'Merge target $baseRef moved before merge entry.',
+          detail: 'Merge target $ref moved before merge entry.',
           gitStderr: 'expected $expected, actual $actual',
         );
       }

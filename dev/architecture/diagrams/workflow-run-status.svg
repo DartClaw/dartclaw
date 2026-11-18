@@ -144,7 +144,7 @@
     <text class="name mono-name" x="492" y="383">awaitingApproval</text>
     <text class="sub" x="492" y="401">approval gate, needsInput,</text>
     <text class="sub" x="492" y="417">onFailure: pause, or execution-surface hold</text>
-    <g class="d"><text class="p1" x="36" y="622"><tspan class="b">awaitingApproval</tspan> · approval gates, needsInput and onFailure: pause use the pending approval record.</text><text class="p2" x="36" y="642">An execution-surface hold retries promotion or publish only after a person approves the branch. Auto approval does not release it.</text></g>
+    <g class="d"><text class="p1" x="36" y="622"><tspan class="b">awaitingApproval</tspan> · approval gates, needsInput and onFailure: pause use the pending approval record.</text><text class="p2" x="36" y="642">An execution-surface hold requires a person's approval of the exact promotion or publish candidate.</text></g>
   </g></a>
   <a href="../workflow-architecture.md#54-pause-resume-retry-cancel"><g class="n tint k-neu" id="cancelled">
     <rect class="box" x="130" y="468" width="630" height="60" rx="9"/>

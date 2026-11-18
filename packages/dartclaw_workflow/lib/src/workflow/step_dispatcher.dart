@@ -42,7 +42,7 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
           ),
         ),
       );
-      final hold = WorkflowExecutionSurfaceHold.read(context);
+      final hold = context.executionSurfaceHold;
       return StepOutcome(
         step: step,
         task: task,
@@ -541,7 +541,7 @@ extension WorkflowExecutorStepDispatcher on WorkflowExecutor {
             projectId: effectiveProjectId,
             promotionStrategy: effectivePromotion,
           );
-          final hold = WorkflowExecutionSurfaceHold.read(context);
+          final hold = context.executionSurfaceHold;
           if (hold != null) {
             return buildTaskOutcome(success: false, error: hold.message, reason: hold.message, awaitingApproval: true);
           }

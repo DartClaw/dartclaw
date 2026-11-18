@@ -148,7 +148,7 @@ WorkflowTurnAdapter _buildWorkflowTurnAdapter(
             integrationBranch: integrationBranch,
             strategy: strategy,
             storyId: storyId,
-            approved: workflowBranchIsApproved(workflowRun?.contextJson ?? const {}, branch),
+            approvedCandidate: workflowApprovedCandidate(workflowRun?.contextJson ?? const {}),
           );
         },
     publishWorkflowBranch: ({required runId, required projectId, required branch, pullRequest}) async {
@@ -172,7 +172,7 @@ WorkflowTurnAdapter _buildWorkflowTurnAdapter(
           branch: branch,
           resolvedProject: resolvedProject,
           notes: workflowPublishNotes(workflowRun),
-          approved: workflowBranchIsApproved(workflowRun?.contextJson ?? const {}, branch),
+          approvedCandidate: workflowApprovedCandidate(workflowRun?.contextJson ?? const {}),
           pullRequest: pullRequest,
         );
       }
@@ -185,7 +185,7 @@ WorkflowTurnAdapter _buildWorkflowTurnAdapter(
         remotePushService: task.remotePushService,
         prCreator: prCreator ?? task.prCreator,
         notes: workflowPublishNotes(workflowRun),
-        approved: workflowBranchIsApproved(workflowRun?.contextJson ?? const {}, branch),
+        approvedCandidate: workflowApprovedCandidate(workflowRun?.contextJson ?? const {}),
         pullRequest: pullRequest,
       );
     },
@@ -290,7 +290,7 @@ Future<WorkflowGitPublishResult> _publishWorkflowBranchLocalLane(
   required Project? resolvedProject,
   required String? notes,
   required WorkflowPullRequest? pullRequest,
-  required bool approved,
+  required String? approvedCandidate,
 }) async {
   if (resolvedProject == null || resolvedProject.remoteUrl.isEmpty) {
     final projectDir =
@@ -303,21 +303,21 @@ Future<WorkflowGitPublishResult> _publishWorkflowBranchLocalLane(
         worktreePath: projectDir,
         defaultBranch: resolvedProject?.defaultBranch ?? config.tasks.worktreeBaseRef,
       ),
-      approved: approved,
+      approvedCandidate: approvedCandidate,
     );
     if (result.status != WorkflowPublishStatus.success) return result;
     await _recordWorkflowPublishArtifacts(taskService, runId: runId, branch: branch, result: result);
     return result;
   }
-  final pushResult = await publishWorkflowBranchWithRemotePush(
-    projectDir: resolvedProject.localPath,
+  final pushResult = await _publishWorkflowBranchWithCredentials(
+    project: resolvedProject,
+    pushService: remotePushService,
     branch: branch,
     baseRef: await executionSurfaceBaseRef(
       worktreePath: resolvedProject.localPath,
       defaultBranch: resolvedProject.defaultBranch,
     ),
-    approved: approved,
-    pushBranch: () => remotePushService.push(project: resolvedProject, branch: branch),
+    approvedCandidate: approvedCandidate,
     fetchRemoteTrackingRef: () => _fetchRemoteTrackingRefWithProjectAuth(
       config,
       dataDir: dataDir,
@@ -328,6 +328,59 @@ Future<WorkflowGitPublishResult> _publishWorkflowBranchLocalLane(
       remote: 'origin',
     ),
   );
+  return _finishWorkflowPublish(
+    pushResult,
+    project: resolvedProject,
+    taskService: taskService,
+    prCreator: prCreator,
+    runId: runId,
+    notes: notes,
+    pullRequest: pullRequest,
+  );
+}
+
+Future<WorkflowGitPublishResult> _publishWorkflowBranchWithCredentials({
+  required Project project,
+  required RemotePushService pushService,
+  required String branch,
+  required String baseRef,
+  required String? approvedCandidate,
+  Future<ProcessResult> Function()? fetchRemoteTrackingRef,
+}) async {
+  final String destination;
+  try {
+    destination = await pushService.workflowPushDestination(project);
+  } catch (error) {
+    return WorkflowGitPublishResult(
+      status: WorkflowPublishStatus.failed,
+      branch: branch,
+      remote: 'origin',
+      prUrl: '',
+      error: 'Failed to resolve one push URL for origin.',
+    );
+  }
+  return publishWorkflowBranchWithRemotePush(
+    projectDir: project.localPath,
+    branch: branch,
+    baseRef: baseRef,
+    approvedCandidate: approvedCandidate,
+    destination: destination,
+    pushBranch: (revision) =>
+        pushService.push(project: project, branch: branch, sourceRevision: revision, expectedDestination: destination),
+    fetchRemoteTrackingRef: fetchRemoteTrackingRef,
+  );
+}
+
+Future<WorkflowGitPublishResult> _finishWorkflowPublish(
+  WorkflowGitPublishResult pushResult, {
+  required Project project,
+  required TaskService taskService,
+  required PrCreator? prCreator,
+  required String runId,
+  required String? notes,
+  required WorkflowPullRequest? pullRequest,
+}) async {
+  final branch = pushResult.branch;
   if (pushResult.status != WorkflowPublishStatus.success) {
     return pushResult;
   }
@@ -335,7 +388,7 @@ Future<WorkflowGitPublishResult> _publishWorkflowBranchLocalLane(
   if (prCreator != null) {
     final artifactTask = await _latestWorkflowTask(taskService, runId);
     final prResult = await prCreator.create(
-      project: resolvedProject,
+      project: project,
       task:
           artifactTask ??
           Task(
@@ -444,7 +497,7 @@ Future<WorkflowGitPublishResult> publishWorkflowBranchWithProjectAuth({
   required PrCreator prCreator,
   String? notes,
   WorkflowPullRequest? pullRequest,
-  bool approved = false,
+  String? approvedCandidate,
 }) async {
   final resolvedProject = await projectService.get(projectId);
   if (resolvedProject == null) {
@@ -457,112 +510,33 @@ Future<WorkflowGitPublishResult> publishWorkflowBranchWithProjectAuth({
     );
   }
 
-  try {
-    if (!approved) {
-      final paths = await workflowExecutionSurfacePaths(
-        projectDir: resolvedProject.localPath,
-        branch: branch,
-        baseRef: await executionSurfaceBaseRef(
-          worktreePath: resolvedProject.localPath,
-          defaultBranch: resolvedProject.defaultBranch,
-        ),
-      );
-      if (paths.isNotEmpty) {
-        return WorkflowGitPublishResult(
-          status: WorkflowPublishStatus.held,
+  final baseRef = await executionSurfaceBaseRef(
+    worktreePath: resolvedProject.localPath,
+    defaultBranch: resolvedProject.defaultBranch,
+  );
+  final pushResult = resolvedProject.remoteUrl.trim().isEmpty
+      ? await publishWorkflowBranchLocally(
+          projectDir: resolvedProject.localPath,
           branch: branch,
-          remote: 'origin',
-          prUrl: '',
-          heldPaths: paths,
-        );
-      }
-    }
-    await commitWorkflowWorktreeChangesIfNeeded(
-      projectDir: resolvedProject.localPath,
-      branch: branch,
-      commitMessage: 'workflow: prepare publish',
-    );
-  } catch (e) {
-    return WorkflowGitPublishResult(
-      status: WorkflowPublishStatus.failed,
-      branch: branch,
-      remote: 'origin',
-      prUrl: '',
-      error: 'Failed to commit pending worktree changes before publish: $e',
-    );
-  }
-
-  final pushResult = await remotePushService.push(project: resolvedProject, branch: branch);
-  switch (pushResult) {
-    case PushSuccess():
-      final artifactTask = await _latestWorkflowTask(taskService, runId);
-      var result = WorkflowGitPublishResult(
-        status: WorkflowPublishStatus.success,
-        branch: branch,
-        remote: 'origin',
-        prUrl: '',
-      );
-      if (resolvedProject.pr.strategy == PrStrategy.githubPr) {
-        final syntheticTask =
-            artifactTask ??
-            Task(
-              id: 'workflow-$runId',
-              title: 'workflow($runId)',
-              description: 'Workflow publish from $branch',
-              createdAt: DateTime.now(),
-            );
-        final prResult = await prCreator.create(
+          baseRef: baseRef,
+          approvedCandidate: approvedCandidate,
+        )
+      : await _publishWorkflowBranchWithCredentials(
           project: resolvedProject,
-          task: syntheticTask,
+          pushService: remotePushService,
           branch: branch,
-          notes: notes,
-          pullRequest: pullRequest,
+          baseRef: baseRef,
+          approvedCandidate: approvedCandidate,
         );
-        result = switch (prResult) {
-          PrCreated(:final url) => WorkflowGitPublishResult(
-            status: WorkflowPublishStatus.success,
-            branch: branch,
-            remote: 'origin',
-            prUrl: url,
-          ),
-          PrCreationFailed(:final error, :final details) => WorkflowGitPublishResult(
-            status: WorkflowPublishStatus.failed,
-            branch: branch,
-            remote: 'origin',
-            prUrl: '',
-            error: '$error: $details',
-          ),
-        };
-      }
-      // The push landed, so the branch is an artifact whatever the pull request
-      // did. One writer for both arms: two would drift on exactly that rule.
-      await _recordWorkflowPublishArtifacts(taskService, runId: runId, branch: branch, result: result);
-      return result;
-    case PushAuthFailure(:final details):
-      return WorkflowGitPublishResult(
-        status: WorkflowPublishStatus.failed,
-        branch: branch,
-        remote: 'origin',
-        prUrl: '',
-        error: 'Authentication failed: $details',
-      );
-    case PushRejected(:final reason):
-      return WorkflowGitPublishResult(
-        status: WorkflowPublishStatus.failed,
-        branch: branch,
-        remote: 'origin',
-        prUrl: '',
-        error: 'Remote rejected push: $reason',
-      );
-    case PushError(:final message):
-      return WorkflowGitPublishResult(
-        status: WorkflowPublishStatus.failed,
-        branch: branch,
-        remote: 'origin',
-        prUrl: '',
-        error: message,
-      );
-  }
+  return _finishWorkflowPublish(
+    pushResult,
+    project: resolvedProject,
+    taskService: taskService,
+    prCreator: resolvedProject.pr.strategy == PrStrategy.githubPr ? prCreator : null,
+    runId: runId,
+    notes: notes,
+    pullRequest: pullRequest,
+  );
 }
 
 const _legacySessionCostFreshInputKey = 'new_input_tokens';

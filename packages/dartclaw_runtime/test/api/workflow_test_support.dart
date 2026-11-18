@@ -72,6 +72,7 @@ class FakeWorkflowService extends WorkflowService {
   List<WorkflowRun> listResult = [];
   WorkflowRun? pauseResult;
   WorkflowRun? resumeResult;
+  String? lastExecutionSurfaceCandidate;
 
   // Injected failures.
   Object? startError;
@@ -164,7 +165,9 @@ class FakeWorkflowService extends WorkflowService {
     String runId, {
     WorkflowApprovalExpectation? expect,
     WorkflowApprovalResolver? resolver,
+    String? executionSurfaceCandidate,
   }) async {
+    lastExecutionSurfaceCandidate = executionSurfaceCandidate;
     calls.add('resume:$runId');
     lastResolver = resolver;
     if (throwOnResume) throw StateError('Cannot resume: invalid state');

@@ -101,8 +101,8 @@ extension WorkflowExecutorNodeHelpers on WorkflowExecutor {
     );
 
     switch (promotionResult) {
-      case WorkflowGitPromotionHeld(:final paths):
-        context[workflowExecutionSurfaceHoldKey] = WorkflowExecutionSurfaceHold(branch: branch, paths: paths).toJson();
+      case final WorkflowGitPromotionHeld hold:
+        context.executionSurfaceHold ??= WorkflowExecutionSurfaceHold.fromPromotion(branch, hold);
         outputs['${step.id}.promotion'] = 'held';
         outputs['${step.id}.promotion.taskId'] = task.id;
         return null;

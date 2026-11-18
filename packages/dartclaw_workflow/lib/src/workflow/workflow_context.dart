@@ -1,3 +1,4 @@
+import 'workflow_execution_surface_hold.dart';
 import 'workflow_output_contract.dart';
 
 /// System-variable key prefix under which the executor records the declared
@@ -16,6 +17,10 @@ class WorkflowContext {
   final Map<String, dynamic> _data;
   final Map<String, String> _variables;
   final Map<String, String> _systemVariables;
+
+  // The executor publishes the hold with the approval transition. An interrupted
+  // attempt before that transition re-inspects Git when execution resumes.
+  WorkflowExecutionSurfaceHold? executionSurfaceHold;
 
   new({Map<String, dynamic>? data, Map<String, String>? variables, Map<String, String>? systemVariables})
     : _data = Map.of(data ?? {}),

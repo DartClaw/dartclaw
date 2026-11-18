@@ -20,7 +20,12 @@ class _FakeRemotePushService extends RemotePushService {
   new(this.result);
 
   @override
-  Future<PushResult> push({required Project project, required String branch}) async {
+  Future<PushResult> push({
+    required Project project,
+    required String branch,
+    String? sourceRevision,
+    String? expectedDestination,
+  }) async {
     callCount++;
     return result;
   }
@@ -327,6 +332,7 @@ Future<void> _initProjectRepo(String path, {required String workflowBranch}) asy
   await _expectGit(path, ['init', '-b', 'main']);
   await _expectGit(path, ['config', 'user.name', 'Workflow Test']);
   await _expectGit(path, ['config', 'user.email', 'workflow@test.local']);
+  await _expectGit(path, ['remote', 'add', 'origin', 'git@github.com:acme/workflow-testing.git']);
   File(p.join(path, 'README.md')).writeAsStringSync('base\n');
   await _expectGit(path, ['add', 'README.md']);
   await _expectGit(path, ['commit', '-m', 'initial']);

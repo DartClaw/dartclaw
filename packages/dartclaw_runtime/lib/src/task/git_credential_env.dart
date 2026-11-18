@@ -32,6 +32,11 @@ List<String> buildRemoteOverrideArgs(String originalRemoteUrl, String resolvedRe
   return ['-c', 'remote.origin.url=$resolvedRemoteUrl', ...gitArgs];
 }
 
+GitHubRepositoryRef? gitHubRepositoryForToken(String remoteUrl, CredentialEntry? credential) =>
+    credential != null && credential.isPresent && credential.isGitHubToken
+    ? GitHubRepositoryRef.tryParse(remoteUrl)
+    : null;
+
 /// Resolves git transport and environment variables for credential injection.
 GitCredentialPlan resolveGitCredentialPlan(
   String remoteUrl,
@@ -64,17 +69,15 @@ GitCredentialPlan resolveGitCredentialPlan(
     return GitCredentialPlan(remoteUrl: remoteUrl, environment: environment);
   }
 
-  if (entry.isGitHubToken) {
-    final gitHubRepo = GitHubRepositoryRef.tryParse(remoteUrl);
-    if (gitHubRepo != null) {
-      return GitCredentialPlan(
-        remoteUrl: gitHubRepo.canonicalHttpsUrl,
-        environment: {
-          ...environment,
-          ..._buildGitHubTokenEnv(credentialsRef, entry.token, dataDir: dataDir, tempFiles: tempFiles),
-        },
-      );
-    }
+  final gitHubRepo = gitHubRepositoryForToken(remoteUrl, entry);
+  if (gitHubRepo != null) {
+    return GitCredentialPlan(
+      remoteUrl: gitHubRepo.canonicalHttpsUrl,
+      environment: {
+        ...environment,
+        ..._buildGitHubTokenEnv(credentialsRef, entry.token, dataDir: dataDir, tempFiles: tempFiles),
+      },
+    );
   }
 
   if (isSsh) {

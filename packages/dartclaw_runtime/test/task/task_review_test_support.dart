@@ -80,7 +80,12 @@ class FakeRemotePushService extends RemotePushService {
   int callCount = 0;
 
   @override
-  Future<PushResult> push({required Project project, required String branch}) async {
+  Future<PushResult> push({
+    required Project project,
+    required String branch,
+    String? sourceRevision,
+    String? expectedDestination,
+  }) async {
     callCount++;
     return result;
   }
@@ -102,12 +107,16 @@ class FakePrCreator extends PrCreator {
   }) async => result;
 }
 
-Future<File> installMarkerGitHook(String worktreePath, {String hooksPath = '.husky'}) async {
-  final hook = File('$worktreePath/$hooksPath/pre-commit')..parent.createSync(recursive: true);
-  hook.writeAsStringSync('#!/bin/sh\nprintf ran > hook-ran\n');
+Future<File> installMarkerGitHook(
+  String worktreePath, {
+  String hooksPath = '.husky',
+  String hookName = 'pre-commit',
+}) async {
+  final hook = File('$worktreePath/$hooksPath/$hookName')..parent.createSync(recursive: true);
+  hook.writeAsStringSync('#!/bin/sh\nprintf ran > $hookName-ran\n');
   final mode = await Process.run('chmod', ['+x', hook.path]);
   if (mode.exitCode != 0) throw StateError('Cannot make fixture hook executable: ${mode.stderr}');
   final config = await runGit(['config', 'core.hooksPath', hooksPath], workingDirectory: worktreePath);
   if (config.exitCode != 0) throw StateError('Cannot configure fixture hook: ${config.stderr}');
-  return File('$worktreePath/hook-ran');
+  return File('$worktreePath/$hookName-ran');
 }

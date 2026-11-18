@@ -34,10 +34,15 @@ class WorkflowGitPromotionSuccess extends WorkflowGitPromotionResult {
   const new({required this.commitSha});
 }
 
-/// Promotion stopped before Git writes until a person reviews [paths].
+/// Promotion stopped before commits or merge until a person approves [candidate].
 class WorkflowGitPromotionHeld extends WorkflowGitPromotionResult {
   final List<String> paths;
-  const new(this.paths);
+  final String candidate;
+  final String? destination;
+  final String? worktreePath;
+  final String? destinationWorktreePath;
+
+  const new(this.paths, {required this.candidate, this.destination, this.worktreePath, this.destinationWorktreePath});
 }
 
 class WorkflowGitPromotionConflict extends WorkflowGitPromotionResult {
@@ -103,6 +108,11 @@ class WorkflowGitPublishResult {
   /// Paths requiring person review before publish can proceed.
   final List<String> heldPaths;
 
+  /// Identity of the Git candidate that requires review when [status] is held.
+  final String? heldCandidate;
+  final String? heldDestination;
+  final String? heldWorktreePath;
+
   const new({
     required this.status,
     required this.branch,
@@ -110,6 +120,9 @@ class WorkflowGitPublishResult {
     required this.prUrl,
     this.error,
     this.heldPaths = const [],
+    this.heldCandidate,
+    this.heldDestination,
+    this.heldWorktreePath,
   });
 }
 

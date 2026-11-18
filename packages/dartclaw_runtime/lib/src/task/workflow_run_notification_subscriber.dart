@@ -7,6 +7,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowApprovalInteraction,
         WorkflowApprovalPost,
         WorkflowApprovalSource,
+        WorkflowExecutionSurfaceHold,
         WorkflowFollowUpLabel,
         WorkflowRun,
         workflowFollowUp,
@@ -20,9 +21,12 @@ const _maxPostedTextLength = 1000;
 
 typedef _Event = WorkflowChatNotificationEvent;
 
-/// Issues the one interaction a post may resolve a run's pending approval step with, or `null` when it is
-/// not pending there.
-typedef IssueApprovalInteraction = Future<WorkflowApprovalInteraction?> Function(String runId, String stepId);
+/// Issues an interaction for a pending step and its displayed execution-surface candidate, if any.
+typedef IssueApprovalInteraction = Future<WorkflowApprovalInteraction?> Function(
+  String runId,
+  String stepId, {
+  String? executionSurfaceCandidate,
+});
 
 /// Binds a sent [post] to the interaction holding [nonce]; `false` when that interaction is gone.
 typedef BindApprovalPost = Future<bool> Function(
@@ -166,7 +170,8 @@ class WorkflowRunNotificationSubscriber {
     }
     if (run.origin.surface == 'unknown') return;
 
-    final notification = _notificationFor(run, event, kind);
+    final hold = event is WorkflowApprovalRequestedEvent ? WorkflowExecutionSurfaceHold.read(run.contextJson) : null;
+    final notification = _notificationFor(run, event, kind, hold: hold);
     if (notification == null) return;
     final subject = 'workflow run ${run.id}';
     final origin = run.origin;
@@ -185,7 +190,7 @@ class WorkflowRunNotificationSubscriber {
       }
       final threadId = origin.threadId;
       if (threadId != null) {
-        final interaction = await _issue(run, event);
+        final interaction = await _issue(run, event, hold?.candidate);
         final post = await _delivery.sendInThread(
           channel,
           threads,
@@ -210,7 +215,7 @@ class WorkflowRunNotificationSubscriber {
       return;
     }
 
-    final interaction = await _issue(run, event);
+    final interaction = await _issue(run, event, hold?.candidate);
     final response = threads.render(_withActions(notification, interaction, run));
     final channelType = channel.type.name;
     final binding = store.lookupByRun(run.id).where((b) => b.channelType == channelType).firstOrNull;
@@ -256,11 +261,15 @@ class WorkflowRunNotificationSubscriber {
 
   /// The interaction to put on an approval post, or `null` for any other post, an approval that is not pending
   /// (one the policy auto-resolved included) and a failed issue.
-  Future<WorkflowApprovalInteraction?> _issue(WorkflowRun run, WorkflowLifecycleEvent event) async {
+  Future<WorkflowApprovalInteraction?> _issue(
+    WorkflowRun run,
+    WorkflowLifecycleEvent event,
+    String? executionSurfaceCandidate,
+  ) async {
     final issue = _issueInteraction;
     if (issue == null || event is! WorkflowApprovalRequestedEvent) return null;
     try {
-      return await issue(run.id, event.stepId);
+      return await issue(run.id, event.stepId, executionSurfaceCandidate: executionSurfaceCandidate);
     } catch (error, stackTrace) {
       _log.warning('Failed to issue the approval interaction of workflow run ${run.id}', error, stackTrace);
       return null;
@@ -425,7 +434,12 @@ class WorkflowRunNotificationSubscriber {
   Channel? _channelOf(String channelType) =>
       _channelManager.channels.where((candidate) => candidate.type.name == channelType).firstOrNull;
 
-  ChannelNotification? _notificationFor(WorkflowRun run, WorkflowLifecycleEvent event, _Event kind) {
+  ChannelNotification? _notificationFor(
+    WorkflowRun run,
+    WorkflowLifecycleEvent event,
+    _Event kind, {
+    required WorkflowExecutionSurfaceHold? hold,
+  }) {
     final name = run.definitionName;
     final label = "Workflow '$name' (run ${run.id})";
     final facts = <String, String>{'Run': run.id};
@@ -435,7 +449,7 @@ class WorkflowRunNotificationSubscriber {
     switch (event) {
       case WorkflowApprovalRequestedEvent(:final stepId, :final message):
         facts['Step'] = stepId;
-        body = _truncate(message);
+        body = _truncate(hold?.message ?? message);
         final link = publicPageUrl(_baseUrl, '/workflows/${run.id}');
         if (link != null) facts['Run page'] = link;
         final revision = workflowRevisionState(run);

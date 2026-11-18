@@ -45,7 +45,7 @@ fi
 
 cat > "$WORKFLOW_DIR/workflow_output_contract.dart" <<'DART'
 const workflowExecutionSurfaceHoldKey = '_workflow.git.execution_surface_hold';
-const workflowApprovedBranchesKey = '_workflow.git.approved_branches';
+const workflowApprovedCandidateKey = '_workflow.git.approved_candidate';
 DART
 if ! bash dev/tools/fitness/check_no_workflow_private_config.sh; then
   echo "FAIL: fitness script rejected host approval keys in the workflow output contract"

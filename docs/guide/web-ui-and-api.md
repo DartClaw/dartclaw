@@ -739,6 +739,11 @@ POST /api/workflows/runs/:id/resume
 
 Resumes a paused workflow, including approval-paused runs, and returns the updated run as JSON. The call is not limited to `governance.admin_senders` (the caller is signed in) and is written to the audit log as a `web` resolution (guard `RunApprovalGate`).
 
+For an execution-surface hold, inspect the affected paths and destination in the run detail.
+Pass the `candidate` from the reviewed `contextJson["_workflow.git.execution_surface_hold"]` record as
+the `executionSurfaceCandidate` query parameter. A missing or superseded candidate returns HTTP 409.
+Fetch and review the current hold before retrying. The web Approve button sends the displayed candidate.
+
 #### Cancel workflow run
 
 ```
@@ -1069,7 +1074,7 @@ These tools let the agent start work and produce content on the owner's behalf, 
 | `workflow_run` | `definition`, optional `variables` object, optional `project` | Start a registered workflow. Returns the run's ID and its `/workflows/<id>` location. Required-variable validation, declared defaults and the `PROJECT` fallback are the workflow service's, exactly as for the HTTP start route. |
 | `workflow_list` | no arguments | List the workflow catalog with each definition's description, step count and declared variables (required flag and default), so `workflow_run` can be called without a second lookup. An empty catalog is an empty list, not an error. |
 | `workflow_status` | `run_id` | Report a run's `status`, `current_step` (the pending approval step, else the step at the current index), `pending_approval` (`step`, `message` cut at 1,000 characters, `requested_at`, and for a gate that names a `revise` step `revision` and `max_revisions`; or `null`) and `last_error`. Read-only and not admin-gated; it never returns the approval's single-use nonce. |
-| `workflow_resume` | `run_id` | Resume a paused or approval-held run, approving a pending approval. Needs a chat turn from a sender in `governance.admin_senders`; a call from web chat, a scheduled turn or the shared gateway token is refused, and every call is audited (guard `RunApprovalGate`). The sender is the host's record of the turn, never an argument. |
+| `workflow_resume` | `run_id` | Resume a paused or approval-held run, approving an ordinary pending approval. Execution-surface holds require person approval. Needs a chat turn from a sender in `governance.admin_senders`; a call from web chat, a scheduled turn or the shared gateway token is refused, and every call is audited (guard `RunApprovalGate`). The sender is the host's record of the turn, never an argument. |
 | `workflow_cancel` | `run_id`, optional `feedback` | Cancel a run; at a pending approval this rejects it and records `feedback` as the reason. Same sender rule and audit as `workflow_resume`. |
 | `workflow_request_changes` | `run_id`, `feedback` | Send a run waiting at an approval gate back to the gate's `revise` step with `feedback` (required, not blank); the step re-runs with it and the run returns to the gate. Only gates that name a `revise` step offer it, up to `maxRevisions` rounds; `workflow_status` shows the round and the limit. Same sender rule and audit as `workflow_resume`; the audit entry carries `revision n/max`, never the feedback. |
 | `schedule_upsert` | `id`, `type` (`prompt` or `task`), exactly one of `schedule` (cron) or `at` (ISO-8601 instant), `prompt` or `task`, optional `delivery`, `model`, `effort` | Create or replace a `scheduling.jobs` entry. Schedule validation and the config write go through the same seam the scheduling API uses, and that seam loads the job into the running scheduler before the tool answers — the result reports `loaded`, not a pending restart. Under `scheduling.mutation.approval: operator` the validated write is parked instead and the result is `{"id", "pending": true, "changeId"}` with no `loaded` key; an operator settles it on the Scheduling page. An `at` job runs once and then removes its own entry. A built-in job id is refused. A `type: shell` entry is file-only: `type` accepts only `prompt` and `task`, and an upsert naming an id a shell entry already holds is refused `invalid_request`. |

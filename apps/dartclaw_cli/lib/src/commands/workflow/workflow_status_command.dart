@@ -11,12 +11,19 @@ import 'package:dartclaw_core/dartclaw_core.dart'
     show FileExecutionStore, FileTaskRepository, Task, TaskRepository, formatLocalDateTime, humanizeSpan;
 import 'package:dartclaw_core/dartclaw_core.dart' show DatabaseTaskRepository, PostgresSchemaGate;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show DatabaseWorkflowRunRepository, WorkflowDefinition, WorkflowRun, WorkflowStep, workflowContextValue;
+    show
+        DatabaseWorkflowRunRepository,
+        WorkflowDefinition,
+        WorkflowExecutionSurfaceHold,
+        WorkflowRun,
+        WorkflowStep,
+        workflowContextValue;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show FileWorkflowRunRepository, WorkflowRunRepository;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' show scrubAgentReportedText;
 
 import '../config_loader.dart';
 import '../connected_command_support.dart' hide truncate;
+import 'standalone_execution_surface_recovery.dart';
 
 /// Shows workflow run status from the server or the standalone file store.
 class WorkflowStatusCommand extends WorkflowConnectedCommand {
@@ -218,12 +225,19 @@ class WorkflowStatusCommand extends WorkflowConnectedCommand {
     if (run['isApprovalPaused'] == true) {
       final pendingStepId = run['pendingApprovalStepId']?.toString();
       writeLine('  Approval:    Step "$pendingStepId" is awaiting approval');
-      final contextJson = (run['contextJson'] as Map?) ?? const {};
-      final approvalMessage = contextJson['$pendingStepId.approval.message']?.toString();
+      final contextJson = Map<String, dynamic>.from((run['contextJson'] as Map?) ?? const {});
+      final hold = WorkflowExecutionSurfaceHold.read(contextJson);
+      final approvalMessage = hold?.message ?? contextJson['$pendingStepId.approval.message']?.toString();
       if (approvalMessage != null && approvalMessage.isNotEmpty) {
         writeLine('  Request:     ${scrubAgentReportedText(approvalMessage)}');
       }
-      writeLine('  Actions:     Run `${commandPrefix(this)} resume $runId` to approve');
+      if (hold == null) {
+        writeLine('  Actions:     Run `${commandPrefix(this)} resume $runId` to approve');
+      } else {
+        final candidate = scrubAgentReportedText(hold.candidate);
+        writeLine('  Candidate    $candidate');
+        writeLine('  After review, run `${commandPrefix(this)} resume $runId --candidate $candidate` to approve');
+      }
       writeLine('               Run `${commandPrefix(this)} cancel $runId` to reject');
     } else if (run['status'] == 'paused') {
       writeLine('  Actions:     Run `${commandPrefix(this)} resume $runId` to continue');
@@ -249,7 +263,12 @@ class WorkflowStatusCommand extends WorkflowConnectedCommand {
     writeLine(
       '  Tokens:      ${_formatNumber(run.totalTokens)}${run.tokenUsageComplete ? '' : ' (incomplete lower bound)'}',
     );
-    if (isAwaitingApproval) {
+    final executionSurfaceHold = standaloneExecutionSurfaceHold(run);
+    if (executionSurfaceHold != null) {
+      for (final line in standaloneExecutionSurfaceRecoveryLines(executionSurfaceHold)) {
+        writeLine('  $line');
+      }
+    } else if (isAwaitingApproval) {
       final approvalMessage = run.contextJson['$pendingApprovalStepId.approval.message'] as String?;
       writeLine('  Approval:    Step "$pendingApprovalStepId" is awaiting approval');
       if (approvalMessage != null) {
@@ -260,7 +279,7 @@ class WorkflowStatusCommand extends WorkflowConnectedCommand {
     } else if (run.status == WorkflowRunStatus.failed) {
       writeLine('  Actions:     Run `${commandPrefix(this)} retry ${run.id} --standalone` to retry');
     }
-    if (run.errorMessage != null) {
+    if (executionSurfaceHold == null && run.errorMessage != null) {
       writeLine('  Error:       ${scrubAgentReportedText(run.errorMessage!)}');
     }
 

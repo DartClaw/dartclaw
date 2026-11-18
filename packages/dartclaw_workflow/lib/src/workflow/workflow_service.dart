@@ -360,13 +360,24 @@ class WorkflowService {
   /// [resolver], a refusal throws [WorkflowApprovalRefused] rather than
   /// [StateError], and [resolver] is recorded on the consumed interaction.
   /// With neither, nonce and post are not checked.
-  Future<WorkflowRun> resume(String runId, {WorkflowApprovalExpectation? expect, WorkflowApprovalResolver? resolver}) =>
-      _withRunLock(runId, () => _resume(runId, expect: expect, resolver: resolver));
+  ///
+  /// Web/API approval of an execution-surface hold requires the
+  /// [executionSurfaceCandidate] the operator reviewed.
+  Future<WorkflowRun> resume(
+    String runId, {
+    WorkflowApprovalExpectation? expect,
+    WorkflowApprovalResolver? resolver,
+    String? executionSurfaceCandidate,
+  }) => _withRunLock(
+    runId,
+    () => _resume(runId, expect: expect, resolver: resolver, executionSurfaceCandidate: executionSurfaceCandidate),
+  );
 
   Future<WorkflowRun> _resume(
     String runId, {
     WorkflowApprovalExpectation? expect,
     WorkflowApprovalResolver? resolver,
+    String? executionSurfaceCandidate,
   }) async {
     var run = await _requireRun(runId);
     if (expect != null) _checkExpectation(run, expect);
@@ -378,18 +389,14 @@ class WorkflowService {
       throw WorkflowApprovalRefused(_refusalForSettledRun(run), message);
     }
 
-    final executionHold = WorkflowExecutionSurfaceHold.read(WorkflowContext.fromJson(run.contextJson));
-    if (executionHold != null &&
-        !switch (resolver?.source) {
-          WorkflowApprovalSource.web || WorkflowApprovalSource.button => true,
-          WorkflowApprovalSource.tool || null => false,
-        }) {
-      throw const WorkflowApprovalRefused(
-        WorkflowApprovalRefusal.personRequired,
-        'Execution surface changes require a person. Review the changes and resume this run in the web UI or through the API.',
-      );
-    }
     final pendingApprovalStepId = run.contextJson['_approval.pending.stepId'] as String?;
+    _checkExecutionSurfaceApproval(
+      WorkflowExecutionSurfaceHold.read(run.contextJson),
+      pendingApprovalStepId: pendingApprovalStepId,
+      candidate: executionSurfaceCandidate,
+      expect: expect,
+      source: resolver?.source,
+    );
     if (pendingApprovalStepId != null) {
       run = await _recordApprovalResolution(
         run: run,
@@ -450,6 +457,32 @@ class WorkflowService {
     _spawnExecutor(running, definition, context, startFromStepIndex: resumeStepIndex, startCursor: executionCursor);
 
     return running;
+  }
+
+  void _checkExecutionSurfaceApproval(
+    WorkflowExecutionSurfaceHold? hold, {
+    required String? pendingApprovalStepId,
+    required String? candidate,
+    required WorkflowApprovalExpectation? expect,
+    required WorkflowApprovalSource? source,
+  }) {
+    if (hold == null && candidate == null) return;
+    if (hold != null && (source == WorkflowApprovalSource.tool || source == null)) {
+      throw const WorkflowApprovalRefused(
+        WorkflowApprovalRefusal.personRequired,
+        'Execution surface changes require a person. Review the changes and resume this run in the web UI or through the API.',
+      );
+    }
+    if (hold == null ||
+        pendingApprovalStepId == null ||
+        (candidate != null && candidate != hold.candidate) ||
+        (source == WorkflowApprovalSource.web && candidate == null) ||
+        (source == WorkflowApprovalSource.button && expect == null)) {
+      throw const WorkflowApprovalRefused(
+        WorkflowApprovalRefusal.invalidNonce,
+        'Execution surface changes have a different pending review. Reload the run and review the current changes.',
+      );
+    }
   }
 
   /// Retries a failed workflow from its persisted resume cursor.
@@ -732,15 +765,21 @@ class WorkflowService {
   /// returns `null` when [runId] is not pending at that step (an approval the
   /// policy auto-resolved included).
   ///
+  /// An execution-surface post must supply the candidate it displays.
   /// A new issue replaces the run's earlier record.
-  Future<WorkflowApprovalInteraction?> issueApprovalInteraction(String runId, String stepId) =>
-      _withRunLock(runId, () async {
-        final run = await _repository.getById(runId);
-        if (run == null || !_isPendingAt(run, stepId)) return null;
-        final interaction = WorkflowApprovalInteraction.issue(stepId);
-        await _storeInteraction(run, interaction);
-        return interaction;
-      });
+  Future<WorkflowApprovalInteraction?> issueApprovalInteraction(
+    String runId,
+    String stepId, {
+    String? executionSurfaceCandidate,
+  }) => _withRunLock(runId, () async {
+    final run = await _repository.getById(runId);
+    if (run == null || !_isPendingAt(run, stepId)) return null;
+    final hold = WorkflowExecutionSurfaceHold.read(run.contextJson);
+    if (hold?.candidate != executionSurfaceCandidate) return null;
+    final interaction = WorkflowApprovalInteraction.issue(stepId);
+    await _storeInteraction(run, interaction);
+    return interaction;
+  });
 
   /// Binds the sent [post] to the interaction holding [nonce]. Returns `false`
   /// when that interaction was replaced or already resolved.
@@ -899,12 +938,12 @@ class WorkflowService {
       return;
     }
 
-    // A request-changes round re-runs steps the tasks already completed once, so
-    // their step indices cannot say where it stopped; the persisted cursor does.
-    if (run.contextJson.containsKey(workflowRevisionContextKey)) {
-      _log.info(
-        "Recovering workflow '${definition.name}' (${run.id}) in a revision round from step ${run.currentStepIndex}",
-      );
+    final currentStep = definition.steps.elementAtOrNull(run.currentStepIndex);
+    final heldPromotion = currentStep != null && context['${currentStep.id}.promotion'] == 'held';
+    // A completed task may still be waiting for Git delivery or a revision
+    // round. Recover at the workflow checkpoint in those cases.
+    if (heldPromotion || run.contextJson.containsKey(workflowRevisionContextKey)) {
+      _log.info("Recovering workflow '${definition.name}' (${run.id}) from checkpoint at step ${run.currentStepIndex}");
       _cancelFlags.remove(run.id);
       _spawnExecutor(run, definition, context, startFromStepIndex: run.currentStepIndex);
       return;
@@ -1232,12 +1271,7 @@ class WorkflowService {
     final stepStatus = approved ? 'accepted' : 'rejected';
     final approvalStatus = approved ? 'approved' : 'rejected';
     final context = await _loadResumeContext(run, null);
-    final executionHold = WorkflowExecutionSurfaceHold.read(context);
-    if (approved && executionHold != null) {
-      final branches = (context[workflowApprovedBranchesKey] as List?)?.cast<String>() ?? <String>[];
-      context[workflowApprovedBranchesKey] = {...branches, executionHold.branch}.toList();
-      context.remove(workflowExecutionSurfaceHoldKey);
-    }
+    final executionHold = WorkflowExecutionSurfaceHold.read(run.contextJson);
     context['$stepId.status'] = stepStatus;
     context['$stepId.approval.status'] = approvalStatus;
     context['$stepId.approval.resolved_at'] = resolvedAt;
@@ -1247,13 +1281,18 @@ class WorkflowService {
     final updatedContext = _snapshotContextJson(
       run.contextJson,
       context,
-      removeFlatKeys: const {'_approval.pending.stepId', '_approval.pending.stepIndex'},
+      removeFlatKeys: {
+        '_approval.pending.stepId',
+        '_approval.pending.stepIndex',
+        if (executionHold != null) workflowExecutionSurfaceHoldKey,
+      },
       extraFlat: {
         '$stepId.status': stepStatus,
         '$stepId.approval.status': approvalStatus,
         '$stepId.approval.resolved_at': resolvedAt,
         if (!approved) '$stepId.approval.feedback': ?feedback,
         if (consumed != null) workflowApprovalInteractionContextKey: consumed.toJson(),
+        if (approved && executionHold != null) workflowApprovedCandidateKey: executionHold.candidate,
       },
     );
     final updatedRun = run.copyWith(contextJson: updatedContext, updatedAt: _monotonicUpdatedAt(run, DateTime.now()));

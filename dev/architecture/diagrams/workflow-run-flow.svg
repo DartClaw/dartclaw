@@ -212,7 +212,7 @@
     <text class="sub" x="338" y="651">publish if enabled, then complete when it succeeds</text>
     <text class="sub" x="338" y="667">cursor cleared, git cleanup callback</text>
     <g class="chip k-sec"><rect x="898" y="622" width="51" height="16" rx="8"/><text x="905" y="634">→ stop</text></g>
-    <g class="d"><text class="p1" x="36" y="792"><tspan class="b">No nodes left</tspan> · the run completes after publish (when enabled), clears the cursor and invokes Git cleanup.</text><text class="p2" x="36" y="812">A publish error fails the run. An execution-surface hold waits for a person to approve the branch before publish resumes.</text></g>
+    <g class="d"><text class="p1" x="36" y="792"><tspan class="b">No nodes left</tspan> · the run completes after publish (when enabled), clears the cursor and invokes Git cleanup.</text><text class="p2" x="36" y="812">A publish error fails the run. An execution-surface hold waits for approval of the exact candidate and destination.</text></g>
   </g></a>
   <g transform="translate(24,698)">
     <g class="solid k-store"><rect class="box" x="0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="22" y="10">persist point</text>

@@ -487,7 +487,7 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
       // Deferred pause: siblings have settled, so no in-flight task wait gets
       // aborted into a spurious failure. No-ops when a teardown or hold
       // already moved the run off `running`.
-      final hold = WorkflowExecutionSurfaceHold.read(context);
+      final hold = context.executionSurfaceHold;
       if (hold != null) {
         final refreshedRun = (await _repository.getById(run.id)) ?? run;
         await _transitionStepAwaitingApproval(
@@ -1020,11 +1020,8 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
             mergeResolveEnabled: definition.gitStrategy?.mergeResolve.enabled == true,
           );
           switch (promotionResult) {
-            case PromotionHeld(:final paths):
-              context[workflowExecutionSurfaceHoldKey] ??= WorkflowExecutionSurfaceHold(
-                branch: storyBranch,
-                paths: paths,
-              ).toJson();
+            case PromotionHeld(:final hold):
+              context.executionSurfaceHold ??= WorkflowExecutionSurfaceHold.fromPromotion(storyBranch, hold);
               mapCtx.aborted = true;
               mapCtx.inFlightCount--;
               await persistProgress();
@@ -1070,11 +1067,8 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
                   return;
                 }
                 switch (resolveResult) {
-                  case WorkflowGitPromotionHeld(:final paths):
-                    context[workflowExecutionSurfaceHoldKey] ??= WorkflowExecutionSurfaceHold(
-                      branch: storyBranch,
-                      paths: paths,
-                    ).toJson();
+                  case final WorkflowGitPromotionHeld hold:
+                    context.executionSurfaceHold ??= WorkflowExecutionSurfaceHold.fromPromotion(storyBranch, hold);
                     mapCtx.aborted = true;
                     mapCtx.inFlightCount--;
                     await persistProgress();

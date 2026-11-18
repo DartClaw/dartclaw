@@ -2,6 +2,7 @@ import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' show Task, TaskStatus;
 
 import 'workflow_definition.dart' show WorkflowDefinition, WorkflowStep;
+import 'workflow_execution_surface_hold.dart' show WorkflowExecutionSurfaceHold;
 import 'workflow_run.dart' show WorkflowRun;
 
 /// Maps a task's status (or absence) to a workflow step status string.
@@ -150,11 +151,12 @@ class WorkflowRevisionState {
 }
 
 /// The revision state of the approval [run] is pending at, or `null` when it is
-/// pending at none, or at a step that names no `revise` step.
+/// pending at none, at a Git review, or at a step that names no `revise` step.
 ///
 /// The one answer to whether request changes is on offer: the owner, the
 /// interaction issue, `workflow_status`, the run page and the HTTP route all read it.
 WorkflowRevisionState? workflowRevisionState(WorkflowRun run) {
+  if (WorkflowExecutionSurfaceHold.read(run.contextJson) != null) return null;
   final stepId = run.contextJson['_approval.pending.stepId'];
   if (stepId is! String) return null;
   final rawSteps = run.definitionJson['steps'];

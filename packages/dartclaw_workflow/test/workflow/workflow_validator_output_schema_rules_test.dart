@@ -62,7 +62,7 @@ void main() {
       'outputs',
       'step_outcome',
       '_workflow.git.execution_surface_hold',
-      '_workflow.git.approved_branches',
+      '_workflow.git.approved_candidate',
     ]) {
       final def = buildDef(
         steps: [

@@ -184,13 +184,20 @@ extension WorkflowExecutorParallelAndOutcomeRunner on WorkflowExecutor {
     context['${step.id}.approval.message'] = reason;
     context['${step.id}.approval.requested_at'] = requestedAt;
 
+    final executionHold = context.executionSurfaceHold;
+    final privateEntries = privateContextEntries(run.contextJson);
+    if (executionHold != null) {
+      privateEntries.remove(workflowApprovalInteractionContextKey);
+      privateEntries.remove(workflowApprovedCandidateKey);
+    }
     final awaitingApprovalRun = run.copyWith(
       status: WorkflowRunStatus.awaitingApproval,
       errorMessage: reason,
-      currentStepIndex: WorkflowExecutionSurfaceHold.read(context)?.publish == false ? stepIndex : stepIndex + 1,
+      currentStepIndex: executionHold?.publish == false ? stepIndex : stepIndex + 1,
       contextJson: {
-        ...privateContextEntries(run.contextJson),
+        ...privateEntries,
         ...context.toJson(),
+        if (executionHold != null) workflowExecutionSurfaceHoldKey: executionHold.toJson(),
         '${step.id}.approval.status': 'pending',
         '${step.id}.approval.message': reason,
         '${step.id}.approval.requested_at': requestedAt,

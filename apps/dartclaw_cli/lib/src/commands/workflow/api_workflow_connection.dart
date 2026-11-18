@@ -53,9 +53,17 @@ class ApiWorkflowConnection implements WorkflowConnection {
     WorkflowConnectionContext context,
     String runId,
     String pathSuffix,
-    void Function(Map<String, dynamic>) onResult,
-  ) => _withClient(context, (client) async {
-    onResult(await client.postObject('/api/workflows/runs/$runId/$pathSuffix'));
+    void Function(Map<String, dynamic>) onResult, {
+    String? executionSurfaceCandidate,
+  }) => _withClient(context, (client) async {
+    onResult(
+      await client.postObject(
+        '/api/workflows/runs/$runId/$pathSuffix',
+        queryParameters: executionSurfaceCandidate == null
+            ? null
+            : {'executionSurfaceCandidate': executionSurfaceCandidate},
+      ),
+    );
   });
 
   @override
@@ -289,6 +297,9 @@ class ApiWorkflowConnection implements WorkflowConnection {
     final exitCode = completer.isCompleted ? await completer.future : standaloneWorkflowExitCode(lastStatus);
     if (!jsonOutput && lastStatus == WorkflowRunStatus.cancelled && lastError == null && cancelRequested) {
       context.writeLine('[workflow] Cancelled: ${run.id}');
+    }
+    if (!jsonOutput && lastStatus == WorkflowRunStatus.awaitingApproval) {
+      context.writeLine('[workflow] Use `${context.prefix} status ${run.id}` to review the pending approval.');
     }
     context.exitFn(exitCode);
   }

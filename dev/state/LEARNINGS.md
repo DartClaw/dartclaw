@@ -157,6 +157,7 @@
 
 ## Workflow Engine
 
+- **A copied Git index can run clean filters during `write-tree`.** Disable external filters for both `add` and `write-tree` when previewing an execution-surface candidate. Check the real sweep against the preview tree before delivery.
 - **Strict task-spawn dependencies need a lifecycle-only construction path.** `WorkflowService`'s default constructor requires task-persistence ports; tests that only exercise pause/resume/cancel/list use the explicit lifecycle-only constructor, not fabricated ports.
 - **Validator file splits must preserve diagnostic ordering.** `workflow validate` output order is observable; rule-group moves need the original call sequence in the composer or golden coverage for ordering.
 - **Multi-flag idempotency persists are crash-windows.** Two booleans persisted in sequence reopen the work if a crash lands between them; use a single atomically-persisted phase-string field.

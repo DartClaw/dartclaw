@@ -31,10 +31,12 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowStepCompletedEvent,
         WorkflowTaskType,
         WorkflowWorktreeBinding,
-        WorkflowVariable;
+        WorkflowVariable,
+        workflowExecutionSurfaceHoldKey;
 import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeProjectService;
 import 'package:dartclaw_workflow/src/workflow/execution_envelope_schema.dart'
     show buildExecutionEnvelopeSchema, buildFinalizerPrompt;
+import 'package:dartclaw_workflow/src/workflow/workflow_output_contract.dart' show workflowApprovedCandidateKey;
 import 'package:dartclaw_workflow/testing.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -115,7 +117,7 @@ void main() {
     });
   }
 
-  for (final key in ['_workflow.git.execution_surface_hold', '_workflow.git.approved_branches']) {
+  for (final key in [workflowExecutionSurfaceHoldKey, workflowApprovedCandidateKey]) {
     test('forged host output $key settles the run without partial merge', () async {
       final definition = h.makeDefinition(
         steps: [

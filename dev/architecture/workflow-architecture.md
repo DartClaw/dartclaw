@@ -277,7 +277,7 @@ Persistent state is written atomically and the runtime resumes from the last com
 
 ### 5.6 Private context keys
 
-Underscore-prefixed keys in `contextJson` are engine bookkeeping. They survive every context rebuild (`privateContextEntries`) and are not user outputs.
+Top-level underscore-prefixed keys in `contextJson` are engine bookkeeping. `privateContextEntries` carries them across context rebuilds. Step outputs are stored under `data`.
 
 | Key | Meaning |
 |---|---|
@@ -288,8 +288,8 @@ Underscore-prefixed keys in `contextJson` are engine bookkeeping. They survive e
 | `_approval.auto_resolved.<stepId>` | auto-resolved gate or stall |
 | `_revision.gateId` | request-changes round in progress |
 | `_workflow.approvals`, `_workflow.git.integration_branch` | run approval policy; integration branch name |
-| `_workflow.git.execution_surface_hold` | host-owned `{branch, paths, publish}` record for a held promotion or publish |
-| `_workflow.git.approved_branches` | host-owned list of branches a person approved in this run |
+| `_workflow.git.execution_surface_hold` | host-owned pending review with branch, paths, operation, candidate identity and available destination and worktree details |
+| `_workflow.git.approved_candidate` | host-owned identity of the Git candidate a person approved |
 | `_accounting.*`, `_budget.warningFired` | pending usage reads; one-shot budget warning |
 | `_map.<foreachId>.promotedIds`, `_foreach.*`, `_merge_resolve.*` | promotion and sub-step progress, merge-resolve state |
 
@@ -444,7 +444,7 @@ An approval step holds the run until an operator accepts or cancels it. The prom
 
 Chat, tool and HTTP callers reach `WorkflowService` through `WorkflowRunControl`, which owns the admin gate and the audit entry (security-architecture.md, run approval gate); resume and cancel over HTTP are audited as `web` resolutions and are not admin-gated.
 
-Execution-surface holds require a person to resume from the run page, HTTP API or an authorized channel button. The agent's `workflow_resume` can resolve ordinary approvals, but cannot release this hold even in an admin chat. The host records approval for the held branch and retries the promotion or publish without rerunning completed work. `workflow.approvals` never skips this hold.
+Execution-surface holds require a person to approve from the connected run page, HTTP API or an authorized channel button. The page and API supply the candidate from the run snapshot. A button resolves only the interaction issued for the displayed candidate. The host records approval for that candidate and retries delivery without rerunning completed work. Agent tools and automatic approval policies cannot release the hold. Standalone displays recovery guidance for manual delivery or a fresh connected run.
 
 **Request changes.** The gate declares `revise: <stepId>` (an earlier top-level non-approval step) and `maxRevisions` (1 to 10, default 3 when `revise` is set). The service refuses with typed `WorkflowApprovalRefusal` reasons (`changesNotOffered`, `limitReached`, `feedbackRequired`, plus `notPending`, `alreadyResolved`, `invalidNonce`) before writing anything, so no refusal consumes the nonce. `workflowRevisionState` is the one derivation of "is the round open" shared by the service, tools, run page and route. One persisted update records `changes_requested`, the trimmed feedback, the incremented revision and the consumed interaction, sets the run `running` at the revise step and writes `_revision.gateId`. The marker makes the executor run the revise step despite its `entryGate` and append a round lead-in and the feedback in one framed block to the prompt (`SkillPromptBuilder.appendRevisionFeedback`, skipped when the prompt already references `{{context.<gateId>.approval.feedback}}`); the marker is dropped when the gate pauses again. Outputs of steps between the revise step and the gate are overwritten, never cleared. Refused: a `needsInput` hold, a gate inside a loop, foreach or group, or a gate with no `revise`.
 
@@ -542,7 +542,7 @@ For project-backed workflows, `WorkflowTurnAdapter` callbacks inject the host's 
 
 Authored `promotion` values are `merge`, `rebase` and `none` (validator `workflow_git_strategy_rules.dart`); `none` skips promotion. Under `per-map-item`, each foreach iteration works on its own story branch `dartclaw/task-wf-<token>-map-<i>` (`<token>` is the first 16 hex characters of the SHA-256 of the run id; a `-N` suffix resolves a name collision), cut from the integration branch HEAD (`_baseRef`) and promoted back to it on success. Promotion is inferred from the resolved shape: omitted `promotion` behaves as `merge` for `per-map-item` and `per-task`, and `none` for `inline` and `shared`, so built-ins do not repeat `promotion: merge`. In a promotion-aware scope (`per-map-item` with a project-touching child step and promotion not `none`), dependents wait until their prerequisite is promoted. The last branch-touching step of a scope promotes after it succeeds.
 
-Before a commit sweep or integration, promotion checks the branch diff and pending changes in its own worktree. An [execution-surface path or added or changed symlink](../../docs/guide/tasks.md#review-workflow) holds the run at `awaitingApproval` with the branch and matched paths, unless a person has already approved that branch in the run. Host commit sweeps in agent worktrees run with Git hooks disabled.
+Under the repository lock, the runtime inspects the committed branch diff and previews what a commit sweep would add from both the story and integration worktrees. An [execution-surface path or added or changed symlink](../../docs/guide/tasks.md#review-workflow) holds the run at `awaitingApproval` until a person approves that candidate. Its identity covers the repository, operation, destination, source and base revisions, and prospective Git trees. The workflow service stores approval in the host portion of the run snapshot. A fresh hold replaces the earlier approval and channel interaction. The runtime rechecks the candidate on resume, checks the swept trees and merges the verified source commit against the verified target revision. Host commit sweeps in agent worktrees run with Git hooks disabled.
 
 ### 10.3 Conflict outcomes
 
@@ -554,7 +554,7 @@ With `merge_resolve.enabled: true` (requires `promotion: merge`; defaults `max_a
 
 ### 10.5 Publish, artifact auto-commit and cleanup
 
-`publish.enabled` runs at completion through the host callback and merges its result into context. The same execution-surface check holds an unapproved branch before the commit sweep or push, with `publish: true` in the hold record. A publish failure fails the run without Git cleanup, so the integration branch survives. Terminal transitions (`completed`, `failed`, `cancelled`) call the host cleanup callback with a `preserveWorktrees` flag derived from `gitStrategy.cleanup`; by default it removes the run's worktrees and branches, and config `workflow.cleanup.delete_remote_branch_on_failure` also deletes pushed branches of failed runs.
+`publish.enabled` runs at completion through the host callback and merges its result into context. The same execution-surface check holds an unapproved publish candidate before the sweep or push, with `publish: true` in the hold record. Publish pushes the verified commit to the reviewed destination. A publish failure fails the run without Git cleanup, so the integration branch survives. Terminal transitions (`completed`, `failed`, `cancelled`) call the host cleanup callback with a `preserveWorktrees` flag derived from `gitStrategy.cleanup`; by default it removes the run's worktrees and branches, and config `workflow.cleanup.delete_remote_branch_on_failure` also deletes pushed branches of failed runs.
 
 `gitStrategy.artifacts` commits files produced by a step (outputs with `format: path`, and `story_specs`) right after that step, using author `DartClaw Workflow` and the message `commitMessage` (default `chore(workflow): {{step.id}} artifacts`; `{{runId}}`, `{{step.id}}`, `{{step.name}}` and variables substitute), in the worktree or the project from `artifacts.project`. For `implement-prd`, this lands the plan's spec files on the workflow branch before `story-pipeline` creates per-item worktrees, so they inherit the files.
 

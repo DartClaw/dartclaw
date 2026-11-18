@@ -1,9 +1,9 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart';
-import 'package:dartclaw_workflow/src/workflow/workflow_output_contract.dart';
 import 'package:test/test.dart';
 
 import 'component/workflow_git_test_support.dart';
@@ -35,6 +35,32 @@ WorkflowService executionSurfaceService(WorkflowExecutorHarness h, WorkflowTurnA
   ),
 );
 
+Future<void> _resumeReviewedCandidate(WorkflowService service, WorkflowRun held) => service.resume(
+  held.id,
+  resolver: const WorkflowApprovalResolver(source: WorkflowApprovalSource.web),
+  executionSurfaceCandidate: WorkflowExecutionSurfaceHold.read(held.contextJson)!.candidate,
+);
+
+Future<WorkflowApprovalExpectation> _approvalButton(WorkflowService service, WorkflowRun held) async {
+  final stepId = held.contextJson['_approval.pending.stepId'] as String;
+  final interaction = (await service.issueApprovalInteraction(
+    held.id,
+    stepId,
+    executionSurfaceCandidate: WorkflowExecutionSurfaceHold.read(held.contextJson)!.candidate,
+  ))!;
+  const post = WorkflowApprovalPost(channelType: 'slack', recipientId: 'C1', messageId: '1.0');
+  expect(await service.bindApprovalPost(held.id, nonce: interaction.nonce, post: post), isTrue);
+  return WorkflowApprovalExpectation(
+    stepId: stepId,
+    nonce: interaction.nonce,
+    channelType: post.channelType,
+    messageId: post.messageId,
+  );
+}
+
+Matcher _refusedWith(WorkflowApprovalRefusal reason) =>
+    isA<WorkflowApprovalRefused>().having((error) => error.reason, 'reason', reason);
+
 void executionSurfacePromotionTests({required bool foreach}) {
   for (final policy in ['manual', 'auto']) {
     test('execution-surface hold and execution-surface approval ($policy)', () async {
@@ -45,6 +71,9 @@ void executionSurfacePromotionTests({required bool foreach}) {
       addTearDown(fixture.dispose);
       await fixture.createStoryBranch('one', committedFiles: {'.mcp.json': '{}'});
       if (foreach) await fixture.createStoryBranch('two', committedFiles: {'.envrc': 'export X=1'});
+      if (!foreach && policy == 'auto') {
+        fixture.writeUncommittedIntegrationFiles({'.vscode/settings.json': '{}'});
+      }
       final before = await fixture.branchSha(fixture.integrationBranch);
       final adapter = standardTurnAdapter(
         integrationBranch: fixture.integrationBranch,
@@ -62,7 +91,7 @@ void executionSurfacePromotionTests({required bool foreach}) {
               branch: branch,
               integrationBranch: integrationBranch,
               strategy: strategy,
-              approved: workflowBranchIsApproved((await h.repository.getById(runId))!.contextJson, branch),
+              approvedCandidate: workflowApprovedCandidate((await h.repository.getById(runId))!.contextJson),
             ),
       );
       final definition = WorkflowDefinition(
@@ -128,17 +157,75 @@ void executionSurfacePromotionTests({required bool foreach}) {
       for (final resolver in [null, const WorkflowApprovalResolver(source: WorkflowApprovalSource.tool)]) {
         await expectLater(
           service.resume(run.id, resolver: resolver),
-          throwsA(
-            isA<WorkflowApprovalRefused>().having(
-              (error) => error.reason,
-              'reason',
-              WorkflowApprovalRefusal.personRequired,
-            ),
-          ),
+          throwsA(_refusedWith(WorkflowApprovalRefusal.personRequired)),
         );
       }
       expect((await h.repository.getById(run.id))!.status, WorkflowRunStatus.awaitingApproval);
-      await service.resume(run.id, resolver: const WorkflowApprovalResolver(source: WorkflowApprovalSource.web));
+      final initialHold = WorkflowExecutionSurfaceHold.read(held.contextJson)!;
+      var initialCandidate = initialHold.candidate;
+      if (!foreach && policy == 'auto') {
+        expect(initialHold.worktreePath, isNotNull);
+        expect(initialHold.destinationWorktreePath, isNotNull);
+        expect(
+          Directory(initialHold.worktreePath!).resolveSymbolicLinksSync(),
+          Directory(fixture.worktreeFor('one')).resolveSymbolicLinksSync(),
+        );
+        expect(
+          Directory(initialHold.destinationWorktreePath!).resolveSymbolicLinksSync(),
+          Directory(fixture.projectDir).resolveSymbolicLinksSync(),
+        );
+        expect(held.errorMessage, contains('Destination worktree ${initialHold.destinationWorktreePath}.'));
+        expect(held.errorMessage, contains('.vscode/settings.json'));
+        // Simulate restart after the task checkpoint landed but before the
+        // executor recorded the pending approval.
+        final checkpoint = Map<String, dynamic>.of(held.contextJson)
+          ..remove(workflowExecutionSurfaceHoldKey)
+          ..remove('_approval.pending.stepId')
+          ..remove('_approval.pending.stepIndex');
+        await h.repository.update(held.copyWith(status: WorkflowRunStatus.running, contextJson: checkpoint));
+        await service.recoverIncompleteRuns();
+        await waitForExecutionSurfaceStatus(h, WorkflowRunStatus.awaitingApproval);
+        held = (await h.repository.getById(run.id))!;
+        expect(WorkflowExecutionSurfaceHold.read(held.contextJson)!.candidate, initialCandidate);
+      }
+      if (!foreach && policy == 'manual') {
+        final staleButton = await _approvalButton(service, held);
+        fixture.writeUncommittedStoryFiles('one', {'.mcp.json': '{"updated":true}'});
+        await _resumeReviewedCandidate(service, held);
+        await waitForExecutionSurfaceStatus(h, WorkflowRunStatus.awaitingApproval);
+        held = (await h.repository.getById(run.id))!;
+        final newHold = WorkflowExecutionSurfaceHold.read(held.contextJson)!;
+        expect(newHold.paths, ['.mcp.json']);
+        expect(newHold.candidate, isNot(initialCandidate));
+        expect(workflowApprovedCandidate(held.contextJson), isNull);
+        expect(await fixture.branchSha(fixture.integrationBranch), before);
+        expect(
+          await service.issueApprovalInteraction(
+            run.id,
+            staleButton.stepId,
+            executionSurfaceCandidate: initialCandidate,
+          ),
+          isNull,
+        );
+        await expectLater(
+          service.resume(
+            run.id,
+            resolver: const WorkflowApprovalResolver(source: WorkflowApprovalSource.web),
+            executionSurfaceCandidate: initialCandidate,
+          ),
+          throwsA(_refusedWith(WorkflowApprovalRefusal.invalidNonce)),
+        );
+        await expectLater(
+          service.resume(
+            run.id,
+            resolver: const WorkflowApprovalResolver(source: WorkflowApprovalSource.button),
+            expect: staleButton,
+          ),
+          throwsA(_refusedWith(WorkflowApprovalRefusal.invalidNonce)),
+        );
+        initialCandidate = newHold.candidate;
+      }
+      await _resumeReviewedCandidate(service, held);
       await waitForExecutionSurfaceStatus(
         h,
         foreach ? WorkflowRunStatus.awaitingApproval : WorkflowRunStatus.completed,
@@ -146,9 +233,16 @@ void executionSurfacePromotionTests({required bool foreach}) {
       held = (await h.repository.getById(run.id))!;
       if (foreach) {
         expect(held.errorMessage, contains('.envrc'));
-        expect((held.contextJson['data'] as Map)[workflowApprovedBranchesKey], [fixture.storyBranch('one')]);
+        final nextHold = WorkflowExecutionSurfaceHold.read(held.contextJson)!;
+        expect(nextHold.branch, fixture.storyBranch('two'));
+        expect(nextHold.candidate, isNot(initialCandidate));
+        expect(workflowApprovedCandidate(held.contextJson), isNull);
         expect(tasksCreated, 2);
-        await service.resume(run.id, resolver: const WorkflowApprovalResolver(source: WorkflowApprovalSource.button));
+        await service.resume(
+          run.id,
+          resolver: const WorkflowApprovalResolver(source: WorkflowApprovalSource.button),
+          expect: await _approvalButton(service, held),
+        );
         await waitForExecutionSurfaceStatus(h, WorkflowRunStatus.completed);
       }
       expect(tasksCreated, foreach ? 2 : 1, reason: 'resume must retry promotion without executing settled tasks');
@@ -180,23 +274,23 @@ void executionSurfacePublishTests() {
           final adapter = standardTurnAdapter(
             integrationBranch: fixture.integrationBranch,
             publishWorkflowBranch: ({required runId, required projectId, required branch, pullRequest}) async {
-              final approved = workflowBranchIsApproved((await h.repository.getById(runId))!.contextJson, branch);
+              final approvedCandidate = workflowApprovedCandidate((await h.repository.getById(runId))!.contextJson);
               if (!remotePush) {
                 return publishWorkflowBranchLocally(
                   projectDir: fixture.projectDir,
                   branch: branch,
                   baseRef: 'origin/main',
-                  approved: approved,
+                  approvedCandidate: approvedCandidate,
                 );
               }
               return publishWorkflowBranchWithRemotePush(
                 projectDir: fixture.projectDir,
                 branch: branch,
                 baseRef: 'origin/main',
-                approved: approved,
-                pushBranch: () async {
+                approvedCandidate: approvedCandidate,
+                pushBranch: (revision) async {
                   pushes++;
-                  expect((await fixture.rawGit(['push', 'origin', branch])).exitCode, 0);
+                  expect((await fixture.rawGit(['push', 'origin', '$revision:refs/heads/$branch'])).exitCode, 0);
                   return const PushSuccess();
                 },
                 fetchRemoteTrackingRef: () =>
@@ -236,15 +330,13 @@ void executionSurfacePublishTests() {
           addTearDown(service.dispose);
           await expectLater(
             service.resume(run.id, resolver: const WorkflowApprovalResolver(source: WorkflowApprovalSource.tool)),
-            throwsA(
-              isA<WorkflowApprovalRefused>().having(
-                (error) => error.reason,
-                'reason',
-                WorkflowApprovalRefusal.personRequired,
-              ),
-            ),
+            throwsA(_refusedWith(WorkflowApprovalRefusal.personRequired)),
           );
-          await service.resume(run.id, resolver: const WorkflowApprovalResolver(source: WorkflowApprovalSource.web));
+          await expectLater(
+            service.resume(run.id, resolver: const WorkflowApprovalResolver(source: WorkflowApprovalSource.web)),
+            throwsA(_refusedWith(WorkflowApprovalRefusal.invalidNonce)),
+          );
+          await _resumeReviewedCandidate(service, held);
           await waitForExecutionSurfaceStatus(h, WorkflowRunStatus.completed);
           final pushedTree = await fixture.rawGit([
             'ls-tree',

@@ -627,8 +627,12 @@ dartclaw workflow pause <run-id> --standalone
 ```bash
 dartclaw workflow resume <run-id>
 dartclaw workflow resume <run-id> --json
+dartclaw workflow resume <run-id> --candidate <candidate-id>
 dartclaw workflow resume <run-id> --standalone
 ```
+
+For a connected execution-surface hold, use `dartclaw workflow status <run-id>` and review the reported Git changes.
+Pass that candidate ID to `resume --candidate`. If the candidate changes, inspect the new hold before approving.
 
 ### `workflow retry`
 

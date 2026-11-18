@@ -5,7 +5,6 @@ import 'workflow_run_repository.dart';
 import 'package:logging/logging.dart';
 
 import 'workflow_context.dart';
-import 'workflow_output_contract.dart';
 import 'workflow_execution_surface_hold.dart';
 import 'workflow_git_port.dart' show WorkflowGitException;
 import 'workflow_turn_adapter.dart';
@@ -100,11 +99,16 @@ Future<String?> runDeterministicPublish({
   try {
     final result = await publish(runId: run.id, projectId: projectId, branch: branch, pullRequest: pullRequest);
     if (result.status == WorkflowPublishStatus.held) {
-      context[workflowExecutionSurfaceHoldKey] = WorkflowExecutionSurfaceHold(
+      final candidate = result.heldCandidate;
+      if (candidate == null || candidate.isEmpty) return 'publish hold is missing its Git candidate';
+      context.executionSurfaceHold = WorkflowExecutionSurfaceHold(
         branch: branch,
         paths: result.heldPaths,
+        candidate: candidate,
         publish: true,
-      ).toJson();
+        destination: result.heldDestination,
+        worktreePath: result.heldWorktreePath,
+      );
     }
     context['publish.status'] = result.status.toJson();
     context['publish.branch'] = result.branch;

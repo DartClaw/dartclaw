@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:logging/logging.dart';
 
+import 'host_worktree_git.dart';
 import 'worktree_manager.dart';
 
 /// File-level change classification in a diff.
@@ -193,16 +194,21 @@ class DiffGenerator {
   /// conceal a symlink still present in the branch that would be merged.
   /// Set [includeWorktree] false when [projectDir] only supplies the repository
   /// for a branch with no checkout; its unrelated dirty files will not be swept.
+  /// Set [fromMergeBase] false to compare the supplied Git trees directly.
   /// Git failures and malformed NUL framing throw [WorktreeException].
   Future<List<DiffFileChange>> changes({
     required String baseRef,
     required String branch,
     String? projectDir,
     bool includeWorktree = true,
+    bool fromMergeBase = true,
   }) async {
     final workingDirectory = projectDir ?? _projectDir;
     final changes = <DiffFileChange>[];
-    for (final revisionRange in ['$baseRef...$branch', if (includeWorktree) 'HEAD']) {
+    for (final revisionRange in [
+      fromMergeBase ? '$baseRef...$branch' : '$baseRef..$branch',
+      if (includeWorktree) 'HEAD',
+    ]) {
       changes.addAll(await _gitDiffChanges(revisionRange, workingDirectory: workingDirectory, automated: true));
     }
     if (!includeWorktree) return changes;
@@ -237,7 +243,16 @@ class DiffGenerator {
     required bool automated,
   }) async {
     final result = await _runGit(
-      ['diff', '--raw', '--no-abbrev', '--no-ext-diff', '--no-textconv', '-z', revisionRange],
+      [
+        if (automated) ...hostWorktreeGitOptions,
+        'diff',
+        '--raw',
+        '--no-abbrev',
+        '--no-ext-diff',
+        '--no-textconv',
+        '-z',
+        revisionRange,
+      ],
       workingDirectory: workingDirectory,
       noSystemConfig: automated,
     );
@@ -265,7 +280,7 @@ class DiffGenerator {
 
   Future<List<String>> _gitUntrackedFiles({required String workingDirectory, bool automated = false}) async {
     final result = await _runGit(
-      ['ls-files', '--others', '--exclude-standard', '-z'],
+      [if (automated) ...hostWorktreeGitOptions, 'ls-files', '--others', '--exclude-standard', '-z'],
       workingDirectory: workingDirectory,
       noSystemConfig: automated,
     );

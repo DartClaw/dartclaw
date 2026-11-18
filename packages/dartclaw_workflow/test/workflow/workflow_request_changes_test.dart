@@ -19,11 +19,13 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowApprovalResolver,
         WorkflowApprovalSource,
         WorkflowDefinition,
+        WorkflowExecutionSurfaceHold,
         WorkflowRun,
         WorkflowRunOrigin,
         WorkflowService,
         WorkflowStep,
         WorkflowTaskType,
+        workflowExecutionSurfaceHoldKey,
         workflowRevisionContextKey,
         workflowRevisionState;
 import 'package:test/test.dart';
@@ -160,6 +162,7 @@ void main() {
     int? maxRevisions,
     String? reviseId = 'draft',
     WorkflowRunStatus status = WorkflowRunStatus.awaitingApproval,
+    WorkflowExecutionSurfaceHold? executionSurfaceHold,
   }) => harness.insertRun(
     id: id,
     definition: definition(maxRevisions: maxRevisions, reviseId: reviseId),
@@ -170,6 +173,7 @@ void main() {
       '_approval.pending.stepIndex': 2,
       '$_gate.approval.status': 'pending',
       '$_gate.approval.revision': revision,
+      if (executionSurfaceHold != null) workflowExecutionSurfaceHoldKey: executionSurfaceHold.toJson(),
       'data': <String, dynamic>{'prep.status': 'accepted', '$_gate.approval.revision': revision},
       'variables': <String, dynamic>{},
     },
@@ -194,6 +198,24 @@ void main() {
       isA<WorkflowApprovalRefused>().having((e) => e.reason, 'reason', reason);
 
   group('owner', () {
+    test('request changes stays unavailable during Git review on a revisable approval step', () async {
+      final run = await gateRun(
+        'run-1',
+        executionSurfaceHold: WorkflowExecutionSurfaceHold(
+          branch: 'story',
+          paths: ['.mcp.json'],
+          candidate: 'reviewed-candidate',
+          publish: true,
+        ),
+      );
+
+      expect(workflowRevisionState(run), isNull);
+      await expectLater(
+        service.requestChanges(run.id, feedback: 'split the story', resolver: _web),
+        throwsA(refusedWith(WorkflowApprovalRefusal.changesNotOffered)),
+      );
+    });
+
     test('records changes_requested, the trimmed feedback and the revision, and consumes the interaction', () async {
       await gateRun('run-1');
       final interaction = await boundInteraction('run-1');

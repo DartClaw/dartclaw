@@ -9,7 +9,13 @@ import 'package:dartclaw_client/dartclaw_client.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' show FileExecutionStore;
 import 'package:dartclaw_kernel/dartclaw_kernel.dart' show DartclawConfig, ServerConfig, WorkflowRunStatus;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show FileWorkflowRunRepository, WorkflowDefinition, WorkflowRun, WorkflowStep;
+    show
+        FileWorkflowRunRepository,
+        WorkflowDefinition,
+        WorkflowExecutionSurfaceHold,
+        WorkflowRun,
+        WorkflowStep,
+        workflowExecutionSurfaceHoldKey;
 import 'package:test/test.dart';
 
 import '../../helpers/fake_api_transport.dart';
@@ -83,6 +89,47 @@ void main() {
 
       expect(output.single, contains('Existing PostgreSQL runs are not imported'));
       expect(File(config.standaloneExecutionPath).existsSync(), isFalse);
+    });
+
+    test('standalone status names both worktrees of a persisted promotion hold', () async {
+      final directory = Directory.systemTemp.createTempSync('workflow_status_held_promotion_');
+      addTearDown(() => directory.deleteSync(recursive: true));
+      final config = DartclawConfig(server: ServerConfig(dataDir: directory.path));
+      final hold = WorkflowExecutionSurfaceHold(
+        branch: 'work/story',
+        paths: ['.github/workflows/check.yml'],
+        candidate: 'promotion-candidate',
+        destination: 'work/integration',
+        worktreePath: '/repository/story',
+        destinationWorktreePath: '/repository/integration',
+      );
+      final now = DateTime.utc(2026, 6, 1);
+      final store = await FileExecutionStore.open(config.standaloneExecutionPath);
+      try {
+        await FileWorkflowRunRepository(store).insert(
+          WorkflowRun(
+            id: 'local-1',
+            definitionName: 'local-review',
+            status: WorkflowRunStatus.awaitingApproval,
+            startedAt: now,
+            updatedAt: now,
+            contextJson: {'_approval.pending.stepId': 'promote', workflowExecutionSurfaceHoldKey: hold.toJson()},
+          ),
+        );
+      } finally {
+        await store.close();
+      }
+
+      final output = <String>[];
+      final runner = CommandRunner<void>('dartclaw', 'test')
+        ..addCommand(WorkflowStatusCommand(config: config, writeLine: output.add, exitFn: fakeExit));
+      await runner.run(['status', 'local-1', '--standalone']);
+
+      final text = output.join('\n');
+      expect(text, contains('Source worktree /repository/story'));
+      expect(text, contains('Destination worktree /repository/integration'));
+      expect(text, contains('.github/workflows/check.yml'));
+      expect(text, isNot(contains('resume local-1 --standalone')));
     });
 
     group('connected-mode table output', () {
@@ -232,6 +279,45 @@ void main() {
         expect(joined, contains('Review the plan before build.'));
         expect(joined, contains('dartclaw resume run-ap'));
         expect(joined, contains('dartclaw cancel run-ap'));
+      });
+
+      test('connected execution-surface hold shows the exact candidate to approve', () async {
+        final hold = WorkflowExecutionSurfaceHold(
+          branch: 'work/story',
+          paths: ['.github/workflows/check.yml'],
+          candidate: 'current-candidate-id',
+          destination: 'work/integration',
+        );
+        final transport = FakeApiTransport(
+          sendResponses: [
+            jsonResponse(200, {
+              'id': 'run-ap',
+              'definitionName': 'demo-wf',
+              'status': 'awaitingApproval',
+              'startedAt': '2026-06-01T10:00:00Z',
+              'isApprovalPaused': true,
+              'pendingApprovalStepId': 'promote',
+              'contextJson': {workflowExecutionSurfaceHoldKey: hold.toJson()},
+            }),
+          ],
+        );
+        final output = <String>[];
+        final runner = CommandRunner<void>('dartclaw', 'test')
+          ..addCommand(
+            WorkflowStatusCommand(
+              connection: ApiWorkflowConnection(
+                apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
+              ),
+              writeLine: output.add,
+            ),
+          );
+
+        await runner.run(['status', 'run-ap']);
+
+        final text = output.join('\n');
+        expect(text, contains(hold.message));
+        expect(text, contains('After review, run `dartclaw resume run-ap --candidate ${hold.candidate}` to approve'));
+        expect(text, isNot(contains('`dartclaw resume run-ap`')));
       });
 
       test('needsInput hold on a non-approval step still surfaces its reason (context-key parity)', () async {

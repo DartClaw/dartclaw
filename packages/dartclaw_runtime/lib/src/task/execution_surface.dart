@@ -18,11 +18,12 @@ Future<List<String>> executionSurfacePaths({
   required String branch,
   GitRunner? processRunner,
   bool includeWorktree = true,
+  bool fromMergeBase = true,
 }) async {
   final changes = await DiffGenerator(
     projectDir: worktreePath,
     processRunner: processRunner,
-  ).changes(baseRef: baseRef, branch: branch, includeWorktree: includeWorktree);
+  ).changes(baseRef: baseRef, branch: branch, includeWorktree: includeWorktree, fromMergeBase: fromMergeBase);
   return {
     for (final change in changes) ...[
       if (_listed(change.path) || change.isSymlink) change.path,

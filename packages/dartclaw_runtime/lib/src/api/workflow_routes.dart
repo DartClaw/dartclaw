@@ -126,7 +126,8 @@ Router workflowRoutes(
 
   // POST /api/workflows/runs/<id>/resume
   router.post('/api/workflows/runs/<id>/resume', (Request request, String id) async {
-    return switch (await runControl.resumeFromWeb(id)) {
+    final candidate = request.url.queryParameters['executionSurfaceCandidate'];
+    return switch (await runControl.resumeFromWeb(id, executionSurfaceCandidate: candidate)) {
       RunControlResolved(:final run) => jsonResponse(200, run!.toJson()),
       RunControlNotFound() => errorResponse(404, 'WORKFLOW_RUN_NOT_FOUND', 'Workflow run not found: $id'),
       RunControlRefused(:final message) => errorResponse(409, 'INVALID_TRANSITION', message),

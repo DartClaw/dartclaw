@@ -145,6 +145,7 @@ abstract class StandaloneWorkflowLifecycleCommand extends WorkflowConnectedComma
   /// [action] runs; cancel/pause pass false. [action] returns the process exit
   /// code; a `StateError` it throws (engine guard violation) is mapped to its
   /// message on stderr + exit `1`.
+  /// [preflightRun] can refuse a loaded run before provisioning providers.
   ///
   /// [runWorkflowSkillsBootstrap] overrides the command-level
   /// [StandaloneWorkflowLifecycleCommand.runWorkflowSkillsBootstrap] for this
@@ -157,6 +158,7 @@ abstract class StandaloneWorkflowLifecycleCommand extends WorkflowConnectedComma
     required String runId,
     required bool provisionWorkers,
     required Future<int> Function(StandaloneLifecycleSession session) action,
+    void Function(WorkflowRun)? preflightRun,
     bool? runWorkflowSkillsBootstrap,
   }) async {
     final bootstrapSkills = runWorkflowSkillsBootstrap ?? this.runWorkflowSkillsBootstrap;
@@ -170,7 +172,9 @@ abstract class StandaloneWorkflowLifecycleCommand extends WorkflowConnectedComma
     final serverUri = resolveServerUri(config: config, serverOverride: serverOverride(globalResults));
     final serverReachable = await reachabilityProbe(serverUri);
     if (serverReachable && !force) {
-      stderrLine('A DartClaw server is running at ${serverUri.origin}. Use connected mode or add --force to override.');
+      stderrLine(
+        'A DartClaw server is running at ${serverUri.origin}. Add --force to access the separate standalone run store.',
+      );
       exitFn(1);
     }
 
@@ -219,6 +223,7 @@ abstract class StandaloneWorkflowLifecycleCommand extends WorkflowConnectedComma
         stderrLine('Workflow run not found: $runId');
         exitFn(1);
       }
+      preflightRun?.call(run);
 
       if (provisionWorkers) {
         final definition = WorkflowDefinition.fromJson(run.definitionJson);

@@ -245,3 +245,7 @@ OC03: S08–S10/S12–S13 are carried by TI05–TI07's pre-sweep Git holds, poli
 OC04: S01/S11 are carried by TI01/TI02/TI05's clean exclusions and unchanged clean accept/promotion/publish paths; their regression proofs passed, including the checkout that is not swept.
 OC05: S14 is carried by TI03 and TI05's commit-only hooksPath override and pre-sweep inspection; all six marker tests and branch-SHA proofs passed.
 Metadata-only inspection is proven by no-driver, malformed/non-git and source-union regressions. Person-only workflow approval is proven by registered tool denial, null provenance refusal and web/button release. Host-owned context is proven by atomic rejected outputs, typed run failure, exact-data reads, variable shadowing and ordinary underscore-output regressions.
+
+#### DRIFT
+
+- design-changed: ADR-063 supersedes branch-wide approval. Connected approval covers one reviewed Git candidate for one operation and destination. Older branch approvals confer no authority. Standalone operators can preserve the work for manual delivery or start a fresh connected run. | Stale targets: TI05–TI07, OC03 attestation above | –

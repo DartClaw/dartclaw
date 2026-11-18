@@ -12,11 +12,13 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowApprovalResolution,
         WorkflowApprovalSource,
         WorkflowDefinition,
+        WorkflowExecutionSurfaceHold,
         WorkflowRun,
         WorkflowRunOrigin,
         WorkflowStep,
         WorkflowTaskType,
-        workflowApprovalInteractionContextKey;
+        workflowApprovalInteractionContextKey,
+        workflowExecutionSurfaceHoldKey;
 import 'package:logging/logging.dart';
 import 'package:test/test.dart';
 
@@ -719,12 +721,12 @@ void main() {
 
   group('approval interaction', () {
     final resolvedAt = DateTime.utc(2026, 10, 6, 14, 5);
-    var issued = <(String, String)>[];
+    var issued = <(String, String, String?)>[];
     var bound = <(String, String, WorkflowApprovalPost)>[];
     WorkflowApprovalInteraction? scripted;
 
-    Future<WorkflowApprovalInteraction?> issue(String runId, String stepId) async {
-      issued.add((runId, stepId));
+    Future<WorkflowApprovalInteraction?> issue(String runId, String stepId, {String? executionSurfaceCandidate}) async {
+      issued.add((runId, stepId, executionSurfaceCandidate));
       return scripted;
     }
 
@@ -778,8 +780,9 @@ void main() {
 
         await postApproval();
 
-        expect(issued, [('run-1', 'gate')]);
+        expect(issued, [('run-1', 'gate', null)]);
         final notification = slackThreads.rendered.single;
+        expect(notification.body, 'Review the plan');
         expect(notification.actions.map((a) => (a.id, a.label)), [
           ('run_approve', 'Approve'),
           ('run_reject', 'Reject'),
@@ -792,6 +795,34 @@ void main() {
         expect(bound.single.$3.messageId, slackThreads.sends.single.post!.messageId);
       },
     );
+
+    test('a delayed approval event shows and issues for the hold currently pending at that step', () async {
+      subscribeWithInteractions([slack]);
+      final run = addRun('run-1', slackOrigin);
+      final priorHold = WorkflowExecutionSurfaceHold(
+        branch: 'work/story',
+        paths: ['.github/workflows/previous.yml'],
+        candidate: 'previous-candidate',
+      );
+      final currentHold = WorkflowExecutionSurfaceHold(
+        branch: 'work/story',
+        paths: ['.github/workflows/current.yml'],
+        candidate: 'current-candidate',
+      );
+      approval(run.id, message: priorHold.message);
+      runs[run.id] = run.copyWith(
+        status: WorkflowRunStatus.awaitingApproval,
+        contextJson: {workflowExecutionSurfaceHoldKey: currentHold.toJson()},
+      );
+      await settle();
+
+      final notification = slackThreads.rendered.single;
+      expect(notification.body, currentHold.message);
+      expect(notification.text, isNot(contains(priorHold.paths.single)));
+      expect(issued, [(run.id, 'gate', currentHold.candidate)]);
+      expect(notification.actions.map((action) => action.id), ['run_approve', 'run_reject']);
+      expect(bound, hasLength(1));
+    });
 
     test('an approval the service issues no interaction for gets a post with no buttons and binds nothing', () async {
       scripted = null;
@@ -815,7 +846,11 @@ void main() {
     });
 
     test('a post that is not an approval, and a failing issue, carry no buttons', () async {
-      subscribe([slack], issue: (_, _) async => throw StateError('store down'), bind: bind);
+      subscribe(
+        [slack],
+        issue: (_, _, {executionSurfaceCandidate}) async => throw StateError('store down'),
+        bind: bind,
+      );
       addRun('run-1', slackOrigin);
 
       status('run-1', WorkflowRunStatus.pending, WorkflowRunStatus.running);

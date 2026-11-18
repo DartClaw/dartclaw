@@ -162,10 +162,11 @@ final class WorkflowRunControl {
       _fromTool(_RunAction.requestChanges, runId, turn, feedback: feedback);
 
   /// Resumes [runId] for the authenticated web caller. Never admin-gated.
-  Future<RunControlResult> resumeFromWeb(String runId) => _resolve(
+  Future<RunControlResult> resumeFromWeb(String runId, {String? executionSurfaceCandidate}) => _resolve(
     hook: 'web',
     source: WorkflowApprovalSource.web,
     action: _RunAction.resume,
+    executionSurfaceCandidate: executionSurfaceCandidate,
     runId: runId,
     adminGated: false,
     principal: _webPrincipal,
@@ -235,6 +236,7 @@ final class WorkflowRunControl {
     String? displayName,
     String? principal,
     String? feedback,
+    String? executionSurfaceCandidate,
     bool adminGated = true,
     WorkflowApprovalExpectation? expect,
   }) async {
@@ -282,7 +284,12 @@ final class WorkflowRunControl {
       WorkflowRun? continued;
       switch (action) {
         case _RunAction.resume:
-          continued = await _workflows.resume(runId, expect: expect, resolver: resolver);
+          continued = await _workflows.resume(
+            runId,
+            expect: expect,
+            resolver: resolver,
+            executionSurfaceCandidate: executionSurfaceCandidate,
+          );
         case _RunAction.cancel:
           await _workflows.cancel(runId, feedback: feedback, expect: expect, resolver: resolver);
         case _RunAction.requestChanges:
@@ -307,9 +314,9 @@ final class WorkflowRunControl {
       final web = source == WorkflowApprovalSource.web;
       return switch (refusal.reason) {
         WorkflowApprovalRefusal.personRequired => RunControlRefused(RunControlRefusal.personRequired, refusal.message),
-        WorkflowApprovalRefusal.invalidNonce => const RunControlRefused(
+        WorkflowApprovalRefusal.invalidNonce => RunControlRefused(
           RunControlRefusal.invalid,
-          'This approval button is no longer valid',
+          web ? refusal.message : 'This approval button is no longer valid',
         ),
         WorkflowApprovalRefusal.alreadyResolved => RunControlRefused(
           RunControlRefusal.alreadyResolved,

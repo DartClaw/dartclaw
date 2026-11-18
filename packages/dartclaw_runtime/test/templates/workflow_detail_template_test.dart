@@ -350,6 +350,31 @@ void main() {
       }
     });
 
+    test('Approve submits the candidate shown for an execution-surface hold', () {
+      final html = workflowDetailPageTemplate(
+        sidebarData: emptySidebar,
+        navItems: const [],
+        steps: const [],
+        contextEntries: const [],
+        loopInfo: const [],
+        run: makeRun(
+          status: 'awaitingApproval',
+          contextJson: {
+            '_approval.pending.stepId': 'publish',
+            '_workflow.git.execution_surface_hold': {
+              'branch': 'story',
+              'paths': ['.mcp.json'],
+              'publish': true,
+              'candidate': 'reviewed-version',
+            },
+          },
+        ),
+      );
+      expect(html, contains('publishing story'));
+      expect(html, contains('.mcp.json'));
+      expect(html, contains('hx-post="/api/workflows/runs/run-001/resume?executionSurfaceCandidate=reviewed-version"'));
+    });
+
     test('why-paused banner: awaitingApproval names the pending step and its request', () {
       final run = makeRun(status: 'awaitingApproval');
       run['pendingApprovalStepId'] = 'plan-approval';

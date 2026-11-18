@@ -221,7 +221,10 @@ mcp_servers:
       expect(row(report, 'secrets.unresolvable').status, DiagnosticStatus.fail);
       expect(row(report, 'secrets.shadowed').status, DiagnosticStatus.pass);
       expect(row(report, 'secrets.orphans').status, DiagnosticStatus.pass);
-      if (!Platform.isWindows) expect(row(report, 'secrets.permissions').status, DiagnosticStatus.fail);
+      if (!Platform.isWindows) {
+        expect(row(report, 'secrets.permissions').status, DiagnosticStatus.fail);
+        expect(row(report, 'secrets.permissions').remediation, contains('owner-only'));
+      }
       expect(report.rows.map((r) => r.toJson()).toString(), isNot(contains('LITERAL-DOCTOR-SECRET')));
     });
 

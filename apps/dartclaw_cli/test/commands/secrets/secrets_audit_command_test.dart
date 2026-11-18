@@ -226,6 +226,88 @@ void main() {
     expect(output(), contains('755'));
   });
 
+  group('the dedicated Codex home', () {
+    late SubscriptionCredentialStore subscriptions;
+
+    void writeWithMode(String path, String mode) {
+      File(path)
+        ..parent.createSync(recursive: true)
+        ..writeAsStringSync('{}');
+      Process.runSync('chmod', [mode, path]);
+    }
+
+    void makeDirectory(String path, String mode) {
+      Directory(path).createSync(recursive: true);
+      Process.runSync('chmod', [mode, path]);
+    }
+
+    // The modes the vendor `codex` CLI gives its home, recreated after a chmod.
+    void writeVendorState() {
+      final home = subscriptions.codexHome;
+      writeWithMode(subscriptions.codexAuthPath, '600');
+      writeWithMode(p.join(home, 'state_5.sqlite'), '644');
+      makeDirectory(p.join(home, 'tmp'), '755');
+      makeDirectory(p.join(home, 'skills'), '755');
+      makeDirectory(p.join(home, 'skills', '.system'), '755');
+      makeDirectory(p.join(home, 'skills', '.system', 'imagegen'), '755');
+      writeWithMode(p.join(home, 'skills', '.system', 'imagegen', 'SKILL.md'), '644');
+    }
+
+    setUp(() {
+      if (Platform.isWindows) return;
+      writeConfig('');
+      subscriptions = SubscriptionCredentialStore.open(credentialsDir: credentialsDir, environment: env());
+    });
+
+    test('audits clean when owner-only, whatever modes the vendor state below it has', () async {
+      if (Platform.isWindows) return;
+      writeVendorState();
+
+      final code = await runAudit();
+
+      expect(code, isNull, reason: 'nothing below an owner-only directory is reachable by another user');
+      expect(output(), isNot(contains(subscriptions.codexHome)));
+    });
+
+    test('is reported, with the vendor state it exposes, when accessible beyond its owner', () async {
+      if (Platform.isWindows) return;
+      writeVendorState();
+      Process.runSync('chmod', ['755', subscriptions.codexHome]);
+
+      final code = await runAudit();
+
+      expect(code, 1);
+      expect(output(), contains('${subscriptions.codexHome} — a credential directory is accessible beyond its owner'));
+      expect(output(), contains(p.join(subscriptions.codexHome, 'state_5.sqlite')));
+      expect(output(), contains(p.join(subscriptions.codexHome, 'skills', '.system', 'imagegen', 'SKILL.md')));
+    });
+
+    test('still judges auth.json by its own mode', () async {
+      if (Platform.isWindows) return;
+      writeVendorState();
+      Process.runSync('chmod', ['644', subscriptions.codexAuthPath]);
+
+      final code = await runAudit();
+
+      expect(code, 1);
+      expect(output(), contains(subscriptions.codexAuthPath));
+      expect(output(), isNot(contains('state_5.sqlite')), reason: 'the vendor state stays shielded');
+    });
+
+    test('judges a symlink out of the home where it lands', () async {
+      if (Platform.isWindows) return;
+      final outside = p.join(root.path, 'plugins-outside');
+      makeDirectory(outside, '755');
+      writeWithMode(p.join(outside, 'plugin.json'), '644');
+      Link(p.join(subscriptions.codexHome, 'plugins')).createSync(outside);
+
+      final code = await runAudit();
+
+      expect(code, 1);
+      expect(output(), contains(p.join(subscriptions.codexHome, 'plugins', 'plugin.json')));
+    });
+  });
+
   test('audit follows a symlinked named store when checking permissions', () async {
     if (Platform.isWindows) return;
     writeConfig('');

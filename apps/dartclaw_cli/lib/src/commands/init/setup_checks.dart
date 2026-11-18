@@ -495,6 +495,8 @@ class SetupChecks {
                 : [for (final finding in entry.value) '${finding.path}: ${finding.reason}'],
             remediation: entry.value.isEmpty
                 ? null
+                : entry.key == 'Permissions'
+                ? 'Make each reported path owner-only: chmod 700 a directory, chmod 600 a file.'
                 : 'Run dartclaw secrets audit; move values with dartclaw secrets set.',
           ),
         );

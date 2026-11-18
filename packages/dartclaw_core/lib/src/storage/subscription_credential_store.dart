@@ -62,10 +62,18 @@ class SubscriptionCredentialStore {
   String get claudeTokenPath => p.join(claudeDir, 'setup-token.json');
 
   /// Dedicated `CODEX_HOME` the vendor CLI logs into and refreshes.
-  String get codexHome => p.join(_credentialsDir, ProviderIdentity.codex);
+  String get codexHome => codexHomeIn(_credentialsDir);
 
   /// Dedicated Codex `auth.json`, written by the vendor CLI.
-  String get codexAuthPath => p.join(codexHome, 'auth.json');
+  String get codexAuthPath => codexAuthPathIn(_credentialsDir);
+
+  /// [codexHome] of the store under [credentialsDir], derived without opening
+  /// the store and so without its login-store collision refusal.
+  static String codexHomeIn(String credentialsDir) => p.join(credentialsDir, ProviderIdentity.codex);
+
+  /// [codexAuthPath] of the store under [credentialsDir], derived without
+  /// opening the store.
+  static String codexAuthPathIn(String credentialsDir) => p.join(codexHomeIn(credentialsDir), 'auth.json');
 
   /// Stores a Claude `setup-token` issued at [issuedAt] (defaults to now).
   ///

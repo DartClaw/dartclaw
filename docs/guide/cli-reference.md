@@ -243,7 +243,7 @@ Read-only. Makes no network call and no provider call, and prints no value or va
 | Unresolvable references | A `${VAR}` that resolves to nothing, named with the variable. |
 | Shadowed entries | A name present in both the store and `credentials:`. |
 | Orphans | A `credentials.<name>` entry no `credential:` reference consumes. `anthropic` and `openai` are consumed by name, so they are never orphans. |
-| Permissions | The config file, a credential directory, or a file under `<data_dir>/credentials/` accessible beyond its owner. Not applicable on Windows, where POSIX modes are not the access boundary; the class is reported as such and the exit code does not differ by platform for the same logical state. |
+| Permissions | The config file, a credential directory, or a file under `<data_dir>/credentials/` accessible beyond its owner. Inside the dedicated Codex home (`credentials/codex/`), whose modes the `codex` CLI sets, only `auth.json` is judged by its own mode; any other entry is reported only when no owner-only directory between it and that home keeps other users out. Not applicable on Windows, where POSIX modes are not the access boundary; the class is reported as such and the exit code does not differ by platform for the same logical state. |
 
 Exits `0` when nothing is found, `1` on any finding – so it can gate a deployment.
 

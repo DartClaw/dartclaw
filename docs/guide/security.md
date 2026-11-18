@@ -793,7 +793,9 @@ never has to appear in `dartclaw.yaml` or in a service unit that `dartclaw servi
 
 - **File permissions.** Files are written `0600` and directories created `0700`, through the same atomic
   temp-file-plus-rename path the subscription stores use. `dartclaw secrets audit` reports the credential directories,
-  any file under `<data_dir>/credentials/`, or the config file itself when accessible beyond its owner.
+  any file under `<data_dir>/credentials/`, or the config file itself when accessible beyond its owner. The dedicated
+  Codex home is the exception: the `codex` CLI sets its modes, so there only `auth.json` is judged by its own mode and
+  any other entry is reported only when no owner-only directory between it and the home keeps other users out.
 - **No secret in argv.** The value is read from stdin only: a masked prompt or a pipe. No option carries it, so it
   never enters shell history or the process list.
 - **Login-store collision refusal.** Opening the store refuses, before reading any credential, a path that

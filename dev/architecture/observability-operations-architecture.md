@@ -2,7 +2,7 @@
 
 How a running DartClaw reports on itself: alerts, health, audit log, usage accounting, structured logs, SSE streams, context and compaction tracking, scheduled operations, and the observable side of governance. Enforcement of rate limits, budgets, loop detection and emergency controls is owned by [Security Architecture](security-architecture.md); this document covers only what those controls emit. Event-bus mechanics are in [Session & State Architecture](session-state-architecture.md), task events and turn traces in [Task & Execution Architecture](task-execution-architecture.md), and stores in [Data Model & Persistence](data-model.md).
 
-**Current through**: 0.28.0
+**Current through**: 0.28.1
 
 ---
 
@@ -22,7 +22,7 @@ How a running DartClaw reports on itself: alerts, health, audit log, usage accou
 Design rules that hold across the stack:
 
 1. **Operator-visible.** Critical events reach the operator's channel through the same channel infrastructure as user messages, not only a log file.
-2. **Observability stays off the critical path.** Usage, trace and guard-verdict writes are unawaited and log their own failures. The exception is deliberate: producers that must fail closed (egress, approvals, refusals) call `GuardAuditLogger.writeEntry`, which is awaited and propagates a write failure to the caller (§4).
+2. **Observability usually stays off the critical path.** Usage, ordinary trace and guard-verdict writes are unawaited and log their own failures. Workflow steps await best-effort traces before advancing. Producers that must fail closed (egress, approvals and refusals) await `GuardAuditLogger.writeEntry`, which propagates a write failure to the caller (§4).
 3. **One producer per signal.** Credential health, capacity lifecycle and alert classification each have a single writer so two paths cannot report divergent state (§2, §3, §7).
 
 ### Signal flow

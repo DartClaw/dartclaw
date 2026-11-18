@@ -2,7 +2,7 @@
 
 How `dartclaw.yaml` becomes an immutable `DartclawConfig`, how a key is described, validated and written back, and how a change reaches a running server: the composed model, the load pipeline, the field registry, persistence, hot reload, the extension seam, credential configuration and the settings form. Per-key defaults and meanings live in the generated reference in [`docs/guide/configuration.md`](../../docs/guide/configuration.md#full-config-reference) and the published `schemas/dartclaw.schema.json`, not here. What the guards, the credential stores and container isolation do with configuration is [Security Architecture](security-architecture.md); the HTTP surface as a whole is [CLI & API Architecture](cli-api-architecture.md).
 
-**Current through**: 0.28.0
+**Current through**: 0.28.1
 
 ---
 

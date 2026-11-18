@@ -301,9 +301,25 @@
         "S07",
         "S08"
       ],
-      "status": "pending",
+      "status": "done",
       "fis": "s09-documentation-and-state-closeout.md",
-      "completedTaskIds": [],
+      "completedTaskIds": [
+        "TI01",
+        "TI02",
+        "TI03",
+        "TI04",
+        "TI05",
+        "TI06",
+        "TI07",
+        "TI08",
+        "TI09",
+        "TI10",
+        "TI11"
+      ],
+      "verified": {
+        "at": "2026-11-18T00:12Z",
+        "summary": "dart test --reporter=failures-only -x slow apps/dartclaw_cli -> exit=0, +857 ~4: All other tests passed!"
+      },
       "scope": "Bring the public cross-cutting docs in line with what the milestone shipped: architecture deep-dives touched by the container, bridge, task and release changes and their \"Current through\" markers and figures, the DECISIONS index for ADR-062, Ubiquitous Language for the `registry` surface, user-guide index coherence, CHANGELOG § 0.28.1 completeness, and LEARNINGS for non-obvious traps the stories recorded.",
       "sourceRefs": [
         "dev/bundle/docs/specs/0.28.1/prd.md#scope"

@@ -136,10 +136,10 @@ not use it as a substitute for setup verification. Treat each VM as single-calle
 ## CI-Equivalent Gate
 
 Run this from the workspace root before pushing shared branches, before declaring a CI fix done, and after changes that
-touch package boundaries, tests, build tooling, workflow definitions, or cross-package behavior. It is the local superset of
-GitHub `Checks`: `Check` runs dependencies, assets, format, analyze and architecture, and `PowerShell scripts` checks
-Windows scripts. Workspace tests, fitness, PostgreSQL and container posture are local release evidence. A failing
-test fails the local `tests` gate while GitHub stays green.
+touch package boundaries, tests, build tooling, workflow definitions, or cross-package behavior. The commands cover
+the GitHub `Check` job and add the local workspace tests, PostgreSQL and fitness gates. The separate `PowerShell scripts`
+job uses the [Windows script check](RELEASE_PREPARATION.md#checks-on-this-machine-and-its-vms). The Linux release lane
+below adds container posture. A test regression fails the local `tests` gate.
 
 ```bash
 dart pub get --enforce-lockfile

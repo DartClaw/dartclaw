@@ -170,7 +170,7 @@
     <text class="name" x="390" y="319">Work turn(s)</text>
     <g class="badge"><rect x="572" y="307" width="82" height="16" rx="8"/><text x="613" y="319">ONE WORKER</text></g>
     <text class="sub" x="390" y="337">prompt chain on one leased worker;</text>
-    <text class="sub" x="390" y="353">--resume between prompts, budget each</text>
+    <text class="sub" x="390" y="353">provider resume ID or same live session</text>
     <g class="d"><text class="p1" x="36" y="736"><tspan class="b">Work turn(s)</tspan> · WorkflowOneShotRunner holds one worker lease for the whole prompt chain; the step budget is checked before each prompt</text><text class="p2" x="36" y="756">Each turn's token reading is written to the step receipt before the next prompt; a failed receipt write stops the chain.</text></g>
   </g></a>
   <a href="../workflow-architecture.md#73-one-shot-execution-and-the-finalizer-envelope"><g class="n tint k-host" id="st3">
@@ -209,8 +209,8 @@
     <rect class="box" x="752" y="296" width="216" height="68" rx="9"/>
     <text class="name mono-name" x="764" y="319">succeeded</text>
     <text class="sub" x="764" y="337">merge outputs, continue;</text>
-    <text class="sub" x="764" y="353">promote if last branch step</text>
-    <g class="d"><text class="p1" x="36" y="736"><tspan class="b">succeeded</tspan> · outputs merge into context and the walk continues</text><text class="p2" x="36" y="756">The step's work is promoted when it is the last branch-touching step in scope.</text></g>
+    <text class="sub" x="764" y="353">check promotion at branch end</text>
+    <g class="d"><text class="p1" x="36" y="736"><tspan class="b">succeeded</tspan> · outputs merge into context and the walk continues</text><text class="p2" x="36" y="756">At the last branch-touching step, promotion can pause for a person's execution-surface approval.</text></g>
   </g></a>
   <a href="../workflow-architecture.md#75-step-outcome-protocol-failure-policies-and-retry"><g class="n tint k-sec" id="fail">
     <rect class="box" x="752" y="382" width="216" height="68" rx="9"/>

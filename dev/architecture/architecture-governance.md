@@ -6,7 +6,7 @@ is in [System Architecture](system-architecture.md); the rationale for the mecha
 [ADR-033](../adrs/033-architectural-governance-via-fitness-functions.md). Per-gate failure guidance lives in
 [`dev/fitness/README.md`](../fitness/README.md).
 
-**Current through**: 0.28.0
+**Current through**: 0.28.1
 
 ---
 

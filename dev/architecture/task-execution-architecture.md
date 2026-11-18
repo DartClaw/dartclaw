@@ -4,7 +4,7 @@ How DartClaw creates, schedules, executes, reviews, and observes tasks: the task
 
 Execution allocation (`ExecutionCoordinator`) and the turn lifecycle (`TurnManager`/`TurnRunner`) belong to [Control Protocol](control-protocol.md); this document covers only how tasks use them. Workflow-owned tasks are summarized where they share the task path; the workflow engine is in [Workflow Architecture](workflow-architecture.md). For *using* tasks (creating them, review flow, budgets, scheduling examples) read [`docs/guide/tasks.md`](../../docs/guide/tasks.md).
 
-**Current through**: 0.28.0
+**Current through**: 0.28.1
 
 ---
 
@@ -112,7 +112,7 @@ Steps 1 to 5 are one poll (3.3); steps 6 and 7 run unawaited (3.4, 3.5); step 8 
 |---|---|
 | `TaskCreationService` | Validates an untrusted create body (types, retired `type`/`task_type`, reserved `_` keys, `needsWorktree` boolean, existing `projectId`, positive `maxTokens`). Used by the HTTP API and Web UI. |
 | `TaskService` | Business layer over `TaskRepository`: `create`, `transition`, `updateFields` (non-terminal only), `mergeConfigJson` (atomic key merge), artifacts. Implements `WorkflowTaskService`, the narrow contract `dartclaw_workflow` sees. Awaits `TaskEventRecorder` before firing `TaskStatusChangedEvent`; fires `TaskReviewReadyEvent` best-effort on entering `review`. |
-| `TaskActionService` | Surface-neutral `start`, `checkout`, `cancel`, `review` returning `TaskActionResult` (status code + code + message) for the HTTP layer. `start` on a `failed` task clears failure markers and resets `retryCount`. `cancel` removes the worktree and cancels the active turn. |
+| `TaskActionService` | Surface-neutral `start`, `checkout`, `cancel`, `review` returning `TaskActionResult` (status code + code + message) for the HTTP layer. `start` on a `failed` task clears failure markers and resets `retryCount`. `cancel` attempts default worktree cleanup and cancels the active turn. |
 
 Create and link of the `AgentExecution` row share one `ExecutionRepositoryTransactor` transaction; nested transactions are rejected with `NestedTransactionError`.
 
@@ -154,7 +154,7 @@ Tasks and workflow steps are polled, so they never block inside `acquire`. `Exec
 10. **Settle a completed turn.** Fail if a read-only task mutated its checkout (compared against the step-4 snapshot, taken in the execution directory so a worktree task is checked in its worktree); skip if the task was cancelled meanwhile; collect artifacts and record `artifactCreated`; fail non-retryably if `outcome.totalTokens` exceeds the task's token budget; transition to the post-completion status; call `onAutoAccept` when it is set, the status is `review`, and the task is not workflow-owned (workflow git promotion owns publish and merge there).
 11. **Settle a failed turn.** A loop detection on the outcome fails non-retryably; anything else is a retryable `turnFailure`.
 
-`onAutoAccept` is wired when `tasks.completion_action: accept`; it runs a normal `accept` review, so merge conflicts or push failures leave the task in `review` with the error logged.
+`tasks.completion_action: accept` wires `onAutoAccept` with trigger `auto_accept`. It takes the [accept flow](#62-accept-flow), so an execution-surface hold, merge conflict or push failure leaves the task in `review`.
 
 ### 3.5 Failure and retry
 
@@ -202,7 +202,7 @@ Tasks with `needsWorktree: true` get a git worktree, a structured diff for revie
 - **Local** (`_local`): `git branch` then `git worktree add` from `tasks.worktree.base_ref` (default `main`).
 - **Attach mode** (`createBranch: false`, workflow-shared worktrees): checks out an existing ref; detaches only when another worktree already holds the branch.
 - Branch name `dartclaw/task-<taskId>`, suffixed `-2`…`-100` on collision. `create` first reconciles existing state (adopts a matching registered worktree, removes a mismatched one, prunes a dangling one), and a failed workflow-skill materialization rolls the worktree back.
-- `cleanup` removes the worktree and branch, best-effort (warnings, no throw). Default non-force cleanup preserves unmerged commits and dirty worktrees. After a successful local squash accept, `forceDeleteBranch` force-deletes only the exact task-owned `dartclaw/task-<taskId>` branch and preserves attached branches. `cleanupWorktree` passes this option through and deregisters the `TaskFileGuard` entry.
+- `cleanup` attempts to remove the worktree and branch (warnings, no throw). Default non-force cleanup, including on cancel, keeps unmerged commits on the branch and uncommitted files in the task's worktree. After a successful local squash accept, `forceDeleteBranch` force-deletes only the exact `dartclaw/task-<taskId>` branch and skips other branch names on that path. `cleanupWorktree` passes this option through and deregisters the `TaskFileGuard` entry.
 - `detectStaleWorktrees` runs once at startup (`tasks.worktree.stale_timeout_hours`, default 24). A directory older than the threshold whose task is missing or terminal is reaped; one whose task is still active is left with a warning.
 
 ### 5.2 TaskFileGuard
@@ -212,6 +212,8 @@ Tasks with `needsWorktree: true` get a git worktree, a structured diff for revie
 ### 5.3 DiffGenerator and ArtifactCollector
 
 `DiffGenerator.generate` runs inside the worktree and merges two passes by path: committed changes (`baseRef...branch`, three-dot) and uncommitted changes (`HEAD`), then adds untracked files as `added`. The result is a `DiffResult` of per-file entries (status, line counts, hunks, binary flag) with totals. User-visible git config stays in effect so diffs render as the operator's own git would.
+
+`DiffGenerator.changes` also owns the NUL-delimited path and mode reads for the execution-surface classifier. It keeps each source's entries so a later edit cannot hide a match in the committed diff. The classifier uses metadata without rendering hunks, includes pending changes only from the branch's own checkout, and fails closed if Git cannot read the metadata.
 
 `ArtifactCollector.collect` first clears the task's existing artifacts, then:
 
@@ -250,11 +252,13 @@ Credentials are referenced, never copied: a project stores `credentialsRef`, and
 | `reject` | `rejected` | Clean up the worktree |
 | `push_back` | `running` | Requires a comment; see 6.3 |
 
-Review actions on one task are serialized by a per-task async lock (`_reviewLocks`). Results are the sealed `ReviewResult`: success, merge conflict, not found, invalid transition, invalid request, action failed.
+Review actions on one task are serialized by a per-task async lock (`_reviewLocks`). `ReviewResult` distinguishes a success, an execution-surface hold, a merge conflict, an action failure, and an invalid or missing task or request.
 
 ### 6.2 Accept flow
 
 [![Accepting a reviewed task](diagrams/tasks-accept-flow.svg)](diagrams/tasks-accept-flow.svg)
+
+Before delivery or any commit sweep, `TaskReviewService` checks automatic accepts for non-workflow-owned task worktrees. The triggers are `auto_accept` and `agent_tool` (from `task_review`). An [execution-surface change](../../docs/guide/tasks.md#review-workflow), including an added or changed symlink, returns `ReviewExecutionSurfaceHold` and keeps the task in `review`. The task's detail and API read the paths from `configJson._executionSurfaceHold.paths`. A person's accept (`user` or `channel`) clears the hold and proceeds to delivery. Host commit sweeps in agent worktrees run with Git hooks disabled.
 
 Which path runs is decided by `taskTargetsExternalProject(task)`: `taskProjectId` is non-null and not `_local`. A merge conflict returns `ReviewMergeConflict` (HTTP 409 `MERGE_CONFLICT`); no diff, a push or PR failure, missing merge or push infrastructure, or a concurrent modification returns `ReviewActionFailed` (HTTP 500 `INTERNAL_ERROR`). Both leave the task in `review`. The local path cleans the worktree after the transition, the external path before it.
 
@@ -277,7 +281,7 @@ The worktree is kept. `TaskExecutor` dispatches `queued` tasks only and nothing 
 | `worktree-only` | `review` if `needsWorktree`, else `accepted` |
 | `mandatory`, absent, or unknown | `review` |
 
-Separately, `tasks.completion_action: accept` installs `onAutoAccept`, which accepts every task that reached `review`.
+`reviewMode: auto-accept` settles the task status without Git delivery. For tasks arriving in `review`, `tasks.completion_action: accept` attempts automatic delivery through `TaskReviewService`. Workflow-owned Git tasks deliver through workflow promotion or publish.
 
 ---
 

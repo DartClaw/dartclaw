@@ -59,7 +59,7 @@ It is self-hosted and runs on the Claude or Codex subscription you already have,
 Agent frameworks usually ask the model to behave. DartClaw puts the boundaries in the operating system and the host.
 
 - **Containers by default.** When Docker or Podman is present and DartClaw holds a provider credential, agent turns run in a container with `--network none`, `--cap-drop ALL`, a read-only root filesystem, a non-root user, and a mount allowlist. Without a container runtime the server still starts, runs the agents on the host with guards but no OS boundary (advisory mode), and says so at startup.
-- **No credentials in the container.** The containerized agent has no network of its own. Its model calls travel through the host, which adds the credential on the way out and strips credential headers on the way back. No socket is mounted and no port is published.
+- **No credentials in the container.** The Host Gateway serves separate `provider`, `mcp` and `registry` bridge surfaces over host-opened pipes. The host adds credentials to model calls and grants MCP by tool allowlist. Only `workspace` can read public package registries over the mirror. No socket is mounted and no port is published.
 - **A fail-closed guard chain.** Command, file, network, and content guards check the agent's tool calls and block when in doubt. The content guard has a model classify what is handed to an agent and what it fetches from the web. Every block lands in the audit log.
 - **Runtime governance you switch on.** Per-sender rate limits, daily token budgets, loop detection, and `/stop`, `/pause`, `/resume` commands that the host, not the model, handles on every channel.
 - **Nothing fetched at runtime.** One compiled binary carries its web UI, templates, skills, and workflows. A bare install starts with no asset downloads and no first-run network request, and local fitness checks hold dependencies and package boundaries.
@@ -169,13 +169,17 @@ flowchart LR
     CL["Claude Code"]
     CX["Codex"]
   end
-  HG["Dart host<br/>Host Gateway<br/>adds the credential"]
+  HG["Dart host<br/>Host Gateway"]
   ACP["ACP agents: Goose, Vibe<br/>host process, no container"]
   LLM["Model provider"]
+  MCP["Allowlisted host MCP tools"]
+  PKG["Public pub and npm registries"]
   IN --> GC
   GC --> BOX
-  BOX -- "model calls" --> HG
-  HG --> LLM
+  BOX -- "provider · mcp · registry" --> HG
+  HG -- "provider credential" --> LLM
+  HG --> MCP
+  HG -- "workspace only · GET / HEAD" --> PKG
   GC --> ACP
   ACP --> LLM
 ```

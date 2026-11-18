@@ -296,14 +296,14 @@ DartClaw ships no generator, and the `deploy` command that once emitted them is 
 Run DartClaw as its own account (`dartclaw` below) so the policy can name it. Everything that account sends is
 dropped unless a rule allows it; every other account on the host is untouched.
 
-**These rules do not reach container traffic.** A `network:none` container has no egress at all and reaches the
-network only through the host gateway, which mediates provider and MCP calls on the host's own credentials — so
-gateway traffic leaves as the DartClaw account and is covered here. On Docker Desktop, container traffic that does
-escape leaves through the VM's own stack, which a host firewall does not see. Treat these rules as host-level
-defence in depth, not as the container boundary.
+**These rules apply to the service account on the host.** A `network:none` container reaches the network only
+through the Host Gateway's `provider`, `mcp` and `registry` surfaces. The host makes model and approved tool
+requests. For `workspace`, it also makes credential-free GET/HEAD requests to the pinned public package registries.
+That outbound traffic leaves as the DartClaw account and is covered here. On Docker Desktop, direct container
+traffic would use the VM's own stack, outside the host firewall. Container isolation itself comes from `network:none`.
 
-Substitute your own resolvers and endpoints: the DNS servers below are examples, and you need one `443` allowance
-per provider and per allowlisted MCP or search endpoint your deployment actually calls.
+Substitute your own resolvers and endpoints. Allow port `443` for each provider and each allowlisted MCP or search
+endpoint your deployment calls, plus `pub.dev` and `registry.npmjs.org` if workspace containers install dependencies.
 
 ### macOS (pf)
 

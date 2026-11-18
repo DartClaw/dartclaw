@@ -6,15 +6,15 @@ Accepted – 2026-11-17. Both providers installed dependencies and passed tests 
 
 ## Context
 
-A containerized execution runs with `--network none`, and its only way out is the per-authority bridge pipe to the
-`HostGateway`: the `provider` surface (model API) and, when granted, the `mcp` surface (host tools, including the
-canonical `web_search`/`web_fetch`). The agent image is `debian:bookworm-slim` with `curl`, `git`, `claude` and
+Before this decision, a containerized execution ran with `--network none` and could leave only through two
+`HostGateway` surfaces: `provider` for model calls and, when granted, `mcp` for host tools including
+`web_search` and `web_fetch`. The agent image is `debian:bookworm-slim` with `curl`, `git`, `claude` and
 `codex` (`docker/Dockerfile`).
 
-So a containerized coding agent cannot run `dart pub get` or `npm install`, and any step that verifies with the
-project's format, analyze and test commands (for example `merge_resolve`) depends on dependencies already present in
-the mounted checkout. Container mode is the default posture where a runtime exists (ADR-055), so this is the default
-experience for coding work, not an edge case.
+Without a path to package registries, a containerized coding agent could not install dependencies with `dart pub get`
+or `npm install`. Steps that verify with the project's format, analyze and test commands (for example `merge_resolve`)
+depended on dependencies already present in the mounted checkout. Container mode is the default posture where a
+runtime exists (ADR-055), so this affected coding work by default.
 
 Two outside designs were examined (private research `devvm-2026-11`, 2026-11-07 and 2026-11-10): devvm and Docker
 Sandboxes (`sbx`) both put a host-side forward proxy in front of an allowlist, and both intercept TLS with a
@@ -63,7 +63,7 @@ Add a third bridge surface, `registry`, served by a host-side registry mirror.
 - Registry metadata reveals which packages a task fetched; the audit log records them.
 - Very large artifacts (some prebuilt binaries) exceed the 64 MiB response cap.
 - A containerized `pub get` ignores a committed `pubspec.lock` whose hosted `url` differs from the mirror, writes
-  one naming `http://127.0.0.1:8082/pub`, and re-resolves dependencies, possibly to newer versions. This drift is
+  one naming `http://127.0.0.1:8082/pub/`, and re-resolves dependencies, possibly to newer versions. This drift is
   accepted; no host-side lockfile normalization or review hold is added.
 
 ## Alternatives Considered

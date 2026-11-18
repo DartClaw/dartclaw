@@ -350,7 +350,7 @@ When Docker is enabled, DartClaw runs agent processes inside containers with ker
 
 A profile is a filesystem/capability template. Each container execution owns its container; a logical-agent session may retain its container between turns until discard, eviction, or shutdown. `providers.<id>.pool_size` bounds concurrent worker leases for that provider, with a default of two. The primary lane has separate capacity, so a containerized primary can run alongside those two workers. The coordinator also bounds retained workers against provider capacity.
 
-Container hardening: `--cap-drop=ALL`, `--security-opt=no-new-privileges`, non-root user, read-only root filesystem, `--network none`. Containerized Claude and Codex reach their provider through the host gateway over framed `docker exec` pipes, so no provider key exists inside a container environment.
+Container hardening: `--cap-drop=ALL`, `--security-opt=no-new-privileges`, non-root user, read-only root filesystem, `--network none`. The Host Gateway opens framed `docker exec` pipes for `provider` calls, granted `mcp` tools, and read-only package registry access through `registry` for `workspace` containers. Provider credentials stay on the host.
 
 Container names include a hash of the data directory, preventing collisions when running multiple DartClaw instances on the same Docker daemon.
 

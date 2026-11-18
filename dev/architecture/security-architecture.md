@@ -2,7 +2,7 @@
 
 How DartClaw contains an agent that can run shell commands: container isolation, the guard chain, credential mediation, access control, audit, content classification, and runtime governance (rate limits, token budgets, loop detection, emergency controls). It is the authority for those concerns. Harness protocols and turn lifecycle live in [control-protocol.md](control-protocol.md), package wiring in [system-architecture.md](system-architecture.md), stores in [data-model.md](data-model.md), and log/metric mechanics in [observability-operations-architecture.md](observability-operations-architecture.md).
 
-**Current through**: 0.28.0
+**Current through**: 0.28.1
 
 ---
 
@@ -19,6 +19,7 @@ DartClaw spawns provider CLI binaries (`claude`, `codex`) and ACP agent binaries
 | **SSRF** from `web_fetch` or MCP | DNS-pinned address checks in `WebFetchTool`, `network_class: public` transport policy |
 | **Unauthorized access** | `authMiddleware`, `/mcp` bearer resolution, channel DM/group gates, webhook signatures |
 | **Supply chain** | The host chain uses minimal dependencies and needs no Node.js or npm. The image pins the Codex binary by SHA-256. Public pub and npm dependencies enter workspace containers through the read-only registry surface. Dependency code can change the worktree. |
+| **Agent-written files reaching a host checkout or remote** | Automatic task accept, workflow promotion and publish hold execution-surface changes for a person before delivery. Host commit sweeps in agent worktrees disable Git hooks. See [Task Security](#task-security). |
 | **Container escape** | `--cap-drop ALL`, read-only rootfs, `no-new-privileges`, non-root user |
 | **Cross-agent contamination** | One container per execution authority, per-profile mounts |
 | **Cost overrun, rate abuse, runaway loops** | Runtime governance: token budget, rate limits, loop detection ([Runtime Governance](#runtime-governance)) |
@@ -205,6 +206,8 @@ Defaults: `no_access` for `**/.ssh`, `**/.gnupg`, `**/.aws/credentials`, `**/.ne
 Evaluates `shell` (exfil patterns, then every `http(s)://`, `git@`, and `docker pull` registry host in the command) and `web_fetch` (the `url`). Any literal IPv4 or IPv6 host is blocked; other hosts must match the allowlist (`*.x` matches subdomains only, so list the apex separately).
 
 Default allowlist: `github.com`, `*.github.com`, `api.anthropic.com`, `pypi.org`, `*.pypi.org`, `npmjs.com`, `*.npmjs.com`, `registry.npmjs.org`, `pub.dev`, `*.pub.dev`, `*.googleapis.com`, `dart.dev`, `*.dart.dev`, `crates.io`, `rubygems.org`, `stackoverflow.com`. Default exfil patterns: `curl ... | sh|bash|zsh|dash`, `wget -O - | sh|bash`, `curl` with `-d/--data*/-F/--form`, and `| base64`. `guards.network.extra_allowed_domains` and `extra_exfil_patterns` extend them; `guards.network.agent_overrides.<agent>.extra_domains` grants domains only when `GuardContext.agentId` matches.
+
+An allowlist block names `guards.network.agent_overrides.<agent>.extra_domains` for an agent-scoped call, or `guards.network.extra_allowed_domains` for a global call. NetworkGuard applies these settings to tool calls. The container registry surface uses pins defined by its adapters.
 
 **Source**: `packages/dartclaw_kernel/lib/src/network_guard.dart`
 
@@ -550,6 +553,8 @@ Webhook routes sit outside the gateway middleware (exact public paths plus the `
 ---
 
 ## Task Security
+
+Automatic accept (`auto_accept` and an agent's `task_review` accept) keeps an affected task in `review` with the paths recorded. A person's accept proceeds. The same [execution-surface classifier](../../docs/guide/tasks.md#review-workflow) checks workflow promotion and publish, including added or changed symlinks. These workflow holds enter `awaitingApproval` and only a person's branch-scoped approval releases them, regardless of `workflow.approvals`. All three checks precede their commit sweep and delivery. Host commits in agent worktrees use `core.hooksPath=/dev/null` so repository hooks cannot cross the boundary during the sweep. See [Task accept](task-execution-architecture.md#62-accept-flow) and [Workflow Git](workflow-architecture.md#10-workflow-owned-git).
 
 `TaskFileGuard` (`task/task_file_guard.dart`) is a per-task registry, not a `Guard`: `TaskExecutor` registers the canonical worktree path when a declared worktree is created and cleanup (accept, reject, cancel) deregisters it. Its `isAllowed(taskId, path)` check (`canonicalize` plus `isWithin`, deny when unregistered) has no production caller today, so the registry enforces nothing by itself. Effective containment of a task comes from its execution directory being the worktree, provider-native writable roots where the provider honors them, container mounts, `FileGuard` for sensitive paths, and `TaskToolFilterGuard` for tool surface and read-only mode. Legacy owner profiles still mount `/projects:ro`, giving OS-level read access to every project clone; managed-workspace agents see only their workspace and admitted directory. That application-layer gap is acceptable within DartClaw's single-admin product scope, where Docker remains the primary boundary. Wiring the registry into an enforcement point, or removing it, needs an owner decision (TD-148).
 

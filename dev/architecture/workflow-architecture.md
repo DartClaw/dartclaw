@@ -2,7 +2,7 @@
 
 Contributor reference for DartClaw's workflow engine (`packages/dartclaw_workflow`): the definition model, the parse and validate contract, run lifecycle and crash recovery, control nodes, step execution, context flow, workflow-owned git, and the HTTP/SSE wire formats. It leaves YAML authoring (field reference, examples, CLI usage) to the user guide [`docs/guide/workflows.md`](../../docs/guide/workflows.md), the task pipeline and worktree mechanics to [task-execution-architecture.md](task-execution-architecture.md), harness protocols to [control-protocol.md](control-protocol.md), CLI structure and trigger surfaces to [cli-api-architecture.md](cli-api-architecture.md), and schemas to [data-model.md](data-model.md).
 
-**Current through**: 0.28.0
+**Current through**: 0.28.1
 
 ---
 
@@ -24,7 +24,7 @@ Workflow steps create tasks; the engine orchestrates the task system and never r
 | `WorkflowExecutor` | Authored-order traversal and persistence; step, loop, foreach and parallel runners are `part` files | `workflow/workflow_executor*.dart`, `workflow/step_dispatcher.dart`, `workflow/loop_step_runner.dart`, `workflow/foreach_iteration_runner.dart`, `workflow/iteration_dispatch_engine.dart`, `workflow/parallel_group_and_step_outcome_runner.dart` |
 | Host-side step runners | Bash, approval, aggregate-reviews | `workflow/bash_step_runner.dart`, `workflow/approval_step_runner.dart`, `workflow/aggregate_step_runner.dart` |
 | Context | `WorkflowContext`, template engine, gate evaluator, output extraction | `workflow/workflow_context.dart`, `workflow/workflow_template_engine.dart`, `workflow/gate_evaluator.dart`, `workflow/context_extractor.dart` |
-| Git lifecycle | Integration branch, promotion, merge-resolve, publish, artifact commit, cleanup | `workflow/workflow_git_lifecycle.dart`, `workflow/promotion_coordinator.dart`, `workflow/merge_resolve_coordinator.dart`, `workflow/workflow_artifact_committer.dart` |
+| Git lifecycle | Integration branch, promotion and publish with execution-surface holds, merge-resolve, artifact commit, cleanup | `workflow/workflow_git_lifecycle.dart`, `workflow/promotion_coordinator.dart`, `workflow/merge_resolve_coordinator.dart`, `workflow/workflow_artifact_committer.dart` |
 | Skills | Native skill provisioning, runtime skill preflight | `skills/`, `workflow/workflow_skill_preflight.dart` |
 | Storage | `WorkflowRunRepository` implementations | `storage/database_workflow_run_repository.dart`, `storage/file_workflow_run_repository.dart` |
 | Host bridge | `WorkflowTurnAdapter` callbacks wired to git, publish and runner capacity | `workflow/workflow_turn_adapter.dart`; wired in `packages/dartclaw_runtime/lib/src/runtime/service_wiring_workflow.dart` |
@@ -226,7 +226,7 @@ Shipped built-ins (`lib/src/workflow/definitions/`): `implement-story` (spec, im
 `WorkflowRunStatus` (`dartclaw_kernel`): `pending` (inserted, momentary), `running`, `paused`, `awaitingApproval`, `completed`, `failed`, `cancelled`. Only the last three are terminal.
 
 - `paused`: an operator paused the run, a step with `onError: pause` held at its failed unit, or a step's task was cancelled while the run was `running` (section 7.5).
-- `awaitingApproval`: blocked on an approval gate, a step-reported `needsInput` outcome, or a step with `onFailure: pause` (all use the `_approval.*` shape, section 8.2).
+- `awaitingApproval`: an approval gate, step-reported `needsInput`, `onFailure: pause`, or an [execution-surface hold](#102-promotion) on promotion or publish. The `_approval.*` keys track the pending approval.
 - `failed`: a runtime, gate or step failure; eligible for explicit retry.
 
 This keeps dashboards, SSE subscribers and CLI exit codes aligned with operator intent: waiting on a human is not a failure.
@@ -288,6 +288,8 @@ Underscore-prefixed keys in `contextJson` are engine bookkeeping. They survive e
 | `_approval.auto_resolved.<stepId>` | auto-resolved gate or stall |
 | `_revision.gateId` | request-changes round in progress |
 | `_workflow.approvals`, `_workflow.git.integration_branch` | run approval policy; integration branch name |
+| `_workflow.git.execution_surface_hold` | host-owned `{branch, paths, publish}` record for a held promotion or publish |
+| `_workflow.git.approved_branches` | host-owned list of branches a person approved in this run |
 | `_accounting.*`, `_budget.warningFired` | pending usage reads; one-shot budget warning |
 | `_map.<foreachId>.promotedIds`, `_foreach.*`, `_merge_resolve.*` | promotion and sub-step progress, merge-resolve state |
 
@@ -376,7 +378,7 @@ The worker's capability contract selects continuity before work begins: a durabl
 
 ### 7.4 Multi-prompt steps and session continuity
 
-A `prompt:` list runs its prompts sequentially on the same worker, each resuming the captured provider session (`--resume` / `resume`). Output-format instructions go on the final prompt only. The step budget (`maxTokens`, host-set) is checked before every prompt. Each turn's normalized additive token reading is written to the `WorkflowStepExecution` token receipt before the next prompt; a failed receipt write stops the chain. The receipt and the session ledger can disagree: when a turn's settlement `session_cost` write fails, the ledger keeps its pre-dispatch pending marker and the turn counts as incomplete, while the receipt keeps the turn's known increment. A later complete snapshot does not heal that ledger gap (control-protocol.md § 6.4).
+A `prompt:` list runs its prompts sequentially on the same worker. When a durable provider session ID is available, the runner passes it to the next turn. A harness with live continuity can keep the session on the same lease without that ID. Output-format instructions go on the final prompt only. The step budget (`maxTokens`, host-set) is checked before every prompt. Each turn's normalized additive token reading is written to the `WorkflowStepExecution` token receipt before the next prompt; a failed receipt write stops the chain. The receipt and the session ledger can disagree: when a turn's settlement `session_cost` write fails, the ledger keeps its pre-dispatch pending marker and the turn counts as incomplete, while the receipt keeps the turn's known increment. A later complete snapshot does not heal that ledger gap (control-protocol.md § 6.4).
 
 `continueSession` reuses an earlier step's agent session. `true` means the immediately preceding step; a step id names a step. Resolution follows the chain to its root and reads `<rootStepId>.sessionId` (and the provider session id) from context. The executor snapshots the session's known token count as a baseline so the step is charged only its own tokens; Claude's native cumulative baseline is scoped to the same logical session, so resuming the native identity under another logical session starts an incomplete lower bound. Validation rejects a continuation that is `parallel`, targets a non-agent step or an unknown or later step, crosses a loop boundary, forms a cycle, or targets a step on a different concrete provider (role aliases are checked at runtime and fall back to the root's provider with a warning). It pays off in refinement chains and same-worktree validation loops; review steps whose inputs arrive through `inputs` should start fresh.
 
@@ -442,6 +444,8 @@ An approval step holds the run until an operator accepts or cancels it. The prom
 
 Chat, tool and HTTP callers reach `WorkflowService` through `WorkflowRunControl`, which owns the admin gate and the audit entry (security-architecture.md, run approval gate); resume and cancel over HTTP are audited as `web` resolutions and are not admin-gated.
 
+Execution-surface holds require a person to resume from the run page, HTTP API or an authorized channel button. The agent's `workflow_resume` can resolve ordinary approvals, but cannot release this hold even in an admin chat. The host records approval for the held branch and retries the promotion or publish without rerunning completed work. `workflow.approvals` never skips this hold.
+
 **Request changes.** The gate declares `revise: <stepId>` (an earlier top-level non-approval step) and `maxRevisions` (1 to 10, default 3 when `revise` is set). The service refuses with typed `WorkflowApprovalRefusal` reasons (`changesNotOffered`, `limitReached`, `feedbackRequired`, plus `notPending`, `alreadyResolved`, `invalidNonce`) before writing anything, so no refusal consumes the nonce. `workflowRevisionState` is the one derivation of "is the round open" shared by the service, tools, run page and route. One persisted update records `changes_requested`, the trimmed feedback, the incremented revision and the consumed interaction, sets the run `running` at the revise step and writes `_revision.gateId`. The marker makes the executor run the revise step despite its `entryGate` and append a round lead-in and the feedback in one framed block to the prompt (`SkillPromptBuilder.appendRevisionFeedback`, skipped when the prompt already references `{{context.<gateId>.approval.feedback}}`); the marker is dropped when the gate pauses again. Outputs of steps between the revise step and the gate are overwritten, never cleared. Refused: a `needsInput` hold, a gate inside a loop, foreach or group, or a gate with no `revise`.
 
 **Chat interaction record.** A chat post can resolve a pending approval once, through `_approval.interaction` in the run's context (`workflow_approval_interaction.dart`). `issueApprovalInteraction` stores `{stepId, nonce, issuedAt}` only when the run is pending at that step; the nonce is 128 bits from `Random.secure()` (32 hex characters). `bindApprovalPost` records the sent post (channel type, recipient, message id) and fails if the record was replaced or consumed. `resume`, `cancel` and `requestChanges` accept an `expect` (step, nonce, channel type, message id) and a `resolver` (source `button`, `tool` or `web`, sender id, display name); with `expect`, the run must still be pending at that step, the record unresolved, and every field equal (nonce compared in constant time), else `WorkflowApprovalRefused`. Resolution is written in the same update as the approval status keys and the record then carries `resolution`. It is kept after resolution, so the notification subscriber can find and edit its post, and ends with the run. A failing update leaves the nonce live. Without `expect`/`resolver` the old behaviour holds (`StateError` for a refused transition). The nonce is readable by an authenticated run-detail caller, who can already resume over HTTP; no tool result, audit entry or log carries it.
@@ -455,6 +459,8 @@ Chat, tool and HTTP callers reach `WorkflowService` through `WorkflowRunControl`
 ### 9.1 WorkflowContext
 
 `WorkflowContext` holds `data` (step outputs and engine keys), `variables` (immutable run inputs) and `systemVariables` (engine-injected: `workflow.runtime_artifacts_dir`, and `unproduced.<stepId>` marking declared outputs a terminally failed step never produced). Per step the engine writes `<id>.status` (terminal task status, or `success`/`failed` for host steps), `<id>.tokenCount`, `<id>.error` on failure, `<id>.sessionId`, `<id>.providerSessionId`, `<id>.branch`, `<id>.worktree_path`, `step.<id>.outcome[.reason]`, then the declared outputs. Context is persisted after each completed step or iteration boundary.
+
+Git approval reads use the exact flat host keys in persisted `data`. Variables and nested aliases grant no approval. A model output that writes either reserved Git approval key is rejected before any part of its output merge is applied.
 
 ### 9.2 Template engine
 
@@ -513,7 +519,7 @@ Both productions are declared once on `GateEvaluator` (`binaryConditionPattern`,
 
 ## 10. Workflow-Owned Git
 
-For project-backed workflows, git state is orchestrated at workflow level, not only at task accept time. Host-side operations are injected through `WorkflowTurnAdapter` callbacks (reusing `MergeExecutor`, `RemotePushService` and `PrCreator` in wiring), so the workflow package stays independent of server git code. Worktree creation and review mechanics: task-execution-architecture.md § 5. Workflow-spawned tasks use `reviewMode: auto-accept`, so agent steps advance on `TaskStatus.accepted` rather than parking in `review`; human checkpoints are structural (approval steps), never per-step review.
+For project-backed workflows, `WorkflowTurnAdapter` callbacks inject the host's Git operations (`MergeExecutor`, `RemotePushService` and `PrCreator`), keeping the workflow package independent of server Git code. Worktree creation and review mechanics are in [Task Execution](task-execution-architecture.md#5-worktrees-and-git-delivery). Workflow-spawned tasks use `reviewMode: auto-accept` to settle their status without Git delivery. Approval steps and execution-surface holds are run-level checkpoints.
 
 | `gitStrategy` key | Meaning |
 |---|---|
@@ -536,6 +542,8 @@ For project-backed workflows, git state is orchestrated at workflow level, not o
 
 Authored `promotion` values are `merge`, `rebase` and `none` (validator `workflow_git_strategy_rules.dart`); `none` skips promotion. Under `per-map-item`, each foreach iteration works on its own story branch `dartclaw/task-wf-<token>-map-<i>` (`<token>` is the first 16 hex characters of the SHA-256 of the run id; a `-N` suffix resolves a name collision), cut from the integration branch HEAD (`_baseRef`) and promoted back to it on success. Promotion is inferred from the resolved shape: omitted `promotion` behaves as `merge` for `per-map-item` and `per-task`, and `none` for `inline` and `shared`, so built-ins do not repeat `promotion: merge`. In a promotion-aware scope (`per-map-item` with a project-touching child step and promotion not `none`), dependents wait until their prerequisite is promoted. The last branch-touching step of a scope promotes after it succeeds.
 
+Before a commit sweep or integration, promotion checks the branch diff and pending changes in its own worktree. An [execution-surface path or added or changed symlink](../../docs/guide/tasks.md#review-workflow) holds the run at `awaitingApproval` with the branch and matched paths, unless a person has already approved that branch in the run. Host commit sweeps in agent worktrees run with Git hooks disabled.
+
 ### 10.3 Conflict outcomes
 
 A promotion conflict that is not resolved produces `WorkflowPromotionConflictFailure` (persisted `kind: promotion-conflict`, message prefixed `promotion-conflict:`), carried on the iteration slot and `MapStepResult.failure`. The decision is the failure's type; the text is operator payload and never feeds a branch. The run fails with the foreach cursor kept so `retry` resumes the conflicting items. A resumed run whose failed slots predate the `kind` discriminator fails with a re-run instruction rather than restoring a conflict as an ordinary failure.
@@ -546,7 +554,7 @@ With `merge_resolve.enabled: true` (requires `promotion: merge`; defaults `max_a
 
 ### 10.5 Publish, artifact auto-commit and cleanup
 
-`publish.enabled` runs at completion through the host callback and merges its result into context; a publish failure fails the run without git cleanup, so the integration branch survives. Terminal transitions (`completed`, `failed`, `cancelled`) call the host cleanup callback with a `preserveWorktrees` flag derived from `gitStrategy.cleanup`; by default it removes the run's worktrees and branches, and config `workflow.cleanup.delete_remote_branch_on_failure` also deletes pushed branches of failed runs.
+`publish.enabled` runs at completion through the host callback and merges its result into context. The same execution-surface check holds an unapproved branch before the commit sweep or push, with `publish: true` in the hold record. A publish failure fails the run without Git cleanup, so the integration branch survives. Terminal transitions (`completed`, `failed`, `cancelled`) call the host cleanup callback with a `preserveWorktrees` flag derived from `gitStrategy.cleanup`; by default it removes the run's worktrees and branches, and config `workflow.cleanup.delete_remote_branch_on_failure` also deletes pushed branches of failed runs.
 
 `gitStrategy.artifacts` commits files produced by a step (outputs with `format: path`, and `story_specs`) right after that step, using author `DartClaw Workflow` and the message `commitMessage` (default `chore(workflow): {{step.id}} artifacts`; `{{runId}}`, `{{step.id}}`, `{{step.name}}` and variables substitute), in the worktree or the project from `artifacts.project`. For `implement-prd`, this lands the plan's spec files on the workflow branch before `story-pipeline` creates per-item worktrees, so they inherit the files.
 

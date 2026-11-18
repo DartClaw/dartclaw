@@ -49,8 +49,9 @@ Owned by [security-architecture.md](../architecture/security-architecture.md) §
 | Principal | The single trust identity a Container Authority is bound to: a standing agent (primary lane, logical-agent session) or a one-shot job (task, workflow step) | trust principal, owner, tenant |
 | Container Isolation | Per-authority Docker sandbox (`network:none`, `cap-drop=ALL`, read-only rootfs, `no-new-privileges`) whose only egress is its Container Bridge to the Host Gateway | sandboxing |
 | Container Authority | A live, never-shared grant of one dedicated container to exactly one Principal, owning that container, its bridge pipes and its generated-state directory (ADR-012) | container lease, container slot |
-| Host Gateway | Host-side `HostGateway` that registers each live Container Authority and serves its framed `docker exec` pipes, the container's only path off `network:none` | credential proxy, provider proxy, gateway |
-| Container Bridge (`dartclaw_bridge`) | Read-only, credential-free Dart executable `dartclaw-bridge` inside the agent container, forwarding framed provider/MCP traffic to the Host Gateway (ADR-051) | socat bridge, in-container proxy, credential proxy |
+| Host Gateway | Host-side `HostGateway` that registers each live Container Authority and serves its `provider`, `mcp` and `registry` pipes, the container's only path off `network:none` | credential proxy, provider proxy, gateway |
+| Container Bridge (`dartclaw_bridge`) | Read-only, credential-free Dart executable `dartclaw-bridge` that frames `provider`, `mcp` or `registry` requests over the authority's `docker exec` pipes to the Host Gateway (ADR-051) | socat bridge, in-container proxy, credential proxy |
+| Registry Surface | Workspace-only bridge surface for credential-free GET/HEAD requests to pinned public package registries ([ADR-062](../adrs/062-read-only-package-registry-egress-for-containers.md)). | package proxy, registry proxy |
 | Credential Proxy (removed 0.24) | Retired term for the Unix-socket credential-injection proxy removed in 0.24; say Host Gateway and Container Bridge instead | – |
 
 ## Guarding & Audit
@@ -305,7 +306,7 @@ Owned by [observability-operations-architecture.md](../architecture/observabilit
 | Message | Channel Integration | `ChannelMessage` – normalized inbound DTO from any platform | Conversation & Session | Persisted message record inside a Session |
 | Thread | Channel Integration | A platform thread DartClaw posts into or binds: a Google Chat thread within a Space, a Slack thread under a message | Turn Orchestration | Not used – DartClaw is single-threaded (one Dart isolate) |
 | Provider | Provider Mediation | LLM provider (claude, codex) | Channel Integration | Google Cloud service account (Google Chat) |
-| Bridge | Execution Isolation | Container Bridge / `dartclaw_bridge` – the read-only in-container executable forwarding framed provider/MCP traffic to the Host Gateway | Provider Mediation | `BridgeEvent` – harness-to-host event translation |
+| Bridge | Execution Isolation | Container Bridge / `dartclaw_bridge` – the read-only executable framing `provider`, `mcp` or `registry` traffic to the Host Gateway | Provider Mediation | `BridgeEvent` – harness-to-host event translation |
 | Bridge | Channel Integration | `ChannelTaskBridge` – the seam that applies reserved-command, thread-binding, and rate-limit routing before normal channel dispatch | Task & Review | Task creation is model-initiated through `task_create`, not inferred from channel text |
 | Event | Observability & Alerting | `DartclawEvent` – sealed application-semantics bus payload | Provider Mediation | `BridgeEvent` – provider protocol-stream signal, no application semantics |
 | Event | Task & Review | `TaskEvent` – persisted, user-visible task timeline entry | Turn Orchestration | `ExecutionEventKind` – coordinator-internal capacity/lease signal |

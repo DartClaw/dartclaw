@@ -117,7 +117,7 @@
 - **Provider factories must normalize provider-specific executable defaults.** `HarnessFactoryConfig.executable` can only represent one default; each provider factory must substitute its own binary when not overridden.
 - **Multi-provider UI/view-model code must derive the provider from `config.agent.provider`.** Hardcoded `'claude'` mislabels non-Claude deployments before usage data exists.
 - **Harness capability differences belong on the base `AgentHarness` contract.** Expose via capability getters; consumers branch on flags. Unsupported telemetry → omission/null, never fake zero or provider-name conditionals.
-- **Auto-accept callbacks must translate non-success `ReviewResult`s into thrown errors.** `TaskReviewService.review()` reports merge conflicts as typed results, not exceptions; `Future<void>` callbacks otherwise lose the warning path.
+- **Auto-accept callbacks must handle typed `ReviewResult`s.** `buildAutoAcceptCallback` throws delivery errors so the caller logs a warning. It logs an execution-surface hold at info and leaves the task in review.
 - **Green tests can mask unwired features.** Direct-call tests don't prove a service is registered in DartclawRuntime/ScheduleService – verify wiring via integration test + grep for non-test refs.
 - **`ScheduleService`'s job list is not user-prompt-jobs-only.** CLI wiring back-registers task definitions as `auto-task-<id>` callback jobs, and system jobs are `onExecute`-based too – new consumers must decide explicitly how to treat `onExecute != null` entries.
 - **Resolved step config has multiple consumers.** New inherited step fields must flow through dispatch, follow-up prompts, extraction, and resolved-YAML export.

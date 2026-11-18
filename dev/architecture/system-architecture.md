@@ -5,7 +5,7 @@ topology, the deployment model and the service wiring that assembles it. It stay
 invariants and failure modes live in the document named for it in the [Subsystem Index](#subsystem-index), and this
 document owns only package topology, tier order, the composition root, service wiring and the deployment model.
 
-**Current through**: 0.28.0
+**Current through**: 0.28.1
 
 ---
 
@@ -45,7 +45,7 @@ package's `pubspec.yaml` and the workspace `pubspec.lock`; vendored frontend ass
 |---------|----------------|---------------------|
 | State | Sessions, messages, memory, tasks, workflow runs, config, audit | Provider-side conversation continuity only, which the host can reset |
 | Security | Guard chain, container orchestration, host gateway, audit | Tool execution inside the active provider boundary |
-| Networking | HTTP server, SSE, channel ingress, MCP endpoint | Container executions have no network of their own and reach one upstream through the host gateway |
+| Networking | HTTP server, SSE, channel ingress, MCP endpoint | `network:none` containers use only the Host Gateway's `provider`, `mcp` and `registry` surfaces |
 | Agent logic | Turn orchestration, prompt composition, hook and reverse-call evaluation, admission and governance | LLM reasoning, tool selection and execution |
 | Credentials | Holds every credential. Container executions never receive one; host executions receive only their provider-scoped credential | Receives only what its provider family needs |
 
@@ -319,13 +319,15 @@ Runtime prerequisites:
 [![Container isolation topology](diagrams/system-containers.svg)](diagrams/system-containers.svg)
 
 The container name is `dartclaw-<fnv1a32(dataDir) as 8 hex digits>-<profile>-<authority>` (the authority is a startup
-epoch plus a counter), so installs sharing a host do not collide. API keys live on the host and never enter a container
-environment. A container reaches exactly one upstream, through the framed pipes `HostGateway` serves for its authority, and
-the provider adapter strips any client-supplied credential before injecting the host's. The host opens each pipe with
-`docker exec -i`, and killing that process pair revokes the surface. Revocation is permanent: nothing re-registers a
-revoked authority. The MCP pipe exists only when the authority was granted MCP tools. Claude and Codex have a verified adapter and run on either
-boundary. ACP registrations have none, so they never run in a container; the computed compatibility rule is in
-[Control Protocol](control-protocol.md).
+epoch plus a counter), so installs sharing a host do not collide. With `network:none`, the only egress is through
+the framed pipes `HostGateway` serves for its authority. The `provider` adapter pins the upstream and replaces
+client credentials with the host's credential. The `mcp` pipe exists only when the authority is granted MCP tools.
+The `registry` surface is a `workspace`-only package registry mirror for GET/HEAD to `https://pub.dev` and
+`https://registry.npmjs.org`, with no credentials and a 64 MiB response cap. See [ADR-062](../adrs/062-read-only-package-registry-egress-for-containers.md).
+
+The host opens each pipe with `docker exec -i`. Killing the process pair revokes that surface permanently.
+Claude and Codex have verified provider adapters and run on either boundary. ACP runs on the host. The computed
+compatibility rule is in [Control Protocol](control-protocol.md).
 
 **Isolation posture.** `resolveContainerPosture` settles it once at startup ([ADR-055](../adrs/055-container-by-default-posture.md)).
 An unset `container.enabled` means "isolate if a runtime is detected" and degrades to host execution with a warning if

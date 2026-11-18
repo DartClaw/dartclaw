@@ -135,7 +135,7 @@
     <rect class="box" x="64" y="311" width="200" height="62" rx="9"/>
     <text class="name mono-name" x="76" y="334">execution-isolation</text>
     <text class="sub" x="76" y="352">core · principal, authority</text>
-    <g class="d"><text class="p1" x="36" y="768"><tspan class="b">execution-isolation</tspan> · binds each execution to one trust principal and mediates its provider traffic host-side</text><text class="p2" x="36" y="788">A container never crosses principals; credentials never enter a container environment. Its bridge frame format is a Published Language.</text></g>
+    <g class="d"><text class="p1" x="36" y="768"><tspan class="b">execution-isolation</tspan> · binds one trust principal to the authority for provider, MCP and workspace-only registry traffic</text><text class="p2" x="36" y="788">A container never crosses principals; credentials never enter a container environment. Its bridge frame format is a Published Language.</text></g>
   </g></a>
   <a href="../context-map.md#bounded-contexts"><g class="n tint k-sec" id="guard">
     <rect class="box" x="64" y="450" width="200" height="62" rx="9"/>

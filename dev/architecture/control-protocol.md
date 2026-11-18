@@ -2,7 +2,7 @@
 
 How DartClaw drives provider binaries and runs a turn: the `AgentHarness` abstraction, the three subprocess protocols behind it (Claude Code JSONL, Codex app-server JSON-RPC, ACP stdio JSON-RPC), the execution coordinator and turn runner that wrap a harness, MCP tool exposure, and harness crash recovery. Package topology and service wiring live in [System Architecture](system-architecture.md). Guard semantics, credential mediation and container isolation live in [Security Architecture](security-architecture.md). Sessions, locks and the event bus live in [Session & State Architecture](session-state-architecture.md). Task and workflow orchestration on top of turns live in [Task Execution](task-execution-architecture.md) and [Workflow Architecture](workflow-architecture.md).
 
-**Current through**: 0.28.0
+**Current through**: 0.28.1
 
 ---
 

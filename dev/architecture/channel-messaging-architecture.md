@@ -2,7 +2,7 @@
 
 How messages from WhatsApp, Signal, Google Chat and Slack are normalized, access-gated, routed to agent turns and answered through channel adapters, including thread binding, task and workflow-run notifications, run approvals from chat, and the governance around shared channels. Session keys and scoping belong to [session-state-architecture.md](session-state-architecture.md), turn execution to [control-protocol.md](control-protocol.md), guards, audit and emergency enforcement to [security-architecture.md](security-architecture.md), the task lifecycle to [task-execution-architecture.md](task-execution-architecture.md), and config keys to [configuration-architecture.md](configuration-architecture.md).
 
-**Current through**: 0.28.0
+**Current through**: 0.28.1
 
 ---
 

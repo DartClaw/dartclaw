@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 786" width="1000" height="786" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 858" width="1000" height="858" role="img" aria-labelledby="title desc">
   <title id="title">Container isolation topology</title>
-  <desc id="desc">A container started with network none holds the provider binary and up to two loopback bridges. Each bridge frames its traffic over a docker exec -i pipe to HostGateway, which pins one upstream, injects the host-held credential and enforces the authority's MCP tool allowlist before the host MCP handler runs.</desc>
+  <desc id="desc">Host-opened provider, MCP and registry pipes are the sole egress from network:none. The HostGateway mediates model calls, granted tools and workspace-only package downloads from pinned public registries.</desc>
   <style>
 
     svg { --bg:#f6f7f9; --card:#ffffff; --ink:#1e2030; --ink2:#4c4f69; --ink3:#6c6f85; --rule:#ccd0da; --edge:#8c8fa1; --hi:#1e66f5; --on:#ffffff; --panel:#1e1e2e; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
@@ -27,7 +27,7 @@
     .box { stroke-width: 1.5; }
     .tint .box { fill: color-mix(in srgb, var(--k) 13%, var(--card)); stroke: var(--k); }
     .line .box { fill: var(--card); stroke: var(--k); }
-    .ghost .box { fill: none; stroke: var(--k); stroke-dasharray: 5 4; }
+    .ghost .box { fill: none; stroke: var(--k); stroke-dasharray: 5 4; pointer-events: all; }
     .solid .box { fill: var(--kd); stroke: var(--kd); }
     .name { font-size: 14.5px; font-weight: 700; }
     .sub { font-size: 11.5px; fill: var(--ink2); }
@@ -56,6 +56,7 @@
     .step circle { fill: var(--kd); } .step text { fill: var(--on); font-size: 11px; font-weight: 700; text-anchor: middle; }
     /* Interaction, effective only when the SVG is opened directly. */
     .n { cursor: pointer; }
+    a:focus-visible { outline: none; }
     .n:hover .box, a:focus-visible .box { stroke: var(--hi); stroke-width: 2.8; }
     .d { display: none; pointer-events: none; }
     .n:hover .d, a:focus-visible .d { display: inline; }
@@ -75,6 +76,9 @@
     svg:has(#cm:hover) .edges :is(.f-cm,.t-cm) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
     svg:has(#engine:hover) .edges :is(.f-engine,.t-engine) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
     svg:has(#api:hover) .edges :is(.f-api,.t-api) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#rbridge:hover) .edges :is(.f-rbridge,.t-rbridge) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#pkg:hover) .edges :is(.f-pkg,.t-pkg) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#registries:hover) .edges :is(.f-registries,.t-registries) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
   </style>
   <defs>
     <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
@@ -83,18 +87,18 @@
     <marker id="ah-hi" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="ah-hi" d="M0,0 L10,5 L0,10 z"/></marker>
   </defs>
 
-  <rect class="bg" width="1000" height="786"/>
+  <rect class="bg" width="1000" height="858"/>
   <!-- Details panel: painted first so node details (.d) draw on top -->
-  <rect class="panel" x="16" y="690" width="968" height="80" rx="12"/>
-  <text class="panel-kick" x="36" y="714">DETAILS</text>
-  <g class="d0"><text class="p1" x="36" y="738">Hover a box for its role and the fact that bounds it; its connections light up. Click it to open its section.</text><text class="p2" x="36" y="758">Inside a rendered document this image is static. Click it to open the interactive SVG.</text></g>
+  <rect class="panel" x="16" y="762" width="968" height="80" rx="12"/>
+  <text class="panel-kick" x="36" y="786">DETAILS</text>
+  <g class="d0"><text class="p1" x="36" y="810">Hover a box for its role and the fact that bounds it; its connections light up. Click it to open its section.</text><text class="p2" x="36" y="830">Inside a rendered document this image is static. Click it to open the interactive SVG.</text></g>
 
   <text class="kick" x="24" y="32">DEPLOYMENT · one container per Container Authority</text>
   <text class="title" x="24" y="58">Container isolation topology</text>
-  <text class="lede" x="24" y="80">The container has no network and no credential. Provider traffic and MCP calls leave it only through host-opened pipes.</text>
+  <text class="lede" x="24" y="80">With network:none, provider, MCP and package registry traffic use separate host-opened pipes.</text>
 
-  <g class="k-sec"><rect class="band" x="16" y="104" width="376" height="410" rx="14"/><text class="kick" x="32" y="126">CONTAINER · NETWORK NONE</text></g>
-  <g class="k-host"><rect class="band" x="416" y="104" width="342" height="532" rx="14"/><text class="kick" x="432" y="126">DART HOST PROCESS · dartclaw serve</text></g>
+  <g class="k-sec"><rect class="band" x="16" y="104" width="376" height="482" rx="14"/><text class="kick" x="32" y="126">CONTAINER · NETWORK NONE</text></g>
+  <g class="k-host"><rect class="band" x="416" y="104" width="342" height="604" rx="14"/><text class="kick" x="432" y="126">DART HOST PROCESS · dartclaw serve</text></g>
   <g class="k-ext"><text class="kick" x="786" y="122" text-anchor="start">UPSTREAM</text></g>
 
   <g class="edges">
@@ -103,10 +107,13 @@
     <g class="e main f-pbridge t-gw"><path d="M380,166 H430"/><text class="el" x="405" y="158" text-anchor="middle">frames</text></g>
     <g class="e dash f-mbridge t-gw"><path d="M380,246 H430"/><text class="el" x="405" y="238" text-anchor="middle">frames</text></g>
     <g class="e main f-gw t-api"><path d="M742,206 H784"/><text class="el" x="764" y="198" text-anchor="middle">HTTPS</text></g>
-    <g class="e  f-cred t-gw"><path d="M520,306 V280"/><text class="el" x="528" y="298" text-anchor="start">per request</text></g>
-    <g class="e  f-gw t-mcp"><path d="M716,280 V400"/><text class="el" x="708" y="345" text-anchor="end">tools/call</text></g>
-    <g class="e  f-cm t-engine"><path d="M430,588 H378"/><text class="el" x="404" y="580" text-anchor="middle">drives</text></g>
-    <g class="e  f-engine t-hard t-mounts t-bin t-pbridge t-mbridge"><path d="M200,554 V516"/><text class="el" x="208" y="540" text-anchor="start">runs</text></g>
+    <g class="e dash f-pkg t-rbridge"><path d="M176,326 H226"/><text class="el" x="201" y="318" text-anchor="middle">loopback</text></g>
+    <g class="e dash f-rbridge t-gw"><path d="M380,326 H430"/><text class="el" x="405" y="318" text-anchor="middle">frames</text></g>
+    <g class="e dash f-gw t-registries"><path d="M742,326 H784"/><text class="el" x="764" y="318" text-anchor="middle">HTTPS</text></g>
+    <g class="e  f-cred t-gw"><path d="M520,380 V360"/><text class="el" x="528" y="373" text-anchor="start">per request</text></g>
+    <g class="e  f-gw t-mcp"><path d="M716,358 V472"/><text class="el" x="708" y="417" text-anchor="end">tools/call</text></g>
+    <g class="e  f-cm t-engine"><path d="M430,660 H378"/><text class="el" x="404" y="652" text-anchor="middle">drives</text></g>
+    <g class="e  f-engine t-hard t-mounts t-bin t-pbridge t-mbridge t-rbridge t-pkg"><path d="M200,626 V588"/><text class="el" x="208" y="612" text-anchor="start">runs</text></g>
   </g>
 
   <a href="../system-architecture.md#deployment-model"><g class="n tint k-ext" id="bin">
@@ -116,74 +123,90 @@
     <text class="sub" x="40" y="191">no network, no key</text>
     <text class="sub" x="40" y="207">talks to 127.0.0.1</text>
     <text class="sub" x="40" y="223">never an ACP agent</text>
-    <g class="d"><text class="p1" x="36" y="738"><tspan class="b">claude or codex</tspan> · provider binary from the configured image; Claude and Codex only</text><text class="p2" x="36" y="758">ANTHROPIC_BASE_URL (Claude) or the generated Codex config points at the loopback bridge; the container has no socket and no network.</text></g>
+    <g class="d"><text class="p1" x="36" y="810"><tspan class="b">claude or codex</tspan> · provider binary from the configured image; Claude and Codex only</text><text class="p2" x="36" y="830">ANTHROPIC_BASE_URL (Claude) or the generated Codex config points at the loopback bridge; the container has no socket and no network.</text></g>
   </g></a>
   <a href="../system-architecture.md#deployment-model"><g class="n tint k-host" id="pbridge">
     <rect class="box" x="228" y="134" width="152" height="64" rx="9"/>
     <text class="name" x="240" y="157">provider bridge</text>
     <text class="sub" x="240" y="175">127.0.0.1:8080</text>
     <text class="sub" x="240" y="191">docker exec -i pipe</text>
-    <g class="d"><text class="p1" x="36" y="738"><tspan class="b">provider bridge</tspan> · dartclaw-bridge --surface=provider --port=8080, started by the host with docker exec -i</text><text class="p2" x="36" y="758">Holds no credential and chooses no destination; it only frames traffic over its stdio. The executable is mounted read-only (dartclaw_bridge).</text></g>
+    <g class="d"><text class="p1" x="36" y="810"><tspan class="b">provider bridge</tspan> · dartclaw-bridge --surface=provider --port=8080, started by the host with docker exec -i</text><text class="p2" x="36" y="830">Holds no credential and chooses no destination; it only frames traffic over its stdio. The executable is mounted read-only (dartclaw_bridge).</text></g>
   </g></a>
   <a href="../system-architecture.md#deployment-model"><g class="n ghost k-host" id="mbridge">
     <rect class="box" x="228" y="214" width="152" height="64" rx="9"/>
     <text class="name" x="240" y="237">mcp bridge</text>
     <text class="sub" x="240" y="255">127.0.0.1:8081/mcp</text>
     <text class="sub" x="240" y="271">only with MCP tools</text>
-    <g class="d"><text class="p1" x="36" y="738"><tspan class="b">mcp bridge</tspan> · dartclaw-bridge --surface=mcp --port=8081; started only when the authority was granted MCP tools</text><text class="p2" x="36" y="758">With no allowlisted tools the surface does not exist, so the container has no route to /mcp at all (ContainerManager.hasMcpBridge).</text></g>
+    <g class="d"><text class="p1" x="36" y="810"><tspan class="b">mcp bridge</tspan> · dartclaw-bridge --surface=mcp --port=8081; started only when the authority was granted MCP tools</text><text class="p2" x="36" y="830">With no allowlisted tools the surface does not exist, so the container has no route to /mcp at all (ContainerManager.hasMcpBridge).</text></g>
+  </g></a>
+  <a href="../security-architecture.md#host-owned-provider-mediation"><g class="n ghost k-ext" id="pkg">
+    <rect class="box" x="28" y="294" width="148" height="64" rx="9"/>
+    <text class="name" x="40" y="317">Package client</text>
+    <text class="sub" x="40" y="335">Dart pub or npm</text>
+    <text class="sub" x="40" y="351">from a toolchain image</text>
+    <g class="d"><text class="p1" x="36" y="810"><tspan class="b">Package client</tspan> · Dart or Node tooling is supplied by the project's agent image.</text><text class="p2" x="36" y="830">The host sets the mirror environment at container creation. The authority keeps network:none.</text></g>
+  </g></a>
+  <a href="../security-architecture.md#host-owned-provider-mediation"><g class="n ghost k-host" id="rbridge">
+    <rect class="box" x="228" y="294" width="152" height="64" rx="9"/>
+    <text class="name" x="240" y="317">registry bridge</text>
+    <text class="sub" x="240" y="335">127.0.0.1:8082</text>
+    <text class="sub" x="240" y="351">workspace only</text>
+    <g class="d"><text class="p1" x="36" y="810"><tspan class="b">registry bridge</tspan> · dartclaw-bridge --surface=registry --port=8082; available only to workspace authorities</text><text class="p2" x="36" y="830">The loopback mirror uses /pub and /npm. The host pins origins, accepts GET and HEAD, and sends no credential.</text></g>
   </g></a>
   <a href="../security-architecture.md#lifecycle-and-flags"><g class="n line k-neu" id="mounts">
-    <rect class="box" x="28" y="304" width="352" height="90" rx="9"/>
-    <text class="name" x="40" y="327">Mounts</text>
-    <text class="mono" x="40" y="345">/workspace:rw · /project:ro · /projects:ro</text>
-    <text class="mono" x="40" y="361">dartclaw-bridge :ro at /opt/dartclaw/</text>
-    <text class="sub" x="40" y="377">restricted profile: no workspace mounts, no host home</text>
-    <g class="d"><text class="p1" x="36" y="738"><tspan class="b">Mounts</tspan> · SecurityProfile mounts plus the read-only bridge executable and per-authority generated client state</text><text class="p2" x="36" y="758">No host home is ever mounted, so provider login state stays outside the boundary; generated state is removed with the container.</text></g>
+    <rect class="box" x="28" y="376" width="352" height="90" rx="9"/>
+    <text class="name" x="40" y="399">Mounts</text>
+    <text class="mono" x="40" y="417">/workspace:rw · /project:ro · /projects:ro</text>
+    <text class="mono" x="40" y="433">dartclaw-bridge :ro at /opt/dartclaw/</text>
+    <text class="sub" x="40" y="449">restricted profile: no workspace mounts, no host home</text>
+    <g class="d"><text class="p1" x="36" y="810"><tspan class="b">Mounts</tspan> · SecurityProfile mounts plus the read-only bridge executable and per-authority generated client state</text><text class="p2" x="36" y="830">No host home is ever mounted, so provider login state stays outside the boundary; generated state is removed with the container.</text></g>
   </g></a>
   <a href="../security-architecture.md#lifecycle-and-flags"><g class="n tint k-sec" id="hard">
-    <rect class="box" x="28" y="408" width="352" height="90" rx="9"/>
-    <text class="name" x="40" y="431">Hardening</text>
-    <text class="mono" x="40" y="449">--network none · --cap-drop ALL</text>
-    <text class="mono" x="40" y="465">--read-only · no-new-privileges</text>
-    <text class="sub" x="40" y="481">/tmp: 100 MB noexec tmpfs · owner label</text>
-    <g class="d"><text class="p1" x="36" y="738"><tspan class="b">Hardening</tspan> · flags ContainerManager sets at create time</text><text class="p2" x="36" y="758">The owner label dartclaw.data-dir=&lt;dataDir&gt; lets a restart reclaim stray containers; a container never outlives its authority.</text></g>
+    <rect class="box" x="28" y="480" width="352" height="90" rx="9"/>
+    <text class="name" x="40" y="503">Hardening</text>
+    <text class="mono" x="40" y="521">--network none · --cap-drop ALL</text>
+    <text class="mono" x="40" y="537">--read-only · no-new-privileges</text>
+    <text class="sub" x="40" y="553">/tmp: 100 MiB noexec tmpfs · owner label</text>
+    <g class="d"><text class="p1" x="36" y="810"><tspan class="b">Hardening</tspan> · flags ContainerManager sets at create time</text><text class="p2" x="36" y="830">The owner label dartclaw.data-dir=&lt;dataDir&gt; lets a restart reclaim stray containers; a container never outlives its authority.</text></g>
   </g></a>
   <a href="../security-architecture.md#host-owned-provider-mediation"><g class="n solid k-sec" id="gw">
-    <rect class="box" x="432" y="134" width="310" height="144" rx="9"/>
+    <rect class="box" x="432" y="134" width="310" height="224" rx="9"/>
     <text class="name mono-name" x="444" y="157">HostGateway</text>
     <text class="sub" x="444" y="175">principal comes from the pipe, never a frame</text>
     <text class="sub" x="444" y="191">provider adapter strips client credentials</text>
     <text class="sub" x="444" y="207">and injects the host-held one</text>
     <text class="sub" x="444" y="223">revocation on release is permanent</text>
-    <g class="d"><text class="p1" x="36" y="738"><tspan class="b">HostGateway</tspan> · registers a GatewayAuthority per container; the pipe a request arrives on fixes its principal, upstream, credential, tools</text><text class="p2" x="36" y="758">A bridge process that exits or is killed revokes its surface for good, so a captured pipe or request id cannot be revived by a later execution.</text></g>
+    <text class="sub" x="444" y="316">registry mirror: GET and HEAD only</text>
+    <text class="sub" x="444" y="334">no credentials · 64 MiB response cap</text>
+    <g class="d"><text class="p1" x="36" y="810"><tspan class="b">HostGateway</tspan> · registers a GatewayAuthority per container; the pipe a request arrives on fixes its principal, upstream, credential, tools</text><text class="p2" x="36" y="830">A bridge process that exits or is killed revokes its surface for good, so a captured pipe or request id cannot be revived by a later execution.</text></g>
   </g></a>
   <a href="../security-architecture.md#credential-security"><g class="n tint k-store" id="cred">
-    <rect class="box" x="432" y="308" width="200" height="64" rx="9"/>
-    <text class="name" x="444" y="331">Host-held credentials</text>
-    <text class="sub" x="444" y="349">subscription store, API keys</text>
-    <text class="sub" x="444" y="365">never in a container</text>
-    <g class="d"><text class="p1" x="36" y="738"><tspan class="b">Host-held credentials</tspan> · SubscriptionCredentialStore and the named credential store, read per request through the provider adapter</text><text class="p2" x="36" y="758">A credential that turns unusable mid-turn raises one operator alert and releases the authority, which destroys its container.</text></g>
+    <rect class="box" x="432" y="380" width="200" height="64" rx="9"/>
+    <text class="name" x="444" y="403">Host-held credentials</text>
+    <text class="sub" x="444" y="421">subscription store, API keys</text>
+    <text class="sub" x="444" y="437">never in a container</text>
+    <g class="d"><text class="p1" x="36" y="810"><tspan class="b">Host-held credentials</tspan> · SubscriptionCredentialStore and the named credential store, read per request through the provider adapter</text><text class="p2" x="36" y="830">A credential that turns unusable mid-turn raises one operator alert and releases the authority, which destroys its container.</text></g>
   </g></a>
   <a href="../security-architecture.md#inbound-mcp-dispatch"><g class="n tint k-host" id="mcp">
-    <rect class="box" x="432" y="402" width="310" height="64" rx="9"/>
-    <text class="name mono-name" x="444" y="425">McpProtocolHandler</text>
-    <text class="sub" x="444" y="443">/mcp tool dispatch, scoped to the authority</text>
-    <text class="sub" x="444" y="459">allowlist, guards and audit run before the tool</text>
-    <g class="d"><text class="p1" x="36" y="738"><tspan class="b">McpProtocolHandler</tspan> · the /mcp handler scoped to one authority: deny-by-default canonical tool allowlist, POST only, 1 MiB request cap</text><text class="p2" x="36" y="758">Caller policy, guard evaluation and audit run before the tool, as for any /mcp caller.</text></g>
+    <rect class="box" x="432" y="474" width="310" height="64" rx="9"/>
+    <text class="name mono-name" x="444" y="497">McpProtocolHandler</text>
+    <text class="sub" x="444" y="515">/mcp tool dispatch, scoped to the authority</text>
+    <text class="sub" x="444" y="531">allowlist, guards and audit run before the tool</text>
+    <g class="d"><text class="p1" x="36" y="810"><tspan class="b">McpProtocolHandler</tspan> · the /mcp handler scoped to one authority: deny-by-default canonical tool allowlist, POST only, 1 MiB request cap</text><text class="p2" x="36" y="830">Caller policy, guard evaluation and audit run before the tool, as for any /mcp caller.</text></g>
   </g></a>
   <a href="../security-architecture.md#lifecycle-and-flags"><g class="n tint k-host" id="cm">
-    <rect class="box" x="432" y="556" width="310" height="64" rx="9"/>
-    <text class="name mono-name" x="444" y="579">ContainerManager</text>
-    <text class="sub" x="444" y="597">creates, starts and destroys the container</text>
-    <text class="sub" x="444" y="613">reclaims strays by data-dir label at startup</text>
-    <g class="d"><text class="p1" x="36" y="738"><tspan class="b">ContainerManager</tspan> · one per authority: docker create (or run), start, exec, stop and rm, on docker or podman</text><text class="p2" x="36" y="758">Single-use: a lost container is never recreated; the execution acquires a new authority. Name: dartclaw-&lt;fnv1a32(dataDir)&gt;-&lt;profile&gt;-&lt;authority&gt;.</text></g>
+    <rect class="box" x="432" y="628" width="310" height="64" rx="9"/>
+    <text class="name mono-name" x="444" y="651">ContainerManager</text>
+    <text class="sub" x="444" y="669">creates, starts and destroys the container</text>
+    <text class="sub" x="444" y="685">reclaims strays by data-dir label at startup</text>
+    <g class="d"><text class="p1" x="36" y="810"><tspan class="b">ContainerManager</tspan> · one per authority: docker create (or run), start, exec, stop and rm, on docker or podman</text><text class="p2" x="36" y="830">Single-use: a lost container is never recreated; the execution acquires a new authority. Name: dartclaw-&lt;fnv1a32(dataDir)&gt;-&lt;profile&gt;-&lt;authority&gt;.</text></g>
   </g></a>
   <a href="../system-architecture.md#deployment-model"><g class="n tint k-ext" id="engine">
-    <rect class="box" x="28" y="556" width="348" height="64" rx="9"/>
-    <text class="name" x="40" y="579">docker or podman</text>
-    <text class="sub" x="40" y="597">container runtime CLI and engine</text>
-    <text class="sub" x="40" y="613">create, start, exec -i, stop, rm</text>
-    <g class="d"><text class="p1" x="36" y="738"><tspan class="b">docker or podman</tspan> · the host container runtime, detected at startup; its engine architecture decides which bridge variant runs</text><text class="p2" x="36" y="758">Container isolation is unavailable on native Windows; container.enabled: true there is startup-fatal.</text></g>
+    <rect class="box" x="28" y="628" width="348" height="64" rx="9"/>
+    <text class="name" x="40" y="651">docker or podman</text>
+    <text class="sub" x="40" y="669">container runtime CLI and engine</text>
+    <text class="sub" x="40" y="685">create, start, exec -i, stop, rm</text>
+    <g class="d"><text class="p1" x="36" y="810"><tspan class="b">docker or podman</tspan> · the host container runtime, detected at startup; its engine architecture decides which bridge variant runs</text><text class="p2" x="36" y="830">Container isolation is unavailable on native Windows; container.enabled: true there is startup-fatal.</text></g>
   </g></a>
   <a href="../security-architecture.md#host-owned-provider-mediation"><g class="n tint k-ext" id="api">
     <rect class="box" x="786" y="174" width="198" height="64" rx="9"/>
@@ -191,15 +214,22 @@
     <g class="badge"><rect x="920" y="185" width="54" height="16" rx="8"/><text x="947" y="197">PINNED</text></g>
     <text class="sub" x="798" y="215">api.anthropic.com (claude)</text>
     <text class="sub" x="798" y="231">api.openai.com (codex)</text>
-    <g class="d"><text class="p1" x="36" y="738"><tspan class="b">Provider API</tspan> · exactly one upstream pinned per adapter when it is built (AnthropicMessagesAdapter, OpenAiResponsesAdapter)</text><text class="p2" x="36" y="758">A request to any other origin is refused with 403. Codex subscription mode pins chatgpt.com/backend-api/codex instead of api.openai.com.</text></g>
+    <g class="d"><text class="p1" x="36" y="810"><tspan class="b">Provider API</tspan> · exactly one upstream pinned per adapter when it is built (AnthropicMessagesAdapter, OpenAiResponsesAdapter)</text><text class="p2" x="36" y="830">A request to any other origin is refused with 403. Codex subscription mode pins chatgpt.com/backend-api/codex instead of api.openai.com.</text></g>
   </g></a>
-  <g transform="translate(24,664)">
+  <a href="../security-architecture.md#host-owned-provider-mediation"><g class="n ghost k-ext" id="registries">
+    <rect class="box" x="786" y="294" width="198" height="64" rx="9"/>
+    <text class="name" x="798" y="317">Package registries</text>
+    <text class="sub" x="798" y="335">pub.dev</text>
+    <text class="sub" x="798" y="351">registry.npmjs.org</text>
+    <g class="d"><text class="p1" x="36" y="810"><tspan class="b">Package registries</tspan> · the adapters pin https://pub.dev and https://registry.npmjs.org.</text><text class="p2" x="36" y="830">The public mirror follows redirects only within the adapter’s pins. NetworkGuard owns the separate host tool-call policy.</text></g>
+  </g></a>
+  <g transform="translate(24,736)">
     <g class="tint k-ext"><rect class="box" x="0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="22" y="10">external</text>
     <g class="tint k-host"><rect class="box" x="93.6" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="115.6" y="10">DartClaw component</text>
     <g class="tint k-sec"><rect class="box" x="249.20000000000002" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="271.20000000000005" y="10">enforcement</text>
     <g class="tint k-store"><rect class="box" x="361.40000000000003" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="383.40000000000003" y="10">credentials</text>
     <g class="e main"><path d="M473.6,6 H505.6"/></g><text class="lg" x="513.6" y="10">provider traffic</text>
-    <g class="e dash"><path d="M634.8,6 H666.8"/></g><text class="lg" x="674.8" y="10">MCP tools only</text>
+    <g class="e dash"><path d="M634.8,6 H666.8"/></g><text class="lg" x="674.8" y="10">scoped surface</text>
     <g class="e "><path d="M783.5999999999999,6 H815.5999999999999"/></g><text class="lg" x="823.5999999999999" y="10">call or command</text>
   </g>
 </svg>

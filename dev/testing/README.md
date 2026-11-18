@@ -84,6 +84,18 @@ reaching a release-ready verdict.
 Scoop qualification is defined separately in `scenarios/windows-scoop.md`. Keep install/update/uninstall audits separate
 from the deterministic tag workflow; local reports belong under `.agent_temp/`.
 
+### Container coding qualification
+
+`container/coding.sh` qualifies workspace placement and coding mechanics through fixture `implement-story` runs.
+The runner copies `fixtures/project-instructions.md` into each disposable project's `AGENTS.md` and `CLAUDE.md`
+before the first commit. The instructions direct review and ship to the FIS before tool selection. A phase that reruns
+acceptance installs into its own container and records install and test in separate tool results.
+
+An auth-clean container can lack provider-native AndThen skills and access to linked-worktree Git metadata.
+The fixture records these limitations and uses visible source and actual test results for the phase's required
+artifacts and structured outcome. Production built-ins require the operator-installed
+[AndThen plugin](../../docs/guide/andthen-skills.md).
+
 ## Scenarios
 
 Scenarios live under `scenarios/` and reference profiles by name and port in their YAML frontmatter. The `test-scenario` skill (at `.claude/skills/test-scenario/`) parses the frontmatter, verifies or starts the required profile, drives browser + API steps, and produces a structured pass/fail report.

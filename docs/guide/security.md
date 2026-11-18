@@ -303,7 +303,7 @@ Mutation and test endpoints return `403` for requests without admin access.
 ## Container Isolation
 
 An agent can write executable configuration inside its mounted repository. Merging or pushing those changes would
-carry hooks, provider/MCP settings, workflow files or symlinks beyond the container boundary. Automatic task accept
+carry hooks, provider or MCP settings, workflow files or symlinks beyond the container boundary. Automatic task accept
 and workflow promotion/publish therefore hold [execution surface changes](tasks.md#review-workflow) for a person's
 review. Host commit sweeps use `-c core.hooksPath=/dev/null` so a repository hook cannot execute during preparation.
 Explicit person acceptance or workflow resume releases the held branch; agent tools cannot approve these holds.
@@ -343,7 +343,7 @@ inside a container with:
 - `network:none` -- no direct internet access
 - Capability drops (`--cap-drop ALL`)
 - Read-only root filesystem
-- Host-mediated provider access over framed `docker exec` pipes (see below) -- no credential in the container
+- Host-mediated egress over framed `docker exec` pipes for `provider`, granted `mcp` tools and `registry` for `workspace` only. The container holds no credential.
 - Mount allowlist for workspace files
 
 ACP agents have no container execution: DartClaw mediates no provider credential or host capability for an ACP client,
@@ -420,7 +420,7 @@ tarball downloads through the mirror and keeps public URLs in `package-lock.json
 `restricted` gets neither the registry environment nor the pipe. Artifacts beyond the 64 MiB response cap fail visibly.
 
 A containerized `dart pub get` ignores a committed `pubspec.lock` whose hosted `url` names `https://pub.dev`
-instead of the mirror, writes one naming `http://127.0.0.1:8082/pub`, and re-resolves dependencies, possibly to newer
+instead of the mirror, writes one naming `http://127.0.0.1:8082/pub/`, and re-resolves dependencies, possibly to newer
 versions. This lockfile change is an accepted consequence of the mirror. When a build or test binary is missing, workspace
 task prompts tell the agent to stop, name the binary and refer here and to `container.image`, without installing it.
 

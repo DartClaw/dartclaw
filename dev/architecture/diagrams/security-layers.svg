@@ -135,9 +135,9 @@
     <rect class="box" x="28" y="472" width="944" height="64" rx="9"/>
     <g class="step"><circle cx="48" cy="494" r="10"/><text x="48" y="498">2</text></g>
     <text class="name" x="66" y="495">Network</text>
-    <g class="badge"><rect x="866" y="483" width="96" height="16" rx="8"/><text x="914" y="495">NO ROUTE OUT</text></g>
+    <g class="badge"><rect x="842" y="483" width="120" height="16" rx="8"/><text x="902" y="495">MEDIATED EGRESS</text></g>
     <text class="mono" x="66" y="513">--network none · HostGateway · framed stdio bridge · credential stays on the host</text>
-    <text class="sub" x="66" y="529">The only path off the container is a per-authority pipe; the provider credential never exists inside it.</text>
+    <text class="sub" x="66" y="529">Per-authority pipes serve provider, mcp with granted tools, and registry for workspace only.</text>
     <g class="d"><text class="p1" x="36" y="716"><tspan class="b">Network</tspan> · the pipe, not any frame the container sends, decides principal, upstream and credential</text><text class="p2" x="36" y="736">Provider-side network tools are refused host-side for containerized executions. container/gateway/host_gateway.dart.</text></g>
   </g></a>
   <a href="../security-architecture.md#container-isolation"><g class="n solid k-ext" id="l1">

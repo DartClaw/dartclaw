@@ -6,7 +6,7 @@ integrate them. This document owns context **ids**, used by architecture/domain 
 [System Architecture](system-architecture.md); this map says where each context lives, not how packages depend on each
 other.
 
-**Current through**: 0.28.0
+**Current through**: 0.28.1
 
 > **Contexts are linguistic boundaries, not packages.** DartClaw has 14 packages, one app and 15 contexts, mapped
 > many-to-many. `dartclaw_runtime` alone hosts eight contexts, while `dartclaw_core` hosts runtime fragments and the
@@ -57,7 +57,7 @@ unless noted.
 | Context | Purpose | Subdomains owned | Code location | Boundary rationale |
 |---|---|---|---|---|
 | `provider-mediation` | Translate provider-native control protocols into one host-owned execution contract | Provider control protocol | `dartclaw_core/lib/src/{harness,bridge,worker}/`, `dartclaw_acp/` | One dominant abstraction (`AgentHarness` + `ProtocolAdapter`), sized by the number of vendor protocols, not by feature growth |
-| `execution-isolation` | Bind each execution to one trust principal and mediate its provider traffic host-side | Execution isolation & credential mediation | `dartclaw_runtime/lib/src/container/`, `execution_policy_resolver.dart`, `dartclaw_bridge/`, `dartclaw_core/lib/src/container/`, `CredentialRegistry` in `dartclaw_kernel` | Small in code, large in invariant density. Principal, Authority, Gateway and Bridge are one indivisible trust story (ADR-012, ADR-051) |
+| `execution-isolation` | Bind each execution to one trust principal and mediate container egress over the `provider`, `mcp` and `registry` surfaces | Execution isolation & credential mediation | `dartclaw_runtime/lib/src/container/`, `execution_policy_resolver.dart`, `dartclaw_bridge/`, `dartclaw_core/lib/src/container/`, `CredentialRegistry` in `dartclaw_kernel` | A Container Authority owns each pipe and its grants. `registry` is for `workspace` only (ADR-012, ADR-051, ADR-062) |
 | `guarding-audit` | Evaluate every tool call, inbound message and egress against policy, and record the verdict | Tool-call guarding | `dartclaw_kernel/lib/src/` (guard contracts, `GuardChain`), `dartclaw_runtime/lib/src/{security,audit}/`, `ToolPolicyGuard` in `dartclaw_core/lib/src/agents/` | Deliberately EventBus-free so guards run standalone; that constraint keeps the context from absorbing server wiring |
 | `turn-orchestration` | Admit, run and observe one unit of agent work end to end | Turn & execution orchestration | `dartclaw_runtime/lib/src/turn_*.dart`, `execution_coordinator*.dart`, `worker_capacity_gate.dart`, `{concurrency,context,behavior}/`; `dartclaw_core/lib/src/{turn,agents,concurrency}/` | The densest coupling cluster. Correctly one context, incorrectly spread over a flat directory of top-level files |
 | `runtime-governance` | Enforce pre-execution limits on cost, rate and runaway autonomy | Runtime governance | `dartclaw_runtime/lib/src/{governance,emergency}/`, `turn_governance_enforcer.dart`, `GovernanceConfig` and `SlidingWindowRateLimiter` in `dartclaw_kernel` | Small but linguistically sharp. Separate from `turn-orchestration` because the glossary draws the pre/post-governance line explicitly |
@@ -153,7 +153,7 @@ carries the full disambiguation.
 | Context | Contested / load-bearing terms |
 |---|---|
 | `provider-mediation` | **Bridge** (vs. container bridge), **Capability** (harness capability vs. platform capability), Protocol Adapter, Canonical Tool Taxonomy |
-| `execution-isolation` | **Principal**, **Container Authority**, **Host Gateway**, **Bridge**, Execution Policy, Security Profile |
+| `execution-isolation` | **Principal**, **Container Authority**, **Host Gateway**, **Bridge**, Registry Surface, Execution Policy, Security Profile |
 | `guarding-audit` | **Audit** (guard evidence vs. observability trace), Guard Verdict, egress guard, Tool Approval Request |
 | `turn-orchestration` | **Turn**, **Worker**, **Context** (context window vs. Workflow Context vs. Context Engine), Execution Lease, Execution Fingerprint, Logical Agent |
 | `runtime-governance` | **Budget** (governance daily tokens vs. workflow step budget), Emergency Control, Loop Detector |

@@ -9,15 +9,17 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 void main() {
-  for (final format in ['human', 'json']) {
-    test('standalone $format question warning reaches real stderr and file with redaction', () async {
-      final directory = Directory.systemTemp.createTempSync('standalone_codex_logging');
-      addTearDown(() => directory.deleteSync(recursive: true));
-      final logFile = '${directory.path}/dartclaw.log';
+  group('standalone', () {
+    late final String packageConfig;
+    late final String compiledProbe;
+
+    setUpAll(() async {
       final library = await Isolate.resolvePackageUri(
         Uri.parse('package:dartclaw_cli/src/commands/config_loader.dart'),
       );
-      if (library == null) throw StateError('Could not resolve dartclaw_cli package root');
+      if (library == null) {
+        throw StateError('Could not resolve dartclaw_cli package root');
+      }
       final packageRoot = File.fromUri(library).parent.parent.parent.parent.path;
       final fixture = p.join(
         packageRoot,
@@ -27,23 +29,45 @@ void main() {
         'fixtures',
         'standalone_codex_logging_probe.dart',
       );
-      final packageConfig = p.join(Directory(packageRoot).parent.parent.path, '.dart_tool', 'package_config.json');
-      final result = await Process.run(Platform.resolvedExecutable, [
+      packageConfig = p.join(Directory(packageRoot).parent.parent.path, '.dart_tool', 'package_config.json');
+      final directory = Directory.systemTemp.createTempSync('standalone_codex_logging_probe');
+      addTearDown(() => directory.deleteSync(recursive: true));
+      compiledProbe = p.join(directory.path, 'logging_probe.dill');
+
+      // Compiling in each case can exhaust its timeout under parallel test load.
+      final compile = await Process.run(Platform.resolvedExecutable, [
+        'compile',
+        'kernel',
         '--packages=$packageConfig',
         fixture,
-        logFile,
-        format,
+        '-o',
+        compiledProbe,
       ]);
-      expect(result.exitCode, 0, reason: '${result.stderr}');
-      for (final content in [result.stderr as String, File(logFile).readAsStringSync()]) {
-        expect('Unsupported Codex user input'.allMatches(content), hasLength(1));
-        expect(content, contains('Blue'));
-        expect(content, isNot(contains('sk_test_ABCSECRET')));
-        expect(content, isNot(contains('CUSTOM_SENTINEL')));
-        expect(content.split('\n').where((line) => line.trim().isNotEmpty), hasLength(1));
-      }
+      expect(compile.exitCode, 0, reason: '${compile.stderr}');
     });
-  }
+
+    for (final format in ['human', 'json']) {
+      test('$format question warning reaches real stderr and file with redaction', () async {
+        final directory = Directory.systemTemp.createTempSync('standalone_codex_logging');
+        addTearDown(() => directory.deleteSync(recursive: true));
+        final logFile = '${directory.path}/dartclaw.log';
+        final result = await Process.run(Platform.resolvedExecutable, [
+          '--packages=$packageConfig',
+          compiledProbe,
+          logFile,
+          format,
+        ]);
+        expect(result.exitCode, 0, reason: '${result.stderr}');
+        for (final content in [result.stderr as String, File(logFile).readAsStringSync()]) {
+          expect('Unsupported Codex user input'.allMatches(content), hasLength(1));
+          expect(content, contains('Blue'));
+          expect(content, isNot(contains('sk_test_ABCSECRET')));
+          expect(content, isNot(contains('CUSTOM_SENTINEL')));
+          expect(content.split('\n').where((line) => line.trim().isNotEmpty), hasLength(1));
+        }
+      });
+    }
+  });
 
   test('a standalone run installs a sink, so harness diagnostics are not discarded', () async {
     // Standalone lanes print only their own progress lines. Without an

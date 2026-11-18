@@ -1,6 +1,3 @@
-@Tags(['integration'])
-library;
-
 import 'dart:io';
 
 import 'package:dartclaw_runtime/src/knowledge/knowledge_hub_service.dart';
@@ -9,8 +6,7 @@ import 'package:dartclaw_runtime/src/knowledge/wiki_lint.dart';
 import 'package:dartclaw_runtime/src/knowledge/wiki_page_store.dart';
 import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
-import 'package:dartclaw_testing/dartclaw_testing.dart'
-    show InMemoryTemporalKnowledgeGraphService, openPreparedTaskBackend;
+import 'package:dartclaw_testing/dartclaw_testing.dart' show InMemoryTemporalKnowledgeGraphService;
 import 'package:test/test.dart';
 
 import '../helpers/search_index_test_support.dart';
@@ -30,7 +26,6 @@ import '../helpers/search_index_test_support.dart';
 /// shapes the writer cannot emit.
 void main() {
   late Directory workspace;
-  late DatabaseBackend taskBackend;
   late FullTextIndex memory;
   late TemporalKnowledgeGraphService kg;
   late WikiPageStore wiki;
@@ -49,7 +44,7 @@ void main() {
 
   setUp(() async {
     workspace = Directory.systemTemp.createTempSync('knowledge_hub_corpus_');
-    taskBackend = await openPreparedTaskBackend();
+    addTearDown(() => workspace.deleteSync(recursive: true));
     memory = await prepareMemoryIndex();
     kg = InMemoryTemporalKnowledgeGraphService();
     wiki = WikiPageStore(workspaceDir: workspace.path)..bootstrap();
@@ -124,11 +119,6 @@ void main() {
 
     _write(workspace, 'inbox/kestrel-brief.md', 'Kestrel brief awaiting ingestion.');
     _write(workspace, 'processed/kestrel-batch-1.md', 'Kestrel batch one, already ingested.');
-  });
-
-  tearDown(() async {
-    await taskBackend.close();
-    if (workspace.existsSync()) workspace.deleteSync(recursive: true);
   });
 
   KnowledgeHubService hub() => KnowledgeHubService(

@@ -168,52 +168,49 @@ taskResponses[0]({
 await new Promise((resolve) => setTimeout(resolve, 0));
 assert(panelAttributes.get('data-turn-status-turn-id') === 'turn-new', 'older task snapshot overwrote newer state');
 
-const chatSource = await readFile(new URL(process.argv[2]), 'utf8');
-const chatMethods = eval('({' +
-  extractMethod(chatSource, '_startTurnStatusPolling') + ',' +
-  extractMethod(chatSource, '_reconcileStreamRecovery') + ',' +
-  extractMethod(chatSource, '_stopTurnStatusPolling') +
-'})');
+globalThis.Stimulus = { Controller: class {} };
+globalThis.window = {};
+const toastContainer = { children: [] };
+globalThis.document = { getElementById: (id) => id === 'toast-container' ? toastContainer : null };
+const { default: ChatController } = await import(process.argv[2]);
+
 const chatResponses = [];
 let scheduledPoll = null;
 globalThis.fetch = () => new Promise((resolve) => chatResponses.push(resolve));
 globalThis.setInterval = (callback) => { scheduledPoll = callback; return 1; };
 globalThis.clearInterval = () => {};
-const chat = {
-  ...chatMethods,
+const chat = Object.assign(new ChatController(), {
   streaming: true,
   canCancel: false,
-  sessionId: 'chat-1',
+  element: { dataset: { sessionId: 'chat-1' } },
   turnStatusTimer: null,
-  turnStatusPollGeneration: 0,
   streamRecoveryTurnId: null,
   updateSendState() {},
-};
+});
 
 chat._startTurnStatusPolling();
 scheduledPoll();
 chatResponses[1]({ ok: true, json: async () => ({ can_cancel: true }) });
-await new Promise((resolve) => setTimeout(resolve, 0));
+await new Promise(setImmediate);
 assert(chat.canCancel === true, 'new chat snapshot was not applied');
 chatResponses[0]({ ok: true, json: async () => ({ can_cancel: false }) });
-await new Promise((resolve) => setTimeout(resolve, 0));
+await new Promise(setImmediate);
 assert(chat.canCancel === true, 'older chat snapshot overwrote newer state');
 
 chat._startTurnStatusPolling();
 chat._stopTurnStatusPolling();
 chatResponses[2]({ ok: true, json: async () => ({ can_cancel: true }) });
-await new Promise((resolve) => setTimeout(resolve, 0));
+await new Promise(setImmediate);
 assert(chat.canCancel === false, 'retired chat poll generation changed cancel state');
 
 let recoveryFinalized = null;
 let streamRecoveryMessage = '';
-const recoveringChat = {
-  _reconcileStreamRecovery: chatMethods._reconcileStreamRecovery,
+const recoveringChat = Object.assign(new ChatController(), {
   streamRecoveryTurnId: 'turn-current',
   hideRecovery() {},
   showRecovery(message) { streamRecoveryMessage = message; },
   finalizeTurn(options) { recoveryFinalized = options; },
-};
+});
 assert(
   !recoveringChat._reconcileStreamRecovery({ turn_id: 'turn-old', state: 'completed' }),
   'an old terminal snapshot reconciled a different disconnected stream',
@@ -233,6 +230,7 @@ assert(
 );
 assert(recoveringChat.streamRecoveryTurnId === null, 'terminal recovery retained a stale turn identity');
 
+const chatSource = await readFile(new URL(process.argv[2]), 'utf8');
 const lifecycleMethods = eval('({' +
   extractMethod(chatSource, 'handleTurnCancelled') + ',' +
   extractMethod(chatSource, 'handleSseClose') + ',' +

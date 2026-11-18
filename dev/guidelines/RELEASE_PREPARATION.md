@@ -39,9 +39,9 @@ bash dev/tools/release_check.sh --version 0.27.0 --status
 | `secrets` | No provider-shaped credential literal in tracked files (`dev/tools/secret_scan.sh`); fixtures assemble fake tokens at runtime | Host |
 | `doc-cuts` | The release range removes at most 1000 net markdown lines (`dev/tools/check_doc_cuts.sh`), else a commit message in it carries `Docs-Cut: <reason>` | Host |
 | `dependencies`, `assets` | Tracked enforced lockfiles; generated embedded assets | Host |
-| `format`, `analyze`, `tests` | Formatting, static analysis, default workspace suites | Host |
+| `format`, `analyze`, `tests` | Formatting, static analysis, developer-tool checks and default app/package tests | Host |
 | `postgres` | Plain PostgreSQL, explicit pgvector/hybrid, migration and restore contracts | Disposable live databases |
-| `architecture`, `fitness` | Package rules, schemas, architecture fitness | Host |
+| `architecture`, `fitness` | Package rules, schemas and the Dart suite in `dev/fitness` | Host |
 | `build` | Both host release bundles through `build.sh` | Host |
 | `whitespace` | Whitespace errors in the candidate commit | Host |
 | `linux` | Local gates, including `build`, then root container posture on the same commit | Lima Ubuntu arm64 VM; always refreshed |
@@ -50,7 +50,7 @@ bash dev/tools/release_check.sh --version 0.27.0 --status
 Release preparation owns coverage of these gates and reuses completed review proof where eligible. A story or spec
 never carries a task that re-runs a release gate. Runner receipts are bound to a single committed candidate;
 cross-commit reuse belongs in the qualification ledger with the input comparison. Story-level proof is the story's
-own tests plus the `fast` / `full` tiers in [Key Development Commands](KEY_DEVELOPMENT_COMMANDS.md#testing).
+own tests plus the `fast` / `full` tiers in [Key Development Commands](KEY_DEVELOPMENT_COMMANDS.md#testing-unit-integration-e2e).
 
 For the first host build, populate the verified native archive cache using the command in
 [Key Development Commands](KEY_DEVELOPMENT_COMMANDS.md#build). PostgreSQL contract tests may use container-provisioned

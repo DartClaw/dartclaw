@@ -1,39 +1,22 @@
 # DartClaw Testing Strategy
 
 > **Status**: Active
-> **Current through**: 0.27; verification scope revised 2026-09-19
+> **Last reviewed**: 2026-11-18
 > **Scope**: All packages in the DartClaw pub workspace
 
 ---
 
 ## Philosophy
 
-**Pragmatic and effective.** Tests exist to catch real bugs and prevent regressions, not to hit coverage targets. Every test should justify its existence by protecting against a plausible failure mode.
+Start with the failure a caller would notice. Drive the entry point the caller uses and assert the returned value,
+persisted change, delivered message or response frame. A refactor that preserves that contract should keep the test green.
 
-**Principles:**
-- Test behavior, not implementation — assert on observable outcomes, not internal state
-- Behavior-over-implementation is the default – a behavior-preserving refactor must not break tests
-- Table-drive any matrix where three or more cases share the same arrange/act/assert shape
-- A "unit" is a behavior, not a class — tests may involve multiple collaborating classes; the boundary is the public API, not the class boundary
-- The right test at the right layer — prefer the cheapest test that covers the risk
-- Prove each behavior at the lowest effective layer once – higher layers keep wiring/status smokes, not re-proofs
-- Sociable by default — let real collaborators participate; reserve test doubles for external boundaries (network, harness, channels, third-party APIs)
-- Security-critical code gets exhaustive coverage; plumbing code gets smoke coverage
-- False-positive tests (verifying we *don't* block legitimate input) are as valuable as true-positive tests
-- No real-time waits in tests — use `fake_async` for timer logic, `pumpEventQueue()` for microtask flushing
-- Tests must isolate the process-level resources they touch — ephemeral ports, per-test temp dirs, injected working directory — so every suite stays safe to run in parallel
-- Tests are production code — same lint rules, same review standards
-
-**Delete-on-sight categories**:
-- **Implementation-detail assertions** – internal call order/count, callback argument shape, cache internals, `same()` identity mirrors, and `watchKeys`/getter constants unless the identity itself is the public behavior.
-- **Weak assertions** – `toString` contains, length-only checks, "constructs with fields" getter mirrors, base-class identity checks, structural scans that only prove a file contains a string, and no-executor constant tests.
-- **Structural mirrors** – tests that restate enum values, route/title/nav group getters, or a model's field list without proving behavior.
-
-**Vital-core and data-format exception**: parser, codec, auth, guard, concurrency, crash-recovery, storage-CAS, workflow-correctness, and public configuration tests may be reduced by table-driving and fixture extraction only. Do not drop malformed-input, false-positive, boundary, or compatibility cases in those files.
-
-**Calibration** (Fowler): The sign of too little testing is that you cannot confidently change your code. The sign of too much is that you spend more time changing your tests than your production code.
-
-**Behavioral boundary rule** (Khorikov): Intra-system communications (domain classes calling each other) are implementation details — do not verify with mocks. Inter-system communications (calls to external systems like channels, harness binaries, third-party APIs) are part of observable behavior — fakes and assertions on those interactions are appropriate.
+- Give each behavior a named test that runs by itself. Table-drive cases with the same setup and assertions, naming each input or outcome so a failing row is selectable.
+- Use real collaborators and put doubles at the edge. A channel recipient, a retry count promised to a client, and a subprocess exit status are observable. Internal method order and private collection types can change freely.
+- Put the edge-case matrix at the cheapest layer that can distinguish success from failure. Exercise the assembled handler or runtime when wiring adds a risk the lower layer cannot see.
+- For a bug, run the regression against the broken behavior first. When rewriting an existing test, temporarily remove the behavior in isolation and check that the owning assertion fails. A rejected event followed by an accepted event on the same stream distinguishes filtering from a dead subscription.
+- Replace source-string scans for runtime behavior with executable assertions. Keep structural checks where the structure is the contract, such as package dependency direction or a published schema.
+- Preserve malformed inputs, legitimate inputs that must pass, denial cases, compatibility fixtures and boundary cases for guards, codecs, auth, storage, concurrency and workflow execution. Consolidate a duplicate only when the surviving test fails for the same regression.
 
 **BDD frameworks: evaluated, not adopted.** Dart BDD packages either target Flutter/widget tests or mostly rename `group`/`test` without removing DartClaw's real friction (fixture/harness setup, route requests, filesystem and workflow matrices). Use BDD *language* — behavior-first test names, scenario grouping, and small table- or `Given/When/Then`-shaped helpers — where it improves scanning. Do not add a BDD framework dependency.
 
@@ -70,9 +53,8 @@ or manufacture a full-suite receipt. Report functional results, unexecuted check
 
 ## Test Layers
 
-DartClaw uses a four-layer, testing-trophy model. The primary boundary between layers is **whether infrastructure setup is required** — not how many classes participate. A test involving five collaborating classes through a public API with no I/O is a unit test. A test of a single service that needs a temp directory is an integration test.
-
-The suite should be **component/integration-heavy by default** because many DartClaw regressions happen at composition boundaries: storage + services, workflow execution, task lifecycle, route behavior, guards, channels, and harness adapters. Unit tests still matter, but only where they buy cheap precision and clear failure localization.
+Choose the boundary that owns the risk and the infrastructure that boundary needs. A parser can usually be exercised in memory. SQL transactions need PostgreSQL.
+A route that projects workflow events into SSE needs the HTTP handler, event source and response stream.
 
 ```text
         Live / E2E        very few, explicit, expensive
@@ -96,7 +78,7 @@ public API. Only introduce test doubles when a collaborator crosses an external 
 construct.
 
 **Characteristics**:
-- Run in microseconds
+- Run in-process with no infrastructure startup
 - Zero or minimal `setUp`/`tearDown` overhead
 - Assertions on return values, observable state changes, or interactions with external boundaries
 - Use constructor injection for any dependency
@@ -106,21 +88,14 @@ construct.
 
 **When to skip**: Trivial delegating methods with zero branching. Generated boilerplate. Private helpers whose behavior is fully covered by public API tests.
 
-```dart
-group('SessionKey', () {
-  test('dmShared derives stable key from channel and peer', () {
-    final key = SessionKey.dmShared(channel: 'whatsapp', peerId: '+1234');
-    expect(key.scope, 'dm');
-    expect(key.value, contains('whatsapp'));
-  });
-});
-```
+For example, the session key suite checks that a literal peer ID containing `@` produces the encoded key that
+downstream storage uses. [Session key cases](../../packages/dartclaw_kernel/test/session_key_test.dart)
 
 ### Layer 2 — Component / Integration Tests
 
-**What**: Behavioral tests that need infrastructure — temp directories, domain fakes, or fakes for external boundaries
-(harness, channels, third-party APIs). SQL dialect, schema, transaction, interlock, search and restore behavior uses
-real disposable PostgreSQL instead. May involve one service or several wired together.
+Exercise a service through its storage or delivery boundary. Use an isolated directory for files and a recording
+harness or channel for outbound work. Use disposable PostgreSQL for SQL dialect, schema, transactions, interlocks,
+database search and restore behavior. An in-memory repository suffices when the claim concerns its caller.
 
 **Targets**: Services with file-based storage, multi-service interactions, EventBus subscriber chains, channel message
 routing, task lifecycle flows, workflow execution with fake harnesses, CLI/server wiring seams, and repository contracts.
@@ -139,27 +114,12 @@ routing, task lifecycle flows, workflow execution with fake harnesses, CLI/serve
 
 **When to skip**: When the service is a thin wrapper that delegates entirely to a tested component.
 
-```dart
-late Directory tempDir;
-late TaskService taskService;
-
-setUp(() {
-  tempDir = Directory.systemTemp.createTempSync('task_test_');
-  taskService = TaskService(repository: InMemoryTaskRepository());
-});
-
-tearDown(() => tempDir.deleteSync(recursive: true));
-
-test('task transitions from queued to running', () async {
-  final task = await taskService.create(description: 'build login');
-  await taskService.updateStatus(task.id, TaskStatus.running);
-  expect((await taskService.get(task.id))!.status, TaskStatus.running);
-});
-```
+The Knowledge Hub corpus suite seeds a temp wiki with both pipeline-authored pages and raw imported Markdown, then
+queries the hub and lints the wiki. It runs in the default suite. [Corpus tests](../../packages/dartclaw_runtime/test/integration/knowledge_hub_corpus_integration_test.dart)
 
 ### Layer 3 — API / Handler Tests
 
-**What**: Real shelf handlers invoked directly via `handler(Request(...))` — no TCP, no bind. Server wired with real storage and fakes for external boundaries.
+Invoke the shelf handler directly with a request. Use real services and isolate storage and external dependencies to the extent the response contract allows.
 
 **Targets**: HTTP route handlers, auth middleware, response shapes, error codes, content negotiation (JSON vs HTML fragment), SSE stream structure.
 
@@ -173,19 +133,8 @@ test('task transitions from queued to running', () async {
 
 **When to skip**: Endpoints that are trivial pass-through to a tested service with no transformation.
 
-```dart
-test('GET /api/tasks returns task list', () async {
-  await taskService.create(description: 'test task');
-  final response = await handler(
-    Request('GET', Uri.parse('http://localhost/api/tasks'),
-      headers: {'Authorization': 'Bearer $token'}),
-  );
-  expect(response.statusCode, 200);
-  final body = jsonDecode(await response.readAsString()) as List;
-  expect(body, hasLength(1));
-  expect(body.first['description'], 'test task');
-});
-```
+The workflow SSE suite drives a real handler, reads the connected snapshot and then checks the events a subscriber
+receives for that run. [Workflow SSE tests](../../packages/dartclaw_runtime/test/api/workflow_sse_test.dart)
 
 ### Layer 4 — Live Integration & E2E Tests
 
@@ -209,20 +158,8 @@ Workflow changes should move through the cheapest proof surface that covers the 
 3. **Targeted live canary** - one live integration canary for the changed subsystem.
 4. **Full live workflow sweep** - final confidence gate only.
 
-Commands:
-
-```bash
-bash dev/testing/profiles/workflow-contract/run.sh
-bash dev/testing/profiles/workflow-live/run.sh --canary step-isolation
-bash dev/testing/profiles/workflow-live/run.sh --canary implement-story
-bash dev/testing/profiles/workflow-live/run.sh --canary implement-prd
-bash dev/testing/profiles/workflow-live/run.sh --canary merge-resolve
-bash dev/testing/profiles/workflow-live/run.sh --full
-```
-
-Use the full live sweep once contract checks and the affected canary are green. Do not use workspace-root
-`dart test -t integration` as a workflow gate: this repo root has no default `test/` directory, and the integration tag
-is skipped by default unless the command uses `--run-skipped` against explicit files.
+Choose the profile from the [testing commands](KEY_DEVELOPMENT_COMMANDS.md#testing-unit-integration-e2e).
+Use the full live sweep when the change spans provider-backed journeys or release qualification calls for it.
 
 The live runner writes logs under `.agent_temp/` by default and summarizes warning classes that are easy to miss in the
 expanded reporter stream: cleanup idempotency noise, provider capability warnings, local plugin manifest warnings, and
@@ -253,19 +190,8 @@ The workflow integration tier (`packages/dartclaw_workflow` Layer 4 suite, run t
 
 The fixture default provider is `codex`: all four roles run on `gpt-5.6-luna` (planner at medium effort). The product recommendation is `gpt-5.6-sol` for every role with effort varied per role (`docs/guide/workflows.md`); the test mapping uses luna because on sol the plan step's sub-agent fan-out ended the turn after the first story spec, and luna is quicker and cheaper for the fixture. Opt into Claude Sonnet with `DARTCLAW_TEST_PROVIDER=claude`. A Claude harness may print the benign stderr notice `Permission mode forced to default — CLAUDE_CODE_SUBPROCESS_ENV_SCRUB is set`; the CLI does force default mode when the scrub var is set, while the host guard chain remains authoritative for step tool policy. Do not mistake the notice for a failure cause; a step failing `subtype=error_max_turns` points at the structured-output envelope finalizer's turn cap (`workflow_one_shot_runner.dart`), not at the env scrub.
 
-**Run the integration tier against Claude explicitly** (e.g. the other integration files):
-
-```bash
-DARTCLAW_TEST_PROVIDER=claude ANTHROPIC_API_KEY=... \
-  dart test --run-skipped -t integration packages/dartclaw_workflow
-```
-
-Mix-and-match works too — e.g. pin a specific per-role model:
-
-```bash
-DARTCLAW_TEST_REVIEWER_MODEL=claude-opus-5 \
-  dart test --run-skipped -t integration packages/dartclaw_workflow
-```
+Set the provider and any role overrides when invoking the affected workflow canary. The profile uses the provider
+preset for unspecified roles. [Canary commands](KEY_DEVELOPMENT_COMMANDS.md#testing-unit-integration-e2e)
 
 **Hermetic provider setup.** `workflow-live/run.sh` runs a fail-fast provider preflight before any `dart test` — a `--version` probe, a codex bundled-tool quarantine check, and Codex round-trips on the pinned workflow, planner, executor, and reviewer configurations (deduplicated when identical; Claude retains its executor-only probe; skip with `--skip-preflight`). Codex runs require the AndThen plugin under `~/.codex/plugins/cache/andthen`; the script copies and enables it in a profile-owned hermetic `CODEX_HOME` with seeded `auth.json` and a pinned executor model. Operator config cannot override fixture models in spawns that omit `--model` (skill-introspection probes, direct `executeTurn` calls). The step-isolation suite additionally pins `--model` explicitly on its direct harness spawns.
 
@@ -384,20 +310,11 @@ Single-package helpers live with their consumer: `WorkflowGitFixture` in `packag
 
 ### Test Configuration
 
-**`dart_test.yaml`** (workspace root):
-```yaml
-tags:
-  contract:
-  integration:
-    skip: "Requires live API credentials — run explicitly with: dart test --run-skipped -t integration"
-```
+The workspace and member `dart_test.yaml` files configure default skips. The following distinctions matter when selecting a run.
 
-**Tag usage**:
-- `@Tags(['integration'])` — live binary / network tests (skipped by default)
-- `@Tags(['contract'])` — shared interface compliance tests; selector only, not skipped by default. The repo currently uses shared contract helpers such as `searchBackendContractTests`, even when the tag itself is not applied.
-- No tag needed for unit and integration tests (the default)
-
-Package-level `dart_test.yaml` files mirror the workspace defaults where a package or app has its own integration-tagged tests, so the default skip text stays accurate when those packages are run in isolation.
+- An ordinary component test with isolated files, in-memory repositories or a scripted harness runs by default. Add `component` or `contract` only where someone will use that selector.
+- `slow` keeps expensive tests in the default suite and makes them separately selectable. Tag individual cases when a file mixes cheap assertions with real builds or process deadlines. Measure both selections and check that their counts add up to the unfiltered run.
+- `integration` opts a suite out of the default run for explicit setup such as a disposable PostgreSQL database, a provider or full runtime wiring. `live-e2e` identifies the heavy provider journeys. Use the narrowest documented profile or explicit file with its prerequisites.
 
 ### Testing Profiles (Pre-configured Environments)
 
@@ -415,52 +332,18 @@ Profiles have documented default ports in `dev/testing/README.md`. Use `--port <
 
 ## Async Testing Patterns
 
-### Timer-based logic: Use `fake_async`
+### Application timers
 
-```dart
-import 'package:fake_async/fake_async.dart';
+Advance the clock through the boundary the caller observes. The alert throttle suite checks delivery eligibility before and after
+its cooldown, using a virtual clock in a synchronous `fakeAsync` callback. [Alert throttle tests](../../packages/dartclaw_runtime/test/alerts/alert_throttle_test.dart)
 
-test('rate limiter resets after window', () {
-  fakeAsync((fake) {
-    final limiter = SlidingWindowRateLimiter(max: 5, window: Duration(minutes: 1));
-    for (var i = 0; i < 5; i++) limiter.record('sender1');
-    expect(limiter.isLimited('sender1'), isTrue);
+### Wait for the observable event
 
-    fake.elapse(Duration(minutes: 1));
-    expect(limiter.isLimited('sender1'), isFalse);
-  });
-});
-```
-
-**Important**: `fakeAsync` callbacks must be synchronous. Use `fake.flushMicrotasks()` and `fake.flushTimers()` for async-like control flow inside the callback.
-
-### Stream assertions: Use `StreamQueue`
-
-```dart
-import 'package:async/async.dart';
-
-test('event bus delivers typed events in order', () async {
-  final queue = StreamQueue(eventBus.on<TaskStatusChangedEvent>());
-  eventBus.fire(TaskStatusChangedEvent(taskId: '1', status: TaskStatus.running));
-  eventBus.fire(TaskStatusChangedEvent(taskId: '1', status: TaskStatus.review));
-
-  final first = await queue.next;
-  expect(first.status, TaskStatus.running);
-  final second = await queue.next;
-  expect(second.status, TaskStatus.review);
-  await queue.cancel();
-});
-```
-
-### Microtask yields — use `pumpEventQueue()`
-
-When testing broadcast streams or `EventBus`, use `await pumpEventQueue()` (from `package:test/test.dart`) to flush all pending microtasks and timer callbacks before making assertions. This is the canonical approach because:
-
-- It flushes the entire microtask queue (not just one turn), giving deterministic delivery of all pending stream events.
-- It communicates intent clearly — "flush pending async work" — unlike `Future.delayed(Duration.zero)` which looks like an arbitrary wait.
-- It composes correctly with `fake_async` and other test scheduling helpers.
-
-**Never** use `await Future.delayed(Duration.zero)` in tests — it flushes only a single microtask turn, may miss later deliveries, and obscures intent. Never use real-time delays (`Duration(milliseconds: 100)`) in tests.
+Subscribe before triggering the action. Await the frame, task result, or child-process exit and cancel subscriptions in
+teardown. A timeout bounds a missing signal. On the success path the test proceeds as soon as the signal arrives.
+Use `pumpEventQueue()` only to let already-scheduled in-process work advance. It cannot confirm completion of disk or
+network I/O. Keep a real deadline when termination of an OS process is the behavior under test.
+[Workflow event-stream tests](../../packages/dartclaw_runtime/test/api/workflow_sse_test.dart)
 
 ### Async loop safety
 
@@ -468,89 +351,34 @@ Never use `(_) async {}` delay patterns in production loops being tested. This c
 
 ---
 
-## Test Design Reference: Beck's Test Desiderata
+## Measuring feedback time
 
-When deciding *how* to test something, these 12 properties (Kent Beck, 2019) serve as trade-off sliders — no single test maximizes all of them:
-
-| Property | What it means | DartClaw emphasis |
-|----------|---------------|-------------------|
-| **Behavioral** | Sensitive to behavior changes | Primary — this is our core principle |
-| **Structure-insensitive** | Unchanged when code structure changes | Primary — tests should survive refactoring |
-| **Fast** | Sub-second execution | Layers 1-3 must be fast |
-| **Isolated** | Same results regardless of execution order | All layers — per-test `setUp`/`tearDown` |
-| **Deterministic** | No flakiness | All layers — no real-time, no network |
-| **Specific** | Failure cause is obvious | Prefer one behavior per test |
-| **Predictive** | Passing means production-ready | Stronger at Layer 2-4, weaker at Layer 1 |
-| **Readable** | Comprehensible for the reader | Name tests after the behavior, not the method |
-| **Writable** | Cheap to write relative to code cost | If setup is expensive, fix the design |
-| **Inspiring** | Passing tests inspire confidence | Comes from testing real behavior, not mocks |
-| **Composable** | Suite confidence > individual test confidence | Contract tests, overlapping coverage chains |
-| **Automated** | No human intervention | Layers 1-4; visual tests are the exception |
-
-**Key trade-off**: Unit tests sacrifice *Predictive* (they don't prove the whole system works) for *Fast*, *Specific*, and *Writable*. Integration tests sacrifice *Speed* for *Predictive*. Accept these trade-offs consciously.
-
-For the full framework, see [research: behavior-focused testing](../research/behavior-focused-testing/research.md).
-
----
+Time the exact selector a developer will run. Compare the same reporter, machine and cache state, and record the
+number of cases executed. For a slow file, the JSON reporter records test start and finish times. Use those to
+distinguish expensive fixtures and real waits from Dart startup. Use elapsed time as diagnostic evidence. A missed
+deadline fails a test only when the deadline belongs to the behavior under test or bounds a missing signal.
 
 ## Running Tests
 
-### Per-Package (Primary)
+Use the selectors and tier commands in [Key Development Commands](KEY_DEVELOPMENT_COMMANDS.md#testing-unit-integration-e2e).
 
-```bash
-# Run all tests for a package
-dart test packages/dartclaw_core
-dart test packages/dartclaw_runtime
-dart test packages/dartclaw_kernel
+| Change under test | Start here | Widen when |
+|---|---|---|
+| Local behavior or regression | Named case, then its file | Neighboring cases share setup or a state transition |
+| Handler, workflow step or channel adapter | Affected files or directory in that package | The changed contract has a consumer in another package |
+| Shared fixture, barrel or public type | Owning tests plus affected consumers | Consumers cannot be bounded confidently, so run the full tier |
+| Schema, transaction or restart recovery | The real boundary test with its required fixture | The change spans storage engines, runtime wiring or a live journey |
 
-# Run a specific test file
-dart test packages/dartclaw_runtime/test/api/task_routes_test.dart
+During a story, run the fixed fast smoke plus the story's own proofs. During iteration, rerun the failed case or file.
+Run the full tier and the required CI-equivalent checks at the integration points listed in Key Development Commands.
+Keep each member in its own test process and isolate mutable fixtures with per-test temp roots and ephemeral ports.
 
-# Run tests matching a name pattern
-dart test packages/dartclaw_core --name "SessionKey"
+### PostgreSQL contract
 
-# Run only contract tests
-dart test -t contract packages/dartclaw_core
-```
+The PostgreSQL gate runs first against plain PostgreSQL 14 without `public.vector`, then against a pgvector-capable
+database for explicit hybrid behavior. [CI-equivalent gate](KEY_DEVELOPMENT_COMMANDS.md#ci-equivalent-gate)
 
-### Mixed Local Integration Gates
-
-Layer 2/3 CLI/server tests exercise real local resources — binding ports, starting service wiring, probing static-asset layout. They run at default parallelism:
-
-```bash
-# One command per package: a single `dart test A B C` spans all three in ONE
-# process, placing dartclaw_cli's cwd-mutating suites beside server/workflow
-# suites that resolve relative paths.
-dart test --reporter=failures-only packages/dartclaw_workflow
-dart test --reporter=failures-only packages/dartclaw_runtime
-dart test --reporter=failures-only apps/dartclaw_cli
-```
-
-That holds only while every such test isolates what it touches. `dart test` runs suites as isolates inside **one OS process**, so ports, the filesystem, and the working directory are shared. A test that binds a fixed port, writes outside a temp dir, or assigns `Directory.current` will corrupt whichever suite happens to be running beside it — intermittently, and usually in a different file. Bind port `0`, use per-test temp roots, and inject the working directory (see `WorktreeManager(projectDir:)`) instead of reaching for `-j 1`.
-
-### All Packages
-
-```bash
-# Run the default workspace suites
-bash dev/tools/test_workspace.sh
-```
-
-### Live Integration Tests
-
-```bash
-# Requires real claude binary + API credentials
-dart test --run-skipped -t integration packages/dartclaw_core
-```
-
-#### PostgreSQL contract
-
-```bash
-# With Docker running, through local release gates (including Lima):
-bash dev/tools/postgres_contract.sh
-```
-
-The script proves two separate resources: plain PostgreSQL 14 first with no `public.vector`, then a pgvector-capable
-database for explicit hybrid behavior. It removes disposable resources on success, failure or interruption. A
+It removes disposable resources on success, failure or interruption. A
 container may provision test resources for the local gates, but that does not make a container engine the operator setup default.
 
 Alternatively, supply the runner's documented disposable PostgreSQL URLs. Fixtures create/drop schemas, roles and
@@ -600,25 +428,17 @@ When implementing a new feature (FIS), determine test requirements by asking:
 
 Each FIS should specify which layers are needed and why, referencing this strategy.
 
-### Coverage Expectations by Package
+### Reviewing coverage
 
-| Package | Target | Rationale |
-|---------|--------|-----------|
-| `dartclaw_kernel` | 85%+ | Shared config and guard contracts are security-critical |
-| `dartclaw_core` | 80%+ | Runtime foundations and data integrity — bridges, events, persistence, crash recovery |
-| `dartclaw_runtime` | 70%+ | Largest package; many lines are template rendering |
-| Channel packages | 75%+ | Message routing, webhook parsing, access control |
-| `dartclaw_testing` | 60%+ | Test infrastructure — lower bar acceptable |
-| `dartclaw_cli` | 60%+ | CLI wiring; core logic tested via server package |
-
-These are guidance targets, not enforcement gates. A package at 65% with well-chosen tests is better than 90% with brittle ones.
+Review changed behavior for an untested failure, boundary input, or affected consumer. Use a coverage report to
+locate unexecuted branches when that helps. Before merge, record the selected commands, pass and skip counts, and
+which real boundaries ran. Keep flaky tests enabled while diagnosing them. Quarantine requires a maintainer decision.
 
 ---
 
 ## Anti-Patterns
 
-- **Real-time waits** — `await Future.delayed(Duration(milliseconds: 200))` in tests. Use `fake_async` or `await pumpEventQueue()` for microtask flushing.
-- **`Future.delayed(Duration.zero)` in tests** — use `await pumpEventQueue()` instead; it flushes the whole queue and communicates intent clearly.
+- **Waiting a fixed interval for an async result**. A short sleep races a busy host and a long one slows every pass. Wait for the emitted event or the operation's completion.
 - **Local fake redeclaration** — Copying `FakeAgentHarness` into a test file instead of importing from `dartclaw_testing`. Causes drift.
 - **Testing implementation details** — Asserting on private field values, internal call sequences between domain classes, or the specific way a result was computed. Test what the system *produces*, not *how* it produces it. Note: asserting on interactions with *external boundaries* (e.g., verifying a message was sent to a channel, or that the correct review action was dispatched) is testing observable behavior, not implementation — that is appropriate.
 - **Mocking internal collaborators** — Replacing domain classes with mocks to test another domain class in isolation. Let real collaborators participate. Only use fakes at external boundaries. If constructing a collaborator is painful, that's design feedback — fix the design, not the test.

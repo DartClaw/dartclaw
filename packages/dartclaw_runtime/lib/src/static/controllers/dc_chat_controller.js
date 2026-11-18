@@ -16,8 +16,11 @@ import {
 } from './shared.js';
 
 const temporaryDrafts = new Map();
+const turnStatusNotice = 'chat-turn-status';
 
 export default class DcChatController extends Stimulus.Controller {
+  turnStatusPollGeneration = 0;
+
   connect() {
     this.attachments = [];
     this.references = [];
@@ -30,7 +33,6 @@ export default class DcChatController extends Stimulus.Controller {
     this.canCancel = false;
     this.activeTurnId = null;
     this.turnStatusTimer = null;
-    this.turnStatusPollGeneration = 0;
     this.streamRecoveryTurnId = null;
     this.conversationReady = false;
     this.conversationRevision = 0;
@@ -1075,36 +1077,41 @@ export default class DcChatController extends Stimulus.Controller {
 
   _startTurnStatusPolling() {
     this._stopTurnStatusPolling();
-    this.canCancel = false;
     this.updateSendState();
     if (!this.sessionId) return;
     const generation = this.turnStatusPollGeneration;
     const sessionId = this.sessionId;
+    const isCurrent = () => this.streaming && this.turnStatusPollGeneration === generation &&
+      this.sessionId === sessionId;
     let nextRequest = 0;
     let lastAppliedRequest = 0;
-    const poll = () => {
-      if (!this.streaming || this.turnStatusPollGeneration !== generation || this.sessionId !== sessionId) return;
+    const poll = async () => {
+      if (!isCurrent()) return;
       const request = ++nextRequest;
-      fetch('/api/sessions/' + encodeURIComponent(sessionId) + '/turn-status')
-        .then((response) => (response.ok ? response.json() : null))
-        .then((status) => {
-          showToast('info', '', { sourceRef: 'chat-turn-status', recovered: true });
-          if (!this.streaming || this.turnStatusPollGeneration !== generation || this.sessionId !== sessionId) return;
-          if (request < lastAppliedRequest) return;
-          lastAppliedRequest = request;
-          if (this._reconcileStreamRecovery(status)) return;
-          const next = Boolean(status && status.can_cancel === true);
-          if (next !== this.canCancel) {
-            this.canCancel = next;
-            this.updateSendState();
-          }
-        })
-        .catch(() => {
-          showToast('error', 'Turn status updates are unavailable', {
-            sourceRef: 'chat-turn-status',
-            persistent: true,
-          });
+      let response;
+      let status;
+      try {
+        response = await fetch('/api/sessions/' + encodeURIComponent(sessionId) + '/turn-status');
+        if (response.ok) status = await response.json();
+      } catch (_) {}
+      if (!isCurrent() || request < lastAppliedRequest) return;
+      lastAppliedRequest = request;
+      if (status === undefined) {
+        showToast('error', 'Turn status updates are unavailable', {
+          sourceRef: turnStatusNotice,
+          persistent: true,
         });
+        // Stop rechecks the server on click, so keep its last known state after transport or decode failure.
+        if (response?.ok !== false) return;
+      } else {
+        showToast('info', '', { sourceRef: turnStatusNotice, recovered: true });
+        if (this._reconcileStreamRecovery(status)) return;
+      }
+      const next = status?.can_cancel === true;
+      if (next !== this.canCancel) {
+        this.canCancel = next;
+        this.updateSendState();
+      }
     };
     poll();
     this.turnStatusTimer = setInterval(poll, 2500);
@@ -1132,6 +1139,7 @@ export default class DcChatController extends Stimulus.Controller {
     if (this.turnStatusTimer !== null) {
       clearInterval(this.turnStatusTimer);
       this.turnStatusTimer = null;
+      showToast('info', '', { sourceRef: turnStatusNotice, recovered: true });
     }
     this.canCancel = false;
   }

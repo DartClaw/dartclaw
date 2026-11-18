@@ -80,7 +80,8 @@ brings it back.
   displayed turn; **Queue** beside it accepts the draft in order, and **Steer** in its menu stops the displayed turn and
   sends the follow-up after cancellation is confirmed. Queued and held turns render as one-line rows above the composer
   with edit and remove controls. Failed, cancelled, stopped, and restart-recovered work holds queued items until
-  **Release** on the oldest held row sends the next queued message.
+  **Release** on the oldest held row sends the next queued message. If turn status updates fail, chat shows one
+  warning until polling recovers.
 - **Streaming**: Responses appear in real-time as the agent generates them
 - **Interrupted turns**: Failed or recovered turns render inline retry guidance through the `turn_error` stream path and persisted turn-failed messages.
 - **Retained history**: The page loads at most 200 visible messages at a time. Earlier pages and `?message=<id>` deep links

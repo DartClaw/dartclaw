@@ -876,30 +876,34 @@ void main() {
       expect(finalRun?.status, equals(WorkflowRunStatus.failed));
     });
 
-    // These remain real process tests: they prove OS process-tree termination,
-    // not just executor timeout bookkeeping.
-    test('bash step timeout pauses workflow', () async {
-      final definition = h.makeDefinition(
-        steps: [
-          const WorkflowStep(
-            id: 'bash1',
-            name: 'Bash 1',
-            taskType: WorkflowTaskType.bash,
-            prompts: ['sleep 10'],
-            timeoutSeconds: 1,
-          ),
-        ],
-      );
+    // Real deadlines give the OS time to start the process tree before DartClaw must terminate it.
+    test(
+      'bash step timeout pauses workflow',
+      () async {
+        final definition = h.makeDefinition(
+          steps: [
+            const WorkflowStep(
+              id: 'bash1',
+              name: 'Bash 1',
+              taskType: WorkflowTaskType.bash,
+              prompts: ['sleep 10'],
+              timeoutSeconds: 1,
+            ),
+          ],
+        );
 
-      final run = h.makeRun(definition);
-      await h.repository.insert(run);
-      final context = WorkflowContext();
+        final run = h.makeRun(definition);
+        await h.repository.insert(run);
+        final context = WorkflowContext();
 
-      await h.executor.execute(run, definition, context);
+        await h.executor.execute(run, definition, context);
 
-      final finalRun = await h.repository.getById('run-1');
-      expect(finalRun?.status, equals(WorkflowRunStatus.failed));
-    }, timeout: const Timeout(Duration(seconds: 10)));
+        final finalRun = await h.repository.getById('run-1');
+        expect(finalRun?.status, equals(WorkflowRunStatus.failed));
+      },
+      tags: 'slow',
+      timeout: const Timeout(Duration(seconds: 10)),
+    );
 
     test(
       'bash step timeout terminates the spawned process',
@@ -928,6 +932,7 @@ void main() {
       skip: PlatformCapabilities().posixSignalsAvailable
           ? false
           : 'Native Windows Bash descendant containment is unsupported',
+      tags: 'slow',
       timeout: const Timeout(Duration(seconds: 10)),
     );
 
@@ -981,69 +986,82 @@ void main() {
       skip: PlatformCapabilities().posixSignalsAvailable
           ? false
           : 'Native Windows Bash descendant containment is unsupported',
+      tags: 'slow',
       timeout: const Timeout(Duration(seconds: 10)),
     );
 
-    test('bash step deadline includes an indefinitely backgrounded child', () async {
-      if (!Platform.isLinux && !Platform.isMacOS) return;
-      final pidFile = p.join(h.tempDir.path, 'indefinite-child.pid');
-      addTearDown(() async {
-        if (!File(pidFile).existsSync()) return;
-        final childPid = int.tryParse(File(pidFile).readAsStringSync().trim());
-        if (childPid == null) return;
+    test(
+      'bash step deadline includes an indefinitely backgrounded child',
+      () async {
+        final pidFile = p.join(h.tempDir.path, 'indefinite-child.pid');
+        addTearDown(() async {
+          if (!File(pidFile).existsSync()) return;
+          final childPid = int.tryParse(File(pidFile).readAsStringSync().trim());
+          if (childPid == null) return;
+          final probe = await Process.run('/bin/sh', ['-c', 'kill -0 $childPid 2>/dev/null']);
+          if (probe.exitCode == 0) Process.killPid(childPid, ProcessSignal.sigkill);
+        });
+        final definition = h.makeDefinition(
+          steps: [
+            WorkflowStep(
+              id: 'bash1',
+              name: 'Bash 1',
+              taskType: WorkflowTaskType.bash,
+              prompts: ['while :; do sleep 1; done & echo \$! > "$pidFile"'],
+              timeoutSeconds: 1,
+            ),
+          ],
+        );
+        final run = h.makeRun(definition);
+        await h.repository.insert(run);
+        final stopwatch = Stopwatch()..start();
+
+        await h.executor.execute(run, definition, WorkflowContext());
+        stopwatch.stop();
+
+        final childPid = int.parse(File(pidFile).readAsStringSync().trim());
+        final probe = await Process.run('/bin/sh', ['-c', 'kill -0 $childPid 2>/dev/null']);
+        final finalRun = await h.repository.getById('run-1');
+        expect(finalRun?.status, WorkflowRunStatus.failed);
+        expect(stopwatch.elapsed, lessThan(const Duration(seconds: 5)));
+        expect(probe.exitCode, isNot(0));
+      },
+      skip: Platform.isLinux || Platform.isMacOS ? false : 'Bash process-tree deadline requires Linux or macOS',
+      tags: 'slow',
+      timeout: const Timeout(Duration(seconds: 10)),
+    );
+
+    test(
+      'bash step timeout escalates a background child that ignores SIGTERM',
+      () async {
+        final pidFile = p.join(h.tempDir.path, 'stubborn-child.pid');
+        final definition = h.makeDefinition(
+          steps: [
+            WorkflowStep(
+              id: 'bash1',
+              name: 'Bash 1',
+              taskType: WorkflowTaskType.bash,
+              prompts: ['(trap "" TERM; while :; do sleep 1; done) & child=\$!; echo \$child > "$pidFile"; wait'],
+              timeoutSeconds: 1,
+            ),
+          ],
+        );
+
+        final run = h.makeRun(definition);
+        await h.repository.insert(run);
+        await h.executor.execute(run, definition, WorkflowContext());
+
+        final childPid = int.parse(File(pidFile).readAsStringSync().trim());
         final probe = await Process.run('/bin/sh', ['-c', 'kill -0 $childPid 2>/dev/null']);
         if (probe.exitCode == 0) Process.killPid(childPid, ProcessSignal.sigkill);
-      });
-      final definition = h.makeDefinition(
-        steps: [
-          WorkflowStep(
-            id: 'bash1',
-            name: 'Bash 1',
-            taskType: WorkflowTaskType.bash,
-            prompts: ['while :; do sleep 1; done & echo \$! > "$pidFile"'],
-            timeoutSeconds: 1,
-          ),
-        ],
-      );
-      final run = h.makeRun(definition);
-      await h.repository.insert(run);
-      final stopwatch = Stopwatch()..start();
-
-      await h.executor.execute(run, definition, WorkflowContext());
-      stopwatch.stop();
-
-      final childPid = int.parse(File(pidFile).readAsStringSync().trim());
-      final probe = await Process.run('/bin/sh', ['-c', 'kill -0 $childPid 2>/dev/null']);
-      final finalRun = await h.repository.getById('run-1');
-      expect(finalRun?.status, WorkflowRunStatus.failed);
-      expect(stopwatch.elapsed, lessThan(const Duration(seconds: 5)));
-      expect(probe.exitCode, isNot(0));
-    }, timeout: const Timeout(Duration(seconds: 10)));
-
-    test('bash step timeout escalates a background child that ignores SIGTERM', () async {
-      if (!Platform.isLinux && !Platform.isMacOS) return;
-      final pidFile = p.join(h.tempDir.path, 'stubborn-child.pid');
-      final definition = h.makeDefinition(
-        steps: [
-          WorkflowStep(
-            id: 'bash1',
-            name: 'Bash 1',
-            taskType: WorkflowTaskType.bash,
-            prompts: ['(trap "" TERM; while :; do sleep 1; done) & child=\$!; echo \$child > "$pidFile"; wait'],
-            timeoutSeconds: 1,
-          ),
-        ],
-      );
-
-      final run = h.makeRun(definition);
-      await h.repository.insert(run);
-      await h.executor.execute(run, definition, WorkflowContext());
-
-      final childPid = int.parse(File(pidFile).readAsStringSync().trim());
-      final probe = await Process.run('/bin/sh', ['-c', 'kill -0 $childPid 2>/dev/null']);
-      if (probe.exitCode == 0) Process.killPid(childPid, ProcessSignal.sigkill);
-      expect(probe.exitCode, isNot(0));
-    }, timeout: const Timeout(Duration(seconds: 12)));
+        expect(probe.exitCode, isNot(0));
+      },
+      skip: Platform.isLinux || Platform.isMacOS
+          ? false
+          : 'Bash process-tree signal escalation requires Linux or macOS',
+      tags: 'slow',
+      timeout: const Timeout(Duration(seconds: 12)),
+    );
 
     test('bash stdout is retained only up to the configured byte cap', () async {
       final definition = h.makeDefinition(

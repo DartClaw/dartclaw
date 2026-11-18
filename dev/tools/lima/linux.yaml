@@ -15,7 +15,7 @@ provision:
       set -euo pipefail
       export DEBIAN_FRONTEND=noninteractive
       apt-get update
-      apt-get install --yes --no-install-recommends ca-certificates curl git ripgrep python3 unzip build-essential docker.io
+      apt-get install --yes --no-install-recommends ca-certificates curl git ripgrep python3 unzip build-essential docker.io nodejs
       systemctl enable --now docker
       usermod -aG docker "{{.User}}"
       # Keep this SDK and checksum aligned with the Check job's sdk pin.

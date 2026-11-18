@@ -35,7 +35,7 @@ import 'package:path/path.dart' as p;
 /// Covers the union of behaviours the route suites need:
 /// - [startResult]/[getResult]/[listResult]/[pauseResult]/[resumeResult] —
 ///   pre-configured return values.
-/// - [startError] / [getError] / [throwOnPause] / [throwOnResume] / [throwOnCancel] —
+/// - [startError] / [throwOnPause] / [throwOnResume] / [throwOnCancel] —
 ///   injected failures.
 /// - [startCompleter] — gate [start] until completed (concurrency tests).
 /// - [validateRequiredVars] — when true, [start] enforces required-variable
@@ -76,8 +76,6 @@ class FakeWorkflowService extends WorkflowService {
 
   // Injected failures.
   Object? startError;
-  Object? getError;
-  int? throwOnGetCall;
   bool throwOnPause = false;
   bool throwOnResume = false;
   bool throwOnCancel = false;
@@ -95,7 +93,6 @@ class FakeWorkflowService extends WorkflowService {
   final List<String> calls = <String>[];
   final List<WorkflowRun> activeRuns = <WorkflowRun>[];
   int startCalls = 0;
-  int getCalls = 0;
   String? lastProjectId;
   WorkflowApprovalPolicy? lastApprovals;
   bool lastAllowDirtyLocalPath = false;
@@ -139,8 +136,6 @@ class FakeWorkflowService extends WorkflowService {
   @override
   Future<WorkflowRun?> get(String runId) async {
     calls.add('get:$runId');
-    getCalls++;
-    if (getError != null && (throwOnGetCall == null || throwOnGetCall == getCalls)) throw getError!;
     return getResult;
   }
 

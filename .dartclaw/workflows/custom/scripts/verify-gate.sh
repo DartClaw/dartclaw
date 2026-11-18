@@ -70,7 +70,11 @@ gate_analyze() {
   dart analyze --fatal-infos
 }
 gate_test() {
-  bash dev/tools/test_workspace.sh
+  if [ "$GATE" = all ]; then
+    bash dev/tools/test_workspace.sh --separate-fitness
+  else
+    bash dev/tools/test_workspace.sh
+  fi
 }
 gate_arch() {
   dart run dev/tools/arch_check.dart

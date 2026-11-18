@@ -41,7 +41,7 @@ const _gates = <String, List<List<String>>>{
     ['dart', 'analyze', '--fatal-infos'],
   ],
   'tests': [
-    ['bash', 'dev/tools/test_workspace.sh'],
+    ['bash', 'dev/tools/test_workspace.sh', '--separate-fitness'],
   ],
   'postgres': [
     ['bash', 'dev/tools/postgres_contract.sh'],

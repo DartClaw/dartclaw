@@ -35,13 +35,36 @@ void main() {
         tempFiles: tempFiles,
       );
 
-      final secretPath = p.join(dataDir.path, 'projects', '.git-askpass-deploy.$secretSuffix');
-      expect(plan.environment['GIT_ASKPASS'], p.join(dataDir.path, 'projects', '.git-askpass-deploy'));
+      final secretPath = p.join(dataDir.path, 'git-askpass', '.git-askpass-deploy.$secretSuffix');
+      expect(plan.environment['GIT_ASKPASS'], p.join(dataDir.path, 'git-askpass', '.git-askpass-deploy'));
       expect(tempFiles, contains(secretPath));
       expect(modeOf(secretPath), 0x180);
       expect(modeOf(plan.environment['GIT_ASKPASS']!) & 0x3f, 0, reason: 'the script is owner-only too');
     });
   }
+
+  test('askpass files are written to the owner-only git-askpass directory and never under projects', () {
+    final askpassDir = p.join(dataDir.path, 'git-askpass');
+    for (final (entry, remote, secretSuffix) in [
+      (const CredentialEntry.githubToken(token: 'ghp-secret'), 'https://github.com/acme/app.git', 'token'),
+      (const CredentialEntry(apiKey: 'api-secret'), 'https://git.example.com/acme/app.git', 'key'),
+    ]) {
+      final plan = resolveGitCredentialPlan(
+        remote,
+        'deploy',
+        CredentialsConfig(entries: {'deploy': entry}),
+        dataDir: dataDir.path,
+        tempFiles: <String>[],
+      );
+
+      final askpass = plan.environment['GIT_ASKPASS']!;
+      expect(p.dirname(askpass), askpassDir);
+      expect(File('$askpass.$secretSuffix').existsSync(), isTrue);
+      expect(modeOf(askpassDir), 0x1c0);
+      final projectsDir = Directory(p.join(dataDir.path, 'projects'));
+      expect(!projectsDir.existsSync() || projectsDir.listSync().isEmpty, isTrue);
+    }
+  });
 
   group('the GitHub token askpass', () {
     late String askpass;

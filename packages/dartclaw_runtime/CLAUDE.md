@@ -78,12 +78,17 @@ service graph, and the standalone-only behaviours are parameters of the one root
 - The registry is built in the **base** phase, so a caller can resolve a definition before any execution capacity
   exists. Its `continuityProviders` therefore come from `HarnessFactory.probeContinuityProviders()` capability probes
   (`cwd: '/'`, no spawn) rather than from a wired harness — that is what makes a registry available before one exists.
-- `runtimeCwd` (default `Directory.current.path`, made absolute once) is the repository the runtime operates on, and
+- `runtimeCwd` (default `Directory.current.path`, made absolute once; one that is or lies inside the data directory,
+  as under `dartclaw service install`, becomes `config.workspaceDir` with one INFO line, because no container can reach
+  the data directory) is the repository the runtime operates on, and
   each wiring that means that repository takes it as a required constructor input: `ProjectWiring` →
   `ProjectServiceImpl.localProject` (`_local`, the one answer: the server's container mount roots, the conversation
   `_local` context and the session reference root read it from `ProjectService`, and a composition without one has no
-  `_local`); `SecurityWiring` (the container `/project` mount); `HarnessWiring` (`<runtimeCwd>/.dartclaw` behavior
-  files, every spawning `HarnessFactoryConfig.cwd`, the model-catalogue probe; capability probes stay `cwd: '/'` and
+  `_local`); `SecurityWiring` (the container `/project` mount, which goes through the one data-directory rule,
+  `container/data_dir_mount_rule.dart#operatorMount`, like every local-path and named-agent execution-directory mount:
+  a source that is or lies inside the data directory is skipped, one that contains it is masked by an anonymous volume;
+  `ProjectMutationService` asks the same rule before accepting an API `localPath`); `HarnessWiring`
+  (`<runtimeCwd>/.dartclaw` behavior files, every spawning `HarnessFactoryConfig.cwd`, the model-catalogue probe; capability probes stay `cwd: '/'` and
   never spawn); `TaskWiring` (`MergeExecutor`, `WorktreeManager.projectDir`, `DiffGenerator`,
   `TaskExecutor.currentDirectory`) and, for `serve`, the artifact workspace. Two process-cwd reads
   remain in runtime and core library code: the `runtimeCwd` default itself, and `SecurityWiring`'s optional

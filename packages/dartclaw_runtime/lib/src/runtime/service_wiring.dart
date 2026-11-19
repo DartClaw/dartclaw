@@ -561,7 +561,11 @@ class _RuntimeAssembly {
   /// Agent spawns and behavior files, the container `/project` mount, worktree
   /// placement, diff generation, the `_local` project and the workflow output
   /// root all key off it. A headless caller injects one so a run started from a
-  /// repository other than the launch directory still roots there.
+  /// repository other than the launch directory still roots there. A directory
+  /// that is or lies inside the data directory (a `serve` installed by
+  /// `dartclaw service install` starts there) resolves to
+  /// `config.workspaceDir` instead: the data directory is never mounted, so no
+  /// container could reach it as a working directory.
   final String runtimeCwd;
 
   /// The directory a workflow run falls back to when it resolves no project —
@@ -667,7 +671,11 @@ class _RuntimeAssembly {
        platformCapabilities =
            platformCapabilities ?? PlatformCapabilities(environment: environment ?? Platform.environment),
        _environment = environment ?? Platform.environment,
-       runtimeCwd = p.normalize(p.absolute(runtimeCwd ?? Directory.current.path)),
+       runtimeCwd = _runtimeDirectory(
+         runtimeCwd ?? Directory.current.path,
+         dataDir: dataDir,
+         workspaceDir: config.workspaceDir,
+       ),
        _localRepositoryPosture = localRepositoryPosture,
        resolvedAssets =
            resolvedAssets ?? const AssetResolver().resolveAssets(const AssetResolutionRequest.noConfiguredAssets()),
@@ -675,6 +683,19 @@ class _RuntimeAssembly {
        postMcpStartupHook = postMcpStartupHook ?? _startSpaceEvents;
 
   static DartclawServer _identityServerFactory(DartclawServer server) => server;
+
+  static String _runtimeDirectory(String requested, {required String dataDir, required String workspaceDir}) {
+    final resolved = p.normalize(p.absolute(requested));
+    final canonical = canonicalizePathWithExistingAncestors(resolved);
+    final canonicalDataDir = canonicalizePathWithExistingAncestors(dataDir);
+    if (!p.equals(canonicalDataDir, canonical) && !p.isWithin(canonicalDataDir, canonical)) return resolved;
+    final workspace = p.normalize(p.absolute(workspaceDir));
+    _log.info(
+      'Runtime directory $resolved is or lies inside the data directory $dataDir, which is never mounted into a '
+      'container; using the workspace directory $workspace instead',
+    );
+    return workspace;
+  }
 
   Future<void> wireBase() async {
     final builtInSkillsSourceDir = _builtInSkillsSourceDir(resolvedAssets);

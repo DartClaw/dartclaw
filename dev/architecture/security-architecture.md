@@ -275,7 +275,10 @@ docker create --name dartclaw-<fnv1a8(dataDir)>-<profile>-<epoch><n> \
   --network none --cap-drop ALL --read-only \
   --tmpfs /tmp:rw,noexec,nosuid,size=100m --security-opt no-new-privileges \
   -v <workspace>:/workspace:rw          # workspace profile
-  -v <project>:/project:ro  -v <clones dir>:/projects:ro   # workspace profile; local-path projects mount /projects/<id>:ro
+  -v <clones dir>:/projects:ro          # workspace profile
+  -v /var/cache/dartclaw                # workspace profile: anonymous package-cache volume (ADR-062)
+  -v <project>:/project:ro              # workspace profile; local-path projects mount /projects/<id>:ro
+  -v /project/<relative data dir>       # only when <project> contains the data dir: anonymous volume masking it
   -v <bridge binary>:/opt/dartclaw/dartclaw-bridge:ro
   -v <data dir>/containers/<name>:/home/dartclaw/.dartclaw:rw   # per-authority generated state
   -v <artifacts dir>:/artifacts:rw      # only with an artifacts contract
@@ -283,6 +286,8 @@ docker create --name dartclaw-<fnv1a8(dataDir)>-<profile>-<epoch><n> \
   -e PUB_HOSTED_URL=http://127.0.0.1:8082/pub  # workspace only
   dartclaw-agent:latest sleep infinity
 ```
+
+The data directory as a whole, with its credentials, logs, sessions and gateway token, is never mounted; only DartClaw-owned subdirectories are (`workspace/` rw, the clones dir, per-authority generated state, artifacts, the bridge binary). `DartclawRuntime` resolves a runtime directory that is or lies inside the data directory to `<data dir>/workspace` and logs one INFO line, so a `serve` started from its data directory (the `service install` layout) works in the workspace. `<project>`, a local-path project and a named agent's execution directory go through one rule (`container/data_dir_mount_rule.dart`): a source equal to or inside the data directory is skipped; a source containing it is bound with the mask volume above, which shows the data directory empty. `ProjectMutationService` asks the same rule, so an API-created local-path project it would skip is refused with `LOCAL_PATH_NOT_MOUNTABLE`. Sources inside DartClaw's own container-visible roots (`<data dir>/workspace`, the clones dir, an agent's own workspace) mount unchanged. `serve` logs one INFO line per skipped or masked source, and `containerPathForHostPath` refuses a host path that would translate into a mask.
 
 `start()` is single-use: a lost container is not recreated (its bridges died with it), the execution must acquire a new authority (`ContainerAuthorityLostException`).
 
@@ -296,7 +301,7 @@ A profile ([ADR-012](../adrs/012-per-type-container-isolation.md)) is a template
 
 | Profile | Mounts | Used by |
 |---------|--------|---------|
-| `workspace` | `/workspace:rw`, `/project:ro`, `/projects:ro` (configured named agents: their workspace and the admitted directory at `/project:ro` only) | Owner and named-agent chats, default tasks, cron |
+| `workspace` | `/workspace:rw`, `/project:ro` (the runtime directory, which is the workspace when `serve` starts at or inside the data directory; data directory masked when it contains it), `/projects:ro`, the package-cache volume (configured named agents: their workspace and the admitted directory at `/project:ro` only, under the same skip and mask) | Owner and named-agent chats, default tasks, cron |
 | `restricted` | none, working dir `/tmp` | Search agent, explicitly declared tasks |
 
 Lifetimes: a logical-agent container spans that owner's turns; an ordinary task container spans its turn; a workflow worker holds one authority for the whole step. A container authority is granted only to a provider whose container execution DartClaw mediates, which excludes every ACP registration. Task dispatch defaults to `workspace`; the authenticated HTTP task API may declare `workspace` or `restricted`; channel and model-facing task creation cannot declare a profile, and the `research` category is refused so the restricted boundary cannot be widened silently.
@@ -321,7 +326,7 @@ When Docker is the boundary, Codex app-server uses `danger-full-access` (enforce
 
 ### Managed Workspaces and Temporary Conversations
 
-A named agent's managed workspace is `data_dir/agents/<id>/workspace`; the host validates the exact id-only `identity.json` in its parent home before wiring storage or execution. Workspace-profile containers mount only the workspace child at `/workspace` (the parent home and marker are absent) plus the admitted execution directory at `/project`, with no checkout, clones-root, or unrelated project mounts. Cached workers must match that directory, and the same directory supplies Claude's additional-directory skill root and Codex's `.agents/skills` root. Required container confinement refuses execution when the profile is unavailable. On unrestricted host execution, declared writable roots and tool grants are not OS isolation: the same-user provider process may reach neighboring host paths.
+A named agent's managed workspace is `data_dir/agents/<id>/workspace`; the host validates the exact id-only `identity.json` in its parent home before wiring storage or execution. Workspace-profile containers mount only the workspace child at `/workspace` (the parent home and marker are absent) plus the admitted execution directory at `/project` (never the data directory: a directory that is or lies inside it is not mounted, one that contains it shows it empty), with no checkout, clones-root, or unrelated project mounts. Cached workers must match that directory, and the same directory supplies Claude's additional-directory skill root and Codex's `.agents/skills` root. Required container confinement refuses execution when the profile is unavailable. On unrestricted host execution, declared writable roots and tool grants are not OS isolation: the same-user provider process may reach neighboring host paths.
 
 A process-retained temporary conversation gets a dedicated temporary authority only when the capability inventory matches the mediated container provider and workspace policy. Its session, messages, attachments, usage context, generated provider home, browser draft, and replay state stay out of durable stores; projection observers exclude it from lexical and vector indexes; contextual memory, wiki, and KG write tools refuse it; daily-log capture and knowledge-inbox intake omit it; audit and process logs keep only opaque metadata. Ending marks the session ending, confirms turn and root-process termination, destroys the container, clears process state, then revokes the link; failed confirmation leaves an auditable retryable state. Provider-side processing and authorized external tool effects are outside this guarantee.
 
@@ -424,7 +429,7 @@ Use two PostgreSQL roles: an administrator provisions the database, runtime role
 | HTTPS (GitHub token) | Remote rewritten to canonical HTTPS; `GIT_ASKPASS` script answers `x-access-token` and the token only to prompts for `https://github.com` and refuses every other host, so a `remote.origin.pushurl` elsewhere receives no credential and the push fails as `PushAuthFailure` |
 | HTTPS (other) | `GIT_ASKPASS` script that prints the secret |
 
-The askpass scripts read the secret from a helper file in `<data_dir>/projects/` (`.git-askpass-<ref>.key|.token`); the file is written mode 0600 and the script 0700 (`secureWriteFileSync`). The project service and push service delete these files at `dispose()` (shutdown), the workflow git port after each operation. Protect the data directory accordingly.
+The askpass scripts read the secret from a helper file in `<data_dir>/git-askpass/` (`.git-askpass-<ref>.key|.token`); the directory is 0700, the file is written mode 0600 and the script 0700 (`secureWriteFileSync`). No container profile mounts that directory, and the data directory as a whole is never mounted, so no container sees these files. The project service and push service delete them at `dispose()` (shutdown), the workflow git port after each operation.
 
 **Source**: `packages/dartclaw_runtime/lib/src/task/git_credential_env.dart`, `project/project_service_impl.dart`, `task/remote_push_service.dart`
 

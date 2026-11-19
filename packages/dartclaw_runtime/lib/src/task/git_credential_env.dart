@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:dartclaw_core/dartclaw_core.dart' show secureWriteFileSync;
+import 'package:dartclaw_core/dartclaw_core.dart' show chmodOwnerOnlyDirSync, secureWriteFileSync;
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
@@ -105,10 +105,10 @@ Map<String, String> _buildLegacyAskPassEnv(
   required String dataDir,
   required List<String> tempFiles,
 }) {
-  final keyFilePath = p.join(dataDir, 'projects', '.git-askpass-$credRef.key');
-  final scriptPath = p.join(dataDir, 'projects', '.git-askpass-$credRef');
+  final keyFilePath = p.join(_askpassDir(dataDir), '.git-askpass-$credRef.key');
+  final scriptPath = p.join(_askpassDir(dataDir), '.git-askpass-$credRef');
   try {
-    Directory(p.dirname(scriptPath)).createSync(recursive: true);
+    _createAskpassDir(dataDir);
     secureWriteFileSync(File(keyFilePath), apiKey);
     _writeOwnerOnlyScript(scriptPath, '#!/bin/sh\ncat \'$keyFilePath\'\n');
     for (final path in [scriptPath, keyFilePath]) {
@@ -127,10 +127,10 @@ Map<String, String> _buildGitHubTokenEnv(
   required String dataDir,
   required List<String> tempFiles,
 }) {
-  final tokenFilePath = p.join(dataDir, 'projects', '.git-askpass-$credRef.token');
-  final scriptPath = p.join(dataDir, 'projects', '.git-askpass-$credRef');
+  final tokenFilePath = p.join(_askpassDir(dataDir), '.git-askpass-$credRef.token');
+  final scriptPath = p.join(_askpassDir(dataDir), '.git-askpass-$credRef');
   try {
-    Directory(p.dirname(scriptPath)).createSync(recursive: true);
+    _createAskpassDir(dataDir);
     secureWriteFileSync(File(tokenFilePath), token);
     // Matching git's whole prompt prefix ("Username for '<url>': ") answers
     // only the canonical github.com host, so a repo-configured push URL on
@@ -156,6 +156,15 @@ Map<String, String> _buildGitHubTokenEnv(
     _log.warning('Failed to create GitHub askpass script: $e — using default git auth');
     return const {};
   }
+}
+
+// No container profile mounts this directory, so a credential written for a
+// host-side fetch or push is never visible inside a container.
+String _askpassDir(String dataDir) => p.join(dataDir, 'git-askpass');
+
+void _createAskpassDir(String dataDir) {
+  final directory = Directory(_askpassDir(dataDir))..createSync(recursive: true);
+  chmodOwnerOnlyDirSync(directory.path);
 }
 
 void _writeOwnerOnlyScript(String path, String contents) {

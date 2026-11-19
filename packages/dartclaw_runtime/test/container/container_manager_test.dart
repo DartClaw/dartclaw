@@ -225,7 +225,10 @@ void main() {
           profileId: profile,
           generatedStateDir: state,
           workspaceMounts: profile == 'workspace'
-              ? SecurityProfile.workspace(workspaceDir: '/tmp/workspace', projectDir: '/tmp/project').workspaceMounts
+              ? [
+                  ...SecurityProfile.workspace(workspaceDir: '/tmp/workspace').workspaceMounts,
+                  '/tmp/project:/project:ro',
+                ]
               : const ['/tmp/workspace:/workspace:rw', '/tmp/project:/project:ro'],
           registryClientEnvironment: gateway.registryClientEnvironment(principal),
           run: (_, arguments) async {
@@ -262,12 +265,12 @@ void main() {
     });
 
     test('workspace containers get an anonymous package cache that every removal deletes', () async {
-      expect(
-        SecurityProfile.workspace(workspaceDir: '/w', projectDir: '/p').workspaceMounts,
-        contains(SecurityProfile.packageCachePath),
-      );
+      expect(SecurityProfile.workspace(workspaceDir: '/w').workspaceMounts, contains(SecurityProfile.packageCachePath));
       expect(SecurityProfile.restricted.workspaceMounts, isNot(contains(SecurityProfile.packageCachePath)));
-      final workspaceMounts = SecurityProfile.workspace(workspaceDir: '/tmp/w', projectDir: '/tmp/p').workspaceMounts;
+      final workspaceMounts = [
+        ...SecurityProfile.workspace(workspaceDir: '/tmp/w').workspaceMounts,
+        '/tmp/p:/project:ro',
+      ];
       final calls = <List<String>>[];
       final starts = <List<String>>[];
       for (final (profile, mounts) in [

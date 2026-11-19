@@ -281,26 +281,29 @@ void main() {
   });
 
   test('local publish holds committed execution files on an unpublished current branch', () async {
-    _runGit(tempDir.path, ['init', '-b', 'main']);
-    _runGit(tempDir.path, ['config', 'user.name', 'Workflow Test']);
-    _runGit(tempDir.path, ['config', 'user.email', 'workflow@test.local']);
-    File(p.join(tempDir.path, 'README.md')).writeAsStringSync('base');
-    _runGit(tempDir.path, ['add', 'README.md']);
-    _runGit(tempDir.path, ['commit', '-m', 'base']);
+    // The repository sits beside the data directory: a runtime directory inside it resolves to the workspace.
+    final repoDir = Directory(p.join(tempDir.parent.path, '${p.basename(tempDir.path)}-repo'))..createSync();
+    addTearDown(() => repoDir.deleteSync(recursive: true));
+    _runGit(repoDir.path, ['init', '-b', 'main']);
+    _runGit(repoDir.path, ['config', 'user.name', 'Workflow Test']);
+    _runGit(repoDir.path, ['config', 'user.email', 'workflow@test.local']);
+    File(p.join(repoDir.path, 'README.md')).writeAsStringSync('base');
+    _runGit(repoDir.path, ['add', 'README.md']);
+    _runGit(repoDir.path, ['commit', '-m', 'base']);
     final remote = Directory(p.join(tempDir.parent.path, '${p.basename(tempDir.path)}-remote.git'));
-    _runGit(tempDir.path, ['init', '--bare', remote.path]);
+    _runGit(repoDir.path, ['init', '--bare', remote.path]);
     addTearDown(() => remote.deleteSync(recursive: true));
-    _runGit(tempDir.path, ['remote', 'add', 'origin', remote.path]);
-    _runGit(tempDir.path, ['push', 'origin', 'main']);
-    _runGit(tempDir.path, ['checkout', '-b', 'feature/unpublished']);
-    File(p.join(tempDir.path, '.envrc')).writeAsStringSync('export FIXTURE=1');
-    _runGit(tempDir.path, ['add', '.envrc']);
-    _runGit(tempDir.path, ['commit', '-m', 'execution file']);
+    _runGit(repoDir.path, ['remote', 'add', 'origin', remote.path]);
+    _runGit(repoDir.path, ['push', 'origin', 'main']);
+    _runGit(repoDir.path, ['checkout', '-b', 'feature/unpublished']);
+    File(p.join(repoDir.path, '.envrc')).writeAsStringSync('export FIXTURE=1');
+    _runGit(repoDir.path, ['add', '.envrc']);
+    _runGit(repoDir.path, ['commit', '-m', 'execution file']);
     final config = _schedulingConfig(tempDir);
     final staged = await DartclawRuntime.stageHeadless(
       config,
       dataDir: tempDir.path,
-      runtimeCwd: tempDir.path,
+      runtimeCwd: repoDir.path,
       harnessFactory: _harnessFactoryFor(worker),
       taskBackendFactory: (_) async => openPreparedTaskBackend(),
       taskBackendIsPrepared: true,
@@ -350,7 +353,7 @@ void main() {
       'ls-remote',
       'origin',
       'refs/heads/feature/unpublished',
-    ], workingDirectory: tempDir.path);
+    ], workingDirectory: repoDir.path);
     expect(published.stdout, isEmpty);
   });
 

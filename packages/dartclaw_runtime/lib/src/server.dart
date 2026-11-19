@@ -617,6 +617,8 @@ class DartclawServer {
       projectConfig: _core.config?.projects ?? const ProjectConfig.defaults(),
       containerEnabled: _core.config?.container.enabled ?? false,
       containerMountRoots: _projectRouteContainerMountRoots(projects),
+      dataDir: _core.dataDir,
+      ownedRoots: [?_core.config?.workspaceDir, ?_core.config?.projectsClonesDir],
       tasks: _tasks.taskService,
       worktreeManager: _tasks.worktreeManager,
       taskFileGuard: _tasks.taskFileGuard,

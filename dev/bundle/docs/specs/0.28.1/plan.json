@@ -359,6 +359,27 @@
       "provenance": "ADR-062 amendment of 2026-11-18 (public `dev/adrs/062-read-only-package-registry-egress-for-containers.md`), after S06 and S07 shipped pub and npm as adapter classes.",
       "assetRefs": [],
       "sequencing": null
+    },
+    {
+      "id": "S11",
+      "name": "Container data-dir isolation",
+      "dependsOn": [
+        "S10"
+      ],
+      "status": "done",
+      "fis": "s11-container-data-dir-isolation.md",
+      "completedTaskIds": [
+        "TI01",
+        "TI02",
+        "TI03",
+        "TI04",
+        "TI05"
+      ],
+      "scope": "Workspace containers never mount DartClaw's data directory (credential store, gateway token, logs, sessions): one mount rule skips an operator-chosen source equal to or inside it and masks it inside a source that contains it. Git askpass helper files move out of the container-mounted <data_dir>/projects/ to <data_dir>/git-askpass/.",
+      "sourceRefs": [],
+      "provenance": "Found 2026-11-19 on a service-installed 0.28.0 instance: the workspace container could read gateway_token and every file under credentials/ at /project.",
+      "assetRefs": [],
+      "sequencing": null
     }
   ]
 }

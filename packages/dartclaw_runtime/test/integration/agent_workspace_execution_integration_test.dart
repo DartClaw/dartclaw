@@ -491,7 +491,7 @@ agent:
       config: const ContainerConfig(enabled: true, image: agentProbeImage),
       containerName: 'dartclaw-managed-marker-${DateTime.now().microsecondsSinceEpoch}',
       profileId: 'workspace',
-      workspaceMounts: SecurityProfile.workspace(workspaceDir: agentADir.path, projectDir: null).workspaceMounts,
+      workspaceMounts: SecurityProfile.workspace(workspaceDir: agentADir.path).workspaceMounts,
       generatedStateDir: p.join(dataDir.path, 'containers', 'managed-marker'),
       hasMcpBridge: false,
       buildContextDir: checkoutRoot,

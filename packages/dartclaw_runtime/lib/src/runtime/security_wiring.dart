@@ -8,6 +8,7 @@ import 'package:logging/logging.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 
+import '../container/data_dir_mount_rule.dart';
 import 'container_authority_cleanup_owner.dart';
 import 'provider_resolution.dart' show isProviderReservedEnvironmentKey;
 
@@ -61,7 +62,8 @@ class SecurityWiring implements Reconfigurable {
   final DartclawConfig config;
   final String _dataDir;
 
-  /// The repository mounted at `/project` for container executions.
+  /// The repository the runtime operates on, mounted at `/project` unless it is
+  /// the workspace (already at `/workspace`) or lies inside the data directory.
   final String _runtimeCwd;
 
   /// DartClaw's own checkout, which holds the container image build context and `build/bridge`.
@@ -372,14 +374,9 @@ class SecurityWiring implements Reconfigurable {
   /// and so never reaches `refuse`.
   Future<String?> _wireContainers() async {
     final profiles = [
-      SecurityProfile.workspace(
-        workspaceDir: config.workspaceDir,
-        projectDir: _runtimeCwd,
-        projectsClonesDir: config.projectsClonesDir,
-      ),
+      SecurityProfile.workspace(workspaceDir: config.workspaceDir, projectsClonesDir: config.projectsClonesDir),
       SecurityProfile.restricted,
     ];
-    final localPathProjectMounts = _localPathProjectMounts();
     // A profile is a filesystem/capability template, not a running container:
     // each live container authority is built from it and owns its own
     // container, bridge processes, and generated state.
@@ -394,37 +391,31 @@ class SecurityWiring implements Reconfigurable {
       String? executionDir,
       bool useOwnerWorkspace = true,
       bool volatileGeneratedState = false,
-    }) => ContainerManager(
-      config: config.container,
-      containerName: containerName,
-      ownerLabel: ContainerManager.ownerLabel(_dataDir),
-      profileId: profile.id,
-      workspaceMounts: profile.id == 'workspace'
-          ? workspaceDir != null && !useOwnerWorkspace
-                ? SecurityProfile.workspace(workspaceDir: workspaceDir, projectDir: executionDir).workspaceMounts
-                : [
-                    ...SecurityProfile.workspace(
-                      workspaceDir: useOwnerWorkspace ? config.workspaceDir : null,
-                      projectDir: _runtimeCwd,
-                      projectsClonesDir: config.projectsClonesDir,
-                    ).workspaceMounts,
-                    ...localPathProjectMounts,
-                  ]
-          : profile.workspaceMounts,
-      generatedStateDir: generatedStateDir,
-      volatileGeneratedState: volatileGeneratedState,
-      artifactsDir: artifactsDir,
-      hasMcpBridge: hasMcpBridge,
-      registryClientEnvironment: registryClientEnvironment,
-      localPathAllowlist: config.projects.localPathAllowlist,
-      bridgeBinaryPath: _bridgeBinaryPath,
-      buildContextDir: _sourceCheckoutDir,
-      workingDir: profile.id == SecurityProfile.restricted.id
-          ? '/tmp'
-          : workspaceDir != null && !useOwnerWorkspace && executionDir == null
-          ? '/workspace'
-          : '/project',
-    );
+    }) {
+      final plan = profile.id == 'workspace'
+          ? workspaceMountPlan(
+              workspaceDir: workspaceDir,
+              executionDir: executionDir,
+              useOwnerWorkspace: useOwnerWorkspace,
+            )
+          : (mounts: profile.workspaceMounts, workingDir: '/tmp');
+      return ContainerManager(
+        config: config.container,
+        containerName: containerName,
+        ownerLabel: ContainerManager.ownerLabel(_dataDir),
+        profileId: profile.id,
+        workspaceMounts: plan.mounts,
+        generatedStateDir: generatedStateDir,
+        volatileGeneratedState: volatileGeneratedState,
+        artifactsDir: artifactsDir,
+        hasMcpBridge: hasMcpBridge,
+        registryClientEnvironment: registryClientEnvironment,
+        localPathAllowlist: config.projects.localPathAllowlist,
+        bridgeBinaryPath: _bridgeBinaryPath,
+        buildContextDir: _sourceCheckoutDir,
+        workingDir: plan.workingDir,
+      );
+    }
 
     final probe = buildManager(
       SecurityProfile.restricted,
@@ -730,7 +721,64 @@ class SecurityWiring implements Reconfigurable {
     );
   }
 
-  List<String> _localPathProjectMounts() {
+  /// The `workspace` profile's `-v` specs and working directory for one authority.
+  ///
+  /// Exposed because the composition must be provable without a container
+  /// runtime, which [wire] needs before any profile template exists.
+  @visibleForTesting
+  ({List<String> mounts, String workingDir}) workspaceMountPlan({
+    String? workspaceDir,
+    String? executionDir,
+    bool useOwnerWorkspace = true,
+  }) {
+    final agentWorkspace = workspaceDir != null && !useOwnerWorkspace;
+    final mountedWorkspace = agentWorkspace ? workspaceDir : (useOwnerWorkspace ? config.workspaceDir : null);
+    final projectMounts = agentWorkspace
+        ? [if (executionDir != null) ..._operatorMount(executionDir, '/project', ownedRoot: workspaceDir)]
+        : _ownerProjectMounts;
+    return (
+      mounts: [
+        ...SecurityProfile.workspace(
+          workspaceDir: mountedWorkspace,
+          projectsClonesDir: agentWorkspace ? null : config.projectsClonesDir,
+        ).workspaceMounts,
+        ...projectMounts,
+        if (!agentWorkspace) ..._localPathProjectMounts,
+      ],
+      // `docker exec -w` fails on a directory the container does not have.
+      workingDir: projectMounts.isNotEmpty
+          ? '/project'
+          : mountedWorkspace != null
+          ? '/workspace'
+          : '/tmp',
+    );
+  }
+
+  // A runtime directory at or inside the data directory resolves to the
+  // workspace, which the owner set already mounts read-write at `/workspace`.
+  late final List<String> _ownerProjectMounts =
+      p.equals(
+        canonicalizePathWithExistingAncestors(_runtimeCwd),
+        canonicalizePathWithExistingAncestors(config.workspaceDir),
+      )
+      ? const []
+      : _operatorMount(_runtimeCwd, '/project');
+  late final List<String> _localPathProjectMounts = _composeLocalPathProjectMounts();
+
+  /// Maps an operator-chosen directory into the container without exposing the
+  /// data directory, announcing every skip or mask at INFO.
+  List<String> _operatorMount(String source, String target, {String? ownedRoot}) {
+    final mount = operatorMount(
+      source: source,
+      target: target,
+      dataDir: _dataDir,
+      ownedRoots: [config.workspaceDir, config.projectsClonesDir, ?ownedRoot],
+    );
+    if (mount.reason case final reason?) _log.info(reason);
+    return mount.specs;
+  }
+
+  List<String> _composeLocalPathProjectMounts() {
     final clonesDir = p.normalize(p.absolute(config.projectsClonesDir));
     final mounts = <String>[];
     for (final definition in config.projects.definitions.values) {
@@ -742,7 +790,7 @@ class SecurityWiring implements Reconfigurable {
       if (p.equals(normalizedLocalPath, clonesDir) || p.isWithin(clonesDir, normalizedLocalPath)) {
         continue;
       }
-      mounts.add('$normalizedLocalPath:${p.posix.join('/projects', definition.id)}:ro');
+      mounts.addAll(_operatorMount(normalizedLocalPath, p.posix.join('/projects', definition.id)));
     }
     return mounts;
   }

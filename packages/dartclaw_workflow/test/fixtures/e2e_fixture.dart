@@ -324,7 +324,7 @@ final class E2EFixture {
     final dataDir = p.join(runtimeDir.path, 'data');
     final workspaceDir = p.join(dataDir, 'workspace');
     final workflowWorkspaceDir = p.join(dataDir, 'workflow-workspace');
-    final runtimeCwd = p.join(dataDir, 'runtime-cwd');
+    final runtimeCwd = p.join(runtimeDir.path, 'runtime-cwd');
     final projectDir = p.join(dataDir, 'projects', projectId);
 
     _copyDirectorySync(Directory(p.join(profileDir, 'workspace')), Directory(workspaceDir));

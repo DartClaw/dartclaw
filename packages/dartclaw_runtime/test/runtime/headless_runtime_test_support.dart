@@ -88,7 +88,18 @@ Future<void> waitFor(bool Function() predicate, {Duration timeout = const Durati
 final class HeadlessRuntimeFixture {
   new(this.tempDir);
 
+  /// The data directory of every config this fixture builds.
   final Directory tempDir;
+
+  /// Where [seedGitRepo] puts repositories: outside the data directory, since a
+  /// runtime directory inside it resolves to the workspace directory instead.
+  late final Directory reposDir = () {
+    final dir = Directory.systemTemp.createTempSync('dartclaw_headless_repos_');
+    addTearDown(() {
+      if (dir.existsSync()) dir.deleteSync(recursive: true);
+    });
+    return dir;
+  }();
 
   DartclawConfig config({
     AgentConfig agent = const AgentConfig(provider: 'claude'),
@@ -202,7 +213,7 @@ final class HeadlessRuntimeFixture {
   }
 
   Directory seedGitRepo(String name, {String readme = 'hello\n'}) {
-    final repoDir = Directory(p.join(tempDir.path, name))..createSync(recursive: true);
+    final repoDir = Directory(p.join(reposDir.path, name))..createSync(recursive: true);
     runGitSync(repoDir.path, ['init', '-b', 'main']);
     runGitSync(repoDir.path, ['config', 'user.name', 'Test User']);
     runGitSync(repoDir.path, ['config', 'user.email', 'test@example.com']);

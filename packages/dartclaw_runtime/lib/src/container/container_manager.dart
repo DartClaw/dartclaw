@@ -640,9 +640,21 @@ class ContainerManager implements ContainerExecutor, VolatileContainerGeneratedS
 
   /// Translates a host path into the corresponding container path for a mounted directory.
   ///
-  /// Returns null when the host path is not covered by any configured mount.
+  /// Returns null when the host path is not covered by any configured mount, or
+  /// when it lands at or under an anonymous volume, which shows the container
+  /// an empty directory rather than the host file (a masked data directory).
   @override
   String? containerPathForHostPath(String hostPath) {
+    final translated = _translateThroughBinds(hostPath);
+    if (translated == null) return null;
+    for (final mount in _allMounts) {
+      if (mount.contains(':')) continue;
+      if (p.posix.equals(mount, translated) || p.posix.isWithin(mount, translated)) return null;
+    }
+    return translated;
+  }
+
+  String? _translateThroughBinds(String hostPath) {
     final normalizedHostPath = canonicalizePathWithExistingAncestors(hostPath);
     String? matchingRoot;
     String? matchingContainerRoot;

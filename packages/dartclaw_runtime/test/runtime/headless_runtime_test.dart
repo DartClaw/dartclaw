@@ -860,6 +860,48 @@ steps:
     );
   });
 
+  group('a runtime directory and the data directory', () {
+    test('a runtime directory that is the data directory resolves to the workspace directory', () async {
+      final config = fixture.config();
+
+      await fixture.withWiredRuntime(
+        config,
+        runtimeCwd: tempDir.path,
+        body: (runtime) async {
+          expect(runtime.projectService.localProject.localPath, config.workspaceDir);
+        },
+      );
+    });
+
+    test('a runtime directory inside the data directory resolves to the workspace directory', () async {
+      final config = fixture.config();
+      final inside = Directory(p.join(tempDir.path, 'logs', 'nested'))..createSync(recursive: true);
+
+      await fixture.withWiredRuntime(
+        config,
+        runtimeCwd: inside.path,
+        body: (runtime) async {
+          expect(runtime.projectService.localProject.localPath, config.workspaceDir);
+        },
+      );
+    });
+
+    test('a runtime directory containing the data directory stays the runtime directory', () async {
+      final repository = fixture.seedGitRepo('repo-with-data-dir');
+      final nested = HeadlessRuntimeFixture(
+        Directory(p.join(repository.path, '.dartclaw-example'))..createSync(recursive: true),
+      );
+
+      await nested.withWiredRuntime(
+        nested.config(),
+        runtimeCwd: repository.path,
+        body: (runtime) async {
+          expect(runtime.projectService.localProject.localPath, repository.path);
+        },
+      );
+    });
+  });
+
   test('relative runtime cwd is resolved once to an absolute directory', () async {
     final runtimeCwd = fixture.seedGitRepo('relative-runtime-repo', readme: 'runtime\n');
 

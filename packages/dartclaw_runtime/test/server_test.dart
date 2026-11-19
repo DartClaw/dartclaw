@@ -760,12 +760,13 @@ void main() {
     test('container-mode local-path registration is judged against the _local directory', () async {
       final runtimeRoot = Directory(p.join(tempDir.path, 'runtime-repo'))..createSync();
       final outside = Directory(p.join(tempDir.path, 'elsewhere'))..createSync();
+      final dataDir = Directory(p.join(runtimeRoot.path, '.dartclaw-example'))..createSync();
       final containerServer = composeServer(
         core: ServerCoreDeps(
           sessions: sessions,
           messages: messages,
           worker: worker,
-          dataDir: tempDir.path,
+          dataDir: dataDir.path,
           staticDir: _staticDirPath,
           gatewayToken: 'test-token',
           tokenService: TokenService(token: 'test-token'),
@@ -805,17 +806,23 @@ void main() {
         ),
         observability: ServerObservabilityDeps(eventBus: eventBus),
       );
-      Future<Response> register(String localPath) async => containerServer.handler(
+      Future<Response> register(String localPath, {String name = 'Local App'}) async => containerServer.handler(
         Request(
           'POST',
           Uri.parse('http://localhost/api/projects'),
-          body: jsonEncode({'name': 'Local App', 'localPath': localPath}),
+          body: jsonEncode({'name': name, 'localPath': localPath}),
           headers: {'content-type': 'application/json', 'authorization': 'Bearer test-token'},
         ),
       );
 
       final inside = await register(p.join(runtimeRoot.path, 'checkout'));
       expect(inside.statusCode, 201);
+
+      final inDataDir = await register(p.join(dataDir.path, 'checkout'), name: 'Data Dir App');
+      expect(inDataDir.statusCode, 400);
+      final dataDirError =
+          (jsonDecode(await inDataDir.readAsString()) as Map<String, dynamic>)['error'] as Map<String, dynamic>;
+      expect(dataDirError['code'], 'LOCAL_PATH_NOT_MOUNTABLE');
 
       final refused = await register(p.join(outside.path, 'checkout'));
       expect(refused.statusCode, 400);

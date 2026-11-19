@@ -136,8 +136,7 @@ void main() {
         containerName: 'dartclaw-registry-${DateTime.now().microsecondsSinceEpoch}',
         profileId: profile,
         workspaceMounts: [
-          if (profile == 'workspace')
-            ...SecurityProfile.workspace(workspaceDir: null, projectDir: null).workspaceMounts,
+          if (profile == 'workspace') ...SecurityProfile.workspace(workspaceDir: null).workspaceMounts,
           if (project != null) '$project:/project:rw',
         ],
         generatedStateDir: '${data.path}/state-${DateTime.now().microsecondsSinceEpoch}',

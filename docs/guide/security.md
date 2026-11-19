@@ -68,7 +68,8 @@ carry Codex's file protection.
 **Containers** are the hard boundary. Inside one, Codex runs `danger-full-access`, because its own sandbox cannot
 start under the container hardening. No Codex profile applies there, and Codex runs shell commands without asking for
 approval, so FileGuard does not see them either: the mount allowlist decides what the agent can read, and a `.env`
-inside a mounted workspace is readable.
+inside a mounted workspace is readable. DartClaw's data directory as a whole, with its credentials, logs, sessions and
+gateway token, is never mounted; only DartClaw-owned subdirectories such as the workspace are.
 
 ### Settings that switch native protection off
 
@@ -351,7 +352,11 @@ inside a container with:
 - Capability drops (`--cap-drop ALL`)
 - Read-only root filesystem
 - Host-mediated egress over framed `docker exec` pipes for `provider`, granted `mcp` tools and `registry` for `workspace` only. The container holds no credential.
-- Mount allowlist for workspace files
+- Mount allowlist for workspace files. The data directory as a whole, with its credentials, logs, sessions and gateway
+  token, is never mounted; only DartClaw-owned subdirectories are. When `serve` runs from the data directory (as
+  `dartclaw service install` sets it up), it works in the workspace directory instead, and a mounted directory that
+  contains the data directory shows it empty. `serve` logs one INFO line for each directory it substitutes, leaves out
+  or masks.
 
 ACP agents have no container execution: DartClaw mediates no provider credential or host capability for an ACP client,
 so ACP registrations run on the host only and a container-requiring registration is rejected at startup.

@@ -20,7 +20,7 @@ An experimental, security-conscious AI agent runtime built with Dart. This guide
 | [CLI Operations](cli-operations.md) | Connected vs standalone CLI mode, authentication, server detection, headless operations |
 | [CLI Reference](cli-reference.md) | Commands, flags, and exit codes |
 | [Workspace](workspace.md) | Owner and named-agent workspace bindings, behavior files, memory ownership, prompt assembly, git sync |
-| [Security](security.md) | Guard chain, container isolation, host-mediated credentials, read-only registry egress, and Dart and Node toolchain images |
+| [Security](security.md) | Guard chain, container isolation, host-mediated credentials, read-only package-registry egress, and language toolchain images |
 
 ## Features
 

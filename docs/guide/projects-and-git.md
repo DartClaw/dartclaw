@@ -1,6 +1,6 @@
 # Projects and Git
 
-> Current through: **0.27**
+> Current through: **0.28.1**
 
 DartClaw manages git repositories as **projects** -- first-class entities that tasks can target. Tasks that explicitly set
 `configJson.needsWorktree: true` branch from a project, work in isolation, and push results back on acceptance. A single
@@ -108,7 +108,8 @@ Content-Type: application/json
 }
 ```
 
-The web UI also provides a project management interface on the `/tasks` page with a project selector.
+In the web UI, the **Projects** page (`/projects`, opened from **System**) adds, edits, fetches and removes projects;
+the task form on `/tasks` has a project selector.
 
 ### Project Lifecycle
 
@@ -142,7 +143,8 @@ recent code.
 1. Before a task bound to an external project runs (with or without a worktree), `TaskExecutor` calls
    `ProjectService.ensureFresh` with the task's base branch.
 2. If a fetch of the same project and branch is already in flight, the second caller waits for it (no duplicate fetches).
-3. Otherwise `git fetch origin <branch>` runs in an isolate to avoid blocking the event loop.
+3. Otherwise `git fetch origin +refs/heads/<branch>:refs/remotes/origin/<branch>` runs in an isolate to avoid blocking
+   the event loop. The explicit refspec writes `origin/<branch>` even in a single-branch `shallow` clone.
 
 `projects.fetchCooldownMinutes` (default 5) skips a fetch that names no branch when the project was fetched within the
 window. A task fetch always names its base branch, so it bypasses the cooldown.
@@ -188,7 +190,7 @@ TaskExecutor picks up task
   |
   v
 ProjectService.ensureFresh(project, branch)
-  --> git fetch origin <branch>
+  --> git fetch origin +refs/heads/<branch>:refs/remotes/origin/<branch>
   |
   v
 WorktreeManager.create(taskId, project)
@@ -285,10 +287,13 @@ For project-backed workflows:
 - Mapped story branches can be promoted into that integration branch through runtime-controlled merge operations.
 - Dependency-aware map execution blocks dependent stories until prerequisite promotion succeeds.
 - Publish pushes the workflow branch and optionally creates a PR (`pr.strategy: github-pr`), writing machine-readable workflow outputs:
-  - `publish.status` (`success`, `manual`, `failed`)
+  - `publish.status` (`success`, `manual`, `held`, `failed`)
   - `publish.branch`
   - `publish.remote`
   - `publish.pr_url`
+
+- Promotion and publish stop at `awaitingApproval` when the changes touch an execution surface, until a person
+  approves them; see [Workflows § Workflow-owned Git lifecycle](workflows.md#workflow-owned-git-lifecycle).
 
 Publish failures leave inspectable git state and surface structured failure details in workflow context.
 

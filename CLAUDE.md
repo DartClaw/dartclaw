@@ -49,6 +49,8 @@ Keep this root file lean – cross-cutting rules here, package-specific ones in 
 
 Documents here are read whole when their trigger matches, so keep them short and trim stale entries when you append. Split one that grows too long into topic files beside it, leaving a pointer line per file in it; open a topic file only when the task names its topic. Skills refer to documents by entry name, so keep names stable.
 
+When a document's factual description of the code (a path, symbol, route, label or command) disagrees with the code, trust the code and fix or delete the stale statement in the same change. When it states a rule, invariant, decision or spec, or a behaviour the code may have broken, surface the conflict, because either side may be the defect.
+
 Create a document that does not exist yet, and its entry here, from `project-document-templates.md`, or through a subagent that invokes the `andthen:init` skill with `seed <name>` when that file is not loaded. Planning documents (PRDs, plans, FIS, roadmap, research, wireframes) are canonical in the private repo `../dartclaw-private/`, absent from a public-only checkout; public work sees them only as exported bundles.
 
 - **Product** – `dev/state/PRODUCT.md`: vision, philosophy, scope, non-goals (firmly rejected concepts included), Proportionality facts. Read before proposing a feature, a design, or new machinery, or triaging a request: features anchor to it, and its stage and scale size what gets built.

@@ -218,7 +218,6 @@ class ChannelWiring {
         redactor: messageRedactor,
         pauseController: pauseController,
         taskBridge: ChannelTaskBridge(
-          // Reserved command handler: /stop (and stop! for WA/Signal), /pause, /resume, /bind, /unbind.
           // TurnManager resolved lazily — created after channel wiring but
           // before any inbound channel messages can arrive.
           reservedCommandHandler: (message, channel) => ReservedCommandHandler.handle(

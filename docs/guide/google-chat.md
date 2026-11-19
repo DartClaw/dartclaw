@@ -75,7 +75,7 @@ Field mapping is defined by `GoogleChatConfig` in `packages/dartclaw_google_chat
 | `webhook_path` | Inbound callback path |
 | `bot_user` | Google Chat bot user resource name |
 | `typing_indicator` | `true`/`message` for a placeholder indicator, `emoji` for the emoji typing state, or `false`/`disabled` to turn it off |
-| `quote_reply` | `true` enables quoted replies when the space supports quoting |
+| `quote_reply` | `true`/`sender` prefixes a text attribution line (`*@Sender* – `) in multi-user spaces, `native` sends a native quoted reply (needs user-level auth; falls back to the attribution line when the API refuses it), or `false`/`disabled` (the default) to turn it off |
 | `reactions_auth` | `disabled` or `user`; `user` enables emoji reactions through user OAuth |
 | `dm_access` | DM access policy |
 | `dm_allowlist` | Allowed DM sender IDs |

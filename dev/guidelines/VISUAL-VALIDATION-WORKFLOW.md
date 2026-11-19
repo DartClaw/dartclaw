@@ -27,11 +27,14 @@ lsof -ti:3333
 # Start if not running (from repo root)
 dart run dartclaw_cli:dartclaw serve --port 3333 > .agent_temp/visual-validation/server.log 2>&1 &
 
-# Get auth token
-grep "token=" .agent_temp/visual-validation/server.log | tail -1
+# Get auth token (the startup banner prints the ?token= URL only when stderr is a terminal,
+# so the redirected log above does not contain it)
+dart run dartclaw_cli:dartclaw token show
 ```
 
-Default port is 3333. Token is persistent across restarts (stored in data dir).
+Default port is 3333. Token is persistent across restarts (stored in data dir). `serve` refuses to start unless the
+resolved config sets `database.url` (or `database.credential`) to a PostgreSQL 14+ database; the testing profiles in
+`dev/testing/README.md` provide one.
 
 ## Authentication
 
@@ -42,10 +45,10 @@ Expected: auto-redirects to the app — no login form interaction required.
 
 **If login form appears**: the token URL failed. Common cause: spaces embedded in the token
 from copy-paste line-wrapping (`%20` in the logged URL). Strip any whitespace from the token
-and retry. The server strips whitespace server-side, but browser URL bars may encode it oddly.
+and retry. The server compares the token exactly and does not strip whitespace.
 
-**Login form fallback**: if the form appears, it should be pre-filled with the token from the
-URL — just click Sign In without retyping.
+**Login form fallback**: a failed token URL redirects to `/login?next=…` without the token, so the form
+starts empty; paste the token and click Sign In. Only `/login?token=<token>` pre-fills the field.
 
 ## Tools
 

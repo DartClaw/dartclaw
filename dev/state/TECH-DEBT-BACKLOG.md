@@ -107,17 +107,15 @@ Last reviewed: 2026-05-18
 
 **Trigger**: adding a second runtime-artifacts consumer, introducing architecture/e2e/screenshot artifacts, or revising the S80 `/reviews` convention.
 
-**References**: `dartclaw-private/docs/specs/0.16.4/s80-workflow-runtime-artifacts-dir-mixed-review-claude-2026-04-30.md` M1.
-
 Last reviewed: 2026-05-18
 
 ### TD-051 – Task accept flow is coupled to review transitions
 
 **Impact**: feature friction and lifecycle rigidity
 **Found**: 0.14.1 workshop polish plan review (2026-03-24)
-**Affects**: `packages/dartclaw_runtime/lib/src/task/task_executor.dart`, `packages/dartclaw_runtime/lib/src/task/task_review_service.dart`, `packages/dartclaw_kernel/lib/src/task_status.dart`
+**Affects**: `packages/dartclaw_runtime/lib/src/task/task_executor.dart`, `packages/dartclaw_runtime/lib/src/task/task_review_service.dart`, `packages/dartclaw_core/lib/src/task/task_status.dart`
 
-**Context**: Task completion currently flows through `running -> review`, and the real accept-side effects live in `TaskReviewService`: local merge, project-backed push/PR creation, artifact persistence, and cleanup. This works well for manual review, but it makes "auto-accept on completion" awkward because acceptance behavior is not exposed as a reusable lifecycle operation. The state machine also does not permit `running -> accepted`, so any future simplification must either preserve the current review hop or refactor the lifecycle model deliberately.
+**Context**: Task completion currently flows through `running -> review`, and the real accept-side effects live in `TaskReviewService`: local merge, project-backed push/PR creation, artifact persistence, and cleanup. This works well for manual review, but it makes "auto-accept on completion" awkward because acceptance behavior is not exposed as a reusable lifecycle operation. The state machine does permit `running -> accepted`: `reviewMode: auto-accept` (and `worktree-only` on a task without a worktree) takes it directly from `TaskExecutor`, without `TaskReviewService`'s accept side effects, so any future simplification must either preserve the current review hop or refactor the lifecycle model deliberately.
 
 **Current resolution for 0.14.1**: Keep the existing lifecycle and implement the simple path (`running -> review -> accepted` via immediate system accept) rather than expanding the state machine.
 
@@ -200,8 +198,6 @@ Last reviewed: 2026-08-28
 
 **Trigger**: operator reports of `<data_dir>/workflows/runs/` disk-usage growth, first 0.16.5+ multi-tenant operator, or a runtime-data retention policy pass.
 
-**References**: `dartclaw-private/docs/specs/0.16.4/fis/s80-workflow-runtime-artifacts-dir.md` retention hand-off; `dartclaw-private/docs/specs/0.16.4/s80-workflow-runtime-artifacts-dir-mixed-review-claude-2026-04-30-3.md` L3.
-
 Last reviewed: 2026-05-18
 
 ### TD-093 – Runtime-artifacts claims lose tie-breaks to colliding worktree-relative files
@@ -218,8 +214,6 @@ Last reviewed: 2026-05-18
 
 **Trigger**: operator report of a remediation step reading a stale worktree review report, or any context-extractor refactor that touches `_fileSystemOutputRoots`.
 
-**References**: `dartclaw-private/docs/specs/0.16.4/s80-workflow-runtime-artifacts-dir-mixed-review-claude-2026-04-30.md` L2.
-
 Last reviewed: 2026-05-18
 
 ### TD-092 – Revisit `ArtifactCommitResult.skippedPaths` after runtime-artifact cleanup
@@ -235,8 +229,6 @@ Last reviewed: 2026-05-18
 **Fix**: On the next artifact-committer API cleanup, decide whether `skippedPaths` remains a generally useful failure-detail field. Drop it only if no production caller or test still relies on the value.
 
 **Trigger**: workflow artifact committer refactor, resolver result-shape cleanup, or repeated confusion around skipped path semantics.
-
-**References**: `dartclaw-private/docs/specs/0.16.4/s80-workflow-runtime-artifacts-dir-mixed-review-claude-2026-04-30.md` L3.
 
 Last reviewed: 2026-05-18
 
@@ -282,7 +274,7 @@ Last reviewed: 2026-05-18
 
 **Trigger**: TD-066 schema migration or a user reports unexplained token accounting drift on Codex.
 
-**References**: `dartclaw-private/docs/specs/0.16.4/workflow-final-gap-remediation/final-gap-closure-ledger.md` Part 13.
+**References**: `dartclaw-private/docs/specs/0.16.4/prd.md` § Carry-over Tech Debt → Closure-ledger explicit deferrals (TOKEN-EFFICIENCY F4).
 
 Last reviewed: 2026-05-18
 
@@ -301,7 +293,7 @@ Last reviewed: 2026-05-18
 
 **Why deferred**: invasive cross-cutting refactor; wrong-sized for a remediation slot in 0.16.4 (S73's scope is already broad and mixes runtime + skill-doc + YAML changes). Better as a focused FIS in a future milestone where the `Task` model is naturally being touched.
 
-**Source review**: `docs/specs/0.16.4/workflow-e2e-test-and-runtime-code-review-claude-2026-04-28.md` (private repo) finding M11.
+**Source review**: `docs/specs/0.16.4/prd.md` (private repo) § Carry-over Tech Debt → Advisory DECIDE items, finding M11.
 
 **Trigger**: when the `Task` model is being touched for an unrelated reason, or when a third writer/reader of the per-step metrics surface needs to be added (the third call site is the signal that the prefix convention has officially outgrown its space).
 

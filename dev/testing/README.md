@@ -3,9 +3,10 @@
 This directory hosts everything needed to run DartClaw against pre-configured environments:
 
 - **`profiles/`** — pre-configured DartClaw environments and command runners. Server profiles include seeded data and
-  a `run.sh`; Windows-native profiles use PowerShell. Used by `UI-SMOKE-TEST.md`, by the
-  `dev/tools/release_check.sh` manual gates, and by scenario files.
-- **`scenarios/`** — AI-native acceptance scenarios. Markdown files with YAML frontmatter that describe full-system interactions (browser + API + governance) in natural language. Run via the `test-scenario` skill — see `scenarios/README.md`.
+  a `run.sh`; Windows-native profiles use PowerShell. Used by `UI-SMOKE-TEST.md`, by scenario files, and by two
+  automated gates: the local `linux` release gate in `dev/tools/release_check.dart` runs `container/run.sh --ci`, and
+  `dev/tools/test_workspace.sh` runs `conversation-loop/visual_checks_test.sh`.
+- **`scenarios/`** — AI-native acceptance scenarios. Markdown files with YAML frontmatter that describe full-system interactions (browser + API + governance) in natural language. Run via the `test-scenario` skill — see `scenarios/README.md`. The native-Windows qualification procedures (`windows-*.md`) carry no frontmatter and are run by hand from PowerShell.
 - **`UI-SMOKE-TEST.md`** — the canonical 31-case UI smoke test, run against the `plain` profile.
 
 ## Profile Quick Reference
@@ -17,7 +18,7 @@ receipts retain that meaning. Report scoped functional evidence separately rathe
 
 | Profile | Port | Run command | Purpose |
 |---|---|---|---|
-| `plain` | 3335 | `bash dev/testing/profiles/plain/run.sh` | Minimal seeded data, no channels. Backs `UI-SMOKE-TEST.md` and most `scenarios/session-*` scenarios. |
+| `plain` | 3335 | `bash dev/testing/profiles/plain/run.sh` | Minimal seeded data, no channels. Backs `UI-SMOKE-TEST.md` and `scenarios/session-lifecycle.md`. |
 | `channels` | 3336 | `bash dev/testing/profiles/channels/run.sh` | WhatsApp, Signal, Google Chat and Slack channels (Slack off until the owner enables it). Hardware pairing flow and Slack setup are documented in `dartclaw-private/docs/testing/channel-e2e-manual.md`. |
 | `governance` | 3337 | `bash dev/testing/profiles/governance/run.sh` | Tight governance limits + budget seeding. Backs the governance-enforcement scenario. |
 | `visual` | 3338 | `bash dev/testing/profiles/visual/run.sh` | Desktop visual smoke profile. Seeds PostgreSQL before serve with accepted, failed and review tasks plus completed, failed and awaitingApproval workflow runs with step tasks. |
@@ -98,7 +99,8 @@ artifacts and structured outcome. Production built-ins require the operator-inst
 
 ## Scenarios
 
-Scenarios live under `scenarios/` and reference profiles by name and port in their YAML frontmatter. The `test-scenario` skill (at `.claude/skills/test-scenario/`) parses the frontmatter, verifies or starts the required profile, drives browser + API steps, and produces a structured pass/fail report.
+Scenarios live under `scenarios/`; runner scenarios reference profiles by name and port in their YAML frontmatter, while
+the native-Windows procedures (`windows-*.md`) are run by hand from PowerShell. The `test-scenario` skill (at `.claude/skills/test-scenario/`) parses the frontmatter, verifies or starts the required profile, drives browser + API steps, and produces a structured pass/fail report.
 
 Run a scenario by name (resolved under `dev/testing/scenarios/`) or by path:
 

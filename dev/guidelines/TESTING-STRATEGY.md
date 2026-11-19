@@ -321,7 +321,7 @@ The workspace and member `dart_test.yaml` files configure default skips. The fol
 | Profile | Command | Purpose |
 |---------|---------|---------|
 | `plain` | `bash dev/testing/profiles/plain/run.sh` | Minimal seeded data, no channels |
-| `channels` | `bash dev/testing/profiles/channels/run.sh` | WhatsApp + Signal enabled |
+| `channels` | `bash dev/testing/profiles/channels/run.sh` | WhatsApp, Signal and Google Chat enabled; Slack off until the owner enables it |
 | `governance` | `bash dev/testing/profiles/governance/run.sh` | Tight governance limits and budget seeding |
 | `visual` | `bash dev/testing/profiles/visual/run.sh` | Desktop visual smoke profile with seeded content |
 | `workflows` | `bash dev/testing/profiles/workflows/run.sh` | Workflow execution profile and CLI wrapper |

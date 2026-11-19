@@ -1,8 +1,3 @@
----
-profile: native-windows-harness-turns
-platform: windows
-providers: [claude, codex]
----
 # Scenario: Native Windows Harness Turns
 
 Validates one real Claude turn and one real Codex turn through DartClaw's HTTP session API and provider-scoped harness
@@ -13,6 +8,8 @@ publication gate.
 
 - Native Windows with Dart, `claude`, and `codex` on `PATH` and authenticated.
 - This checkout plus a Windows release ZIP available locally.
+- `DARTCLAW_DATABASE_URL` set to a PostgreSQL 14+ database; the config below starts from `examples/dev.yaml`, which
+  reads `database.url` from it.
 - No server already listening on port 3333.
 
 For a Parallels shared-folder checkout, map the share to a drive before running Dart. Dart's native-asset build hooks

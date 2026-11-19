@@ -5,9 +5,12 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
+import 'package:dartclaw_runtime/src/task/host_worktree_git.dart' show TamperedWorktreeException;
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager, TurnRunner;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
+
+import 'host_worktree_tamper_fixture.dart';
 
 void main() {
   late Directory tempDir;
@@ -253,6 +256,62 @@ void main() {
     final artifacts = await collectorWithDiff.collect(task, executionDirectory: workspaceDir);
 
     expect(artifacts, isEmpty);
+  });
+
+  group('real host Git diff', () {
+    late HostWorktreeTamperFixture fixture;
+    late ArtifactCollector realDiffCollector;
+
+    setUp(() async {
+      fixture = await HostWorktreeTamperFixture.create();
+      realDiffCollector = ArtifactCollector(
+        tasks: tasks,
+        sessionsDir: sessionsDir,
+        dataDir: tempDir.path,
+        diffGenerator: DiffGenerator(projectDir: fixture.projectDir),
+        baseRef: 'main',
+      );
+    });
+
+    tearDown(() => fixture.dispose());
+
+    Future<Task> worktreeTask(String id, {String? baseRef}) async {
+      final session = await sessions.createSession(type: SessionType.task);
+      final task = await _createTask(
+        tasks,
+        id: id,
+        sessionId: session.id,
+        startedAt: DateTime.parse('2026-03-10T10:00:00Z'),
+        configJson: {'_baseRef': ?baseRef},
+      );
+      return tasks.updateFields(
+        task.id,
+        worktreeJson: {'path': fixture.worktreePath, 'branch': fixture.branch, 'createdAt': '2026-03-10T10:00:00.000Z'},
+      );
+    }
+
+    // A tampered worktree must fail the task, not reach review looking like it changed nothing.
+    test('a tampered worktree throws instead of returning no artifacts', () async {
+      fixture.write('change.txt');
+      await fixture.rewriteGitlinkToAgentGitdir();
+      final task = await worktreeTask('task-tampered');
+
+      await expectLater(
+        realDiffCollector.collect(task, executionDirectory: fixture.worktreePath),
+        throwsA(isA<TamperedWorktreeException>()),
+      );
+      expect(fixture.existingMarkers, isEmpty);
+      expect((await tasks.listArtifacts(task.id)), isEmpty);
+    });
+
+    test('a diff that fails for any other reason still returns no artifacts', () async {
+      fixture.write('change.txt');
+      final task = await worktreeTask('task-unknown-base', baseRef: 'no-such-base-ref');
+
+      final artifacts = await realDiffCollector.collect(task, executionDirectory: fixture.worktreePath);
+
+      expect(artifacts, isEmpty);
+    });
   });
 
   test('project-backed worktree task diffs against the selected project clone', () async {

@@ -3481,7 +3481,7 @@
           "additionalProperties": false,
           "properties": {
             "enabled": {
-              "description": "Commit workspace changes to the local repository on the git-sync schedule. On by default. (live)",
+              "description": "Commit workspace changes to the local repository on the git-sync schedule. On by default; not available under container isolation, where agents can write the workspace repository. (live)",
               "type": "boolean"
             },
             "interval_minutes": {

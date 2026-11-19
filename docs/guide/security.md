@@ -306,6 +306,11 @@ An agent can write executable configuration inside its mounted repository. Mergi
 carry hooks, provider or MCP settings, workflow files or symlinks beyond the container boundary. Automatic task accept
 and workflow promotion/publish therefore hold [execution surface changes](tasks.md#review-workflow) for a person's
 review. Host Git in an agent worktree reads the Git location DartClaw recorded for it, not the worktree's own `.git` file, and refuses a worktree directory replaced by a symlink, a worktree whose `.git` was rewritten, replaced or removed, or one that holds a nested repository as a gitlink, so an agent cannot choose a config whose commands host Git would run. Hooks and fsmonitor are disabled for those calls. Filters and diff drivers you configured in the project's own Git config still run when a worktree `.gitattributes` selects them.
+The refusal also covers a repository an agent cloned, or a submodule it initialized, inside its worktree: the task
+fails with an error naming the worktree and the nested path. These
+checks run before each Git command, so a process still running in a container could race them; DartClaw does not yet
+mount worktrees in a layout that rules this out. Workspace git sync (`workspace.git_sync`) is off while container
+isolation is on, because agents can write the workspace repository it commits.
 An operator can accept a held task. Connected workflow approval covers the reviewed Git candidate, operation and
 destination. If a later candidate still changes an execution surface, DartClaw asks for a new review. Agent tools
 cannot approve these holds.

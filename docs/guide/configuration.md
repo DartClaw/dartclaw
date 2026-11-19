@@ -251,7 +251,7 @@ These are the settings most operators need first. The exhaustive reference below
 | `sessions.group_scope` | string | one of "per-member", "shared" | How group messages map onto sessions: one shared per group, or one per member. (live) |
 | `logging.level` | string | one of "FINE", "INFO", "SEVERE", "WARNING" | Lowest severity written out. FINE includes per-turn detail and is noisy in production. (restart required) |
 | `logging.format` | string | one of "human", "json" | human is readable in a terminal; json emits line-delimited records for a log shipper. (restart required) |
-| `workspace.git_sync.enabled` | boolean |  | Commit workspace changes to the local repository on the git-sync schedule. On by default. (live) |
+| `workspace.git_sync.enabled` | boolean |  | Commit workspace changes to the local repository on the git-sync schedule. On by default; not available under container isolation, where agents can write the workspace repository. (live) |
 | `workspace.git_sync.push_enabled` | boolean |  | Also push those commits to the workspace origin remote, when one exists. On by default; ignored while git sync itself is off. (live) |
 | `context.reserve_tokens` | integer | minimum 1 | Tokens held back from the window so a compaction flush always fits. (reload) |
 | `context.max_result_bytes` | integer | minimum 1 | Outer cap in bytes on every successful tool result the MCP endpoint returns. An oversized one arrives as head and tail around a truncation marker. (reload) |
@@ -606,7 +606,7 @@ This table is generated from `schemas/dartclaw.schema.json`. Named map entries u
 | `workflow.runtime_artifacts_retention.prune_after_days` | integer | minimum 0 | Age in days past which run artifacts are pruned. 0 keeps them indefinitely. (restart required) |
 | `workflow.workspace_dir` | null or string |  | Operator-owned checkout the workflow steps run in. Null lets DartClaw manage one under the instance directory and refresh its AGENTS.md on upgrade. (restart required) |
 | **workspace** |  |  |  |
-| `workspace.git_sync.enabled` | boolean |  | Commit workspace changes to the local repository on the git-sync schedule. On by default. (live) |
+| `workspace.git_sync.enabled` | boolean |  | Commit workspace changes to the local repository on the git-sync schedule. On by default; not available under container isolation, where agents can write the workspace repository. (live) |
 | `workspace.git_sync.interval_minutes` | integer | 1–1440 | Minutes between workspace git-sync runs. The job owns this schedule; it no longer rides the heartbeat cycle. (restart required) |
 | `workspace.git_sync.push_enabled` | boolean |  | Also push those commits to the workspace origin remote, when one exists. On by default; ignored while git sync itself is off. (live) |
 <!-- END GENERATED CONFIG REFERENCE -->

@@ -942,6 +942,8 @@ class TaskExecutor {
         task,
         errorSummary: _failureHandler.sanitizeErrorSummary(error.toString()),
         kind: TaskExecutionFailure(error),
+        // A retry would hand the agent another turn in the worktree it tampered with.
+        retryable: error is! TamperedWorktreeException,
       );
       return;
     }

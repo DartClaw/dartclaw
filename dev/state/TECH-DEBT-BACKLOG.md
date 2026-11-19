@@ -23,6 +23,20 @@
 
 Last reviewed: 2026-10-20
 
+### TD-151 – Agents can write the worktree root and the workspace repository host Git runs in
+
+**Impact**: security – a racing container process can redirect host Git; workspace git sync is off under containers
+**Found**: 2026-11-19, `dev/bundle/docs/specs/0.28.1/0.28.1-andthen-mixed-review-claude-2026-11-18.md` Finding 13 follow-up
+**Affects**: `security_wiring.dart` / `security_profile.dart` (owner-workspace mounts), `task_wiring.dart` (worktree root), `host_worktree_git.dart`, `workspace/workspace_git_sync.dart`, `workspace_skill_linker.dart` (`rev-parse --git-common-dir`, `info/exclude` write)
+
+**Context**: every owner-workspace container mounts all of `<workspaceDir>` read-write, including `.dartclaw/worktrees` and the workspace repository's `.git/`. `runHostWorktreeGit` refuses a tampered worktree before each command, but a process still running in any container can swap a worktree for a symlink or plant a nested repository between check and command. Workspace git sync cannot be hardened by Git options because the agent owns its config, so it is not registered under container isolation, which also stops memory and wiki backups there. The skill linker trusts `rev-parse --git-common-dir` from an agent-writable worktree and writes `info/exclude` where it points.
+
+**Needs decision**: a mount layout in which an agent cannot write the worktree root or its own gitlink (worktrees root read-only, each task's worktree its own mountpoint, gitlink read-only), and moving the workspace repository's gitdir into the data dir (with a migration and a nested-repository rule) so git sync can run under containers again.
+
+**Trigger**: any work on container mounts, worktree layout or workspace git sync.
+
+Last reviewed: 2026-11-19
+
 ## Medium
 <!-- Severity: maintainability, clarity, or non-critical correctness. Schedule deliberately. -->
 

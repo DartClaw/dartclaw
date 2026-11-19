@@ -7,7 +7,9 @@ const Map<String, FieldMeta> _serverFields = {
     jsonKey: 'workspace.gitSync.enabled',
     type: ConfigFieldType.bool_,
     mutability: ConfigMutability.live,
-    description: 'Commit workspace changes to the local repository on the git-sync schedule. On by default.',
+    description:
+        'Commit workspace changes to the local repository on the git-sync schedule. On by default; not available '
+        'under container isolation, where agents can write the workspace repository.',
   ),
   'workspace.git_sync.push_enabled': FieldMeta(
     yamlPath: 'workspace.git_sync.push_enabled',

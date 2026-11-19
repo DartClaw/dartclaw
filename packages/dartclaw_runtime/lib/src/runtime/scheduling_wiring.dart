@@ -23,7 +23,9 @@ import 'storage_wiring.dart';
 ///
 /// The heartbeat and workspace git sync are built-in [ScheduledJob]s here, both
 /// always registered and started paused when their config key is off, so the
-/// `live`-tier toggles reach them from either boot state.
+/// `live`-tier toggles reach them from either boot state. Under container
+/// isolation the git sync is not built at all, because agents can write the
+/// workspace repository it would run host Git in.
 ///
 /// Also owns the [displayJobs] and [systemJobNames] lists consumed by the
 /// scheduling UI, and the [configChangeSubscriber] that reacts to live config
@@ -411,12 +413,22 @@ class SchedulingWiring {
 
     // Heartbeat and workspace git sync are always registered so their live
     // toggles work from a boot-disabled start; both start paused when off.
+    // The one exception: under container isolation the git sync is never built.
+    // Containers mount the whole workspace read-write, so its `.git` (hooks,
+    // config, push URL) and any worktree gitlink in it belong to the agents,
+    // and host Git run there would execute what they planted. No option set on
+    // the command line can fix that while the agent owns the repository config.
     _scheduledJobs.add(
       buildHeartbeatJob(workspaceDir: config.workspaceDir, intervalMinutes: config.scheduling.heartbeatIntervalMinutes),
     );
 
     final gs = WorkspaceGitSync(workspaceDir: config.workspaceDir, pushEnabled: config.workspace.gitSyncPushEnabled);
-    if (await gs.isGitAvailable()) {
+    if (_security.containersEnabled) {
+      _log.warning(
+        'Workspace git sync is disabled under container isolation: agents can write the workspace '
+        'repository, so host Git there would run their hooks and config',
+      );
+    } else if (await gs.isGitAvailable()) {
       if (config.workspace.gitSyncEnabled) await gs.initIfNeeded();
       _gitSync = gs;
       final gitSyncJob = buildWorkspaceGitSyncJob(

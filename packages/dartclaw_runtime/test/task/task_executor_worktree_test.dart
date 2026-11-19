@@ -949,6 +949,54 @@ void main() {
     expect(fixture.existingMarkers, isEmpty);
   });
 
+  test('a worktree the agent tampers with during its turn fails the task without a retry', () async {
+    final fixture = await HostWorktreeTamperFixture.create();
+    addTearDown(fixture.dispose);
+    worker.responseText = 'Done.';
+    worker.beforeComplete = (_) async {
+      fixture.write('change.txt');
+      await fixture.rewriteGitlinkToAgentGitdir();
+    };
+    final project = readyProject(localPath: fixture.projectDir);
+    ctx.harness.collector = ArtifactCollector(
+      tasks: tasks,
+      sessionsDir: ctx.harness.sessionsDir,
+      dataDir: ctx.harness.tempDir.path,
+      diffGenerator: DiffGenerator(projectDir: fixture.projectDir),
+      projectService: fakeProjectServiceFor(project),
+    );
+    final projectExecutor = buildWorkflowExecutor(
+      projectService: fakeProjectServiceFor(project),
+      worktreeManager: StaticPathWorktreeManager(fixture.worktreePath),
+    );
+    addTearDown(projectExecutor.stop);
+
+    await tasks.create(
+      id: 'task-tampered-in-turn',
+      title: 'Worktree task',
+      description: 'Its agent rewrites the worktree gitlink.',
+      autoStart: true,
+      projectId: 'my-app',
+      maxRetries: 2,
+      configJson: const {'needsWorktree': true},
+    );
+
+    expect(await projectExecutor.pollOnce(), isTrue);
+    await projectExecutor.drain();
+
+    final settled = await waitForTaskStatus(
+      tasks,
+      'task-tampered-in-turn',
+      until: const {TaskStatus.failed, TaskStatus.review, TaskStatus.queued},
+    );
+    expect(settled!.status, TaskStatus.failed);
+    expect(settled.configJson['errorSummary'], contains('Refusing host Git in tampered worktree'));
+    expect(settled.retryCount, 0);
+    expect(worker.turnCallCount, 1);
+    expect(await tasks.listArtifacts(settled.id), isEmpty);
+    expect(fixture.existingMarkers, isEmpty);
+  });
+
   test('workflow required input path preflight fails before a harness turn starts', () async {
     final worktreeDir = Directory.systemTemp.createTempSync('dartclaw_missing_spec_worktree_');
     addTearDown(() {

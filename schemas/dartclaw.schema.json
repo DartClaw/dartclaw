@@ -1264,6 +1264,76 @@
         "image": {
           "description": "Container image agent work is executed in. Default dartclaw-agent:latest. (restart required)",
           "type": "string"
+        },
+        "registries": {
+          "additionalProperties": {
+            "additionalProperties": false,
+            "properties": {
+              "enabled": {
+                "description": "Whether the mirror serves this record. Defaults to true for a replacing or added record. (file-only, not settable via API or CLI)",
+                "type": "boolean"
+              },
+              "env": {
+                "description": "Client variables set in workspace containers; {mirror} expands to the mirror base. Names compare case-insensitively and must not repeat another enabled record or a variable DartClaw sets. (file-only, not settable via API or CLI)",
+                "type": "object"
+              },
+              "rewrite_json": {
+                "description": "JSON responses whose URLs on this record's pins are rewritten onto the mirror. (file-only, not settable via API or CLI)",
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "content_types": {
+                      "description": "Media types the rule applies to, compared without parameters and case-insensitively. (file-only, not settable via API or CLI)",
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "path_prefix": {
+                      "description": "Upstream request path prefix the rule applies under. (file-only, not settable via API or CLI)",
+                      "type": "string"
+                    },
+                    "route": {
+                      "description": "Upstream route of this record whose responses the rule covers. (file-only, not settable via API or CLI)",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object",
+                  "required": [
+                    "route",
+                    "path_prefix",
+                    "content_types"
+                  ]
+                },
+                "type": "array"
+              },
+              "upstreams": {
+                "description": "Pinned origins, each under its own mirror route. Redirects are followed only within these. (file-only, not settable via API or CLI)",
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "origin": {
+                      "description": "Exact https origin with a host name: no userinfo, path, query, fragment or IP literal. (file-only, not settable via API or CLI)",
+                      "type": "string"
+                    },
+                    "route": {
+                      "description": "Mirror path segment: lowercase letters, digits and hyphens, unique across enabled records. (file-only, not settable via API or CLI)",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object",
+                  "required": [
+                    "route",
+                    "origin"
+                  ]
+                },
+                "type": "array"
+              }
+            },
+            "type": "object"
+          },
+          "description": "Package-registry ecosystems the host mirror serves to workspace containers, keyed by name. Built-ins: pub, npm, pypi, crates and go (go ships disabled). An entry carrying only enabled toggles the built-in of that name; any other entry replaces that record whole or adds one. An invalid record stops startup. Read-only: each record sets egress pins. (file-only, not settable via API or CLI)",
+          "type": "object"
         }
       },
       "type": [

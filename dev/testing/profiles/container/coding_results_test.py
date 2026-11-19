@@ -39,6 +39,13 @@ class AcceptanceCommandEvidenceTest(unittest.TestCase):
                 attempted = _shell_call(script, 'terminated without marker')
                 self.assertIsNone(command_result([success, attempted], 'dart test')['exit'])
 
+    def test_unbalanced_quotes_in_a_script_never_hide_or_fake_an_attempt(self):
+        success = _shell_call('go test ./...', 'DARTCLAW_ACCEPTANCE_EXIT=0\n')
+        heredoc = _shell_call("cat > doc.go <<'EOF'\n// don't panic\nEOF", 'written\n')
+        self.assertEqual(command_result([success, heredoc], 'go test ./...')['exit'], 0)
+        attempted = _shell_call("echo don't\ngo test ./...", 'terminated without marker')
+        self.assertIsNone(command_result([success, attempted], 'go test ./...')['exit'])
+
     def test_malformed_shell_arguments_cannot_reuse_earlier_evidence(self):
         success = _shell_call('dart test', 'DARTCLAW_ACCEPTANCE_EXIT=0\n')
         for arguments in [None, 'not JSON', '[]', '{}', '{"command": []}']:
@@ -154,6 +161,57 @@ class AcceptanceCommandEvidenceTest(unittest.TestCase):
                 self.assertEqual(row['registryCounts'], {'served': 0, 'refused': 1})
                 if not exit_code:
                     self.assertIn('Registry requests were refused', row['error'])
+
+    def test_each_fixture_maps_to_its_commands_and_registry_routes(self):
+        self.assertEqual(coding_results.FIXTURES['python'], (('uv sync', 'uv run pytest'), 'pypi', ('pypi', 'pypi-files')))
+        self.assertEqual(coding_results.FIXTURES['rust'], (('cargo fetch', 'cargo test'), 'crates', ('crates', 'crates-dl')))
+        self.assertEqual(coding_results.FIXTURES['go'][1:], ('go', ('go', 'gosum')))
+        self.assertEqual(coding_results.FIXTURES['go'][0][1], 'go test ./...')
+        self.assertEqual(set(coding_results.FIXTURES), {'dart', 'node', 'python', 'rust', 'go'})
+
+    def test_qualification_requires_a_served_request_on_every_route_of_the_fixture_record(self):
+        for fixture, served, error in [
+            ('rust', ['/crates/config.json'], '/crates-dl/'),
+            ('rust', ['/crates/config.json', '/crates-dl/crates/either/1.0.0/download'], None),
+            ('python', ['/pypi/simple/pydash/?x=1'], '/pypi-files/'),
+            ('go', ['/go/github.com/samber/lo/@v/list', '/gosum/lookup/x'], None),
+            ('go', ['/go/github.com/samber/lo/@v/list'], '/gosum/'),
+        ]:
+            with self.subTest(fixture=fixture, served=served), tempfile.TemporaryDirectory() as temporary:
+                root = pathlib.Path(temporary)
+                (root / 'story.md').write_text('Fixture story')
+                commands, ecosystem, _ = coding_results.FIXTURES[fixture]
+                run = {'id': 'run', 'status': 'completed', 'currentStepIndex': 0, 'childTaskIds': ['task'],
+                       'steps': [{'id': 'step', 'index': 0, 'taskId': 'task'}], 'contextJson': {'data': {}}}
+                tool_calls = [_shell_call(command, 'DARTCLAW_ACCEPTANCE_EXIT=0\n') for command in commands]
+                responses = {
+                    '/api/config': {'_meta': {'configPath': str(root / 'dartclaw.yaml')}},
+                    '/api/workflows/runs/run': run,
+                    '/api/tasks/task': {'status': 'accepted', 'agentExecution': {'containerJson': {'profile': 'workspace'}}},
+                    '/api/traces?taskId=task&limit=500&offset=0': {
+                        'traces': [{'taskId': 'task', 'startedAt': 'now', 'toolCalls': tool_calls}]},
+                }
+                (root / 'audit-2026-11-18.ndjson').write_text(''.join(
+                    json.dumps({'guard': 'host-gateway', 'hook': 'bridge', 'principal': 'authority-1', 'server': ecosystem,
+                                'tool': path, 'verdict': 'pass', 'decision': 'allow', 'reason': 'status=200'}) + '\n'
+                    for path in served))
+
+                def subprocess_run(argv, **kwargs):
+                    if argv[0] == 'dart':
+                        kwargs['stdout'].write('{"type":"run_started","run":{"id":"run"}}\n')
+                    return subprocess.CompletedProcess(argv, 0, stdout='')
+
+                args = ['coding_results.py', 'claude', fixture, *(str(root) for _ in range(4)), '0']
+                with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()), \
+                     patch('sys.argv', args), patch.object(coding_results, 'api', side_effect=responses.__getitem__), \
+                     patch.object(coding_results.subprocess, 'run', side_effect=subprocess_run):
+                    self.assertEqual(coding_results.main(), 1 if error else 0)
+                row = json.loads((root / 'results.json').read_text())[0]
+                self.assertEqual([row['install']['command'], row['test']['command']], list(commands))
+                if error:
+                    self.assertIn(error, row['error'])
+                else:
+                    self.assertNotIn('error', row, row.get('error'))
 
     def test_baseline_ignores_only_recorded_acceptance_failures(self):
         row = {'status': 'completed', 'failureTaskId': 'step', 'tasks': [{'taskId': 'step', 'status': 'accepted'}],

@@ -123,13 +123,13 @@ cleanup() {
   # backstop for a kill that skipped that.
   if [ "${#DECOYS[@]}" -gt 0 ]; then
     for name in "${DECOYS[@]}"; do
-      "$RUNTIME" rm -f "$name" >/dev/null 2>&1 || true
+      "$RUNTIME" rm -f -v "$name" >/dev/null 2>&1 || true
     done
   fi
   for log in "${DATA_DIR}/server.log" "${DATA_DIR}/server-restart.log"; do
     if [ -f "$log" ]; then
       for name in $(grep -oE 'Container dartclaw-[a-z0-9-]+ \(' "$log" | awk '{print $2}' | sort -u); do
-        "$RUNTIME" rm -f "$name" >/dev/null 2>&1 || true
+        "$RUNTIME" rm -f -v "$name" >/dev/null 2>&1 || true
       done
     fi
   done
@@ -203,7 +203,7 @@ if [ -n "$CI_MODE" ]; then
   DECOYS=("${DECOY_PREFIX}-decoy" "${DECOY_PREFIX}-foreign" "${DECOY_PREFIX}-nolabel")
   crash_server
   # Posture mode isolates the decoy set; live mode retains the primary leak until restart.
-  "$RUNTIME" rm -f "$INITIAL_CONTAINER" >/dev/null || fail_with_log "initial primary fixture cleanup failed"
+  "$RUNTIME" rm -f -v "$INITIAL_CONTAINER" >/dev/null || fail_with_log "initial primary fixture cleanup failed"
   "$RUNTIME" create --name "${DECOYS[0]}" --label "$OWNER_LABEL" dartclaw-agent:latest sleep infinity >/dev/null
   "$RUNTIME" create --name "${DECOYS[1]}" --label "${OWNER_LABEL}-other" dartclaw-agent:latest sleep infinity >/dev/null
   "$RUNTIME" create --name "${DECOYS[2]}" dartclaw-agent:latest sleep infinity >/dev/null

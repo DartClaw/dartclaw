@@ -6,8 +6,14 @@ class SecurityProfile {
   /// Human-readable label for the profile.
   final String displayName;
 
-  /// Bind mounts applied when the profile is selected.
+  /// Mounts applied when the profile is selected, as Docker `-v` specs: bind
+  /// mounts, plus anonymous volumes written as a bare container path.
   final List<String> workspaceMounts;
+
+  /// Where a `workspace` container's package cache lives: an anonymous volume,
+  /// writable and executable, removed with the container (ADR-062). Image
+  /// recipes point package caches here.
+  static const packageCachePath = '/var/cache/dartclaw';
 
   /// Creates a container security profile.
   const new({required this.id, required this.displayName, this.workspaceMounts = const []});
@@ -27,6 +33,7 @@ class SecurityProfile {
       if (workspaceDir != null) '$workspaceDir:/workspace:rw',
       if (projectDir != null) '$projectDir:/project:ro',
       if (projectsClonesDir != null) '$projectsClonesDir:/projects:ro',
+      packageCachePath,
     ],
   );
 

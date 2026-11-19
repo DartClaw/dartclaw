@@ -13,6 +13,16 @@ import urllib.request
 
 COMMAND_TOOLS = ('shell', 'Bash')
 
+# Per fixture: its acceptance commands, the registry record a passing run uses,
+# and every route of that record a passing run must have been served on.
+FIXTURES = {
+    'dart': (('dart pub get', 'dart test'), 'pub', ('pub',)),
+    'node': (('npm install', 'npm test'), 'npm', ('npm',)),
+    'python': (('uv sync', 'uv run pytest'), 'pypi', ('pypi', 'pypi-files')),
+    'rust': (('cargo fetch', 'cargo test'), 'crates', ('crates', 'crates-dl')),
+    'go': (('go mod tidy', 'go test ./...'), 'go', ('go', 'gosum')),
+}
+
 
 def api(path):
     with urllib.request.urlopen("http://localhost:3343" + path, timeout=30) as response:
@@ -44,7 +54,12 @@ def runs_acceptance_command(arguments, command):
         lexer = shlex.shlex(script, posix=True, punctuation_chars=';&|()\n')
         lexer.whitespace = ' \t\r'
         lexer.whitespace_split = True
-        return list(lexer)
+        try:
+            return list(lexer)
+        except ValueError:
+            # Unbalanced quotes (a heredoc body, say) defeat shlex. Splitting
+            # without quotes can only find extra attempts, which fail closed.
+            return re.findall(r'&&|\|\||[;&|()\n]|[^\s;&|()]+', script)
 
     tokens = words(payload['command'])
     # Codex records the shell wrapper as argv; its -c payload is the script.
@@ -113,6 +128,12 @@ def registry_counts(requests):
     }
 
 
+def served_routes(requests, ecosystem):
+    return sorted({entry['tool'].split('/')[1] for entry in requests
+                   if entry.get('server') == ecosystem and entry.get('decision') == 'allow'
+                   and entry.get('tool', '').startswith('/')})
+
+
 def record_row(result_dir, row):
     records = result_dir / "results.json"
     rows = json.loads(records.read_text()) if records.exists() else []
@@ -123,7 +144,7 @@ def record_row(result_dir, row):
         counts = item.get('registryCounts', {})
         lines.append(f"| {item['provider']} | {item['fixture']} | {item.get('runId', 'not started')} | {item['install']['exit']} | {item['test']['exit']} | {item['placement']} | {counts.get('served', 'unavailable')} | {counts.get('refused', 'unavailable')} |")
     for item in rows:
-        lines.extend(["", f"## {item['provider']} / {item['fixture']}", "", f"Workflow status: {item.get('status', 'unavailable')}; CLI exit: {item['cliExit']}", "", "Task placements:", "", "```json", json.dumps(item['tasks'], indent=2), "```"])
+        lines.extend(["", f"## {item['provider']} / {item['fixture']}", "", f"Workflow status: {item.get('status', 'unavailable')}; CLI exit: {item['cliExit']}; served routes: {', '.join(item.get('servedRoutes', [])) or 'none'}", "", "Task placements:", "", "```json", json.dumps(item['tasks'], indent=2), "```"])
         for command in (item['install'], item['test']):
             lines.extend(["", f"### `{command['command']}`: exit {command['exit']}", "", "```text", command['output'], "```"])
         lines.extend(["", "Git command results:", "", "```json", json.dumps(item['gitCommands'], indent=2), "```"])
@@ -155,7 +176,7 @@ def lockfile_after_run(run, tasks, remote):
 def main():
     provider, fixture, data, project, remote, output, baseline = sys.argv[1:]
     data, project, output = pathlib.Path(data), pathlib.Path(project), pathlib.Path(output)
-    commands = ("dart pub get", "dart test") if fixture == "dart" else ("npm install", "npm test")
+    commands, ecosystem, routes = FIXTURES[fixture]
     row = {"provider": provider, "fixture": fixture, "install": {"command": commands[0], "exit": None, "output": "not run"}, "test": {"command": commands[1], "exit": None, "output": "not run"}, "tasks": [], "placement": "failed", "gitCommands": [], "lockDiff": "not observed", "completedCodexSteps": 0, "newRollouts": [], "cliExit": None}
     before_rollouts = dartclaw_rollouts() if provider == "codex" else set()
     started = time.time()
@@ -169,6 +190,7 @@ def main():
         row['cliExit'] = outcome.returncode
         requests = registry_requests(data)
         row['registryCounts'] = registry_counts(requests)
+        row['servedRoutes'] = served_routes(requests, ecosystem)
         (output / f"{provider}-{fixture}-registry.json").write_text(json.dumps(requests, indent=2) + '\n')
         events = [json.loads(line) for line in cli_log.read_text().splitlines() if line.strip()]
         starts = [event['run']['id'] for event in events if event.get('type') == 'run_started']
@@ -204,9 +226,9 @@ def main():
                 offset += 500
         row['placement'] = 'workspace'
         calls = [{**call, 'taskId': trace['taskId']} for trace in sorted(trace_records, key=lambda trace: trace['startedAt']) for call in trace['toolCalls']]
+        (output / f"{provider}-{fixture}-tools.json").write_text(json.dumps(calls, indent=2) + '\n')
         row['install'], row['test'] = [command_result(calls, command) for command in commands]
         row['gitCommands'] = git_commands(calls)
-        (output / f"{provider}-{fixture}-tools.json").write_text(json.dumps(calls, indent=2) + '\n')
         if fixture == 'dart':
             observed_lock = lockfile_after_run(run, row['tasks'], remote)
             row['lockDiff'] = ''.join(difflib.unified_diff(lock.read_text().splitlines(True), observed_lock.splitlines(True), fromfile='committed/pubspec.lock', tofile='container/pubspec.lock')) or '(unchanged)'
@@ -222,9 +244,10 @@ def main():
             raise RuntimeError('Acceptance command evidence missing from persisted tool traces.')
         if baseline != '1' and (row['install']['exit'] != 0 or row['test']['exit'] != 0 or row['status'] != 'completed'):
             raise RuntimeError('Install, test or workflow failed; see recorded command output.')
-        ecosystem = 'pub' if fixture == 'dart' else 'npm'
-        if baseline != '1' and not any(entry.get('server') == ecosystem and entry.get('decision') == 'allow' for entry in requests):
-            raise RuntimeError(f'No served {ecosystem} request was recorded by the profile server.')
+        missing = [route for route in routes if route not in row['servedRoutes']]
+        if baseline != '1' and missing:
+            raise RuntimeError(f'No served {ecosystem} request was recorded by the profile server on '
+                               + ', '.join(f'/{route}/' for route in missing) + '.')
         if baseline == '1' and baseline_error(row):
             raise RuntimeError(baseline_error(row))
     except (RuntimeError, OSError, ValueError, subprocess.SubprocessError) as error:

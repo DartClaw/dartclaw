@@ -2,12 +2,12 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_bridge/dartclaw_bridge.dart';
+import 'package:dartclaw_kernel/dartclaw_kernel.dart' show RegistryRecord, RegistryUpstream;
 
 import 'bridge_headers.dart';
 import 'gateway_models.dart';
-import 'registry_adapter.dart';
 
-/// The routed outcome of one registry request. Paths never include queries.
+/// The routed outcome of one registry request; [path] includes its query.
 typedef RegistryAuditSink = Future<void> Function(
   String authorityId,
   String ecosystem,
@@ -18,15 +18,16 @@ typedef RegistryAuditSink = Future<void> Function(
 
 final class RegistryBridgeSurface implements GatewaySurfaceHandler {
   new({
-    required List<RegistryAdapter> adapters,
+    required List<RegistryRecord> records,
     required this.authorityId,
     this.limits = BridgeLimits.defaults,
     this.onRequest,
     HttpClient? client,
-  }) : _adapters = List.unmodifiable(adapters),
+  }) : _records = List.unmodifiable(records),
        _client = client ?? HttpClient();
 
-  final List<RegistryAdapter> _adapters;
+  /// Enabled records, validated by the config parser; never re-validated here.
+  final List<RegistryRecord> _records;
   final String authorityId;
   final BridgeLimits limits;
   final RegistryAuditSink? onRequest;
@@ -43,7 +44,7 @@ final class RegistryBridgeSurface implements GatewaySurfaceHandler {
     final path = separator < 0 ? request.path : request.path.substring(0, separator);
     final query = separator < 0 ? null : request.path.substring(separator + 1);
     final route = _route(path);
-    final ecosystem = route?.adapter.ecosystem ?? 'unknown';
+    final ecosystem = route?.record.name ?? 'unknown';
     var status = 502;
     var served = false;
     try {
@@ -54,7 +55,8 @@ final class RegistryBridgeSurface implements GatewaySurfaceHandler {
         throw GatewayDenied(status: 405, reason: 'registry $ecosystem: only GET and HEAD are allowed');
       }
       final upstreamPath = path.substring(route.pin.route.length + 1);
-      var target = route.pin.origin.replace(path: upstreamPath.isEmpty ? '/' : upstreamPath, query: query);
+      var target = Uri.parse(route.pin.origin).replace(path: upstreamPath.isEmpty ? '/' : upstreamPath, query: query);
+      var answering = route.pin;
       HttpClientResponse response;
       for (var redirects = 0; ; redirects++) {
         final outbound = await _client.openUrl(request.method, target);
@@ -71,13 +73,15 @@ final class RegistryBridgeSurface implements GatewaySurfaceHandler {
         // Redirect bodies are discarded without waiting for their EOF.
         await response.listen((_) {}).cancel();
         final redirect = target.resolve(location);
-        if (_pinFor(route.adapter, redirect) == null) {
+        final pin = _pinFor(route.record, redirect);
+        if (pin == null) {
           throw GatewayDenied(status: 403, reason: 'registry $ecosystem: redirect origin is not pinned');
         }
         if (redirects == 5) {
           throw GatewayDenied(status: 502, reason: 'registry $ecosystem: redirect chain exceeds 5 hops');
         }
         target = redirect;
+        answering = pin;
       }
       if (response.contentLength > limits.maxResponseBytes) {
         // Cancel instead of draining an artifact the pipe can never serve.
@@ -95,7 +99,12 @@ final class RegistryBridgeSurface implements GatewaySurfaceHandler {
       if (request.method == 'HEAD') {
         await response.drain<void>();
         body = const Stream.empty();
-      } else if (route.adapter.carriesMetadata(target.path, response.headers.value(HttpHeaders.contentTypeHeader))) {
+      } else if (_rewrites(
+        route.record,
+        answering,
+        target.path,
+        response.headers.value(HttpHeaders.contentTypeHeader),
+      )) {
         final bytes = <int>[];
         await for (final chunk in response) {
           if (bytes.length + chunk.length > limits.maxResponseBytes) {
@@ -106,7 +115,7 @@ final class RegistryBridgeSurface implements GatewaySurfaceHandler {
           }
           bytes.addAll(chunk);
         }
-        final rewritten = utf8.encode(jsonEncode(_rewrite(jsonDecode(utf8.decode(bytes)), route.adapter)));
+        final rewritten = utf8.encode(jsonEncode(_rewrite(jsonDecode(utf8.decode(bytes)), route.record)));
         if (rewritten.length > limits.maxResponseBytes) {
           throw GatewayDenied(
             status: 502,
@@ -124,36 +133,54 @@ final class RegistryBridgeSurface implements GatewaySurfaceHandler {
     } catch (_) {
       throw GatewayDenied(status: 502, reason: 'registry $ecosystem: upstream request failed');
     } finally {
-      await onRequest?.call(authorityId, ecosystem, path, status, served);
+      await onRequest?.call(authorityId, ecosystem, request.path, status, served);
     }
   }
 
-  ({RegistryAdapter adapter, RegistryOrigin pin})? _route(String path) {
-    for (final adapter in _adapters) {
-      for (final pin in adapter.origins) {
-        if (path == '/${pin.route}' || path.startsWith('/${pin.route}/')) return (adapter: adapter, pin: pin);
+  ({RegistryRecord record, RegistryUpstream pin})? _route(String path) {
+    for (final record in _records) {
+      for (final pin in record.upstreams) {
+        if (path == '/${pin.route}' || path.startsWith('/${pin.route}/')) return (record: record, pin: pin);
       }
     }
     return null;
   }
 
-  RegistryOrigin? _pinFor(RegistryAdapter adapter, Uri uri) {
+  RegistryUpstream? _pinFor(RegistryRecord record, Uri uri) {
     if (!uri.hasAuthority || (uri.scheme != 'http' && uri.scheme != 'https') || uri.userInfo.isNotEmpty) return null;
-    for (final pin in adapter.origins) {
-      if (pin.origin.origin == uri.origin) return pin;
+    for (final pin in record.upstreams) {
+      if (Uri.parse(pin.origin).origin == uri.origin) return pin;
     }
     return null;
   }
 
-  Object? _rewrite(Object? value, RegistryAdapter adapter) {
-    if (value is Map<String, dynamic>) return value.map((key, item) => MapEntry(key, _rewrite(item, adapter)));
-    if (value is List<dynamic>) return value.map((item) => _rewrite(item, adapter)).toList();
+  /// Whether a rule of [record] covers the response [pin] answered for [path].
+  static bool _rewrites(RegistryRecord record, RegistryUpstream pin, String path, String? contentType) {
+    if (contentType == null) return false;
+    final type = contentType.split(';').first.trim().toLowerCase();
+    return record.rewriteJson.any(
+      (rule) =>
+          rule.route == pin.route &&
+          path.startsWith(rule.pathPrefix) &&
+          rule.contentTypes.any((listed) => listed.toLowerCase() == type),
+    );
+  }
+
+  Object? _rewrite(Object? value, RegistryRecord record) {
+    if (value is Map<String, dynamic>) return value.map((key, item) => MapEntry(key, _rewrite(item, record)));
+    if (value is List<dynamic>) return value.map((item) => _rewrite(item, record)).toList();
     if (value is! String) return value;
     final uri = Uri.tryParse(value);
     if (uri == null) return value;
-    final pin = _pinFor(adapter, uri);
+    final pin = _pinFor(record, uri);
     if (pin == null) return value;
-    return mirrorBase.replace(path: '/${pin.route}${uri.path}', query: uri.hasQuery ? uri.query : null).toString();
+    return mirrorBase
+        .replace(
+          path: '/${pin.route}${uri.path}',
+          query: uri.hasQuery ? uri.query : null,
+          fragment: uri.hasFragment ? uri.fragment : null,
+        )
+        .toString();
   }
 
   Future<void> dispose() async => _client.close(force: true);

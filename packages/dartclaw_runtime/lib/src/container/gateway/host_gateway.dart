@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:dartclaw_bridge/dartclaw_bridge.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' show TurnProvenance;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart' show RegistryRecord;
 import 'package:logging/logging.dart';
 
 import '../../mcp/mcp_server.dart';
@@ -9,7 +10,6 @@ import 'gateway_models.dart';
 import 'gateway_pipe.dart';
 import 'mcp_bridge_surface.dart';
 import 'provider_adapter.dart';
-import 'registry_adapter.dart';
 import 'registry_bridge_surface.dart';
 
 /// Reports a host-side refusal for auditing. Carries no request content.
@@ -78,14 +78,14 @@ final class HostGateway {
   new({
     required Map<String, ProviderMediator> providerAdapters,
     McpProtocolHandler Function()? mcpHandler,
-    List<RegistryAdapter> registryAdapters = const [],
+    List<RegistryRecord> registries = const [],
     RegistryAuditSink? onRegistryRequest,
     GatewayDenialSink? onDenied,
     CredentialRefusalSink? onCredentialRefused,
     GatewayAuthorityTeardown? onCredentialUnusable,
     this.limits = BridgeLimits.defaults,
   }) : _providerAdapters = Map.unmodifiable(providerAdapters),
-       _registryAdapters = List.unmodifiable(registryAdapters),
+       _registries = List.unmodifiable(registries.where((record) => record.enabled)),
        _onRegistryRequest = onRegistryRequest,
        _mcpHandler = mcpHandler,
        _onDenied = onDenied,
@@ -97,7 +97,9 @@ final class HostGateway {
   final BridgeLimits limits;
 
   final Map<String, ProviderMediator> _providerAdapters;
-  final List<RegistryAdapter> _registryAdapters;
+
+  /// Enabled records only; a disabled record grants and routes nothing.
+  final List<RegistryRecord> _registries;
   final RegistryAuditSink? _onRegistryRequest;
   final Map<String, RegistryBridgeSurface> _registrySurfaces = {};
 
@@ -116,11 +118,11 @@ final class HostGateway {
   int get liveAuthorityCount => _authorities.length;
 
   bool _grantsRegistry(GatewayPrincipal principal) =>
-      principal.containerProfile == 'workspace' && _registryAdapters.isNotEmpty;
+      principal.containerProfile == 'workspace' && _registries.isNotEmpty;
 
   /// Environment inherited by every process in a granted authority's container.
   Map<String, String> registryClientEnvironment(GatewayPrincipal principal) => _grantsRegistry(principal)
-      ? {for (final adapter in _registryAdapters) ...adapter.clientEnvironment(RegistryBridgeSurface.mirrorBase)}
+      ? {for (final record in _registries) ...record.clientEnvironment('${RegistryBridgeSurface.mirrorBase}')}
       : const {};
 
   /// Registers a new authority. The returned handle owns its pipes' lifetime.
@@ -248,7 +250,7 @@ final class HostGateway {
     BridgeSurface.registry => _registrySurfaces.putIfAbsent(
       authority.id,
       () => RegistryBridgeSurface(
-        adapters: _registryAdapters,
+        records: _registries,
         authorityId: authority.id,
         limits: limits,
         onRequest: _onRegistryRequest,

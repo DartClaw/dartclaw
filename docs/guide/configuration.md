@@ -66,7 +66,9 @@ dartclaw init --non-interactive --provider claude --auth-claude oauth --model-cl
 ```
 
 Container isolation is POSIX-only. On native Windows, `--container` fails closed and points to POSIX/WSL; see the
-[Windows capability matrix](windows.md#capability-matrix).
+[Windows capability matrix](windows.md#capability-matrix). Workspace containers install dependencies through the
+host's package-registry mirror; `container.registries` toggles, replaces or adds its ecosystems, which are pub, npm,
+pypi, crates and go (go ships disabled). See [Package Registries](security.md#package-registries).
 
 #### Deferred steps after server start
 
@@ -372,6 +374,10 @@ This table is generated from `schemas/dartclaw.schema.json`. Named map entries u
 | **container** |  |  |  |
 | `container.enabled` | boolean |  | Run agent work inside container isolation. Left unset, DartClaw isolates wherever a container runtime is detected and starts in advisory mode where none is; an explicit true instead fails startup when the host cannot isolate. POSIX only; off means guards are the whole boundary. Read-only: placement is a deterministic keep, and clearing it through the API would either strand an explicit container selection at the next boot or move neutral-profile work onto the host. (file-only, not settable via API or CLI) |
 | `container.image` | string |  | Container image agent work is executed in. Default dartclaw-agent:latest. (restart required) |
+| `container.registries.<name>.enabled` | boolean |  | Whether the mirror serves this record. Defaults to true for a replacing or added record. (file-only, not settable via API or CLI) |
+| `container.registries.<name>.env` | object |  | Client variables set in workspace containers; {mirror} expands to the mirror base. Names compare case-insensitively and must not repeat another enabled record or a variable DartClaw sets. (file-only, not settable via API or CLI) |
+| `container.registries.<name>.rewrite_json` | array |  | JSON responses whose URLs on this record's pins are rewritten onto the mirror. (file-only, not settable via API or CLI) |
+| `container.registries.<name>.upstreams` | array |  | Pinned origins, each under its own mirror route. Redirects are followed only within these. (file-only, not settable via API or CLI) |
 | **context** |  |  |  |
 | `context.compact_instructions` | null or string |  | Extra guidance handed to the model when it compacts a conversation. Null uses the built-in wording. (restart required) |
 | `context.identifier_instructions` | null or string |  | The custom wording used when identifier preservation is set to custom. (restart required) |

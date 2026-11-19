@@ -115,18 +115,25 @@ ResolvedProviderTarget resolveProviderTarget(
 String resolveCodexVendorExecutable(DartclawConfig config) =>
     config.providers[ProviderIdentity.codex]?.executable ?? ProviderIdentity.codex;
 
+// Every variable DartClaw sets for a provider process, at container creation
+// (`ANTHROPIC_BASE_URL`) or per exec, compared uppercased.
 final Set<String> _providerReservedSpawnEnvironmentKeys = Set.unmodifiable({
   ...claudeHardeningEnvVars.keys,
   ...claudeContainerHardeningEnvVars.keys,
+  'ANTHROPIC_API_KEY',
   'ANTHROPIC_BASE_URL',
+  'CLAUDE_CODE_SIMPLE',
   'CLAUDE_CONFIG_DIR',
   'CODEX_HOME',
 });
 
+/// Whether DartClaw itself sets [key] in a provider process, compared case-insensitively.
+bool isProviderReservedEnvironmentKey(String key) => _providerReservedSpawnEnvironmentKeys.contains(key.toUpperCase());
+
 /// Removes credential-shaped and provider-owned variables from request extras.
 Map<String, String> sanitizeProviderRequestEnvironment(Map<String, String>? environment) {
   final sanitized = SafeProcess.sanitize(baseEnvironment: environment ?? const {});
-  sanitized.removeWhere((key, _) => _providerReservedSpawnEnvironmentKeys.contains(key.toUpperCase()));
+  sanitized.removeWhere((key, _) => isProviderReservedEnvironmentKey(key));
   return sanitized;
 }
 

@@ -16,11 +16,12 @@
       ]
     },
     {
-      "title": "Registry ecosystem adapter seam",
-      "description": "S06 builds the `registry` bridge surface with one adapter per ecosystem, each owning its client environment variables (a map), its pinned origins (download origins included) and its metadata URL rewriting, and ships pub through it. S07 adds npm as a second adapter without changing the surface, the bridge protocol or the grant rule.",
+      "title": "Registry ecosystems as config records",
+      "description": "S06 built the `registry` bridge surface and S07 added npm, first as one adapter class per ecosystem. S10 replaces those classes with `container.registries` records validated once in the kernel (`container_registries.dart`): each record holds its client variables, pinned origins (download origins included) and JSON rewrite rules, and the surface, bridge protocol and grant rule name no ecosystem.",
       "stories": [
         "S06",
-        "S07"
+        "S07",
+        "S10"
       ]
     }
   ],
@@ -325,6 +326,37 @@
         "dev/bundle/docs/specs/0.28.1/prd.md#scope"
       ],
       "provenance": "Workspace rule that plans carry an explicit doc-update story (private CLAUDE.md § Keeping Internal Documentation in Sync); the PRD has no FR for it.",
+      "assetRefs": [],
+      "sequencing": null
+    },
+    {
+      "id": "S10",
+      "name": "Registry ecosystems as config",
+      "dependsOn": [
+        "S06",
+        "S07"
+      ],
+      "status": "done",
+      "fis": "s10-registry-ecosystems-as-config.md",
+      "completedTaskIds": [
+        "TI01",
+        "TI02",
+        "TI03",
+        "TI04",
+        "TI05",
+        "TI06",
+        "TI07",
+        "TI08",
+        "TI09",
+        "TI10",
+        "TI11",
+        "TI12"
+      ],
+      "scope": "Per ADR-062's 2026-11-18 amendment, replace the per-ecosystem `RegistryAdapter` classes with validated `container.registries` instance-config records (`enabled`, `upstreams`, `env` with `{mirror}`, `rewrite_json`), built-ins as the same records: pub, npm (trailing-slash registry for bun), PyPI, crates.io and Go (shipped disabled). Startup refuses an invalid record or one shadowing a DartClaw-set variable; audit records carry the query; `workspace` containers get an anonymous package-cache volume removed with them. Python, Rust and Go fixtures and recipe images join S02's scenario, which passes on all five fixtures with both providers; security and configuration docs, CHANGELOG and ADR-062's status follow.",
+      "sourceRefs": [
+        "dev/bundle/docs/specs/0.28.1/prd.md#fr9-read-only-package-registry-egress"
+      ],
+      "provenance": "ADR-062 amendment of 2026-11-18 (public `dev/adrs/062-read-only-package-registry-egress-for-containers.md`), after S06 and S07 shipped pub and npm as adapter classes.",
       "assetRefs": [],
       "sequencing": null
     }

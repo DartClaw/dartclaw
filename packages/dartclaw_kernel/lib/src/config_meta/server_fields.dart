@@ -488,6 +488,73 @@ const Map<String, FieldMeta> _serverFields = {
     mutability: ConfigMutability.restart,
     description: 'Container image agent work is executed in. Default dartclaw-agent:latest.',
   ),
+  'container.registries': FieldMeta(
+    yamlPath: 'container.registries',
+    jsonKey: 'container.registries',
+    type: ConfigFieldType.objectMap,
+    mutability: ConfigMutability.readonly,
+    description:
+        'Package-registry ecosystems the host mirror serves to workspace containers, keyed by name. Built-ins: pub, '
+        'npm, pypi, crates and go (go ships disabled). An entry carrying only enabled toggles the built-in of that '
+        'name; any other entry replaces that record whole or adds one. An invalid record stops startup. Read-only: '
+        'each record sets egress pins.',
+    entry: ObjectEntry(
+      fields: {
+        'enabled': EntryFieldMeta(
+          type: ConfigFieldType.bool_,
+          description: 'Whether the mirror serves this record. Defaults to true for a replacing or added record.',
+        ),
+        'upstreams': EntryFieldMeta(
+          type: ConfigFieldType.objectList,
+          description: 'Pinned origins, each under its own mirror route. Redirects are followed only within these.',
+          entry: ObjectEntry(
+            fields: {
+              'route': EntryFieldMeta(
+                type: ConfigFieldType.string,
+                description:
+                    'Mirror path segment: lowercase letters, digits and hyphens, unique across enabled records.',
+              ),
+              'origin': EntryFieldMeta(
+                type: ConfigFieldType.string,
+                description: 'Exact https origin with a host name: no userinfo, path, query, fragment or IP literal.',
+              ),
+            },
+            requiredFields: ['route', 'origin'],
+          ),
+        ),
+        'env': EntryFieldMeta(
+          type: ConfigFieldType.objectMap,
+          description:
+              'Client variables set in workspace containers; {mirror} expands to the mirror base. Names compare '
+              'case-insensitively and must not repeat another enabled record or a variable DartClaw sets.',
+          entry: ValueEntry(
+            value: EntryFieldMeta(type: ConfigFieldType.string, description: 'Variable value.'),
+          ),
+        ),
+        'rewrite_json': EntryFieldMeta(
+          type: ConfigFieldType.objectList,
+          description: 'JSON responses whose URLs on this record\'s pins are rewritten onto the mirror.',
+          entry: ObjectEntry(
+            fields: {
+              'route': EntryFieldMeta(
+                type: ConfigFieldType.string,
+                description: 'Upstream route of this record whose responses the rule covers.',
+              ),
+              'path_prefix': EntryFieldMeta(
+                type: ConfigFieldType.string,
+                description: 'Upstream request path prefix the rule applies under.',
+              ),
+              'content_types': EntryFieldMeta(
+                type: ConfigFieldType.stringList,
+                description: 'Media types the rule applies to, compared without parameters and case-insensitively.',
+              ),
+            },
+            requiredFields: ['route', 'path_prefix', 'content_types'],
+          ),
+        ),
+      },
+    ),
+  ),
 
   // --- Workflow cleanup ---
   'workflow.cleanup.delete_remote_branch_on_failure': FieldMeta(

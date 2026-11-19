@@ -338,6 +338,8 @@ void main() {
           'search.providers',
           'database.url',
           'database.credential',
+          // Container egress pins, applied only at startup.
+          'container.registries',
           // Guard enforcement, and the rule extensions the guard-editor
           // endpoints own writes to.
           'guards.enabled',

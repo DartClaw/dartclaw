@@ -14,11 +14,11 @@ DartClaw spawns provider CLI binaries (`claude`, `codex`) and ACP agent binaries
 |--------|-----------------|
 | **Prompt injection** via channels, web pages, search results, MCP results | `ContentScan`/`ContentGuard` on logical-agent results, search results, `web_fetch` bodies and `public` outbound MCP results. The guard chain and container bound what an injected instruction can do. Inbound channel text is not classified on arrival |
 | **Command injection** (`rm -rf /`, fork bombs, shell escapes) | `CommandGuard` (best-effort regex), container isolation |
-| **Data exfiltration** (curl POST, base64 pipes) | `NetworkGuard`, container `--network none`, `EgressGuard` for outbound MCP. Registry egress accepts GET/HEAD only to the pinned origins `https://pub.dev` and `https://registry.npmjs.org` |
+| **Data exfiltration** (curl POST, base64 pipes) | `NetworkGuard`, container `--network none`, `EgressGuard` for outbound MCP. Registry egress accepts GET/HEAD only to the exact origins the enabled `container.registries` records pin (built-ins: pub.dev, registry.npmjs.org, pypi.org and files.pythonhosted.org, index.crates.io and static.crates.io; go's proxy.golang.org ships disabled because it fetches any module path). An operator-added pin is GET egress the container controls |
 | **Credential theft** | Host-owned provider mediation (no credential in the container), `FileGuard`, mount scoping, `SafeProcess` env sanitization, `MessageRedactor` |
 | **SSRF** from `web_fetch` or MCP | DNS-pinned address checks in `WebFetchTool`, `network_class: public` transport policy |
 | **Unauthorized access** | `authMiddleware`, `/mcp` bearer resolution, channel DM/group gates, webhook signatures |
-| **Supply chain** | The host chain uses minimal dependencies and needs no Node.js or npm. The image pins the Codex binary by SHA-256. Public pub and npm dependencies enter workspace containers through the read-only registry surface. Dependency code can change the worktree. |
+| **Supply chain** | The host chain uses minimal dependencies and needs no Node.js or npm. The image pins the Codex binary by SHA-256. Public dependencies of the enabled `container.registries` ecosystems enter workspace containers through the read-only registry surface. Dependency code can change the worktree. |
 | **Agent-written files reaching a host checkout or remote** | Automatic task accept, workflow promotion and publish hold execution-surface changes for a person before delivery. Host Git in agent worktrees uses the gitdir the project recorded and refuses a tampered gitlink, with hooks and fsmonitor disabled. See [Task Security](#task-security). |
 | **Container escape** | `--cap-drop ALL`, read-only rootfs, `no-new-privileges`, non-root user |
 | **Cross-agent contamination** | One container per execution authority, per-profile mounts |
@@ -207,7 +207,7 @@ Evaluates `shell` (exfil patterns, then every `http(s)://`, `git@`, and `docker 
 
 Default allowlist: `github.com`, `*.github.com`, `api.anthropic.com`, `pypi.org`, `*.pypi.org`, `npmjs.com`, `*.npmjs.com`, `registry.npmjs.org`, `pub.dev`, `*.pub.dev`, `*.googleapis.com`, `dart.dev`, `*.dart.dev`, `crates.io`, `rubygems.org`, `stackoverflow.com`. Default exfil patterns: `curl ... | sh|bash|zsh|dash`, `wget -O - | sh|bash`, `curl` with `-d/--data*/-F/--form`, and `| base64`. `guards.network.extra_allowed_domains` and `extra_exfil_patterns` extend them; `guards.network.agent_overrides.<agent>.extra_domains` grants domains only when `GuardContext.agentId` matches.
 
-An allowlist block names `guards.network.agent_overrides.<agent>.extra_domains` for an agent-scoped call, or `guards.network.extra_allowed_domains` for a global call. NetworkGuard applies these settings to tool calls. The container registry surface uses pins defined by its adapters.
+An allowlist block names `guards.network.agent_overrides.<agent>.extra_domains` for an agent-scoped call, or `guards.network.extra_allowed_domains` for a global call. NetworkGuard applies these settings to tool calls. The container registry surface uses the pins of its `container.registries` records.
 
 **Source**: `packages/dartclaw_kernel/lib/src/network_guard.dart`
 
@@ -346,13 +346,19 @@ The agent needs provider API access but must never hold the credential. The host
 [![Security: host-owned credential mediation](diagrams/security-host-gateway.svg)](diagrams/security-host-gateway.svg)
 
 - The only host objects mediation adds are the read-only bridge binary, the per-authority generated-state directory (the container home), and a host-owned `/artifacts` for executions with an artifacts contract. There is no socket mount, published port, or network attachment.
-- The `registry` surface listens at `http://127.0.0.1:8082`. `PubRegistryAdapter` pins `https://pub.dev` under `/pub`.
-  `NpmRegistryAdapter` pins `https://registry.npmjs.org` under `/npm`. At container creation, only `workspace`
-  gets the pipe and `PUB_HOSTED_URL`, `npm_config_registry` and `npm_config_audit=false`.
-  The surface accepts GET/HEAD, strips credential headers in both directions, follows at most five redirects inside
-  each adapter's pins and streams archives unchanged. It rewrites pub metadata download URLs to loopback.
-  npm handles registry-host replacement, so its packuments are untouched. Routed audit records carry authority,
-  ecosystem, path without the query and status. Policy refusals name the ecosystem and rule in the block event.
+- The `registry` surface listens at `http://127.0.0.1:8082`. Its ecosystems are `container.registries` records,
+  overlaid on the built-ins (`pub`, `npm`, `pypi`, `crates`, and `go`, which ships disabled) and validated once by
+  `ContainerConfig.fromYaml`; `container_registries.dart` is the one home of their origins and client variables.
+  Each record pins exact HTTPS origins under its own routes (`pypi` pins `https://pypi.org` and
+  `https://files.pythonhosted.org`, `crates` pins `index.crates.io` and `static.crates.io` as `crates-dl`).
+  At container creation, only `workspace` gets the pipe and the enabled records' `env`, emitted before DartClaw's own
+  variables; startup refuses a record that sets one of those. The surface accepts GET/HEAD, strips credential headers
+  in both directions, follows at most five redirects inside the answering record's pins and streams archives
+  unchanged. It rewrites JSON download URLs on a record's own pins to loopback where that record's `rewrite_json`
+  rule matches the answering pin, path prefix and media type (pub metadata, PyPI's simple JSON, the crates index
+  `config.json`). npm handles registry-host replacement, so its packuments are untouched. Routed audit records carry
+  authority, ecosystem, path with its query and status. Policy refusals name the ecosystem and rule in the block
+  event, never the query.
   Shared framing, capacity and late streamed-cap failures keep their transport-level reasons. An advertised response
   above 64 MiB is refused with the cap, and an unadvertised overrun aborts the connection.
 - Provider credentials never exist in the container's environment, filesystem, arguments, or generated configuration. The Claude container env carries only a placeholder key.

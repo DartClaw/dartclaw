@@ -208,7 +208,7 @@ class ContainerManager implements ContainerExecutor, VolatileContainerGeneratedS
       final names = await ownedContainers(dataDir, runtimeBinary: runtimeBinary, runCommand: runCommand);
       for (final name in names) {
         try {
-          final result = await runCommand(runtimeBinary, ['rm', '-f', name]).timeout(runtimeProbeTimeout);
+          final result = await runCommand(runtimeBinary, ['rm', '-f', '-v', name]).timeout(runtimeProbeTimeout);
           if (result.exitCode != 0 && !_confirmsAbsence(result.stderr)) {
             throw StateError('${result.stderr}');
           }
@@ -338,7 +338,7 @@ class ContainerManager implements ContainerExecutor, VolatileContainerGeneratedS
     }
 
     // Remove stale container if exists
-    await _run(_binary, ['rm', '-f', containerName]);
+    await _run(_binary, ['rm', '-f', '-v', containerName]);
     _validateLocalPathProjectMounts();
     if (!volatileGeneratedState) await _createGeneratedStateDir();
     // Bind-mount ownership passes through verbatim on native Linux, so the
@@ -374,8 +374,9 @@ class ContainerManager implements ContainerExecutor, VolatileContainerGeneratedS
       // Host-owned artifacts destination: the execution writes its durable
       // outputs where the host reads them back from, inside the boundary.
       if (_artifactsMount case final mount?) ...['-v', mount],
-      '-e', 'ANTHROPIC_BASE_URL=$providerBridgeUrl',
+      // Registry variables first, so DartClaw's own win whatever a record holds.
       ...registryClientEnvironment.entries.expand((entry) => ['-e', '${entry.key}=${entry.value}']),
+      '-e', 'ANTHROPIC_BASE_URL=$providerBridgeUrl',
       config.image,
       volatileGeneratedState ? 'cat' : 'sleep',
       if (!volatileGeneratedState) 'infinity',
@@ -465,7 +466,9 @@ class ContainerManager implements ContainerExecutor, VolatileContainerGeneratedS
       return;
     }
     await _run(_binary, ['stop', '-t', '5', containerName]);
-    final removal = await _run(_binary, ['rm', '-f', containerName]);
+    // `-v` removes the anonymous package-cache volume with the container; every
+    // removal here passes it, since `rm -f` alone leaves the volume behind.
+    final removal = await _run(_binary, ['rm', '-f', '-v', containerName]);
     // Generated state is deleted whether or not removal succeeded: a leaked
     // container must not also leave a readable generated home behind.
     await _deleteGeneratedStateDir(generatedStateDir, containerName);

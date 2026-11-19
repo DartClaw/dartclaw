@@ -331,6 +331,8 @@
   [blocking] Invalid type for container.enabled: "String" — using default
 === container.image#type-nonstring ===
   [blocking] Invalid type for container.image: "int" — using default
+=== container.registries#type-nonmap ===
+  THREW: container.registries must be a map of registry records keyed by name.
 === context#scalar ===
   [blocking] Invalid type for context: "int" — using defaults
 === context.compact_instructions#type-nonstring ===

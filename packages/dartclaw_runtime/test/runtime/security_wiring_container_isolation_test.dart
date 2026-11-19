@@ -94,6 +94,39 @@ void main() {
     );
   });
 
+  test('refuses a registry record that sets a variable DartClaw sets', () async {
+    for (final key in ['ANTHROPIC_BASE_URL', 'codex_home']) {
+      final registries = [
+        ...builtInRegistryRecords,
+        RegistryRecord(
+          name: 'shadow',
+          upstreams: const [RegistryUpstream(route: 'shadow', origin: 'https://shadow.example')],
+          env: {key: '{mirror}/shadow'},
+        ),
+      ];
+      for (final (posture, container) in [
+        ('explicit', ContainerConfig(enabled: true, registries: registries)),
+        ('inferred', ContainerConfig(registries: registries).resolved(enabled: true)),
+      ]) {
+        records.clear();
+        final wiring = buildWiring(container: container, operatingSystem: 'linux');
+
+        await expectLater(
+          wiring.wire(agentDefs: []),
+          throwsA(isA<_ExitCalled>().having((error) => error.code, 'code', 1)),
+          reason: '$key, $posture',
+        );
+        final refusal = records.singleWhere((record) => record.level == Level.SEVERE);
+        expect(
+          refusal.message,
+          allOf(contains('container.registries.shadow.env.$key'), contains('DartClaw sets')),
+          reason: '$key, $posture',
+        );
+        expect(wiring.gateway, isNull);
+      }
+    }
+  });
+
   test('the advisory warning names only boundaries that are real', () async {
     final wiring = buildWiring(container: const ContainerConfig.disabled(), operatingSystem: 'linux');
 
@@ -215,7 +248,7 @@ void main() {
 
       expect(wiring.containersEnabled, isFalse);
       expect(warnings(), contains(contains(credentialAdvisory)));
-      expect(calls.readAsLinesSync(), contains('rm -f dartclaw-orphan'));
+      expect(calls.readAsLinesSync(), contains('rm -f -v dartclaw-orphan'));
     });
 
     test('an absent runtime on the credential downgrade attempts no sweep', () async {

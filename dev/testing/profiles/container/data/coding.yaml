@@ -8,6 +8,7 @@ agent:
 container:
   enabled: true
   image: __IMAGE__
+__CONTAINER_REGISTRIES__
 gateway:
   auth_mode: none
 guards:

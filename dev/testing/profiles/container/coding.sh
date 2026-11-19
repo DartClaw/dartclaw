@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Live implement-story proof with workspace-container steps and public-registry fixtures.
-# Usage: coding.sh [--provider claude|codex] [--fixture dart|node] [--baseline]
+# Usage: coding.sh [--provider claude|codex] [--fixture dart|node|python|rust|go] [--baseline]
 # Requires Docker/Podman, Dart, git, curl, python3 and a host-held credential per
 # selected provider: DARTCLAW_CONTAINER_DATA_DIR names its DartClaw store, or use
 # ANTHROPIC_API_KEY / CODEX_API_KEY. The store is a credential source only.
-# Builds a Dart/Node recipe image per fixture; DARTCLAW_CODING_IMAGE selects an
+# Builds a recipe image per fixture; DARTCLAW_CODING_IMAGE selects an
 # already-built image for all fixtures (for example dartclaw-agent:latest).
 # Exit 0 means every selected install/test passed; --baseline permits only those
 # command failures. Missing credentials/runtime, placement or cleanup errors fail.
@@ -15,14 +15,14 @@ set -euo pipefail
 unset CODEX_INTERNAL_ORIGINATOR_OVERRIDE
 
 PROVIDERS=(claude codex)
-FIXTURES=(dart node)
+FIXTURES=(dart node python rust go)
 BASELINE=0
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --provider) [ "$#" -ge 2 ] || exit 2; PROVIDERS=("$2"); shift 2 ;;
     --fixture) [ "$#" -ge 2 ] || exit 2; FIXTURES=("$2"); shift 2 ;;
     --baseline) BASELINE=1; shift ;;
-    *) echo "usage: $0 [--provider claude|codex] [--fixture dart|node] [--baseline]" >&2; exit 2 ;;
+    *) echo "usage: $0 [--provider claude|codex] [--fixture dart|node|python|rust|go] [--baseline]" >&2; exit 2 ;;
   esac
 done
 for provider in "${PROVIDERS[@]}"; do
@@ -40,7 +40,7 @@ for provider in "${PROVIDERS[@]}"; do
   fi
 done
 for fixture in "${FIXTURES[@]}"; do
-  case "$fixture" in dart|node) ;; *) echo "Unknown fixture: $fixture" >&2; exit 2 ;; esac
+  case "$fixture" in dart|node|python|rust|go) ;; *) echo "Unknown fixture: $fixture" >&2; exit 2 ;; esac
 done
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -83,7 +83,8 @@ cleanup_server() {
   if [ -n "$DATA_DIR" ]; then
     local names
     names="$("$RUNTIME" ps -aq --filter "label=dartclaw.data-dir=$DATA_DIR")" || return 1
-    for name in $names; do "$RUNTIME" rm -f "$name" >/dev/null || return 1; done
+    # -v also removes each container's anonymous package-cache volume.
+    for name in $names; do "$RUNTIME" rm -f -v "$name" >/dev/null || return 1; done
     names="$("$RUNTIME" ps -aq --filter "label=dartclaw.data-dir=$DATA_DIR")" || return 1
     [ -z "$names" ] || return 1
   fi
@@ -151,7 +152,8 @@ for provider in "${PROVIDERS[@]}"; do
       fi
     fi
     IMAGE="${DARTCLAW_CODING_IMAGE:-dartclaw-agent-coding-$fixture:latest}"
-    dart "$SCRIPT_DIR/coding_config.dart" "$provider" "$DATA_DIR" "$REMOTE" "$IMAGE" >"$RESULT_DIR/$NAME-definition-proof.json"
+    dart "$SCRIPT_DIR/coding_config.dart" "$provider" "$DATA_DIR" "$REMOTE" "$IMAGE" "$fixture" \
+      >"$RESULT_DIR/$NAME-definition-proof.json"
     (exec dart run apps/dartclaw_cli/bin/dartclaw.dart --config "$DATA_DIR/dartclaw.yaml" \
       serve --data-dir "$DATA_DIR" --source-dir "$REPO_ROOT") >"$RESULT_DIR/$NAME-server.log" 2>&1 &
     SERVER_PID=$!

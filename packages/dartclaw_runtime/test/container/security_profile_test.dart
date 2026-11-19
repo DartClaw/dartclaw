@@ -3,20 +3,21 @@ import 'package:test/test.dart';
 
 void main() {
   group('SecurityProfile.workspace()', () {
-    test('without projectsClonesDir produces 2 mounts (backward compat)', () {
+    test('without projectsClonesDir produces 2 bind mounts and the package cache', () {
       final profile = SecurityProfile.workspace(workspaceDir: '/workspace', projectDir: '/project');
-      expect(profile.workspaceMounts, hasLength(2));
+      expect(profile.workspaceMounts, hasLength(3));
+      expect(profile.workspaceMounts, contains(SecurityProfile.packageCachePath));
       expect(profile.workspaceMounts, contains('/workspace:/workspace:rw'));
       expect(profile.workspaceMounts, contains('/project:/project:ro'));
     });
 
-    test('with projectsClonesDir produces 3 mounts', () {
+    test('with projectsClonesDir produces 3 bind mounts and the package cache', () {
       final profile = SecurityProfile.workspace(
         workspaceDir: '/workspace',
         projectDir: '/project',
         projectsClonesDir: '/data/projects',
       );
-      expect(profile.workspaceMounts, hasLength(3));
+      expect(profile.workspaceMounts, hasLength(4));
       expect(profile.workspaceMounts, contains('/workspace:/workspace:rw'));
       expect(profile.workspaceMounts, contains('/project:/project:ro'));
       expect(profile.workspaceMounts, contains('/data/projects:/projects:ro'));
@@ -49,7 +50,7 @@ void main() {
     test('an unconfigured agent receives no workspace mount', () {
       final profile = SecurityProfile.workspace(workspaceDir: null, projectDir: '/project');
 
-      expect(profile.workspaceMounts, ['/project:/project:ro']);
+      expect(profile.workspaceMounts, ['/project:/project:ro', SecurityProfile.packageCachePath]);
     });
 
     test('an authorized project does not replace the pinned workspace mount', () {

@@ -188,17 +188,17 @@
   <a href="../security-architecture.md#host-owned-provider-mediation"><g class="n tint k-host" id="registry">
     <rect class="box" x="306" y="422" width="416" height="104" rx="9"/>
     <text class="name mono-name" x="318" y="445">RegistryBridgeSurface · registry</text>
-    <text class="sub" x="318" y="463">workspace only · loopback :8082 under /pub and /npm · GET/HEAD only</text>
+    <text class="sub" x="318" y="463">workspace only · loopback :8082, one route per pin · GET/HEAD only</text>
     <text class="sub" x="318" y="481">Pinned origins; no credentials; audit every request and refusal</text>
-    <text class="sub" x="318" y="499">Pub metadata URLs rewritten · npm packuments untouched · 64 MiB cap</text>
-    <g class="d"><text class="p1" x="36" y="646"><tspan class="b">RegistryBridgeSurface</tspan> · workspace grant owns both the pipe and client environment; restricted gets neither</text><text class="p2" x="36" y="666">RegistryAdapter pins routes and origins; redirects stay inside those pins. Headers share the provider strip lists.</text></g>
+    <text class="sub" x="318" y="499">JSON download URLs rewritten by record rule · 64 MiB cap</text>
+    <g class="d"><text class="p1" x="36" y="646"><tspan class="b">RegistryBridgeSurface</tspan> · workspace grant owns both the pipe and client environment; restricted gets neither</text><text class="p2" x="36" y="666">container.registries records pin routes and origins; redirects stay inside the answering record's pins. Headers share the provider strip lists.</text></g>
   </g></a>
   <a href="../security-architecture.md#host-owned-provider-mediation"><g class="n tint k-chan" id="registries">
     <rect class="box" x="808" y="466" width="164" height="70" rx="9"/>
-    <text class="name" x="820" y="489">pub.dev</text>
-    <text class="name" x="820" y="507">registry.npmjs.org</text>
+    <text class="name" x="820" y="489">package registries</text>
+    <text class="sub" x="820" y="507">pub · npm · pypi · crates</text>
     <text class="sub" x="820" y="523">exact HTTPS origin pins</text>
-    <g class="d"><text class="p1" x="36" y="646"><tspan class="b">PubRegistryAdapter</tspan> pins pub.dev under /pub. <tspan class="b">NpmRegistryAdapter</tspan> pins registry.npmjs.org under /npm.</text><text class="p2" x="36" y="666">Pub re-resolves a lockfile from pub.dev. npm handles tarball routing and leaves public URLs in its lockfile.</text></g>
+    <g class="d"><text class="p1" x="36" y="646"><tspan class="b">container.registries</tspan> · built-ins pin pub.dev, registry.npmjs.org, pypi.org + files.pythonhosted.org, index.crates.io + static.crates.io</text><text class="p2" x="36" y="666">go (proxy.golang.org + sum.golang.org) ships disabled. Operators toggle, replace or add records; an added pin is GET egress the container controls.</text></g>
   </g></a>
   <g transform="translate(24,568)">
     <g class="tint k-ext"><rect class="box" x="0" y="0" width="16" height="11" rx="3"/></g><text class="lg" x="22" y="10">container process</text>

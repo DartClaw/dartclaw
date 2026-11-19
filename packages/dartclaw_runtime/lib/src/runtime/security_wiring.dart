@@ -8,9 +8,8 @@ import 'package:logging/logging.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 
-import '../container/gateway/npm_registry_adapter.dart';
-import '../container/gateway/pub_registry_adapter.dart';
 import 'container_authority_cleanup_owner.dart';
+import 'provider_resolution.dart' show isProviderReservedEnvironmentKey;
 
 /// Constructs and exposes security-layer services.
 ///
@@ -244,6 +243,11 @@ class SecurityWiring implements Reconfigurable {
   static const _bridgeReadyTimeout = Duration(seconds: 30);
 
   Future<void> wire({required List<AgentDefinition> agentDefs}) async {
+    // A config error, not a probe result, so it never downgrades to advisory.
+    if (_registryShadowingDartclaw() case final message?) {
+      _log.severe(message);
+      _exitFn(1);
+    }
     if (config.container.enabled) {
       if (!_platformCapabilities.containerIsolationAvailable) {
         const error = UnsupportedCapabilityError(
@@ -328,6 +332,20 @@ class SecurityWiring implements Reconfigurable {
         }
         _log.severe('SecurityWiring: guard chain NOT updated — preserving existing chain');
     }
+  }
+
+  /// Why an enabled registry record may not load: it sets a variable DartClaw
+  /// sets in the container, whose value would silently be ignored.
+  String? _registryShadowingDartclaw() {
+    for (final record in config.container.registries.where((record) => record.enabled)) {
+      for (final key in record.env.keys) {
+        if (isProviderReservedEnvironmentKey(key)) {
+          return 'container.registries.${record.name}.env.$key: DartClaw sets $key in the container itself, so a '
+              'registry record cannot set it. Remove the variable from the record.';
+        }
+      }
+    }
+    return null;
   }
 
   /// The advisory-mode warning. [reason] names why this host has no OS
@@ -502,7 +520,7 @@ class SecurityWiring implements Reconfigurable {
     _containerHealthMonitor = ContainerHealthMonitor(eventBus: _eventBus)..start();
     _gateway = HostGateway(
       providerAdapters: buildProviderAdapters(),
-      registryAdapters: [PubRegistryAdapter(), NpmRegistryAdapter()],
+      registries: config.container.registries,
       onRegistryRequest: (authority, ecosystem, path, status, served) => _auditLogger.writeEntry(
         AuditEntry(
           timestamp: DateTime.now(),

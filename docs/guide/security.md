@@ -358,8 +358,9 @@ the operator to a POSIX host or WSL; auto-detection never runs there at all. See
 ### Language Toolchains in the Agent Image
 
 The default `dartclaw-agent:latest` image contains the provider CLIs, git and curl, with no language toolchain.
-Extend it with the toolchain your project needs. These recipes copy exact versions from the official language
-images; pin and update those versions for your project.
+DartClaw itself needs none of these recipes; they are for the projects agents work on. Extend the image with the
+toolchain your project needs. These recipes copy exact versions from the official language images; pin and update
+those versions for your project.
 
 Dart (`dart.Dockerfile`):
 
@@ -372,7 +373,7 @@ RUN ln -s /usr/lib/dart/bin/dart /usr/local/bin/dart
 # Dart initializes ~/.dart-tool even when analytics is suppressed.
 ENV DART_SDK=/usr/lib/dart \
     PATH="/usr/lib/dart/bin:${PATH}" \
-    PUB_CACHE=/tmp/pub-cache \
+    PUB_CACHE=/var/cache/dartclaw/pub-cache \
     HOME=/tmp
 USER dartclaw
 ```
@@ -386,7 +387,69 @@ RUN apt-get update && apt-get install -y --no-install-recommends libatomic1 libs
     && rm -rf /var/lib/apt/lists/*
 COPY --from=node:24.22.3-bookworm-slim /usr/local/ /usr/local/
 ENV PATH="/usr/local/bin:${PATH}" \
-    NPM_CONFIG_CACHE=/tmp/npm-cache
+    NPM_CONFIG_CACHE=/var/cache/dartclaw/npm-cache
+USER dartclaw
+```
+
+Python with pip and uv (`python.Dockerfile`):
+
+```dockerfile
+FROM dartclaw-agent:latest
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends libbz2-1.0 libffi8 liblzma5 libsqlite3-0 \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=python:3.14.9-slim-bookworm /usr/local/ /usr/local/
+COPY --from=ghcr.io/astral-sh/uv:0.13.6 /uv /uvx /usr/local/bin/
+RUN ldconfig
+# uv uses the image's Python; the cache volume is another filesystem than the worktree.
+ENV PIP_CACHE_DIR=/var/cache/dartclaw/pip \
+    UV_CACHE_DIR=/var/cache/dartclaw/uv \
+    UV_LINK_MODE=copy \
+    UV_PYTHON_DOWNLOADS=never \
+    HOME=/tmp
+USER dartclaw
+```
+
+Rust with Cargo (`rust.Dockerfile`):
+
+```dockerfile
+FROM dartclaw-agent:latest
+USER root
+# Cargo links test binaries with the system C toolchain.
+RUN apt-get update && apt-get install -y --no-install-recommends gcc libc6-dev \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=rust:1.99.0-slim-bookworm /usr/local/rustup/toolchains/ /usr/local/rustup/toolchains/
+RUN ln -s /usr/local/rustup/toolchains/*/bin/* /usr/local/bin/
+# Cargo has no environment setting for source replacement; its upward config
+# search reaches /.cargo from any working directory. The route is DartClaw's
+# `crates` record.
+RUN mkdir /.cargo && printf '%s\n' '[source.crates-io]' 'replace-with = "dartclaw-mirror"' \
+    '[source.dartclaw-mirror]' 'registry = "sparse+http://127.0.0.1:8082/crates/"' > /.cargo/config.toml
+ENV CARGO_HOME=/var/cache/dartclaw/cargo \
+    HOME=/tmp
+USER dartclaw
+```
+
+Cargo reads its registry replacement only from a `config.toml`, so this recipe writes one to `/.cargo/config.toml`,
+outside the cache volume, naming the mirror's `crates` route. That route name is a contract between the recipe and the
+`crates` record: a record that renames its routes needs a matching `config.toml`. The index's `config.json` names
+`https://static.crates.io` as the download host; the mirror rewrites it to the `crates-dl` route.
+
+Go (`go.Dockerfile`), which needs the `go` record enabled (below):
+
+```dockerfile
+FROM dartclaw-agent:latest
+USER root
+COPY --from=golang:1.26.9-bookworm /usr/local/go /usr/local/go
+# Login shells reset PATH; expose the toolchain in their standard search path too.
+RUN ln -s /usr/local/go/bin/go /usr/local/go/bin/gofmt /usr/local/bin/
+# /tmp is noexec, so test binaries are built under the cache volume.
+ENV CGO_ENABLED=0 \
+    GOPATH=/var/cache/dartclaw/go \
+    GOMODCACHE=/var/cache/dartclaw/go/pkg/mod \
+    GOCACHE=/var/cache/dartclaw/go/build \
+    GOTMPDIR=/var/cache/dartclaw \
+    HOME=/tmp
 USER dartclaw
 ```
 
@@ -395,7 +458,7 @@ Build the stock image from the DartClaw checkout, then your chosen recipe from t
 ```bash
 docker build -t dartclaw-agent:latest docker/
 docker build -t my-dart-agent:1 -f dart.Dockerfile .
-# Or: docker build -t my-node-agent:1 -f node.Dockerfile .
+# Or: node.Dockerfile, python.Dockerfile, rust.Dockerfile or go.Dockerfile.
 ```
 
 Build first, then select the image and start DartClaw:
@@ -409,22 +472,87 @@ container:
 A missing custom image fails startup and `dartclaw doctor` names the build command and this section. Only the
 missing default `dartclaw-agent:latest` is built automatically from `docker/`.
 
-The recipes preserve uid 1000 and the provider CLIs' `PATH`. Image `ENV` sets writable caches and SDK configuration
-under `/tmp`, because the root filesystem is read-only. Dart uses `HOME=/tmp` for its first-use `~/.dart-tool`
-analytics state. DartClaw still selects provider homes explicitly. A container's `/tmp` is a 100 MiB `noexec` tmpfs.
-Install SDKs at image build time and size dependency use accordingly.
+The recipes preserve uid 1000 and the provider CLIs' `PATH`. The root filesystem is read-only and a container's `/tmp`
+is a 100 MiB `noexec` tmpfs, so image `ENV` points package caches, and Go's `GOTMPDIR`, at `/var/cache/dartclaw`.
+Each `workspace` container gets an anonymous volume there: writable and executable for uid 1000, and removed with the
+container. The stock image creates the directory owned by uid 1000, which a new volume copies; a custom base image
+must do the same, and must not put files a recipe needs inside it, because only an empty new volume receives the
+image's contents. `restricted` containers get no volume and see the directory read-only. The volume has no size cap; a
+dependency tree that fills the host disk fails the install. `HOME=/tmp` holds first-use state such as Dart's
+`~/.dart-tool`. DartClaw still selects provider homes explicitly. Install SDKs at image build time.
 
-A workspace container has no direct network access. Dart and Node dependencies use the host's read-only `registry` surface. At container creation, `workspace` gets
-`PUB_HOSTED_URL=http://127.0.0.1:8082/pub`, `npm_config_registry=http://127.0.0.1:8082/npm` and
-`npm_config_audit=false`. The host pins `https://pub.dev` and `https://registry.npmjs.org`, accepts GET/HEAD and
-strips credentials. It rewrites pinned archive URLs in pub metadata. npm's default `replace-registry-host` routes
-tarball downloads through the mirror and keeps public URLs in `package-lock.json`. npm audit uploads are disabled.
-`restricted` gets neither the registry environment nor the pipe. Artifacts beyond the 64 MiB response cap fail visibly.
+When a build or test binary is missing, workspace task prompts tell the agent to stop, name the binary and refer here
+and to `container.image`, without installing it.
+
+### Package Registries
+
+A workspace container has no direct network access. Dependencies come through the host's read-only `registry`
+surface, a mirror on the container's `http://127.0.0.1:8082`. Each ecosystem is a `container.registries.<name>` record
+in the instance config: the origins the host pins, each under its own mirror route, the client variables a `workspace`
+container gets (`{mirror}` expands to `http://127.0.0.1:8082`), and the JSON metadata whose URLs the host rewrites onto
+the mirror. DartClaw ships these built-in records:
+
+| Record | Enabled | Routes → pinned origins | Client variables | JSON rewritten |
+|---|---|---|---|---|
+| `pub` | yes | `pub` → `https://pub.dev` | `PUB_HOSTED_URL={mirror}/pub` | `/api/packages/` (`application/json`) |
+| `npm` | yes | `npm` → `https://registry.npmjs.org` | `npm_config_registry={mirror}/npm/`, `npm_config_audit=false` | none |
+| `pypi` | yes | `pypi` → `https://pypi.org`; `pypi-files` → `https://files.pythonhosted.org` | `PIP_INDEX_URL={mirror}/pypi/simple/`, `UV_DEFAULT_INDEX={mirror}/pypi/simple` | `/simple/` (`application/vnd.pypi.simple.v1+json`) |
+| `crates` | yes | `crates` → `https://index.crates.io`; `crates-dl` → `https://static.crates.io` | none (the recipe's `config.toml`) | `/config.json` (`application/octet-stream`) |
+| `go` | no | `go` → `https://proxy.golang.org`; `gosum` → `https://sum.golang.org` | `GOPROXY={mirror}/go`, `GOSUMDB=sum.golang.org {mirror}/gosum`, `GOTOOLCHAIN=local` | none |
+
+The host accepts GET and HEAD only, strips credential headers in both directions, follows redirects only within the
+answering record's pins, and audits each request with its path and query. npm's trailing slash lets bun resolve the
+registry too. npm's default `replace-registry-host` routes tarball downloads through the mirror and keeps public URLs
+in `package-lock.json`; npm audit uploads are disabled. `restricted` gets neither the registry variables nor the pipe.
+Artifacts beyond the 64 MiB response cap fail visibly.
+
+`go` ships disabled because `proxy.golang.org` fetches any module path it is asked for, so an enabled `go` record lets
+the container make the proxy contact hosts it chooses. Turn it on with an entry that carries only `enabled`:
+
+```yaml
+container:
+  registries:
+    go:
+      enabled: true
+```
+
+An entry carrying only `enabled` toggles the built-in of that name, so `npm: {enabled: false}` turns npm off. An entry
+with any other field replaces the record of that name whole, keeping no field of the built-in, or adds a new
+ecosystem. A replacing or added record is enabled unless it says `enabled: false`:
+
+```yaml
+container:
+  registries:
+    hex:
+      upstreams:
+        - route: hex
+          origin: https://repo.hex.pm
+      env:
+        HEX_MIRROR: "{mirror}/hex"
+```
+
+Startup refuses an invalid record, naming its path: an origin that is not exact `https` with a host name (userinfo, a
+path, query, fragment or IP literal), a route that is not one lowercase segment or repeats another enabled record's,
+an `env` key that is not a POSIX name or that another enabled record sets (keys compare case-insensitively), a
+`rewrite_json` route the record does not define, a record with no upstreams, or a variable DartClaw sets in the
+container itself, such as `ANTHROPIC_BASE_URL` or `CODEX_HOME`. A disabled record is held to type checks only.
+`container.registries` is read only from the instance config at startup; the API and CLI cannot write it.
+
+**A pinned origin is an exfiltration channel you choose.** A record's pins give the container GET access to that
+origin: the path, query and non-credential headers of every request reach it. That is safe for a single-tenant package
+registry, and an exfiltration path for GitHub, object storage, a CDN or JitPack. DartClaw cannot judge an origin, so
+the operator who adds one owns that choice. The IP-literal rule refuses literal addresses only: a host name that
+resolves to a loopback, private or cloud-metadata address, such as `localhost`, is accepted and reached.
+
+Maven, RubyGems, NuGet and Hex have no built-in record: they can be added as records like the one above, but no
+fixture has proven them. Composer, Gradle, Poetry, SwiftPM and CocoaPods are unsupported: they fetch from GitHub,
+fetch over git (which needs POST), or have no global mirror setting. Private and authenticated registries and
+path-prefixed mirrors (Artifactory, Nexus) are out of scope, because pins are origins and carry no credentials.
 
 A containerized `dart pub get` ignores a committed `pubspec.lock` whose hosted `url` names `https://pub.dev`
 instead of the mirror, writes one naming `http://127.0.0.1:8082/pub/`, and re-resolves dependencies, possibly to newer
-versions. This lockfile change is an accepted consequence of the mirror. When a build or test binary is missing, workspace
-task prompts tell the agent to stop, name the binary and refer here and to `container.image`, without installing it.
+versions. `uv` likewise writes mirror URLs into `uv.lock`, so `uv sync --locked` fails on a lockfile written outside
+the container. These lockfile changes are an accepted consequence of the mirror.
 
 ### Hardening the primary agent for untrusted channels
 
@@ -575,9 +703,10 @@ Container (network:none)                          Host
    host-owned directory mounted at `/artifacts`. There is no socket mount, no published port, and no network attachment.
 3. The bridge listens on container loopback and forwards bounded, framed traffic to the host over the `docker exec -i`
    pipe the host opened. It chooses no destination and holds no credential.
-4. `workspace` also gets a separate `registry` pipe on loopback port 8082 for public pub and npm packages. It accepts
-   GET/HEAD only to `https://pub.dev` and `https://registry.npmjs.org` on their respective routes, strips credential
-   headers in both directions, and audits each routed request and refusal.
+4. `workspace` also gets a separate `registry` pipe on loopback port 8082 for public packages. It accepts GET/HEAD
+   only to the exact origins the enabled `container.registries` records pin, each on its own route (for example
+   `https://pypi.org` and `https://files.pythonhosted.org` for `pypi`), strips credential headers in both directions,
+   and audits each routed request, with its query, and each refusal.
    Policy refusals name the ecosystem and rule. Shared framing, capacity and late streamed-cap failures keep
    generic bridge reasons.
    `restricted` has no registry access.
@@ -837,8 +966,8 @@ inherits the data directory's ACLs. See [Scheduling § Shell jobs](scheduling.md
 - **Pinned destination** – the adapter owns the upstream origin and the allowed request paths, so a container cannot
   name where its traffic goes
 - **Sole egress** – `network:none` means host-owned pipes are the only way out of the container. `workspace` has a
-  read-only `registry` surface for public pub and npm packages, pinned to `https://pub.dev` and
-  `https://registry.npmjs.org` on their respective routes, with GET/HEAD only and no credentials.
+  read-only `registry` surface for public packages, pinned to the exact origins of the enabled
+  `container.registries` records on their respective routes, with GET/HEAD only and no credentials.
   `restricted` never receives it. The provider pipe refuses any
   request declaring a provider-side network tool (web search/fetch, remote MCP connectors), which would otherwise run at
   the provider where `network:none` cannot reach it. The container's web path is instead the bridged canonical

@@ -1,3 +1,7 @@
+import 'package:collection/collection.dart';
+
+import 'container_registries.dart';
+
 /// Configuration for container isolation.
 class ContainerConfig {
   /// The posture the operator declared, or `null` when the config declares
@@ -19,12 +23,26 @@ class ContainerConfig {
   /// startup probe. Resolution output rather than a YAML key.
   final String runtimeBinary;
 
-  /// Creates container isolation configuration; [enabled] omitted means unset.
-  const new({bool? enabled, this.image = 'dartclaw-agent:latest', this.runtimeBinary = 'docker'})
-    : declaredEnabled = enabled,
-      enabled = enabled ?? false;
+  /// Every registry record in force, enabled or not: the built-ins overlaid by
+  /// `container.registries` (ADR-062).
+  final List<RegistryRecord> registries;
 
-  const new _({required this.declaredEnabled, required this.enabled, required this.image, required this.runtimeBinary});
+  /// Creates container isolation configuration; [enabled] omitted means unset.
+  const new({
+    bool? enabled,
+    this.image = 'dartclaw-agent:latest',
+    this.runtimeBinary = 'docker',
+    this.registries = builtInRegistryRecords,
+  }) : declaredEnabled = enabled,
+       enabled = enabled ?? false;
+
+  const new _({
+    required this.declaredEnabled,
+    required this.enabled,
+    required this.image,
+    required this.runtimeBinary,
+    required this.registries,
+  });
 
   /// Creates a configuration that declares isolation off.
   const new disabled() : this(enabled: false);
@@ -35,12 +53,16 @@ class ContainerConfig {
     enabled: enabled,
     image: image,
     runtimeBinary: runtimeBinary ?? this.runtimeBinary,
+    registries: registries,
   );
 
   /// Keys this parser reads; anything else is reported rather than ignored.
-  static const knownKeys = {'enabled', 'image'};
+  static const knownKeys = {'enabled', 'image', 'registries'};
 
   /// Parses container configuration from YAML, appending warnings to [warns].
+  ///
+  /// Throws [FormatException] for an invalid `container.registries` record:
+  /// it sets egress pins, so it is refused rather than defaulted.
   factory fromYaml(Map<String, dynamic> yaml, List<String> warns) {
     for (final key in yaml.keys) {
       if (!knownKeys.contains(key)) warns.add('Unknown config key: container.$key');
@@ -57,6 +79,7 @@ class ContainerConfig {
     return ContainerConfig(
       enabled: enabled is bool ? enabled : null,
       image: image is String ? image : 'dartclaw-agent:latest',
+      registries: parseRegistryRecords(yaml['registries']),
     );
   }
 
@@ -67,8 +90,9 @@ class ContainerConfig {
           declaredEnabled == other.declaredEnabled &&
           enabled == other.enabled &&
           image == other.image &&
-          runtimeBinary == other.runtimeBinary;
+          runtimeBinary == other.runtimeBinary &&
+          const ListEquality<RegistryRecord>().equals(registries, other.registries);
 
   @override
-  int get hashCode => Object.hash(declaredEnabled, enabled, image, runtimeBinary);
+  int get hashCode => Object.hash(declaredEnabled, enabled, image, runtimeBinary, Object.hashAll(registries));
 }

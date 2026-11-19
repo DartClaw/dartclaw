@@ -31,20 +31,21 @@
 - **FR6: Blocked-host message names the fix** _(Should / P1)_ – NetworkGuard's block reason names the config key that would allow the host.
 - **FR7: Saved branches on cancel and cleanup** _(Should / P1)_ – closed on evidence that cancelled work already survives; squash accepts stop leaving their branch behind.
 - **FR8: Toolchain image recipe and missing-toolchain error** _(Must / P0)_ – documented `FROM dartclaw-agent` recipe for Dart and Node, and an actionable error naming a missing toolchain binary.
-- **FR9: Read-only package-registry egress** _(Must / P0)_ – a third bridge surface, `registry`, serving pub and npm read-only for `workspace` containers (ADR-062).
+- **FR9: Read-only package-registry egress** _(Must / P0)_ – a third bridge surface, `registry`, serving pub, npm, PyPI, crates.io and opt-in Go read-only for `workspace` containers, ecosystems as instance-config records (ADR-062, amended 2026-11-18).
 - **FR10: Seeded visual profile** _(Must / P0)_ – `visual` seeds tasks and workflow runs in completed, failed and awaiting-approval states.
 
 ### Scope Highlights
 
 - **In scope**: CI cut and local Linux lane; the two 0.25 live proofs; devvm V1–V5; seeded `visual` profile.
 - **Out of scope**: replacing GitHub Actions or moving to a drop-in runner; Docker Sandboxes (`sbx`); registry
-  ecosystems beyond pub and npm; private registries; a new testing profile.
+  built-in registry ecosystems beyond pub, npm, PyPI, crates.io and Go; private registries; a new testing profile.
 - **MVP boundary**: FR1–FR5, FR8–FR10. FR6 and FR7 are small and ride along.
 
 ### Key Constraints, Assumptions & Dependencies
 
 - *Constraint:* ADR-062's D1–D3 are pinned: registry mirror over the existing pipe with no TLS interception or CONNECT
-  tunnel, pub and npm only, granted to `workspace` and never `restricted`, no config knob.
+  tunnel, granted to `workspace` and never `restricted`, no config knob for the grant. Its 2026-11-18 amendment
+  replaces "pub and npm only": ecosystems are `container.registries` records, built-ins pub, npm, PyPI, crates.io and Go (off).
 - *Constraint:* order is the live containerized proof (FR3) first, then V3, V4, V5, V2, V1; FR3's failures are FR9's
   acceptance test.
 - *Dependency:* the Linux lane needs Lima (`brew install lima`) on the release machine; it is arm64 Linux, x64 Linux
@@ -125,7 +126,8 @@ reaches host execution without review. `visual` renders tasks and runs in each s
 - Changing CI provider or runner (drop-in runners, self-hosted runners): failures were test failures, not GitHub
   infrastructure, so a runner swap does not address them.
 - Docker Sandboxes (`sbx`) as a backend (devvm research § 5).
-- Registry ecosystems beyond pub and npm; private or authenticated registries; TLS interception.
+- Built-in registry ecosystems beyond pub, npm, PyPI, crates.io and Go (Maven, RubyGems, NuGet and Hex are config-only
+  examples; Composer, Gradle, Poetry, SwiftPM and CocoaPods are unsupported); private or authenticated registries; TLS interception.
 - `CLAUDE.md` and `AGENTS.md` on the execution-surface list.
 - A new testing profile; the Parallels Linux VM as a release lane.
 - x64 Linux test runs before tagging.
@@ -303,9 +305,11 @@ with such an image runs the fixtures' tests once dependencies are present.
 
 **Description**: devvm V1, per public ADR-062 with D1–D3 pinned. A third bridge surface, `registry`, beside `provider`
 and `mcp`: the package manager talks plain HTTP to the in-container bridge's loopback port; the host makes the HTTPS
-request to origins each ecosystem adapter pins (`https://pub.dev`, `https://registry.npmjs.org`, plus the exact
-download origins they redirect to). `GET` and `HEAD` only, no credentials, container `Authorization` headers dropped. The client never needs a
-direct connection for a pinned-origin download: an adapter rewrites metadata URLs only where its client has no host
+request to origins each ecosystem record pins (`https://pub.dev`, `https://registry.npmjs.org`, plus the exact
+download origins they redirect to). Per ADR-062's 2026-11-18 amendment each ecosystem is a `container.registries`
+record in the instance config (built-ins pub, npm, PyPI, crates.io, and Go shipped off) that an operator can disable,
+replace or add; startup refuses an invalid record, and `workspace` containers get a package-cache volume. `GET` and `HEAD` only, no credentials, container `Authorization` headers dropped. The client never needs a
+direct connection for a pinned-origin download: a record rewrites JSON metadata URLs only where its client has no host
 replacement of its own (pub's are rewritten; npm's `replace-registry-host` already routes tarballs through the mirror,
 and rewriting would write loopback URLs into `package-lock.json`). Accepted consequence: a containerized `pub get`
 ignores a committed `pubspec.lock` (its `url` differs) and writes one naming the mirror, so it re-resolves to newer
@@ -317,11 +321,20 @@ versions; ADR-062 and the guide state it. Granted to `workspace` authorities, ne
 - [ ] While a `workspace` container runs, when the agent runs `dart pub get` or `npm install` against public packages, the install shall succeed through the bridge with `network:none` unchanged.
 - [ ] While a `restricted` container runs, the `registry` surface shall not be granted and installs shall fail.
 - [ ] If a request uses a method other than `GET` or `HEAD`, then the host shall refuse it and fire a `GuardBlockEvent`.
-- [ ] If a request or redirect targets an origin outside the adapter's pinned set, then the host shall refuse it.
+- [ ] If a request or redirect targets an origin outside the record's pinned set, then the host shall refuse it.
 - [ ] If a response exceeds `BridgeLimits`' 64 MiB cap, then the install shall fail with a message naming the cap.
-- [ ] Each served request shall be recorded with authority, ecosystem, path and status.
+- [ ] Each served request shall be recorded with authority, ecosystem, path including query, and status.
 - [ ] When a containerized `pub get` runs on a project with a committed `https://pub.dev` lockfile, the resulting lockfile change shall be the documented consequence, shown by the FR3 Dart fixture's results.
 - [ ] With FR8's images, the FR3 scenario shall pass on both fixtures with both providers.
+- [ ] While a `workspace` container runs, when the agent installs Python (uv), Rust (Cargo) or, with `go` enabled in the
+  instance config, Go dependencies, the install shall succeed through the bridge with `network:none` unchanged, and the
+  FR3 scenario shall pass on those fixtures with both providers.
+- [ ] When the instance config disables, redefines or adds a `container.registries` record, the mirror shall serve
+  exactly the resulting enabled records from the next start.
+- [ ] If a record has a non-HTTPS origin, userinfo, a path or IP literal in an origin, a duplicate route, or an `env`
+  key another record or DartClaw sets, then startup shall refuse naming it.
+- [ ] Each `workspace` container shall have a writable, executable package cache at `/var/cache/dartclaw`, removed
+  with the container; `restricted` shall have none.
 
 **Priority**: Must / P0
 
@@ -365,7 +378,7 @@ not in a capture.
 |----------|-------------------|---------------|
 | Lima VM left in a broken state | `linux` gate fails naming the VM | Delete and recreate the VM from the template |
 | Candidate changes while the Linux lane runs | Release check's before/after identity check fails the gate | Rerun on the final candidate |
-| A registry redirect chain changes upstream | Request outside the pinned set is refused | Add the origin to the adapter in a patch |
+| A registry redirect chain changes upstream | Request outside the pinned set is refused | Add the exact origin to the record (a built-in in a patch, or in the instance config) |
 | Agent writes both a listed path and normal code | Whole accept is held for review | Operator reviews and accepts manually |
 
 
@@ -376,7 +389,7 @@ not in a capture.
 - ADR-062 D1–D3 (see Executive Summary); ADR-054 keeps the FR5 and FR9 decisions in deterministic host code.
 - `RELEASE_PREPARATION.md`: a story never carries a task that re-runs a release gate; story proof is its own tests plus
   the `fast` / `full` tiers.
-- No config knob for FR5 or FR9.
+- No config knob for FR5 or for FR9's grant; FR9's ecosystems are instance-config records (ADR-062 amendment).
 
 ### Assumptions
 
@@ -416,3 +429,4 @@ None open at kickoff.
 | `build` runs in the Lima lane; FR2's GitHub rule means no API or Actions call (owner, 2026-11-15) | Dependency hooks download pinned GitHub release assets anyway; proves linux-arm64 before the tag | Omit `build` |
 | Placement recorded in `agent_executions.container_json` (owner, 2026-11-15) | The column exists for it and makes placement a repository read | Log line |
 | Codex recheck requires the stored-subscription home, run once (owner, 2026-11-15) | That home is what 0.25 observed; FR4 says once | Isolated home only; re-runnable mode |
+| Registry ecosystems become `container.registries` records; built-ins add PyPI, crates.io and Go (off); `workspace` gets a package-cache volume (owner, ADR-062 amendment 2026-11-18) | Each ecosystem was four values with no logic, yet needed a release | One adapter class per ecosystem |

@@ -17,6 +17,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
+import 'host_worktree_tamper_fixture.dart';
 import 'task_executor_test_support.dart';
 
 void main() {
@@ -862,8 +863,17 @@ void main() {
       }
     });
 
-    final cloneResult = await Process.run('git', ['clone', projectDir.path, worktreeDir.path]);
-    expect(cloneResult.exitCode, 0, reason: cloneResult.stderr.toString());
+    // A linked worktree, as WorktreeManager creates: host Git refuses any other
+    // checkout as a task worktree of the project.
+    final addResult = await Process.run('git', [
+      'worktree',
+      'add',
+      '-b',
+      'story',
+      worktreeDir.path,
+      'main',
+    ], workingDirectory: projectDir.path);
+    expect(addResult.exitCode, 0, reason: addResult.stderr.toString());
 
     File(p.join(worktreeDir.path, 'plan.md')).writeAsStringSync('# Plan\n\n- [x] Story 1\n');
     final notesDir = Directory(p.join(worktreeDir.path, 'notes'))..createSync(recursive: true);
@@ -907,6 +917,36 @@ void main() {
     expect(updated, isNotNull);
     expect(updated!.status, TaskStatus.review);
     expect(updated.configJson['errorSummary'], isNull);
+  });
+
+  test('read-only worktree task fails, rather than skipping its check, when the gitlink is tampered', () async {
+    final fixture = await HostWorktreeTamperFixture.create();
+    addTearDown(fixture.dispose);
+    await fixture.rewriteGitlinkToAgentGitdir();
+
+    final projectExecutor = buildWorkflowExecutor(
+      projectService: fakeProjectServiceFor(readyProject(localPath: fixture.projectDir)),
+      worktreeManager: StaticPathWorktreeManager(fixture.worktreePath),
+    );
+    addTearDown(projectExecutor.stop);
+
+    await tasks.create(
+      id: 'task-readonly-tampered',
+      title: 'Read-only task',
+      description: 'Its worktree gitlink was rewritten.',
+      autoStart: true,
+      projectId: 'my-app',
+      configJson: const {'readOnly': true, 'needsWorktree': true},
+    );
+
+    expect(await projectExecutor.pollOnce(), isTrue);
+    await projectExecutor.drain();
+
+    final failed = await waitForTaskStatus(tasks, 'task-readonly-tampered', until: const {TaskStatus.failed});
+    expect(failed!.status, TaskStatus.failed);
+    expect(failed.configJson['errorSummary'], contains('tampered worktree'));
+    expect(worker.turnCallCount, 0);
+    expect(fixture.existingMarkers, isEmpty);
   });
 
   test('workflow required input path preflight fails before a harness turn starts', () async {

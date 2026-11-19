@@ -300,7 +300,7 @@ Future<WorkflowGitPublishResult> _publishWorkflowBranchLocalLane(
       projectDir: projectDir,
       branch: branch,
       baseRef: await executionSurfaceBaseRef(
-        worktreePath: projectDir,
+        projectDir: projectDir,
         defaultBranch: resolvedProject?.defaultBranch ?? config.tasks.worktreeBaseRef,
       ),
       approvedCandidate: approvedCandidate,
@@ -314,7 +314,7 @@ Future<WorkflowGitPublishResult> _publishWorkflowBranchLocalLane(
     pushService: remotePushService,
     branch: branch,
     baseRef: await executionSurfaceBaseRef(
-      worktreePath: resolvedProject.localPath,
+      projectDir: resolvedProject.localPath,
       defaultBranch: resolvedProject.defaultBranch,
     ),
     approvedCandidate: approvedCandidate,
@@ -511,7 +511,7 @@ Future<WorkflowGitPublishResult> publishWorkflowBranchWithProjectAuth({
   }
 
   final baseRef = await executionSurfaceBaseRef(
-    worktreePath: resolvedProject.localPath,
+    projectDir: resolvedProject.localPath,
     defaultBranch: resolvedProject.defaultBranch,
   );
   final pushResult = resolvedProject.remoteUrl.trim().isEmpty

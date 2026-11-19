@@ -130,26 +130,63 @@ class DiffGenerator {
     : _projectDir = projectDir,
       _runGit = processRunner ?? runGit;
 
-  // User-visible git under the documented automation-owned/user-visible split:
-  // review diffs must render what the operator's own git renders, so system
-  // git config (diff/textconv drivers) stays in band.
-  Future<ProcessResult> _git(List<String> arguments, {String? workingDirectory}) =>
-      _runGit(arguments, workingDirectory: workingDirectory, noSystemConfig: false);
+  /// Runs [arguments] in [projectDir], or in [worktreePath] of that project
+  /// through the host-worktree authority.
+  ///
+  /// [automated] marks automation-owned reads; the others are user-visible Git
+  /// under the documented automation-owned/user-visible split: review diffs must
+  /// render what the operator's own git renders, so system git config
+  /// (diff/textconv drivers) stays in band.
+  Future<ProcessResult> _git(
+    List<String> arguments, {
+    required String projectDir,
+    required String? worktreePath,
+    bool automated = false,
+  }) {
+    if (worktreePath == null) {
+      return _runGit(
+        [if (automated) ...hostWorktreeGitOptions, ...arguments],
+        workingDirectory: projectDir,
+        noSystemConfig: automated,
+      );
+    }
+    return runHostWorktreeGit(
+      arguments,
+      projectDir: projectDir,
+      worktreePath: worktreePath,
+      noSystemConfig: automated,
+      runner: _runGit,
+    );
+  }
 
   /// Generates a structured diff for [branch] relative to [baseRef].
   ///
-  /// Includes both committed branch changes (`baseRef...branch`) and current
-  /// worktree changes so review/publish flows can see files that have not yet
-  /// been committed by the agent.
-  Future<DiffResult> generate({required String baseRef, required String branch, String? projectDir}) async {
-    final workingDirectory = projectDir ?? _projectDir;
+  /// Includes both committed branch changes (`baseRef...branch`) and the
+  /// uncommitted changes of the checkout — [worktreePath] when given, else the
+  /// project checkout — so review/publish flows can see files the agent has not
+  /// committed. [projectDir] overrides the constructor's repository. Throws
+  /// [TamperedWorktreeException] when [worktreePath] fails the host-worktree
+  /// authority.
+  Future<DiffResult> generate({
+    required String baseRef,
+    required String branch,
+    String? projectDir,
+    String? worktreePath,
+  }) async {
+    final repository = projectDir ?? _projectDir;
+    final checkout = worktreePath ?? repository;
 
     final filesByPath = <String, DiffFileEntry>{};
 
     for (final revisionRange in ['$baseRef...$branch', 'HEAD']) {
-      final numstat = await _gitDiffNumstat(revisionRange, workingDirectory: workingDirectory);
-      final changes = await _gitDiffChanges(revisionRange, workingDirectory: workingDirectory, automated: false);
-      final hunks = await _gitDiffUnified(revisionRange, workingDirectory: workingDirectory);
+      final numstat = await _gitDiffNumstat(revisionRange, projectDir: repository, worktreePath: worktreePath);
+      final changes = await _gitDiffChanges(
+        revisionRange,
+        projectDir: repository,
+        worktreePath: worktreePath,
+        automated: false,
+      );
+      final hunks = await _gitDiffUnified(revisionRange, projectDir: repository, worktreePath: worktreePath);
       _mergeEntries(
         filesByPath,
         _parseNumstat(numstat, {for (final change in changes) change.path: change}),
@@ -157,14 +194,14 @@ class DiffGenerator {
       );
     }
 
-    final untrackedPaths = await _gitUntrackedFiles(workingDirectory: workingDirectory);
+    final untrackedPaths = await _gitUntrackedFiles(projectDir: repository, worktreePath: worktreePath);
     for (final relativePath in untrackedPaths) {
       _mergeEntry(
         filesByPath,
         DiffFileEntry(
           path: relativePath,
           status: DiffFileStatus.added,
-          additions: _countFileLines(workingDirectory, relativePath),
+          additions: _countFileLines(checkout, relativePath),
           deletions: 0,
           hunks: const [],
         ),
@@ -192,28 +229,32 @@ class DiffGenerator {
   ///
   /// Each source retains its own metadata, so an uncommitted deletion cannot
   /// conceal a symlink still present in the branch that would be merged.
-  /// Set [includeWorktree] false when [projectDir] only supplies the repository
-  /// for a branch with no checkout; its unrelated dirty files will not be swept.
-  /// Set [fromMergeBase] false to compare the supplied Git trees directly.
-  /// Git failures and malformed NUL framing throw [WorktreeException].
+  /// Without [worktreePath] only the branch is read: [projectDir] then supplies
+  /// the repository for a branch with no checkout, and its unrelated dirty
+  /// files will not be swept. Set [fromMergeBase] false to compare the supplied
+  /// Git trees directly. Git failures and malformed NUL framing throw
+  /// [WorktreeException]; a worktree the host-worktree authority refuses throws
+  /// [TamperedWorktreeException].
   Future<List<DiffFileChange>> changes({
     required String baseRef,
     required String branch,
     String? projectDir,
-    bool includeWorktree = true,
+    String? worktreePath,
     bool fromMergeBase = true,
   }) async {
-    final workingDirectory = projectDir ?? _projectDir;
+    final repository = projectDir ?? _projectDir;
     final changes = <DiffFileChange>[];
     for (final revisionRange in [
       fromMergeBase ? '$baseRef...$branch' : '$baseRef..$branch',
-      if (includeWorktree) 'HEAD',
+      if (worktreePath != null) 'HEAD',
     ]) {
-      changes.addAll(await _gitDiffChanges(revisionRange, workingDirectory: workingDirectory, automated: true));
+      changes.addAll(
+        await _gitDiffChanges(revisionRange, projectDir: repository, worktreePath: worktreePath, automated: true),
+      );
     }
-    if (!includeWorktree) return changes;
-    for (final path in await _gitUntrackedFiles(workingDirectory: workingDirectory, automated: true)) {
-      final type = FileSystemEntity.typeSync('$workingDirectory${Platform.pathSeparator}$path', followLinks: false);
+    if (worktreePath == null) return changes;
+    for (final path in await _gitUntrackedFiles(projectDir: repository, worktreePath: worktreePath, automated: true)) {
+      final type = FileSystemEntity.typeSync('$worktreePath${Platform.pathSeparator}$path', followLinks: false);
       if (type == FileSystemEntityType.notFound) throw WorktreeException('Changed file disappeared: $path');
       changes.add((
         path: path,
@@ -225,8 +266,16 @@ class DiffGenerator {
     return changes;
   }
 
-  Future<String> _gitDiffNumstat(String revisionRange, {required String workingDirectory}) async {
-    final result = await _git(['diff', '--numstat', '-z', revisionRange], workingDirectory: workingDirectory);
+  Future<String> _gitDiffNumstat(
+    String revisionRange, {
+    required String projectDir,
+    required String? worktreePath,
+  }) async {
+    final result = await _git(
+      ['diff', '--numstat', '-z', revisionRange],
+      projectDir: projectDir,
+      worktreePath: worktreePath,
+    );
     if (result.exitCode != 0) {
       throw WorktreeException(
         'git diff --numstat failed',
@@ -239,22 +288,15 @@ class DiffGenerator {
 
   Future<List<DiffFileChange>> _gitDiffChanges(
     String revisionRange, {
-    required String workingDirectory,
+    required String projectDir,
+    required String? worktreePath,
     required bool automated,
   }) async {
-    final result = await _runGit(
-      [
-        if (automated) ...hostWorktreeGitOptions,
-        'diff',
-        '--raw',
-        '--no-abbrev',
-        '--no-ext-diff',
-        '--no-textconv',
-        '-z',
-        revisionRange,
-      ],
-      workingDirectory: workingDirectory,
-      noSystemConfig: automated,
+    final result = await _git(
+      ['diff', '--raw', '--no-abbrev', '--no-ext-diff', '--no-textconv', '-z', revisionRange],
+      projectDir: projectDir,
+      worktreePath: worktreePath,
+      automated: automated,
     );
     if (result.exitCode != 0) {
       throw WorktreeException(
@@ -266,8 +308,16 @@ class DiffGenerator {
     return _parseRawDiff(result.stdout as String);
   }
 
-  Future<String> _gitDiffUnified(String revisionRange, {required String workingDirectory}) async {
-    final result = await _git(['diff', '-U3', '--no-color', revisionRange], workingDirectory: workingDirectory);
+  Future<String> _gitDiffUnified(
+    String revisionRange, {
+    required String projectDir,
+    required String? worktreePath,
+  }) async {
+    final result = await _git(
+      ['diff', '-U3', '--no-color', revisionRange],
+      projectDir: projectDir,
+      worktreePath: worktreePath,
+    );
     if (result.exitCode != 0) {
       throw WorktreeException(
         'git diff -U3 failed',
@@ -278,11 +328,16 @@ class DiffGenerator {
     return result.stdout as String;
   }
 
-  Future<List<String>> _gitUntrackedFiles({required String workingDirectory, bool automated = false}) async {
-    final result = await _runGit(
-      [if (automated) ...hostWorktreeGitOptions, 'ls-files', '--others', '--exclude-standard', '-z'],
-      workingDirectory: workingDirectory,
-      noSystemConfig: automated,
+  Future<List<String>> _gitUntrackedFiles({
+    required String projectDir,
+    required String? worktreePath,
+    bool automated = false,
+  }) async {
+    final result = await _git(
+      ['ls-files', '--others', '--exclude-standard', '-z'],
+      projectDir: projectDir,
+      worktreePath: worktreePath,
+      automated: automated,
     );
     if (result.exitCode != 0) {
       throw WorktreeException(

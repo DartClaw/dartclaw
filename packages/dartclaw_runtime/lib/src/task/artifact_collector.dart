@@ -119,18 +119,20 @@ class ArtifactCollector {
     try {
       final worktreeInfo = WorktreeInfo.fromJson(worktreeData);
       var effectiveBaseRef = _taskBaseRef(task) ?? _baseRef ?? 'main';
-      final projectDir = worktreeInfo.path;
+      String? projectDir;
       final projectId = taskProjectId(task);
       if (projectId != null && projectId != '_local') {
         final project = await _projectService?.get(projectId);
         if (project != null) {
           effectiveBaseRef = _effectiveProjectBaseRef(project, effectiveBaseRef);
+          projectDir = project.localPath;
         }
       }
       final diffResult = await diffGen.generate(
         baseRef: effectiveBaseRef,
         branch: worktreeInfo.branch,
         projectDir: projectDir,
+        worktreePath: worktreeInfo.path,
       );
 
       final artifactsDir = Directory(p.join(_dataDir, 'tasks', task.id, 'artifacts'));

@@ -11,64 +11,82 @@ String resolveIntegrationBranchName(String runId, {required bool perMapItem}) {
 /// subprocess policy.
 ///
 /// Codex CLI stderr capture and transient-vs-semantic subprocess-exit classification (fix 15) are out of scope.
+/// Every method takes the [worktreePath] it acts in and, as `projectDir`, the
+/// repository that checkout belongs to — the project dir itself when it acts
+/// in the project checkout. An implementation resolves the checkout's Git
+/// location from `projectDir`, never from [worktreePath]'s own `.git`, which an
+/// agent working in that worktree can rewrite.
 abstract interface class WorkflowGitPort {
   /// Resolves [ref] to a commit SHA or symbolic ref name.
-  Future<String> revParse(String worktreePath, String ref);
+  Future<String> revParse(String worktreePath, String ref, {required String projectDir});
 
   /// Returns the current branch name, or `HEAD` when detached.
-  Future<String> currentBranch(String worktreePath);
+  Future<String> currentBranch(String worktreePath, {required String projectDir});
 
   /// Returns paths reported by `git diff --name-only`.
-  Future<List<String>> diffNameOnly(String worktreePath, {String? against, bool cached = false, String? diffFilter});
+  Future<List<String>> diffNameOnly(
+    String worktreePath, {
+    required String projectDir,
+    String? against,
+    bool cached = false,
+    String? diffFilter,
+  });
 
   /// Returns whether [path] exists at [ref].
-  Future<bool> pathExistsAtRef(String worktreePath, {required String ref, required String path});
+  Future<bool> pathExistsAtRef(
+    String worktreePath, {
+    required String projectDir,
+    required String ref,
+    required String path,
+  });
 
   /// Returns the current working-tree status.
-  Future<GitStatus> status(String worktreePath);
+  Future<GitStatus> status(String worktreePath, {required String projectDir});
 
   /// Returns untracked working-tree paths.
-  Future<List<String>> untrackedFiles(String worktreePath);
+  Future<List<String>> untrackedFiles(String worktreePath, {required String projectDir});
 
   /// Returns paths contained in a stash entry.
-  Future<List<String>> stashedPaths(String worktreePath, {int index = 0});
+  Future<List<String>> stashedPaths(String worktreePath, {required String projectDir, int index = 0});
 
   /// Stages [paths].
-  Future<void> add(String worktreePath, List<String> paths, {bool all = false});
+  Future<void> add(String worktreePath, List<String> paths, {required String projectDir, bool all = false});
 
   /// Commits staged changes.
   Future<WorkflowGitCommit> commit(
     String worktreePath, {
+    required String projectDir,
     required String message,
     String? authorName,
     String? authorEmail,
   });
 
   /// Checks out [ref].
-  Future<void> checkout(String worktreePath, String ref);
+  Future<void> checkout(String worktreePath, String ref, {required String projectDir});
 
   /// Stashes local changes and returns whether a stash entry was created.
-  Future<bool> stashPush(String worktreePath, {bool includeUntracked = true});
+  Future<bool> stashPush(String worktreePath, {required String projectDir, bool includeUntracked = true});
 
   /// Pops the top stash entry.
-  Future<void> stashPop(String worktreePath);
+  Future<void> stashPop(String worktreePath, {required String projectDir});
 
   /// Drops a stash entry.
-  Future<void> stashDrop(String worktreePath, {int index = 0});
+  Future<void> stashDrop(String worktreePath, {required String projectDir, int index = 0});
 
   /// Merges [ref] into the current branch.
   Future<void> merge(
     String worktreePath, {
+    required String projectDir,
     required String ref,
     required WorkflowGitMergeStrategy strategy,
     String? message,
   });
 
   /// Aborts an in-progress merge.
-  Future<void> mergeAbort(String worktreePath);
+  Future<void> mergeAbort(String worktreePath, {required String projectDir});
 
   /// Resets the worktree hard to [ref].
-  Future<void> resetHard(String worktreePath, String ref);
+  Future<void> resetHard(String worktreePath, String ref, {required String projectDir});
 }
 
 /// Merge strategy understood by [WorkflowGitPort].

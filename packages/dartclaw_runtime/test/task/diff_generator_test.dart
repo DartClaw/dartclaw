@@ -1,9 +1,12 @@
 import 'dart:io';
 
 import 'package:dartclaw_runtime/src/task/diff_generator.dart';
+import 'package:dartclaw_runtime/src/task/host_worktree_git.dart' show TamperedWorktreeException;
 import 'package:dartclaw_runtime/src/task/worktree_manager.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:test/test.dart';
+
+import 'host_worktree_tamper_fixture.dart';
 
 void main() {
   group('DiffGenerator', () {
@@ -268,6 +271,53 @@ void main() {
       expect(restored.oldPath, equals('old.dart'));
       expect(restored.binary, isTrue);
       expect(restored.status, equals(DiffFileStatus.renamed));
+    });
+  });
+
+  group('DiffGenerator in a linked worktree', () {
+    late HostWorktreeTamperFixture fixture;
+    late DiffGenerator generator;
+
+    setUp(() async {
+      fixture = await HostWorktreeTamperFixture.create();
+      generator = DiffGenerator(projectDir: fixture.projectDir);
+    });
+    tearDown(() => fixture.dispose());
+
+    Future<DiffResult> review() =>
+        generator.generate(baseRef: 'main', branch: fixture.branch, worktreePath: fixture.worktreePath);
+    Future<List<DiffFileChange>> changes() =>
+        generator.changes(baseRef: 'main', branch: fixture.branch, worktreePath: fixture.worktreePath);
+
+    test('reports the uncommitted change of an untampered worktree', () async {
+      fixture.write('README.md');
+      fixture.write('new.txt');
+
+      final result = await review();
+      expect(result.files.map((file) => file.path), ['README.md', 'new.txt']);
+      expect((await changes()).map((change) => change.path), containsAll(['README.md', 'new.txt']));
+    });
+
+    test('refuses a worktree whose gitlink names an agent gitdir', () async {
+      fixture.write('README.md');
+      await fixture.rewriteGitlinkToAgentGitdir();
+
+      await expectLater(review(), throwsA(isA<TamperedWorktreeException>()));
+      await expectLater(changes(), throwsA(isA<TamperedWorktreeException>()));
+      expect(fixture.existingMarkers, isEmpty);
+    });
+
+    test('runs no config of a repository nested in an untampered worktree', () async {
+      await fixture.nestRepository();
+
+      for (final read in [review, changes]) {
+        try {
+          await read();
+        } on TamperedWorktreeException {
+          // Refusing the nested repository is the other admissible outcome.
+        }
+      }
+      expect(fixture.existingMarkers, isEmpty);
     });
   });
 }

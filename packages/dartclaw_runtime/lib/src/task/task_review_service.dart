@@ -8,6 +8,7 @@ import 'package:logging/logging.dart';
 import 'package:uuid/uuid.dart';
 
 import 'execution_surface.dart';
+import 'host_worktree_git.dart';
 import 'merge_executor.dart';
 import 'pr_creator.dart';
 import 'remote_push_service.dart';
@@ -224,17 +225,23 @@ class TaskReviewService {
         if (task.worktreeJson != null && !task.isWorkflowOwnedGitTask && trigger != 'user' && trigger != 'channel') {
           final worktree = WorktreeInfo.fromJson(task.worktreeJson!);
           var baseRef = _baseRef;
-          if (taskTargetsExternalProject(task)) {
-            final project = await _projectService?.get(taskProjectId(task)!);
-            if (project != null) {
-              baseRef = await executionSurfaceBaseRef(
-                worktreePath: worktree.path,
-                defaultBranch: project.defaultBranch,
-                processRunner: _runGit,
-              );
-            }
+          final project = await _cleanupProjectForTask(task);
+          if (taskTargetsExternalProject(task) && project == null) {
+            return ReviewActionFailed('Project "${taskProjectId(task)}" not found.');
+          }
+          final projectDir = project?.localPath ?? _worktreeManager?.projectDirFor(null) ?? _mergeExecutor?.projectDir;
+          if (projectDir == null) {
+            return const ReviewActionFailed('Worktree infrastructure is not available to inspect the task worktree.');
+          }
+          if (project != null) {
+            baseRef = await executionSurfaceBaseRef(
+              projectDir: projectDir,
+              defaultBranch: project.defaultBranch,
+              processRunner: _runGit,
+            );
           }
           final paths = await executionSurfacePaths(
+            projectDir: projectDir,
             worktreePath: worktree.path,
             baseRef: baseRef,
             branch: worktree.branch,
@@ -343,6 +350,9 @@ class TaskReviewService {
       return ReviewNotFound(taskId);
     } on VersionConflictException {
       return const ReviewActionFailed('Task was modified concurrently. Please refresh and try again.');
+    } on TamperedWorktreeException catch (error) {
+      _log.warning('Refusing to ${_displayAction(normalizedAction)} task $taskId: $error');
+      return ReviewActionFailed(error.toString());
     } on StateError {
       final currentTask = await _tasks.get(taskId);
       final previousStatus = oldStatus ?? currentTask?.status ?? TaskStatus.draft;
@@ -416,7 +426,8 @@ class TaskReviewService {
 
   Future<ReviewResult?> _prepareProjectBranchForPush(Task task, Project project, WorktreeInfo worktreeInfo) async {
     final worktreePath = worktreeInfo.path;
-    final statusResult = await _git(worktreePath, [
+    final projectDir = project.localPath;
+    final statusResult = await _git(projectDir, worktreePath, [
       'status',
       '--porcelain',
       '--untracked-files=all',
@@ -427,15 +438,13 @@ class TaskReviewService {
 
     final hasWorktreeChanges = _stdout(statusResult).trim().isNotEmpty;
     if (hasWorktreeChanges) {
-      final addResult = await _git(worktreePath, ['add', '-A'], action: 'stage worktree changes');
+      final addResult = await _git(projectDir, worktreePath, ['add', '-A'], action: 'stage worktree changes');
       if (addResult.exitCode != 0) {
         await _persistPushErrorArtifact(task.id, 'git add failed: ${_stderr(addResult)}');
         return const ReviewActionFailed('Failed to stage worktree changes before publish.');
       }
 
-      final commitResult = await _git(worktreePath, [
-        '-c',
-        'core.hooksPath=/dev/null',
+      final commitResult = await _git(projectDir, worktreePath, [
         'commit',
         '-m',
         'task(${task.id}): ${task.title}',
@@ -447,11 +456,15 @@ class TaskReviewService {
     }
 
     final baseRef = await executionSurfaceBaseRef(
-      worktreePath: worktreePath,
+      projectDir: projectDir,
       defaultBranch: project.defaultBranch,
       processRunner: _runGit,
     );
-    final diffResult = await _git(worktreePath, ['diff', '--quiet', '$baseRef...HEAD'], action: 'verify publish diff');
+    final diffResult = await _git(projectDir, worktreePath, [
+      'diff',
+      '--quiet',
+      '$baseRef...HEAD',
+    ], action: 'verify publish diff');
     if (diffResult.exitCode > 1) {
       await _persistPushErrorArtifact(task.id, 'git diff verification failed: ${_stderr(diffResult)}');
       return const ReviewActionFailed('Failed to verify branch changes before publish.');
@@ -464,11 +477,18 @@ class TaskReviewService {
     return null;
   }
 
-  Future<ProcessResult> _git(String workingDirectory, List<String> arguments, {required String action}) async {
+  /// Runs [arguments] in [worktreePath] of [projectDir] through the
+  /// host-worktree authority; a [TamperedWorktreeException] propagates.
+  Future<ProcessResult> _git(
+    String projectDir,
+    String worktreePath,
+    List<String> arguments, {
+    required String action,
+  }) async {
     try {
-      return await _runGit(arguments, workingDirectory: workingDirectory);
+      return await runHostWorktreeGit(arguments, projectDir: projectDir, worktreePath: worktreePath, runner: _runGit);
     } on ProcessException catch (error, stackTrace) {
-      _log.warning('Failed to $action in $workingDirectory', error, stackTrace);
+      _log.warning('Failed to $action in $worktreePath', error, stackTrace);
       return ProcessResult(0, 128, '', error.message);
     }
   }

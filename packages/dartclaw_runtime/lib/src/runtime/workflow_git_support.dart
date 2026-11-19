@@ -71,11 +71,7 @@ Future<String?> restoreCheckoutBeforeWorkflowBranchDeletion({
     return 'project checkout is on workflow branch "$currentBranch" and restore ref points to the same branch';
   }
 
-  final dirty = await runHostWorktreeGit([
-    'status',
-    '--porcelain',
-    '--untracked-files=all',
-  ], workingDirectory: projectDir);
+  final dirty = await runHostWorktreeGit(['status', '--porcelain', '--untracked-files=all'], projectDir: projectDir);
   if (dirty.exitCode != 0) {
     return 'failed to inspect project checkout before restoring from workflow branch "$currentBranch": '
         '${_processFailureDetail(dirty)}';
@@ -99,11 +95,11 @@ Future<String?> restoreCheckoutBeforeWorkflowBranchDeletion({
 
 Future<ProcessResult> _switchToRestoreRef({required String projectDir, required String target}) async {
   final safeTarget = normalizeGitRefOperand(target, label: 'workflow restore ref');
-  final direct = await runHostWorktreeGit(['switch', '--', safeTarget], workingDirectory: projectDir);
+  final direct = await runHostWorktreeGit(['switch', '--', safeTarget], projectDir: projectDir);
   if (direct.exitCode == 0) return direct;
 
   if (_isRemoteTrackingRef(safeTarget)) {
-    return runHostWorktreeGit(['switch', '--detach', '--', safeTarget], workingDirectory: projectDir);
+    return runHostWorktreeGit(['switch', '--detach', '--', safeTarget], projectDir: projectDir);
   }
 
   return direct;
@@ -121,7 +117,7 @@ String _processFailureDetail(ProcessResult result) {
 }
 
 Future<ProcessResult> runWorkflowGitCommand(List<String> args, {required String workingDirectory}) {
-  return runHostWorktreeGit(args, workingDirectory: workingDirectory);
+  return runHostWorktreeGit(args, projectDir: workingDirectory);
 }
 
 String workflowGitFailureDetail(ProcessResult result) => _processFailureDetail(result);
@@ -168,12 +164,7 @@ Future<void> ensureWorkflowLocalBranch({
   if (existing.exitCode == 0) {
     return;
   }
-  final create = await runHostWorktreeGit([
-    'branch',
-    '--',
-    safeBranch,
-    normalizedBaseRef,
-  ], workingDirectory: projectDir);
+  final create = await runHostWorktreeGit(['branch', '--', safeBranch, normalizedBaseRef], projectDir: projectDir);
   if (create.exitCode != 0) {
     final stderr = (create.stderr as String).trim();
     throw StateError('Failed to create workflow branch "$safeBranch" from "$normalizedBaseRef": $stderr');
@@ -232,11 +223,11 @@ Future<void> commitWorkflowWorktreeChangesIfNeeded({
     return;
   }
 
-  final status = await runHostWorktreeGit([
-    'status',
-    '--porcelain',
-    '--untracked-files=all',
-  ], workingDirectory: worktreePath);
+  final status = await runHostWorktreeGit(
+    ['status', '--porcelain', '--untracked-files=all'],
+    projectDir: projectDir,
+    worktreePath: worktreePath,
+  );
   if (status.exitCode != 0) {
     final stderr = (status.stderr as String).trim();
     throw StateError('Failed to inspect workflow worktree "$worktreePath": $stderr');
@@ -245,16 +236,20 @@ Future<void> commitWorkflowWorktreeChangesIfNeeded({
     return;
   }
 
-  final add = await runHostWorktreeGit(['add', '-A'], workingDirectory: worktreePath);
+  final add = await runHostWorktreeGit(['add', '-A'], projectDir: projectDir, worktreePath: worktreePath);
   if (add.exitCode != 0) {
     final stderr = (add.stderr as String).trim();
     throw StateError('Failed to stage workflow worktree changes in "$worktreePath": $stderr');
   }
-  if (expectedTree != null && await _readGit(worktreePath, ['write-tree']) != expectedTree) {
+  if (expectedTree != null && await _readGit(projectDir, ['write-tree'], worktreePath: worktreePath) != expectedTree) {
     throw StateError('Git staged a different tree for "$branch". Review and commit its changes before retrying.');
   }
 
-  final commit = await runHostWorktreeGit(['commit', '-m', commitMessage], workingDirectory: worktreePath);
+  final commit = await runHostWorktreeGit(
+    ['commit', '-m', commitMessage],
+    projectDir: projectDir,
+    worktreePath: worktreePath,
+  );
   if (commit.exitCode != 0 && !_isNothingToCommit(commit)) {
     final stderr = (commit.stderr as String).trim();
     final stdout = (commit.stdout as String).trim();
@@ -288,7 +283,11 @@ Future<String?> _cleanupWorktreeForRetryUnlocked({
   final worktreePath = await _findWorktreePathForBranch(projectDir: projectDir, branch: safeBranch) ?? projectDir;
 
   // Best-effort: abort any in-progress merge; ignore failure.
-  final abortResult = await runHostWorktreeGit(['merge', '--abort'], workingDirectory: worktreePath);
+  final abortResult = await runHostWorktreeGit(
+    ['merge', '--abort'],
+    projectDir: projectDir,
+    worktreePath: worktreePath,
+  );
   if (abortResult.exitCode != 0) {
     final detail = (abortResult.stderr as String).trim();
     if (detail.isNotEmpty && !detail.contains('There is no merge to abort') && !detail.contains('MERGE_HEAD')) {
@@ -297,14 +296,18 @@ Future<String?> _cleanupWorktreeForRetryUnlocked({
     }
   }
 
-  final resetResult = await runHostWorktreeGit(['reset', '--hard', preAttemptSha], workingDirectory: worktreePath);
+  final resetResult = await runHostWorktreeGit(
+    ['reset', '--hard', preAttemptSha],
+    projectDir: projectDir,
+    worktreePath: worktreePath,
+  );
   if (resetResult.exitCode != 0) {
     final detail = (resetResult.stderr as String).trim();
     return 'cleanup failed: git reset --hard exit=${resetResult.exitCode} path=$worktreePath'
         '${detail.isEmpty ? '' : ': $detail'}';
   }
 
-  final cleanResult = await runGit(['clean', '-fd'], workingDirectory: worktreePath);
+  final cleanResult = await runHostWorktreeGit(['clean', '-fd'], projectDir: projectDir, worktreePath: worktreePath);
   if (cleanResult.exitCode != 0) {
     final detail = (cleanResult.stderr as String).trim();
     return 'cleanup failed: git clean -fd exit=${cleanResult.exitCode} path=$worktreePath'
@@ -318,8 +321,7 @@ Future<String?> _cleanupWorktreeForRetryUnlocked({
 Future<String?> captureWorkflowBranchSha({required String projectDir, required String branch}) {
   return _workflowGitRepoLock.acquire(_repoLockKey(projectDir), () async {
     final safeBranch = normalizeGitRefOperand(branch, label: 'workflow branch');
-    final worktreePath = await _findWorktreePathForBranch(projectDir: projectDir, branch: safeBranch) ?? projectDir;
-    final result = await runGit(['rev-parse', safeBranch], workingDirectory: worktreePath);
+    final result = await runGit(['rev-parse', safeBranch], workingDirectory: projectDir);
     if (result.exitCode != 0) return null;
     final sha = (result.stdout as String).trim();
     return sha.isNotEmpty ? sha : null;
@@ -351,14 +353,14 @@ Future<CaptureAndCleanResult> captureAndCleanWorktreeForRetry({
     final safeBranch = normalizeGitRefOperand(branch, label: 'workflow branch');
     final worktreePath = await _findWorktreePathForBranch(projectDir: projectDir, branch: safeBranch) ?? projectDir;
 
-    final revResult = await runGit(['rev-parse', safeBranch], workingDirectory: worktreePath);
+    final revResult = await runGit(['rev-parse', safeBranch], workingDirectory: projectDir);
     final sha = revResult.exitCode == 0 ? (revResult.stdout as String).trim() : null;
 
-    final statusResult = await runHostWorktreeGit([
-      'status',
-      '--porcelain',
-      '--untracked-files=all',
-    ], workingDirectory: worktreePath);
+    final statusResult = await runHostWorktreeGit(
+      ['status', '--porcelain', '--untracked-files=all'],
+      projectDir: projectDir,
+      worktreePath: worktreePath,
+    );
     final isDirty = statusResult.exitCode == 0
         ? (statusResult.stdout as String).trim().isNotEmpty
         : true; // conservatively assume dirty on error
@@ -480,7 +482,8 @@ Future<WorkflowGitPromotionResult> _promoteWorkflowBranchLocallyUnlocked({
       branch: safeIntegrationBranch,
       action: (integrationWorktreeDir) async {
         final mergeExecutor = MergeExecutor(
-          projectDir: integrationWorktreeDir,
+          projectDir: projectDir,
+          worktreePath: integrationWorktreeDir,
           defaultStrategy: strategy == 'merge' ? MergeStrategy.merge : MergeStrategy.squash,
         );
         return mergeExecutor.merge(
@@ -519,7 +522,7 @@ Future<T> _withIntegrationWorktree<T>({
 
   final tempDir = Directory.systemTemp.createTempSync('dartclaw_workflow_integration_');
   final worktreePath = p.join(tempDir.path, 'worktree');
-  final add = await runHostWorktreeGit(['worktree', 'add', worktreePath, safeBranch], workingDirectory: projectDir);
+  final add = await runHostWorktreeGit(['worktree', 'add', worktreePath, safeBranch], projectDir: projectDir);
   if (add.exitCode != 0) {
     final stderr = (add.stderr as String).trim();
     final stdout = (add.stdout as String).trim();
@@ -535,7 +538,7 @@ Future<T> _withIntegrationWorktree<T>({
   try {
     return await action(worktreePath);
   } finally {
-    await runHostWorktreeGit(['worktree', 'remove', '--force', worktreePath], workingDirectory: projectDir);
+    await runHostWorktreeGit(['worktree', 'remove', '--force', worktreePath], projectDir: projectDir);
     if (tempDir.existsSync()) {
       try {
         tempDir.deleteSync(recursive: true);
@@ -726,7 +729,7 @@ Future<ProcessResult> _fetchRemoteTrackingRef({
 }) {
   final safeBranch = normalizeGitRefOperand(branch, label: 'workflow branch');
   final remoteRef = 'refs/heads/$safeBranch:refs/remotes/$remote/$safeBranch';
-  return runHostWorktreeGit(['fetch', '--no-tags', remote, remoteRef], workingDirectory: projectDir);
+  return runHostWorktreeGit(['fetch', '--no-tags', remote, remoteRef], projectDir: projectDir);
 }
 
 Future<String?> _findWorktreePathForBranch({required String projectDir, required String branch}) async {

@@ -359,6 +359,7 @@ void main() {
     );
     final merge = RecordingMergeExecutor(
       result: const MergeSuccess(commitSha: 'unused', commitMessage: 'unused'),
+      projectDir: gitRepo.path,
     );
     final result = toolResult(
       await callTool(
@@ -446,6 +447,7 @@ void main() {
       final conflicted = passingHandler(
         mergeExecutor: RecordingMergeExecutor(
           result: const MergeConflict(conflictingFiles: ['lib/a.dart', 'lib/b.dart'], details: 'merge conflict'),
+          projectDir: gitRepo.path,
         ),
       );
 

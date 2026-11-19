@@ -67,7 +67,7 @@ final class FakeGitGateway implements WorkflowGitPort {
   }
 
   @override
-  Future<String> revParse(String worktreePath, String ref) async {
+  Future<String> revParse(String worktreePath, String ref, {required String projectDir}) async {
     events.add('rev-parse $ref');
     final worktree = _worktree(worktreePath);
     if (ref == 'HEAD') return worktree.head;
@@ -75,7 +75,7 @@ final class FakeGitGateway implements WorkflowGitPort {
   }
 
   @override
-  Future<String> currentBranch(String worktreePath) async {
+  Future<String> currentBranch(String worktreePath, {required String projectDir}) async {
     events.add('current-branch');
     return _worktree(worktreePath).branch ?? 'HEAD';
   }
@@ -83,6 +83,7 @@ final class FakeGitGateway implements WorkflowGitPort {
   @override
   Future<List<String>> diffNameOnly(
     String worktreePath, {
+    required String projectDir,
     String? against,
     bool cached = false,
     String? diffFilter,
@@ -96,14 +97,19 @@ final class FakeGitGateway implements WorkflowGitPort {
   }
 
   @override
-  Future<bool> pathExistsAtRef(String worktreePath, {required String ref, required String path}) async {
+  Future<bool> pathExistsAtRef(
+    String worktreePath, {
+    required String projectDir,
+    required String ref,
+    required String path,
+  }) async {
     events.add('cat-file $ref:$path');
     final sha = ref == 'HEAD' ? _worktree(worktreePath).head : _resolveRef(ref);
     return _commits[sha]?.containsKey(path) ?? false;
   }
 
   @override
-  Future<GitStatus> status(String worktreePath) async {
+  Future<GitStatus> status(String worktreePath, {required String projectDir}) async {
     events.add('status');
     final worktree = _worktree(worktreePath);
     final modified = <String>{...worktree.modified.keys, ...worktree.staged};
@@ -115,13 +121,13 @@ final class FakeGitGateway implements WorkflowGitPort {
   }
 
   @override
-  Future<List<String>> untrackedFiles(String worktreePath) async {
+  Future<List<String>> untrackedFiles(String worktreePath, {required String projectDir}) async {
     events.add('untracked');
     return _sorted(_worktree(worktreePath).untracked.keys);
   }
 
   @override
-  Future<List<String>> stashedPaths(String worktreePath, {int index = 0}) async {
+  Future<List<String>> stashedPaths(String worktreePath, {required String projectDir, int index = 0}) async {
     events.add('stash show');
     final stash = _worktree(worktreePath).stash;
     if (index < 0 || index >= stash.length) return const <String>[];
@@ -129,7 +135,7 @@ final class FakeGitGateway implements WorkflowGitPort {
   }
 
   @override
-  Future<void> add(String worktreePath, List<String> paths, {bool all = false}) async {
+  Future<void> add(String worktreePath, List<String> paths, {required String projectDir, bool all = false}) async {
     events.add(all ? 'add -A' : 'add ${paths.join(' ')}');
     final failure = _nextAddFailure;
     if (failure != null) {
@@ -152,6 +158,7 @@ final class FakeGitGateway implements WorkflowGitPort {
   @override
   Future<WorkflowGitCommit> commit(
     String worktreePath, {
+    required String projectDir,
     required String message,
     String? authorName,
     String? authorEmail,
@@ -177,7 +184,7 @@ final class FakeGitGateway implements WorkflowGitPort {
   }
 
   @override
-  Future<void> checkout(String worktreePath, String ref) async {
+  Future<void> checkout(String worktreePath, String ref, {required String projectDir}) async {
     events.add('checkout $ref');
     final worktree = _worktree(worktreePath);
     final sha = _resolveRef(ref);
@@ -191,7 +198,7 @@ final class FakeGitGateway implements WorkflowGitPort {
   }
 
   @override
-  Future<bool> stashPush(String worktreePath, {bool includeUntracked = true}) async {
+  Future<bool> stashPush(String worktreePath, {required String projectDir, bool includeUntracked = true}) async {
     events.add('stash push');
     final worktree = _worktree(worktreePath);
     final files = <String, String>{...worktree.modified, if (includeUntracked) ...worktree.untracked};
@@ -205,7 +212,7 @@ final class FakeGitGateway implements WorkflowGitPort {
   }
 
   @override
-  Future<void> stashPop(String worktreePath) async {
+  Future<void> stashPop(String worktreePath, {required String projectDir}) async {
     events.add('stash pop');
     stashPopAttempts++;
     final worktree = _worktree(worktreePath);
@@ -228,7 +235,7 @@ final class FakeGitGateway implements WorkflowGitPort {
   }
 
   @override
-  Future<void> stashDrop(String worktreePath, {int index = 0}) async {
+  Future<void> stashDrop(String worktreePath, {required String projectDir, int index = 0}) async {
     events.add('stash drop');
     final stash = _worktree(worktreePath).stash;
     if (index >= 0 && index < stash.length) {
@@ -239,6 +246,7 @@ final class FakeGitGateway implements WorkflowGitPort {
   @override
   Future<void> merge(
     String worktreePath, {
+    required String projectDir,
     required String ref,
     required WorkflowGitMergeStrategy strategy,
     String? message,
@@ -263,12 +271,12 @@ final class FakeGitGateway implements WorkflowGitPort {
       changed.add(entry.key);
     }
     if (strategy == WorkflowGitMergeStrategy.merge && changed.isNotEmpty) {
-      await commit(worktreePath, message: message ?? 'Merge $ref');
+      await commit(worktreePath, projectDir: projectDir, message: message ?? 'Merge $ref');
     }
   }
 
   @override
-  Future<void> mergeAbort(String worktreePath) async {
+  Future<void> mergeAbort(String worktreePath, {required String projectDir}) async {
     events.add('merge --abort');
     _worktree(worktreePath)
       ..conflicts.clear()
@@ -277,7 +285,7 @@ final class FakeGitGateway implements WorkflowGitPort {
   }
 
   @override
-  Future<void> resetHard(String worktreePath, String ref) async {
+  Future<void> resetHard(String worktreePath, String ref, {required String projectDir}) async {
     events.add('reset --hard $ref');
     final worktree = _worktree(worktreePath);
     worktree

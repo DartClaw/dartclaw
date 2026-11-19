@@ -35,7 +35,8 @@ void main() {
       file.writeAsStringSync(content);
     }
 
-    Future<List<String>> paths() => executionSurfacePaths(worktreePath: repo.path, baseRef: 'main', branch: 'feature');
+    Future<List<String>> paths() =>
+        executionSurfacePaths(projectDir: repo.path, worktreePath: repo.path, baseRef: 'main', branch: 'feature');
 
     setUp(() async {
       repo = await initGitRepo();
@@ -152,6 +153,7 @@ void main() {
       test('malformed metadata fails closed: ${output.length}', () async {
         await expectLater(
           executionSurfacePaths(
+            projectDir: repo.path,
             worktreePath: repo.path,
             baseRef: 'main',
             branch: 'feature',
@@ -170,14 +172,14 @@ void main() {
       final root = Directory.systemTemp.createTempSync('not-git-');
       addTearDown(() => root.deleteSync(recursive: true));
       await expectLater(
-        executionSurfacePaths(worktreePath: root.path, baseRef: 'main', branch: 'feature'),
+        executionSurfacePaths(projectDir: root.path, worktreePath: root.path, baseRef: 'main', branch: 'feature'),
         throwsException,
       );
     });
 
     test('a bad base ref fails closed', () async {
       await expectLater(
-        executionSurfacePaths(worktreePath: repo.path, baseRef: 'missing', branch: 'feature'),
+        executionSurfacePaths(projectDir: repo.path, worktreePath: repo.path, baseRef: 'missing', branch: 'feature'),
         throwsException,
       );
     });

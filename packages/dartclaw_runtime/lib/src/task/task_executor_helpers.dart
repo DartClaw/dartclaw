@@ -311,10 +311,21 @@ extension _TaskExecutorHelpers on TaskExecutor {
 
   bool _isWorkflowOwnedLocalRef(String? ref) => ref != null && ref.startsWith('dartclaw/workflow/');
 
-  Future<GitStatusSnapshot?> _captureReadOnlyProjectStatus(Task task, String executionDirectory) async {
+  /// [projectDir] is set when [executionDirectory] is a task worktree of it.
+  Future<GitStatusSnapshot?> _captureReadOnlyProjectStatus(
+    Task task,
+    String executionDirectory, {
+    required String? projectDir,
+  }) async {
     if (!_isReadOnlyTask(task)) return null;
     try {
-      return await TaskReadOnlyGuard(worktreePath: executionDirectory, log: TaskExecutor._log).baseline();
+      return await TaskReadOnlyGuard(
+        worktreePath: executionDirectory,
+        projectDir: projectDir,
+        log: TaskExecutor._log,
+      ).baseline();
+    } on TamperedWorktreeException {
+      rethrow;
     } catch (error) {
       TaskExecutor._log.fine(
         'Task ${task.id}: skipping read-only mutation baseline for "$executionDirectory" '
@@ -324,9 +335,18 @@ extension _TaskExecutorHelpers on TaskExecutor {
     }
   }
 
-  Future<String?> _readOnlyMutationSummary(Task task, String executionDirectory, GitStatusSnapshot? baseline) async {
+  Future<String?> _readOnlyMutationSummary(
+    Task task,
+    String executionDirectory,
+    GitStatusSnapshot? baseline, {
+    required String? projectDir,
+  }) async {
     if (!_isReadOnlyTask(task) || baseline == null) return null;
-    return TaskReadOnlyGuard(worktreePath: executionDirectory, log: TaskExecutor._log).mutationSummary(baseline);
+    return TaskReadOnlyGuard(
+      worktreePath: executionDirectory,
+      projectDir: projectDir,
+      log: TaskExecutor._log,
+    ).mutationSummary(baseline);
   }
 
   String _defaultTurnFailureSummary(TurnStatus status) =>

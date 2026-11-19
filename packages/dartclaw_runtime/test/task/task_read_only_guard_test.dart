@@ -1,8 +1,11 @@
 import 'dart:io';
 
+import 'package:dartclaw_runtime/src/task/host_worktree_git.dart' show TamperedWorktreeException;
 import 'package:dartclaw_runtime/src/task/task_read_only_guard.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
+
+import 'host_worktree_tamper_fixture.dart';
 
 void main() {
   late Directory repoDir;
@@ -71,5 +74,46 @@ void main() {
     await File(p.join(repoDir.path, 'new.txt')).writeAsString('new');
 
     expect(await guard.mutationSummary(baseline), 'Read-only task modified project files: new.txt');
+  });
+
+  group('in a task worktree', () {
+    late HostWorktreeTamperFixture fixture;
+
+    setUp(() async {
+      fixture = await HostWorktreeTamperFixture.create();
+    });
+    tearDown(() => fixture.dispose());
+
+    TaskReadOnlyGuard guard() => TaskReadOnlyGuard(worktreePath: fixture.worktreePath, projectDir: fixture.projectDir);
+
+    test('reports a mutation in an untampered worktree', () async {
+      final baseline = await guard().baseline();
+      fixture.write('notes/leak.md');
+      expect(await guard().mutationSummary(baseline), contains('notes/leak.md'));
+    });
+
+    test('baseline refuses a worktree whose gitlink names an agent gitdir', () async {
+      await fixture.rewriteGitlinkToAgentGitdir();
+      await expectLater(guard().baseline(), throwsA(isA<TamperedWorktreeException>()));
+      expect(fixture.existingMarkers, isEmpty);
+    });
+
+    test('the mutation check refuses, rather than skips, a worktree tampered during the turn', () async {
+      final baseline = await guard().baseline();
+      await fixture.rewriteGitlinkToAgentGitdir();
+      await expectLater(guard().mutationSummary(baseline), throwsA(isA<TamperedWorktreeException>()));
+      expect(fixture.existingMarkers, isEmpty);
+    });
+
+    test('runs no config of a repository nested in an untampered worktree', () async {
+      await fixture.nestRepository();
+      try {
+        final baseline = await guard().baseline();
+        await guard().mutationSummary(baseline);
+      } on TamperedWorktreeException {
+        // Refusing the nested repository is the other admissible outcome.
+      }
+      expect(fixture.existingMarkers, isEmpty);
+    });
   });
 }

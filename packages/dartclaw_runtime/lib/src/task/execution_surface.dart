@@ -12,18 +12,20 @@ bool _listed(String path) {
   return _files.contains(normalized) || _directories.any(normalized.startsWith);
 }
 
+/// Execution-surface paths [branch] changes against [baseRef] in [projectDir]'s
+/// repository, plus the uncommitted changes in [worktreePath] when given.
 Future<List<String>> executionSurfacePaths({
-  required String worktreePath,
+  required String projectDir,
+  String? worktreePath,
   required String baseRef,
   required String branch,
   GitRunner? processRunner,
-  bool includeWorktree = true,
   bool fromMergeBase = true,
 }) async {
   final changes = await DiffGenerator(
-    projectDir: worktreePath,
+    projectDir: projectDir,
     processRunner: processRunner,
-  ).changes(baseRef: baseRef, branch: branch, includeWorktree: includeWorktree, fromMergeBase: fromMergeBase);
+  ).changes(baseRef: baseRef, branch: branch, worktreePath: worktreePath, fromMergeBase: fromMergeBase);
   return {
     for (final change in changes) ...[
       if (_listed(change.path) || change.isSymlink) change.path,
@@ -34,7 +36,7 @@ Future<List<String>> executionSurfacePaths({
 }
 
 Future<String> executionSurfaceBaseRef({
-  required String worktreePath,
+  required String projectDir,
   required String defaultBranch,
   GitRunner? processRunner,
 }) async {
@@ -42,7 +44,7 @@ Future<String> executionSurfaceBaseRef({
     'rev-parse',
     '--verify',
     'origin/$defaultBranch',
-  ], workingDirectory: worktreePath);
+  ], workingDirectory: projectDir);
   return result.exitCode == 0 ? 'origin/$defaultBranch' : defaultBranch;
 }
 

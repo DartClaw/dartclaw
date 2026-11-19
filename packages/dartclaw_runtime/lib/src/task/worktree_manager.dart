@@ -113,6 +113,10 @@ class WorktreeManager {
 
   static Future<void> _noopSkillMaterializer(String worktreePath) async {}
 
+  /// The repository whose worktrees this manager creates for [project]: its
+  /// clone, or the constructor's [projectDir] when [project] is null.
+  String projectDirFor(Project? project) => project?.localPath ?? _projectDir;
+
   /// Creates a new git worktree for the given task.
   ///
   /// When [project] is provided, the worktree is created from the project's
@@ -133,7 +137,7 @@ class WorktreeManager {
   }) async {
     await _ensureGitAvailable();
 
-    final effectiveProjectDir = project?.localPath ?? _projectDir;
+    final effectiveProjectDir = projectDirFor(project);
     final worktreePath = p.join(_worktreesDir, taskId);
     final persistedInfo = _parseWorktreeInfo(existingWorktreeJson);
 
@@ -330,7 +334,7 @@ class WorktreeManager {
     final info = _worktrees[taskId];
     final worktreePath = info?.path ?? p.join(_worktreesDir, taskId);
     final branch = normalizeGitRefOperand(info?.branch ?? 'dartclaw/task-$taskId', label: 'worktree branch');
-    final effectiveProjectDir = project?.localPath ?? _projectDir;
+    final effectiveProjectDir = projectDirFor(project);
 
     final removeResult = await _runGit(['worktree', 'remove', worktreePath], workingDirectory: effectiveProjectDir);
     if (removeResult.exitCode != 0) {

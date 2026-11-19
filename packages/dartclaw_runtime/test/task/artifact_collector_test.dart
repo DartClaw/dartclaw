@@ -300,7 +300,8 @@ void main() {
     expect(artifacts, hasLength(1));
     expect(mockDiffGen.lastBaseRef, 'origin/develop');
     expect(mockDiffGen.lastBranch, 'dartclaw/task-project-diff');
-    expect(mockDiffGen.lastProjectDir, '/tmp/worktree-project');
+    expect(mockDiffGen.lastProjectDir, '/projects/my-app');
+    expect(mockDiffGen.lastWorktreePath, '/tmp/worktree-project');
   });
 
   test('local workflow-owned worktree task diffs against the local workflow branch', () async {
@@ -349,7 +350,8 @@ void main() {
     expect(artifacts, hasLength(1));
     expect(mockDiffGen.lastBaseRef, 'dartclaw/workflow/run123');
     expect(mockDiffGen.lastBranch, 'dartclaw/workflow/run123');
-    expect(mockDiffGen.lastProjectDir, '/tmp/worktree-project');
+    expect(mockDiffGen.lastProjectDir, '/projects/my-app');
+    expect(mockDiffGen.lastWorktreePath, '/tmp/worktree-project');
   });
 }
 
@@ -379,14 +381,21 @@ class _MockDiffGenerator extends DiffGenerator {
   String? lastBaseRef;
   String? lastBranch;
   String? lastProjectDir;
+  String? lastWorktreePath;
 
   new({this.result, this.shouldThrow = false}) : super(projectDir: '/mock');
 
   @override
-  Future<DiffResult> generate({required String baseRef, required String branch, String? projectDir}) async {
+  Future<DiffResult> generate({
+    required String baseRef,
+    required String branch,
+    String? projectDir,
+    String? worktreePath,
+  }) async {
     lastBaseRef = baseRef;
     lastBranch = branch;
     lastProjectDir = projectDir;
+    lastWorktreePath = worktreePath;
     if (shouldThrow) {
       throw Exception('Mock diff generation failure');
     }

@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:dartclaw_runtime/src/runtime/workflow_git_support.dart';
+import 'package:dartclaw_runtime/src/task/host_worktree_git.dart' show TamperedWorktreeException;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' show PushAuthFailure, PushSuccess;
 import 'package:path/path.dart' as p;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
@@ -13,6 +14,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowPublishStatus;
 import 'package:test/test.dart';
 
+import '../task/host_worktree_tamper_fixture.dart';
 import '../task/task_executor_test_support.dart' show initGitRepo;
 import '../task/task_review_test_support.dart' show installMarkerGitHook;
 
@@ -700,5 +702,155 @@ void main() {
     expect(result.error, contains('Authentication failed'));
     expect(result.error, contains('github-main'));
     expect(fetched, isFalse);
+  });
+
+  group('tampered worktree gitlink', () {
+    late HostWorktreeTamperFixture fixture;
+
+    setUp(() async {
+      fixture = await HostWorktreeTamperFixture.create();
+      fixture.write('work.txt');
+      fixture.write('.envrc');
+    });
+    tearDown(() => fixture.dispose());
+
+    Future<String> branchTip() async =>
+        ((await HostWorktreeTamperFixture.git(fixture.projectDir, ['rev-parse', fixture.branch])).stdout as String)
+            .trim();
+    List<int> projectIndex() => File(p.join(fixture.projectDir, '.git', 'index')).readAsBytesSync();
+    List<int> worktreeIndex() => File(p.join(fixture.adminDir, 'index')).readAsBytesSync();
+
+    test('the sweep refuses a gitlink rewritten to an agent-built gitdir and runs none of its config', () async {
+      await fixture.rewriteGitlinkToAgentGitdir();
+      final tip = await branchTip();
+      final index = projectIndex();
+      final storyIndex = worktreeIndex();
+
+      await expectLater(
+        commitWorkflowWorktreeChangesIfNeeded(
+          projectDir: fixture.projectDir,
+          branch: fixture.branch,
+          commitMessage: 'sweep',
+        ),
+        throwsA(isA<TamperedWorktreeException>().having((e) => e.worktreePath, 'worktreePath', fixture.worktreePath)),
+      );
+
+      expect(fixture.existingMarkers, isEmpty);
+      expect(await branchTip(), tip);
+      expect(projectIndex(), index);
+      expect(worktreeIndex(), storyIndex);
+    });
+
+    for (final strategy in ['promote', 'publish']) {
+      test('$strategy computes no execution-surface candidate for the tampered worktree', () async {
+        await fixture.rewriteGitlinkToAgentGitdir();
+        final tip = await branchTip();
+
+        final String? error;
+        if (strategy == 'promote') {
+          final result = await promoteWorkflowBranchLocally(
+            projectDir: fixture.projectDir,
+            runId: 'tamper',
+            branch: fixture.branch,
+            integrationBranch: 'main',
+            strategy: 'squash',
+          );
+          expect(result, isA<WorkflowGitPromotionError>());
+          error = (result as WorkflowGitPromotionError).message;
+        } else {
+          final result = await publishWorkflowBranchLocally(
+            projectDir: fixture.projectDir,
+            branch: fixture.branch,
+            baseRef: 'main',
+          );
+          expect(result.status, WorkflowPublishStatus.failed);
+          expect(result.heldCandidate, isNull);
+          error = result.error;
+        }
+
+        expect(error, contains('tampered worktree "${fixture.worktreePath}"'));
+        expect(fixture.existingMarkers, isEmpty);
+        expect(await branchTip(), tip);
+      });
+    }
+
+    final variants = <String, Future<void> Function()>{
+      'replaced by a repository': () => fixture.replaceGitlinkWithRepository(),
+      'replaced by a symlink': () async => fixture.replaceGitlinkWithSymlink(),
+      'deleted': () async => fixture.deleteGitlink(),
+    };
+    for (final MapEntry(key: name, value: tamper) in variants.entries) {
+      test('the sweep refuses a gitlink $name and commits nothing anywhere', () async {
+        await tamper();
+        final tip = await branchTip();
+
+        await expectLater(
+          commitWorkflowWorktreeChangesIfNeeded(
+            projectDir: fixture.projectDir,
+            branch: fixture.branch,
+            commitMessage: 'sweep',
+          ),
+          throwsA(isA<TamperedWorktreeException>()),
+        );
+        await expectLater(
+          cleanupWorktreeForRetry(projectDir: fixture.projectDir, branch: fixture.branch, preAttemptSha: tip),
+          throwsA(isA<TamperedWorktreeException>()),
+        );
+
+        expect(fixture.existingMarkers, isEmpty);
+        expect(await branchTip(), tip);
+        final agentRepo = Directory(p.join(fixture.worktreePath, '.git'));
+        if (agentRepo.existsSync() &&
+            FileSystemEntity.typeSync(agentRepo.path, followLinks: false) == FileSystemEntityType.directory) {
+          final log = await Process.run('git', [
+            'rev-parse',
+            '--verify',
+            'HEAD',
+          ], workingDirectory: fixture.worktreePath);
+          expect(log.exitCode, isNot(0), reason: 'nothing may be committed into the agent-created repository');
+        }
+      });
+    }
+
+    test('a nested repository recorded as a gitlink cannot run its filters through the sweep', () async {
+      await fixture.nestRepository();
+
+      try {
+        await commitWorkflowWorktreeChangesIfNeeded(
+          projectDir: fixture.projectDir,
+          branch: fixture.branch,
+          commitMessage: 'sweep',
+        );
+      } on TamperedWorktreeException {
+        // Refusing is an allowed outcome; running the nested config is not.
+      }
+
+      expect(fixture.existingMarkers, isEmpty);
+    });
+
+    test('an untampered worktree still sweeps and promotes', () async {
+      final result = await promoteWorkflowBranchLocally(
+        projectDir: fixture.projectDir,
+        runId: 'clean',
+        branch: fixture.branch,
+        integrationBranch: 'main',
+        strategy: 'squash',
+      );
+      final held = result as WorkflowGitPromotionHeld;
+      expect(held.paths, ['.envrc']);
+      expect(
+        await promoteWorkflowBranchLocally(
+          projectDir: fixture.projectDir,
+          runId: 'clean',
+          branch: fixture.branch,
+          integrationBranch: 'main',
+          strategy: 'squash',
+          approvedCandidate: held.candidate,
+        ),
+        isA<WorkflowGitPromotionSuccess>(),
+      );
+      final shown = await HostWorktreeTamperFixture.git(fixture.projectDir, ['show', 'main:work.txt']);
+      expect(shown.stdout, 'changed\n');
+    });
   });
 }

@@ -19,6 +19,7 @@ import '../turn_runner.dart' show TurnRunner;
 import 'artifact_collector.dart';
 import 'delegated_turn_provenance.dart';
 import 'goal_service.dart';
+import 'host_worktree_git.dart' show TamperedWorktreeException;
 import 'task_budget_policy.dart';
 import 'task_config_view.dart';
 import 'task_event_recorder.dart';
@@ -590,7 +591,14 @@ class TaskExecutor {
         }
       }
 
-      readOnlyProjectStatusBeforeTurn = await _captureReadOnlyProjectStatus(task, executionDirectory);
+      final readOnlyProjectDir = worktreeInfo != null && executionDirectory == worktreeInfo.path
+          ? _worktreeManager?.projectDirFor(project != null && project.id != '_local' ? project : null)
+          : null;
+      readOnlyProjectStatusBeforeTurn = await _captureReadOnlyProjectStatus(
+        task,
+        executionDirectory,
+        projectDir: readOnlyProjectDir,
+      );
 
       final sessionId = task.sessionId;
       final session = sessionId == null ? null : await _sessions.getSession(sessionId);
@@ -711,6 +719,7 @@ class TaskExecutor {
           refreshedTask,
           executionDirectory,
           readOnlyProjectStatusBeforeTurn,
+          projectDir: readOnlyProjectDir,
         );
         if (readOnlyMutationSummary != null) {
           _log.warning('Task ${task.id}: $readOnlyMutationSummary');
@@ -852,6 +861,7 @@ class TaskExecutor {
           task,
           executionDirectory,
           readOnlyProjectStatusBeforeTurn,
+          projectDir: readOnlyProjectDir,
         );
         if (readOnlyMutationSummary != null) {
           _log.warning('Task ${task.id}: $readOnlyMutationSummary');

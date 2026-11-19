@@ -8,9 +8,10 @@ Future<String> _resolveCommit(String projectDir, String ref) =>
 Future<String> _readGit(
   String projectDir,
   List<String> args, {
+  String? worktreePath,
   ProcessEnvironmentPlan plan = const EmptyProcessEnvironmentPlan(),
 }) async {
-  final result = await runHostWorktreeGit(args, workingDirectory: projectDir, plan: plan);
+  final result = await runHostWorktreeGit(args, projectDir: projectDir, worktreePath: worktreePath, plan: plan);
   if (result.exitCode != 0) throw StateError('git ${args.first}: ${_processFailureDetail(result)}');
   return (result.stdout as String).trim();
 }
@@ -20,18 +21,28 @@ Future<_WorkflowGitTree> _captureTree(String projectDir, String branch, {bool in
   final worktree = includeWorktree ? await _findWorktreePathForBranch(projectDir: projectDir, branch: branch) : null;
   final tree = worktree == null
       ? await _readGit(projectDir, ['rev-parse', '$revision^{tree}'])
-      : await _previewTree(worktree);
+      : await _previewTree(projectDir, worktree);
   return (revision: revision, tree: tree, worktree: worktree);
 }
 
-Future<String> _previewTree(String worktree) async {
-  final indexPath = await _readGit(worktree, ['rev-parse', '--path-format=absolute', '--git-path', 'index']);
+Future<String> _previewTree(String projectDir, String worktree) async {
+  final indexPath = await _readGit(projectDir, [
+    'rev-parse',
+    '--path-format=absolute',
+    '--git-path',
+    'index',
+  ], worktreePath: worktree);
   final scratch = await Directory.systemTemp.createTemp('dartclaw-workflow-index-');
   try {
     final previewIndex = p.join(scratch.path, 'index');
     await File(indexPath).copy(previewIndex);
     final plan = InlineProcessEnvironmentPlan({'GIT_INDEX_FILE': previewIndex});
-    if ((await _readGit(worktree, ['rev-parse', '--shared-index-path'], plan: plan)).isNotEmpty) {
+    if ((await _readGit(
+      projectDir,
+      ['rev-parse', '--shared-index-path'],
+      worktreePath: worktree,
+      plan: plan,
+    )).isNotEmpty) {
       throw StateError(
         'Workflow review cannot preview a split index in "$worktree". Run git update-index --no-split-index.',
       );
@@ -39,8 +50,8 @@ Future<String> _previewTree(String worktree) async {
     // Approval binds the tree the sweep stages, so the preview runs the same
     // configured filters; filter definitions are operator trust.
     const safeConfig = ['-c', 'core.splitIndex=false'];
-    await _readGit(worktree, [...safeConfig, 'add', '-A'], plan: plan);
-    return await _readGit(worktree, [...safeConfig, 'write-tree'], plan: plan);
+    await _readGit(projectDir, [...safeConfig, 'add', '-A'], worktreePath: worktree, plan: plan);
+    return await _readGit(projectDir, [...safeConfig, 'write-tree'], worktreePath: worktree, plan: plan);
   } finally {
     await scratch.delete(recursive: true);
   }
@@ -67,18 +78,12 @@ Future<_WorkflowGitCandidate> _inspectCandidate({
   final source = await _captureTree(projectDir, branch);
   final base = await _captureTree(projectDir, baseRef, includeWorktree: sweepBase);
   final protectedPaths = <String>{
-    ...await executionSurfacePaths(
-      worktreePath: projectDir,
-      baseRef: base.revision,
-      branch: source.revision,
-      includeWorktree: false,
-    ),
+    ...await executionSurfacePaths(projectDir: projectDir, baseRef: base.revision, branch: source.revision),
     for (final candidate in [source, if (sweepBase) base])
       ...await executionSurfacePaths(
-        worktreePath: projectDir,
+        projectDir: projectDir,
         baseRef: candidate.revision,
         branch: candidate.tree,
-        includeWorktree: false,
         fromMergeBase: false,
       ),
   }.toList()..sort();

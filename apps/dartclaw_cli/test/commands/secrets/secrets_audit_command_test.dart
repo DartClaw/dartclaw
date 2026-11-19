@@ -306,6 +306,23 @@ void main() {
       expect(code, 1);
       expect(output(), contains(p.join(subscriptions.codexHome, 'plugins', 'plugin.json')));
     });
+
+    test('an owner-only subdirectory shields its contents, while a loose file beside it is still reported', () async {
+      if (Platform.isWindows) return;
+      makeDirectory(subscriptions.codexHome, '755');
+      makeDirectory(p.join(subscriptions.codexHome, 'sessions'), '700');
+      final sessionFile = p.join(subscriptions.codexHome, 'sessions', 'rollout.jsonl');
+      final looseFile = p.join(subscriptions.codexHome, 'history.jsonl');
+      writeWithMode(sessionFile, '644');
+      writeWithMode(looseFile, '644');
+
+      final code = await runAudit();
+
+      expect(code, 1);
+      expect(output(), contains('${subscriptions.codexHome} — a credential directory is accessible beyond its owner'));
+      expect(output(), contains(looseFile));
+      expect(output(), isNot(contains(sessionFile)), reason: 'sessions/ is owner-only, so it shields what is below it');
+    });
   });
 
   test('audit follows a symlinked named store when checking permissions', () async {

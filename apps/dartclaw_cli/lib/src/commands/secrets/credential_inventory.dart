@@ -188,14 +188,8 @@ class _SecretAudit {
     ];
   }
 
-  /// Whether an entry is vendor state of the dedicated `CODEX_HOME` that an
-  /// owner-only directory already keeps from every other user.
-  ///
-  /// The `codex` CLI writes that home with its own modes (0644 files, 0755
-  /// directories) and recreates them after a chmod, so judging those by their
-  /// own mode is a permanent finding the operator cannot fix. `auth.json` is
-  /// still judged by its own mode. Paths are compared resolved, so a symlink
-  /// out of the home is judged where it lands.
+  // The codex CLI rewrites its home's 0644/0755 modes after any chmod, so only
+  // an owner-only ancestor can make that state safe; auth.json keeps its own check.
   static bool Function(FileSystemEntity) _shieldedCodexState(String credentialsDir) {
     final authPath = SubscriptionCredentialStore.codexAuthPathIn(credentialsDir);
     final String home;

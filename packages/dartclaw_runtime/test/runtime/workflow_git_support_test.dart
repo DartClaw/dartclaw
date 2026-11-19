@@ -501,16 +501,14 @@ void main() {
     expect(changedDestination.heldDestination, 'origin/publish');
   });
 
-  test('execution-surface preview skips configured filters and a differing sweep cannot publish', () async {
+  Future<({Directory repo, Future<WorkflowGitPublishResult> Function([String?]) publish, bool Function() pushed})>
+  filteredPublishFixture(String cleanFilter) async {
     final repo = await initGitRepo();
     addTearDown(() => repo.deleteSync(recursive: true));
     expect((await _git(repo.path, ['switch', '-c', 'publish'])).exitCode, 0);
-    final filter = "sed 's/original/changed/' | tee .git/filter-ran";
-    expect((await _git(repo.path, ['config', 'filter.fixture.clean', filter])).exitCode, 0);
-    final marker = File(p.join(repo.path, '.git', 'filter-ran'));
+    expect((await _git(repo.path, ['config', 'filter.fixture.clean', cleanFilter])).exitCode, 0);
     File(p.join(repo.path, '.gitattributes')).writeAsStringSync('.envrc filter=fixture\n');
     File(p.join(repo.path, '.envrc')).writeAsStringSync('original\n');
-    final head = (await _git(repo.path, ['rev-parse', 'HEAD'])).stdout;
     var pushed = false;
     Future<WorkflowGitPublishResult> publish([String? approved]) => publishWorkflowBranchWithRemotePush(
       projectDir: repo.path,
@@ -522,17 +520,36 @@ void main() {
         return const PushSuccess();
       },
     );
+    return (repo: repo, publish: publish, pushed: () => pushed);
+  }
 
-    final held = await publish();
+  test('execution-surface preview stages through configured filters, so the approved sweep publishes', () async {
+    final fixture = await filteredPublishFixture("sed 's/original/changed/'");
+
+    final held = await fixture.publish();
     expect(held.status, WorkflowPublishStatus.held, reason: held.error);
-    expect(marker.existsSync(), isFalse);
-    expect((await _git(repo.path, ['status', '--porcelain'])).stdout, contains('?? .envrc'));
-    final released = await publish(held.heldCandidate);
+    expect((await _git(fixture.repo.path, ['status', '--porcelain'])).stdout, contains('?? .envrc'));
+    final released = await fixture.publish(held.heldCandidate);
+    expect(released.status, WorkflowPublishStatus.success, reason: released.error);
+    expect(fixture.pushed(), isTrue);
+    expect((await _git(fixture.repo.path, ['show', 'publish:.envrc'])).stdout, 'changed\n');
+  });
+
+  test('execution-surface sweep refuses a tree that differs from the approved preview', () async {
+    // The preview stages into a scratch index named by GIT_INDEX_FILE; the
+    // sweep uses the worktree's own index, so this filter cleans differently.
+    final fixture = await filteredPublishFixture(
+      r"""if [ -n "$GIT_INDEX_FILE" ]; then cat; else sed 's/original/changed/'; fi""",
+    );
+    final head = (await _git(fixture.repo.path, ['rev-parse', 'HEAD'])).stdout;
+
+    final held = await fixture.publish();
+    expect(held.status, WorkflowPublishStatus.held, reason: held.error);
+    final released = await fixture.publish(held.heldCandidate);
     expect(released.status, WorkflowPublishStatus.failed);
     expect(released.error, contains('Git staged a different tree'));
-    expect(marker.existsSync(), isTrue);
-    expect(pushed, isFalse);
-    expect((await _git(repo.path, ['rev-parse', 'HEAD'])).stdout, head);
+    expect(fixture.pushed(), isFalse);
+    expect((await _git(fixture.repo.path, ['rev-parse', 'HEAD'])).stdout, head);
   });
 
   for (final splitIndex in [true, false]) {

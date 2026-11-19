@@ -26,16 +26,6 @@ Future<_WorkflowGitTree> _captureTree(String projectDir, String branch, {bool in
 
 Future<String> _previewTree(String worktree) async {
   final indexPath = await _readGit(worktree, ['rev-parse', '--path-format=absolute', '--git-path', 'index']);
-  final filters = await runGit([
-    'config',
-    '--null',
-    '--name-only',
-    '--get-regexp',
-    r'^filter\..*\.(clean|process|required)$',
-  ], workingDirectory: worktree);
-  if (filters.exitCode != 0 && filters.exitCode != 1) {
-    throw StateError('Failed to inspect git filters: ${_processFailureDetail(filters)}');
-  }
   final scratch = await Directory.systemTemp.createTemp('dartclaw-workflow-index-');
   try {
     final previewIndex = p.join(scratch.path, 'index');
@@ -46,18 +36,10 @@ Future<String> _previewTree(String worktree) async {
         'Workflow review cannot preview a split index in "$worktree". Run git update-index --no-split-index.',
       );
     }
-    // Git can apply its built-in attributes in the preview. A configured
-    // external driver must wait for the real sweep, whose tree is checked.
-    final safeConfig = [
-      '-c',
-      'core.splitIndex=false',
-      for (final key in (filters.stdout as String).split('\u0000').where((key) => key.isNotEmpty).toSet()) ...[
-        '-c',
-        '$key=${key.endsWith('.required') ? 'false' : ''}',
-      ],
-    ];
+    // Approval binds the tree the sweep stages, so the preview runs the same
+    // configured filters; filter definitions are operator trust.
+    const safeConfig = ['-c', 'core.splitIndex=false'];
     await _readGit(worktree, [...safeConfig, 'add', '-A'], plan: plan);
-    // write-tree can refresh index entries through the same clean drivers.
     return await _readGit(worktree, [...safeConfig, 'write-tree'], plan: plan);
   } finally {
     await scratch.delete(recursive: true);

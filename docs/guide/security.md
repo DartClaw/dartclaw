@@ -305,7 +305,7 @@ Mutation and test endpoints return `403` for requests without admin access.
 An agent can write executable configuration inside its mounted repository. Merging or pushing those changes would
 carry hooks, provider or MCP settings, workflow files or symlinks beyond the container boundary. Automatic task accept
 and workflow promotion/publish therefore hold [execution surface changes](tasks.md#review-workflow) for a person's
-review. Host Git in an agent worktree reads the Git location DartClaw recorded for it, not the worktree's own `.git` file, and refuses a worktree whose `.git` was rewritten, replaced or removed, or that holds a nested repository as a gitlink, so an agent cannot choose a config whose commands host Git would run. Hooks and fsmonitor are disabled for those calls. Filters and diff drivers you configured in the project's own Git config still run when a worktree `.gitattributes` selects them.
+review. Host Git in an agent worktree reads the Git location DartClaw recorded for it, not the worktree's own `.git` file, and refuses a worktree directory replaced by a symlink, a worktree whose `.git` was rewritten, replaced or removed, or one that holds a nested repository as a gitlink, so an agent cannot choose a config whose commands host Git would run. Hooks and fsmonitor are disabled for those calls. Filters and diff drivers you configured in the project's own Git config still run when a worktree `.gitattributes` selects them.
 An operator can accept a held task. Connected workflow approval covers the reviewed Git candidate, operation and
 destination. If a later candidate still changes an execution surface, DartClaw asks for a new review. Agent tools
 cannot approve these holds.

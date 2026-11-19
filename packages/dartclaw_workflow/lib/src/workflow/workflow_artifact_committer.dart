@@ -152,14 +152,10 @@ Future<ArtifactCommitResult> maybeCommitStepArtifacts(ArtifactCommitPolicy polic
     );
   }
   final worktreeDir = (policy.task.worktreeJson?['path'] as String?)?.trim();
-  // A worktree whose `.git` is gone stays the target: the port refuses it
-  // rather than the commit landing in the project checkout instead.
-  final effectiveWorktreeDir = switch (worktreeDir) {
-    final String dir when dir.isNotEmpty && Directory(dir).existsSync() => dir,
-    _ => null,
-  };
+  // A task worktree stays the target even when it or its `.git` is gone: the
+  // commit fails rather than landing in the project checkout instead.
   final projectDir = resolved.dir;
-  final checkoutDir = effectiveWorktreeDir ?? projectDir;
+  final checkoutDir = worktreeDir == null || worktreeDir.isEmpty ? projectDir : worktreeDir;
 
   if (!Directory(checkoutDir).existsSync()) {
     _log.warning(

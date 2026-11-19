@@ -25,7 +25,7 @@ import 'package:dartclaw_runtime/dartclaw_runtime.dart'
 
 /// Records [merge] invocations and returns a pre-configured [result].
 class RecordingMergeExecutor extends MergeExecutor {
-  new({required this.result, String projectDir = '.'}) : super(projectDir: projectDir);
+  new({required this.result, super.projectDir = '.'});
 
   final MergeResult result;
   int callCount = 0;

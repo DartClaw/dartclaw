@@ -563,6 +563,31 @@ void main() {
         );
       });
 
+      test('a task worktree whose directory is gone fails instead of committing in the project checkout', () async {
+        final repoDir = Directory(p.join(tempDir.path, 'projects', 'proj'))..createSync(recursive: true);
+        final worktreePath = p.join(tempDir.path, 'worktrees', 'task-1');
+        File(p.join(repoDir.path, 'plan.md')).writeAsStringSync('plan');
+        final git = FakeGitGateway()..initWorktree(repoDir.path);
+        git.addUntracked(repoDir.path, 'plan.md', content: 'plan');
+        final task = Task(
+          id: 'task-1',
+          title: 'Task',
+          description: 'Task',
+          createdAt: DateTime(2026, 1, 1),
+          worktreeJson: {'path': worktreePath, 'branch': 'story', 'createdAt': '2026-01-01T00:00:00.000'},
+        );
+
+        final result = await maybeCommitStepArtifacts(makePolicy(repoDir: repoDir, port: git, task: task));
+
+        expect(result.failed, isTrue);
+        expect(result.failureReason, contains(worktreePath));
+        expect(git.events, isNot(contains('commit')));
+        expect(
+          await git.pathExistsAtRef(repoDir.path, projectDir: repoDir.path, ref: 'HEAD', path: 'plan.md'),
+          isFalse,
+        );
+      });
+
       test('post-commit missing artifact returns the same failed result contract', () async {
         final repoDir = Directory(p.join(tempDir.path, 'projects', 'proj'))..createSync(recursive: true);
         File(p.join(repoDir.path, 'plan.md')).writeAsStringSync('plan');

@@ -226,6 +226,28 @@ void main() {
     expect(result, isA<WorkflowGitPromotionError>());
   });
 
+  // A `shared` worktree runs its steps on the integration branch itself, so
+  // the step branch and the destination are one branch swept once.
+  test('promoteWorkflowBranchLocally commits a step that ran on the integration branch', () async {
+    final repo = await initGitRepo();
+    addTearDown(() => repo.deleteSync(recursive: true));
+    final shared = p.join(tempDir.path, 'shared');
+    expect((await _git(repo.path, ['worktree', 'add', '-b', 'integration', shared, 'main'])).exitCode, 0);
+    File(p.join(shared, 'spec.md')).writeAsStringSync('# Spec\n');
+
+    final result = await promoteWorkflowBranchLocally(
+      projectDir: repo.path,
+      runId: 'run-shared',
+      branch: 'integration',
+      integrationBranch: 'integration',
+      strategy: 'squash',
+    );
+
+    expect(result, isA<WorkflowGitPromotionSuccess>(), reason: '$result');
+    expect((await _git(repo.path, ['show', 'integration:spec.md'])).stdout, '# Spec\n');
+    expect((await _git(shared, ['status', '--porcelain'])).stdout, isEmpty);
+  });
+
   test('promoteWorkflowBranchLocally restores the original branch after merging into integration', () async {
     final repoDir = Directory(p.join(tempDir.path, 'repo'))..createSync(recursive: true);
     final worktreeDir = p.join(tempDir.path, 'feature-worktree');

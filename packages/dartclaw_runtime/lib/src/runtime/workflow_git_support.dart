@@ -465,13 +465,16 @@ Future<WorkflowGitPromotionResult> _promoteWorkflowBranchLocallyUnlocked({
     // would leave a dirty index/tree and fail MergeExecutor's pre-merge
     // invariant check with "Merge requires a clean index". Committing the
     // leftover state now folds it into the integration history instead of
-    // silently aborting promotion.
-    baseRevision = await _sweepCandidateTree(
-      projectDir: projectDir,
-      branch: safeIntegrationBranch,
-      candidate: candidate.base,
-      commitMessage: 'chore(workflow): ${storyId ?? runId} integration cleanup',
-    );
+    // silently aborting promotion. A `shared` worktree runs steps on the
+    // integration branch itself, so the sweep above already covered it.
+    baseRevision = safeBranch == safeIntegrationBranch
+        ? sourceRevision
+        : await _sweepCandidateTree(
+            projectDir: projectDir,
+            branch: safeIntegrationBranch,
+            candidate: candidate.base,
+            commitMessage: 'chore(workflow): ${storyId ?? runId} integration cleanup',
+          );
   } catch (error) {
     return WorkflowGitPromotionError(error.toString());
   }

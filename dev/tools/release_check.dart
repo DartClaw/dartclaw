@@ -431,8 +431,9 @@ class _ReleaseCheck {
       final head = candidate['head']! as String;
       final tree = candidate['tree']! as String;
       final checkout = _shellQuote('$guest/repo');
+      // Outside the checkout: suites assert their temporary repositories and runtime directories are not inside it.
       final temporary =
-          'export TMPDIR=${_shellQuote('$guest/repo/.agent_temp/tmp')}\n'
+          'export TMPDIR=${_shellQuote('$guest/tmp')}\n'
           'mkdir -p "\$TMPDIR"\n';
       await lima([
         'shell',

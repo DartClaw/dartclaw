@@ -286,7 +286,7 @@ esac
       expect(calls.trimRight(), endsWith('shell dartclaw-release-linux sudo rm -rf -- $guest'));
       expect(Directory(guest).existsSync(), isFalse);
       if (failure != 'fail-copy') {
-        expect(calls, contains("export TMPDIR='$guest/repo/.agent_temp/tmp'"));
+        expect(calls, contains("export TMPDIR='$guest/tmp'"));
         expect(calls, contains(r'mkdir -p "$TMPDIR"'));
       }
       if (failure != null) file('.agent_temp/$failure').deleteSync();

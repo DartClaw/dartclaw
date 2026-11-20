@@ -15,7 +15,7 @@ provision:
       set -euo pipefail
       export DEBIAN_FRONTEND=noninteractive
       apt-get update
-      apt-get install --yes --no-install-recommends ca-certificates curl git ripgrep python3 unzip build-essential docker.io nodejs
+      apt-get install --yes --no-install-recommends ca-certificates curl git ripgrep python3 unzip build-essential docker.io nodejs postgresql-client
       # Socket ownership, not docker group membership: Lima reuses one SSH session, which keeps the groups it opened with.
       mkdir -p /etc/systemd/system/docker.socket.d
       printf '[Socket]\nSocketUser={{.User}}\n' > /etc/systemd/system/docker.socket.d/override.conf

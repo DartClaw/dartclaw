@@ -1,5 +1,9 @@
 # Key Development Commands
 
+The tiers below run through [mise](https://mise.jdx.dev) tasks defined in `mise.toml`; `ci.yml`'s `Check` job runs
+`mise run setup` and `mise run lint`. mise installs the pinned Dart 3.14.0 on first use. Prerequisite: `brew install
+mise`, then `mise trust` once per clone or worktree. `mise tasks` lists every task.
+
 ## Running the Application
 
 ```bash
@@ -53,13 +57,14 @@ dart run dartclaw_cli:dartclaw workflow validate <path>
 ## Build
 
 ```bash
-# Install / sync dependencies (workspace root)
-dart pub get
+# Install both locked dependency sets and generate the embedded asset libraries
+# (workspace root). REQUIRED after cloning or creating a git worktree.
+mise run setup
 
-# REQUIRED after cloning or creating a git worktree, and after editing built-in
-# templates, static files, skills, or workflow definitions. The embedded asset
-# libraries are generated, not committed, and lib/ imports them — without this
-# the analyzer reports ~32 errors and nothing compiles. CI and
+# Rerun after editing built-in templates, static files, skills, or workflow
+# definitions. The embedded asset libraries are generated, not committed, and
+# lib/ imports them — without this the analyzer reports ~32 errors and nothing
+# compiles. `mise run setup`, `mise check`, `mise check-full` and
 # dev/tools/build.sh run it automatically.
 dart run dev/tools/embed_assets.dart
 
@@ -222,6 +227,9 @@ curl -s "https://pub.dev/api/packages/<package_name>" | jq '{name: .name, latest
 # Format a file or directory (120-char width configured in analysis_options.yaml)
 dart format --line-length=120 <file_or_dir>
 
+# Format check, `dart analyze --fatal-infos` and the architecture check: the CI `Check` job
+mise run lint
+
 # Static analysis + lint (strict-casts, strict-raw-types, lints/recommended).
 # Requires the generated asset libraries — see `dart run dev/tools/embed_assets.dart`
 # under ## Build for when it must be run.
@@ -236,17 +244,18 @@ Pass several files or a test directory from the same package to one invocation. 
 contract, fixture, or shared helper changes. Use one process per package because some CLI and kernel suites
 temporarily change the working directory.
 
-On a fresh checkout, install both locked dependency sets listed in the [CI-equivalent gate](#ci-equivalent-gate).
+On a fresh checkout, run `mise run setup` to install both locked dependency sets.
 The runtime's controller tests execute the shipped JavaScript with Node.js (22.7+ or 20.19.x).
-The `andthen:exec-plan` tiers run from the workspace root. The fixed fast check exercises the assembled HTTP
-handlers. A story also runs its own behavior proofs. The full tier runs developer-tool checks and each workspace
+The `andthen:exec-plan` tiers run from the workspace root. Both tiers regenerate the embedded assets and run
+`mise run lint` (format check, analyzer, architecture check) first. The fixed fast check then exercises the assembled
+HTTP handlers. A story also runs its own behavior proofs. The full tier runs developer-tool checks and each workspace
 member's default tests, including slow process tests and Dart fitness. The CI-equivalent gate above adds real
 PostgreSQL and the remaining fitness checks. A live proof needs its own file, prerequisites and explicit selector.
 
 | Tier | Command |
 |---|---|
-| fast | `dart run dev/tools/embed_assets.dart && dart analyze --fatal-infos && dart test --reporter=failures-only packages/dartclaw_runtime/test/server_test.dart` |
-| full | `bash dev/tools/test_workspace.sh` |
+| fast | `mise check` |
+| full | `mise check-full` |
 | run one test | `dart test --reporter=failures-only {file} --plain-name "{test}"` |
 
 `{file}` and `{test}` come from the FIS proof. Use its literal test name, including punctuation. Check that the runner

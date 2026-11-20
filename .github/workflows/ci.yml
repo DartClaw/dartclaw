@@ -19,29 +19,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
 
-      - name: Setup Dart
-        uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
+      # Installs mise and the Dart SDK pinned in mise.toml, so CI and local runs share one version.
+      - name: Setup mise
+        uses: jdx/mise-action@236a21c3b91f5db6d4e174b348674a0f0caac06d # v5.2.9
         with:
-          sdk: 3.14.0
+          version: 2026.11.9
 
-      - name: Install dependencies
-        run: |
-          dart pub get --enforce-lockfile
-          dart pub get --directory dev/tools/mascot_favicon --enforce-lockfile
+      # Both locked dependency sets, then the embedded asset libraries lib/ imports.
+      - name: Setup
+        run: mise run setup
 
-      # Generated asset libraries are not committed; lib/ imports them, so this
-      # must run before format and analyze.
-      - name: Generate embedded assets
-        run: dart run dev/tools/embed_assets.dart
-
-      - name: Format check
-        run: dart format --line-length=120 --output=none --set-exit-if-changed .
-
-      - name: Analyze
-        run: dart analyze --fatal-infos
-
-      - name: Architecture check
-        run: dart run dev/tools/arch_check.dart
+      # Format check, analyzer and architecture check. Tests stay in the local gates.
+      - name: Lint
+        run: mise run lint
 
   powershell:
     name: PowerShell scripts

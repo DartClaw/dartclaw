@@ -1,0 +1,53 @@
+# One entry point for local runs, agents and CI. Each task is one line that calls the Dart tool or a script
+# under dev/tools; logic that needs conditions or loops belongs in a script, not here.
+# Bump mise, Dart and the jdx/mise-action SHA in ci.yml deliberately: formatter output is SDK-versioned.
+# Move Dart together with the setup-dart pins in release-binaries.yml and the SDK URL in dev/tools/lima/linux.yaml,
+# which do not read this file.
+min_version = "2026.11.9"
+
+[tools]
+dart = "3.14.0"
+
+[tasks.setup]
+description = "Fetch both locked dependency sets and generate the embedded asset libraries"
+run = [
+  "dart pub get --enforce-lockfile",
+  "dart pub get --directory dev/tools/mascot_favicon --enforce-lockfile",
+  "dart run dev/tools/embed_assets.dart",
+]
+
+[tasks.fmt]
+description = "Format the workspace in place"
+run = "dart format --line-length=120 ."
+
+[tasks.lint]
+description = "Format check, analyzer and architecture check (the CI Check job)"
+run = [
+  "dart format --line-length=120 --output=none --set-exit-if-changed .",
+  "dart analyze --fatal-infos",
+  "dart run dev/tools/arch_check.dart",
+]
+
+[tasks.test]
+description = "Fast-tier tests: the assembled HTTP handlers"
+run = "dart test --reporter=failures-only packages/dartclaw_runtime/test/server_test.dart"
+
+# Both tiers regenerate the embedded assets first because edits to templates, static files, skills or workflow
+# definitions are common mid-story and the analyzer reports ~32 errors on stale libraries. The script is
+# idempotent, takes about a second and writes only gitignored files.
+[tasks.check]
+description = "Fast tier: regenerate assets, lint, fast tests"
+run = ["dart run dev/tools/embed_assets.dart", { task = "lint" }, { task = "test" }]
+
+[tasks.check-full]
+description = "Full tier: lint, then developer-tool checks and every workspace member's default tests"
+run = ["dart run dev/tools/embed_assets.dart", { task = "lint" }, "bash dev/tools/test_workspace.sh"]
+
+[tasks.build]
+description = "Build build/bin/dartclaw and build/bin/dartclaw-workflow for this machine"
+run = "bash dev/tools/build.sh"
+run_windows = "pwsh -NoProfile -File dev/tools/build_windows.ps1"
+
+[tasks.serve]
+description = "HTTP server and web UI on port 3000; pass --port to change it"
+run = "dart run dartclaw_cli:dartclaw serve"

@@ -18,9 +18,11 @@ Future<ProcessResult> defaultCommandProbe(String exe, List<String> args) async {
 }
 
 /// Polls [FakeCodexProcess.sentMessages] until a message with the given
-/// [method] appears, or throws after 50 attempts.
+/// [method] appears, or throws after 5 seconds.
 Future<void> waitForSentMessage(FakeCodexProcess process, String method) async {
-  for (var i = 0; i < 50; i++) {
+  // A generous cap, not one sized to the expected wait: `start()` writes a real CODEX_HOME first, and 500 ms was
+  // exceeded under a parallel suite. It stays below the harness's 10 s initialize timeout so this error names the cause.
+  for (var i = 0; i < 500; i++) {
     if (process.sentMessages.any((message) => message['method'] == method)) {
       return;
     }

@@ -68,7 +68,7 @@ Each provider keeps its own documented security posture. ACP agents, for example
 
 ## Quick start
 
-DartClaw runs on **macOS** (Apple Silicon, Intel), **Linux** (x64, arm64), and **Windows** x64. You need:
+DartClaw runs on **macOS** (Apple Silicon), **Linux** (x64, arm64), and **Windows** x64. You need:
 
 - at least one agent CLI: [Claude Code](https://code.claude.com/docs) (`claude`) or [Codex CLI](https://github.com/openai/codex) (`codex`)
 - **PostgreSQL 14+** for the server ([install guide](docs/guide/postgresql.md)); standalone workflows need no database

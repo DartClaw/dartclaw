@@ -267,12 +267,11 @@ exec "\$DARTCLAW_TEST_REAL_DART" "\$@"
     final bytes = utf8.encode('tiny native archive for a compile-free packaging test');
     final digest = sha256.convert(bytes).toString();
     final artifacts = <String, Object?>{};
-    for (final target in ['macos-arm64', 'macos-x64', 'linux-x64', 'linux-arm64']) {
-      final bundle = target == 'macos-x64' ? 'macos-x86_64' : target;
-      final archive = 'llamadart-native-$bundle-v0.3.0.tar.gz';
+    for (final target in ['macos-arm64', 'linux-x64', 'linux-arm64']) {
+      final archive = 'llamadart-native-$target-v0.3.0.tar.gz';
       File(p.join(cache.path, archive)).writeAsBytesSync(bytes);
       artifacts[target] = {
-        'bundle': bundle,
+        'bundle': target,
         'archive': archive,
         'url': 'https://example.test/$archive',
         'size': bytes.length,
@@ -292,7 +291,7 @@ exec "\$DARTCLAW_TEST_REAL_DART" "\$@"
         'artifacts': artifacts,
       }),
     );
-    for (final target in ['macos-arm64', 'macos-x64', 'linux-x64', 'linux-arm64']) {
+    for (final target in ['macos-arm64', 'linux-x64', 'linux-arm64']) {
       final result = Process.runSync(
         'bash',
         [buildScript],

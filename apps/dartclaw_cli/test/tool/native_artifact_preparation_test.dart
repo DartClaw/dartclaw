@@ -20,13 +20,9 @@ void main() {
 
   tearDown(() => root.deleteSync(recursive: true));
 
-  test('production manifest pins exactly the five shipped targets', () async {
+  test('production manifest pins exactly the four shipped targets', () async {
     final manifest = await NativeArtifactManifest.load(p.join(_repoRoot(), 'dev', 'native_artifacts.json'));
-    expect(
-      manifest.artifacts.keys,
-      unorderedEquals(['macos-arm64', 'macos-x64', 'linux-arm64', 'linux-x64', 'windows-x64']),
-    );
-    expect(manifest.forTarget('macos-x64').bundle, 'macos-x86_64');
+    expect(manifest.artifacts.keys, unorderedEquals(['macos-arm64', 'linux-arm64', 'linux-x64', 'windows-x64']));
     expect(manifest.release, 'v0.3.0');
   });
 

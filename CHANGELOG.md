@@ -34,6 +34,7 @@ loader *currently* tolerates is a live inventory, not history, and lives in *Dep
 
 ### Removed
 
+- **Intel Macs are no longer a release target (breaking, install)** – no `dartclaw-v<version>-macos-x64.tar.gz` or `dartclaw-workflow-v<version>-macos-x64.tar.gz` archive is published, and `brew install dartclaw` on an Intel Mac stops with an architecture requirement. The 0.28.0 archives remain the last Intel Mac build.
 - SDK: `PrGhNotFound`, `SessionErrorEvent`, and the Google Chat webhook's direct-dispatch path (`GoogleChatMessageDispatcher`, `GoogleChatWebhookHandler.dispatchMessage` and `responseTimeout`), none of which a running server reached. `sseStreamResponse` and `sessionRoutes` no longer take an `AgentHarness`.
 - SDK: `SecurityProfile.workspace` no longer takes `projectDir`; the profile holds only DartClaw-owned mounts.
 

@@ -42,12 +42,14 @@ void main() {
       {'runs_on': 'ubuntu-latest', 'target': 'linux-x64', 'archive_ext': 'tar.gz'},
       {'runs_on': 'ubuntu-24.04-arm', 'target': 'linux-arm64', 'archive_ext': 'tar.gz'},
       {'runs_on': 'macos-15', 'target': 'macos-arm64', 'archive_ext': 'tar.gz'},
-      {'runs_on': 'macos-15-intel', 'target': 'macos-x64', 'archive_ext': 'tar.gz'},
       {'runs_on': 'windows-latest', 'target': 'windows-x64', 'archive_ext': 'zip'},
     ]);
 
-    expect(buildStep('Build standalone binary')['run'], 'bash dev/tools/build.sh');
-    expect(buildStep('Build standalone binary')['if'], "matrix.target == 'macos-x64'");
+    expect(
+      buildSteps.where((step) => step['name'] == 'Build standalone binary'),
+      isEmpty,
+      reason: 'every target is built and proven by its native embedding gate; no build-only target remains',
+    );
     final smoke = buildStep('Smoke-test Windows release artifact');
     expect(smoke['run'], contains('-ArtifactPath "build/dartclaw-v\$env:DARTCLAW_VERSION-windows-x64.zip"'));
     expect(smoke['run'], contains('-SkipProviders'));
@@ -68,7 +70,7 @@ void main() {
     final evidenceUpload = buildStep('Upload native embedding evidence');
     expect(
       evidenceUpload['if'],
-      "always() && matrix.target != 'macos-x64'",
+      'always()',
       reason: 'Retain native gate evidence when a probe fails so diagnostics remain downloadable.',
     );
     expect((evidenceUpload['with'] as YamlMap)['name'], r'native-embedding-${{ matrix.target }}');
@@ -83,13 +85,12 @@ void main() {
     );
 
     final generateIndex = stepNames.indexOf('Generate embedded assets');
-    expect(generateIndex, lessThan(stepNames.indexOf('Build standalone binary')));
     expect(generateIndex, lessThan(stepNames.indexOf('Prove native embedding package (Windows)')));
     expect(buildStep('Generate embedded assets')['if'], "runner.os == 'Windows'");
     expect(buildStep('Generate embedded assets')['run'], 'dart run dev/tools/embed_assets.dart');
   });
 
-  test('four native runners own package proof while macOS x64 remains build-only', () {
+  test('every native runner owns package proof', () {
     expect(
       buildJob['env'],
       isNull,
@@ -107,7 +108,7 @@ void main() {
     );
 
     final posixGate = buildStep('Prove native embedding package');
-    expect(posixGate['if'], "runner.os != 'Windows' && matrix.target != 'macos-x64'");
+    expect(posixGate['if'], "runner.os != 'Windows'");
     expect(
       posixGate['run'],
       contains(
@@ -160,7 +161,7 @@ void main() {
         .toList();
     expect(archives, [
       for (final artifact in ['dartclaw', 'dartclaw-workflow'])
-        for (final target in ['linux-x64', 'linux-arm64', 'macos-arm64', 'macos-x64', 'windows-x64'])
+        for (final target in ['linux-x64', 'linux-arm64', 'macos-arm64', 'windows-x64'])
           '$artifact-v\${VERSION}-$target.${target == 'windows-x64' ? 'zip' : 'tar.gz'}',
     ]);
     final publisher = publishSteps.singleWhere((step) => step['name'] == 'Publish release assets');

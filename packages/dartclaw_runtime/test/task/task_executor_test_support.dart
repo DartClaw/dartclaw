@@ -266,13 +266,6 @@ Project erroredProject({String id = 'my-app', String errorMessage = 'Authenticat
 FakeProjectService fakeProjectServiceFor(Project project) =>
     FakeProjectService(projects: [project], includeLocalProjectInGetAll: false, defaultProjectId: project.id);
 
-const _gitTestEnv = {
-  'GIT_AUTHOR_NAME': 'Test',
-  'GIT_AUTHOR_EMAIL': 'test@test.com',
-  'GIT_COMMITTER_NAME': 'Test',
-  'GIT_COMMITTER_EMAIL': 'test@test.com',
-};
-
 /// Initializes a real temp git repo with one commit on [branch].
 ///
 /// Collapses the repeated `git init` / `checkout -b` / `add` / `commit
@@ -289,18 +282,17 @@ Future<Directory> initGitRepo({
 }) async {
   final repo = Directory.systemTemp.createTempSync(prefix);
   await Process.run('git', ['init', '-b', branch], workingDirectory: repo.path);
+  // Repository config, not a per-command env: host sweeps under test commit in this repo and its worktrees, and a
+  // host without a global Git identity (the Lima release VM) would refuse them.
+  await Process.run('git', ['config', 'user.name', 'Test'], workingDirectory: repo.path);
+  await Process.run('git', ['config', 'user.email', 'test@test.com'], workingDirectory: repo.path);
   File(p.join(repo.path, 'README.md')).writeAsStringSync('fixture\n');
   for (final entry in extraFiles.entries) {
     final file = File(p.join(repo.path, entry.key))..parent.createSync(recursive: true);
     file.writeAsStringSync(entry.value);
   }
   await Process.run('git', ['add', '.'], workingDirectory: repo.path);
-  await Process.run(
-    'git',
-    ['commit', '-m', 'init', '--no-gpg-sign'],
-    workingDirectory: repo.path,
-    environment: _gitTestEnv,
-  );
+  await Process.run('git', ['commit', '-m', 'init', '--no-gpg-sign'], workingDirectory: repo.path);
   if (integrationBranch != null) {
     await Process.run('git', ['checkout', '-b', integrationBranch], workingDirectory: repo.path);
     await Process.run('git', ['checkout', branch], workingDirectory: repo.path);

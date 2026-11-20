@@ -23,6 +23,9 @@ void main() {
 
       // Initialize a real git repo with an initial commit
       await Process.run('git', ['init'], workingDirectory: projectDir);
+      // Tests commit in task worktrees, which read this config; the host may have no global Git identity.
+      await Process.run('git', ['config', 'user.name', 'Test'], workingDirectory: projectDir);
+      await Process.run('git', ['config', 'user.email', 'test@test.com'], workingDirectory: projectDir);
       await Process.run('git', ['checkout', '-b', 'main'], workingDirectory: projectDir);
       File(p.join(projectDir, 'README.md')).writeAsStringSync('# Test');
       await Process.run('git', ['add', '.'], workingDirectory: projectDir);

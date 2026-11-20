@@ -228,6 +228,9 @@ NoNewPrivileges=true
 WantedBy=default.target
 ```
 
+DartClaw commits task and workflow changes with host Git as the service's user, so that user needs a Git identity
+(`git config --global user.name …` and `user.email …`); without one those commits fail with `Author identity unknown`.
+
 This is a `systemd --user` unit — no root or system administrator needed. Enable auto-start at login with:
 
 ```bash

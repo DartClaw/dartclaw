@@ -84,6 +84,11 @@ compile_binary() {
   if [[ ! -d "$BUILD_DIR/lib" ]]; then
     cp -R "$cli_stage/bundle/lib" "$BUILD_DIR/lib"
   fi
+  # From Dart 3.14 on Linux, bin/<name> is the dartcliruntime launcher, which loads ../lib/libdartaot<its basename>.so.
+  local snapshot="$cli_stage/bundle/lib/libdartaot$entry_point.so"
+  if [[ -f "$snapshot" ]]; then
+    cp "$snapshot" "$BUILD_DIR/lib/libdartaot$binary_name.so"
+  fi
 }
 
 sha256_file() {
@@ -150,6 +155,7 @@ for binary_name in dartclaw dartclaw-workflow; do
   platform_entries=(VERSION bin)
   if [[ -d "$BUILD_DIR/lib" ]]; then
     cp -R "$BUILD_DIR/lib" "$platform_stage/lib"
+    find "$platform_stage/lib" -name 'libdartaot*.so' ! -name "libdartaot$binary_name.so" -delete
     platform_entries+=(lib)
   fi
   platform_archive="$BUILD_DIR/$binary_name-v${version}-${release_os}-${release_arch}.tar.gz"

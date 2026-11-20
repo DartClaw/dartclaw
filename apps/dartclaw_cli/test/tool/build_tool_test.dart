@@ -240,6 +240,11 @@ exec "\$DARTCLAW_TEST_REAL_DART" "\$@"
           reason: 'Release archives must not carry a SQLite native library.',
         );
         expect(entries.any((entry) => entry.startsWith('share/')), isFalse);
+        // A Dart 3.14+ Linux launcher loads `../lib/libdartaot<its own name>.so`; another binary's snapshot is dead weight.
+        expect(
+          entries.where((entry) => p.basename(entry).startsWith('libdartaot')),
+          anyOf(isEmpty, ['lib/libdartaot$binaryName.so']),
+        );
 
         final checksumLine = '${_hashFile(archive)}  ${p.basename(archive)}';
         expect(File(archiveSha).readAsStringSync().trim(), checksumLine);

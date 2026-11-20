@@ -348,6 +348,17 @@ void main() {
     expect((await nativeLibraryManifest(package))[0]['sha256'], isNot(manifest[0]['sha256']));
   });
 
+  test('native evidence leaves out the per-binary AOT snapshot so both archives compare equal', () async {
+    final package = Directory.systemTemp.createTempSync('native-evidence-snapshot');
+    addTearDown(() => package.deleteSync(recursive: true));
+    Directory(p.join(package.path, 'lib')).createSync();
+    for (final name in ['lib/libllamadart.so', 'lib/libdartaotdartclaw-workflow.so']) {
+      File(p.join(package.path, name)).writeAsStringSync(name);
+    }
+    final manifest = await nativeLibraryManifest(package);
+    expect(manifest.map((entry) => entry['path']), ['lib/libllamadart.so']);
+  });
+
   test('native evidence contains embedding libraries without a SQLite asset', () {
     final archives = _validEvidence()['releaseArchives']! as List<Object?>;
     for (final archive in archives.cast<Map<String, Object?>>()) {

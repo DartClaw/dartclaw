@@ -139,7 +139,8 @@ in the repository; `DARTCLAW_NATIVE_ARCHIVE_CACHE` overrides that location. Wind
 `dev/tools/build.sh` runs `dart build cli` for both entry points, producing `build/bin/dartclaw` and
 `build/bin/dartclaw-workflow`. It emits `build/dartclaw-v{VERSION}-{os}-{arch}.tar.gz` and
 `build/dartclaw-workflow-v{VERSION}-{os}-{arch}.tar.gz`, each with its own checksum, `VERSION`, executable in
-`bin/`, and selected native embedding libraries when applicable. Windows builds use `dev/tools/build_windows.ps1` to emit
+`bin/`, and selected native embedding libraries when applicable. On Linux, `lib/` also holds the executable's AOT
+snapshot (`libdartaot<binary>.so`), which the `bin/` launcher loads from `../lib`, so keep both directories together. Windows builds use `dev/tools/build_windows.ps1` to emit
 `dartclaw-v<version>-windows-x64.zip` and `dartclaw-workflow-v<version>-windows-x64.zip`, each with `VERSION`,
 its matching `.exe` in `bin/`. Windows embedding backend modules and their dependencies
 are also staged in `bin/` for native backend discovery; keep the complete archive layout when installing. Templates, static assets, skills, and workflows are

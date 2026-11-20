@@ -7,7 +7,7 @@ execution, the shared API client, the server route families, and the workflow tr
 [observability-operations-architecture.md](observability-operations-architecture.md); package topology and the
 composition root in [system-architecture.md](system-architecture.md).
 
-**Current through**: 0.28.0
+**Current through**: 0.28.1
 
 ---
 
@@ -104,6 +104,11 @@ with no HTTP server.
 - **Credentials and skills.** `CredentialPreflight` and a referenced-provider auth preflight run before execution;
   `--no-skill-bootstrap` skips native skill provisioning. `DARTCLAW_WORKFLOWS_PREFER_SOURCE=1` makes source-tree
   skills and workflow YAML win over embedded built-ins (maintainer profile, standalone path only).
+- **Execution-surface holds.** Only connected mode releases a hold: `workflow resume <run-id> --candidate <id>` approves
+  the candidate connected `status` prints (`workflow_resume_command.dart`). Standalone `resume` refuses a held run with
+  exit 1, before provider preflight and even under `--force`, and prints the held paths plus manual-delivery guidance
+  (`standalone_execution_surface_recovery.dart`); `--candidate` with `--standalone` is a usage error. Rules:
+  [workflow-architecture.md](workflow-architecture.md) and [ADR-063](../adrs/063-workflow-git-candidate-approval.md).
 
 ## 4. API Client
 

@@ -283,7 +283,13 @@ void main() {
       final localTurns = FakeTurnManager(pausingMessages, worker);
       final localApi = ApiRouteTestClient(
         localAdminMiddleware()(
-          sessionRoutes(sessions, pausingMessages, localTurns, ownerWorkspaceDir: sessions.baseDir).call,
+          sessionRoutes(
+            sessions,
+            pausingMessages,
+            localTurns,
+            ownerWorkspaceDir: sessions.baseDir,
+            onConversationCreated: (created) => addTearDown(created.beginShutdown),
+          ).call,
         ),
       );
 
@@ -1187,6 +1193,7 @@ void main() {
             await releaseClaim.future;
           },
           ownerWorkspaceDir: sessions.baseDir,
+          onConversationCreated: (created) => addTearDown(created.beginShutdown),
         ).call,
       );
       final attachment = await uploadSessionAttachment(raceHandler, session.id);
@@ -1739,6 +1746,7 @@ void main() {
 
           resetService: SessionResetService(sessions: sessions, messages: messages),
           ownerWorkspaceDir: sessions.baseDir,
+          onConversationCreated: (created) => addTearDown(created.beginShutdown),
         ).call,
       );
       final attachment = await uploadSessionAttachment(handler, session.id);

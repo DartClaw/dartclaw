@@ -43,6 +43,63 @@ void main() {
       tmpDir.deleteSync(recursive: true);
     });
 
+    group('a runtime with no local repository', () {
+      late String marker;
+      late List<List<String>> calls;
+
+      // The repository an agent can write: its post-checkout hook runs on the
+      // host the moment host Git checks a worktree out of it.
+      setUp(() {
+        marker = p.join(tmpDir.path, 'hook-ran');
+        final hook = File(p.join(projectDir, '.git', 'hooks', 'post-checkout'))
+          ..createSync(recursive: true)
+          ..writeAsStringSync('#!/bin/sh\ntouch "$marker"\n');
+        Process.runSync('chmod', ['+x', hook.path]);
+        calls = [];
+      });
+
+      Future<ProcessResult> recordingGit(
+        List<String> arguments, {
+        String? workingDirectory,
+        ProcessEnvironmentPlan plan = const EmptyProcessEnvironmentPlan(),
+        bool noSystemConfig = true,
+      }) {
+        calls.add(arguments);
+        return runGit(arguments, workingDirectory: workingDirectory, plan: plan, noSystemConfig: noSystemConfig);
+      }
+
+      test('refuses a no-project worktree before any Git runs', () async {
+        final manager = WorktreeManager(dataDir: dataDir, projectDir: null, processRunner: recordingGit);
+
+        await expectLater(
+          manager.create('no-local-repo', baseRef: 'main'),
+          throwsA(
+            isA<NoLocalRepositoryException>().having(
+              (error) => error.message,
+              'message',
+              allOf(contains('no local repository'), contains('registered project')),
+            ),
+          ),
+        );
+        expect(() => manager.projectDirFor(null), throwsA(isA<NoLocalRepositoryException>()));
+        expect(calls, isEmpty);
+        expect(File(marker).existsSync(), isFalse);
+      });
+
+      test('the same repository as the local repository runs its hook (positive control)', () async {
+        final manager = WorktreeManager(dataDir: dataDir, projectDir: projectDir, processRunner: recordingGit);
+
+        await manager.create('local-repo', baseRef: 'main');
+
+        expect(calls, isNotEmpty);
+        expect(
+          File(marker).existsSync(),
+          isTrue,
+          reason: 'the hook fixture must be live for the refusal to mean anything',
+        );
+      });
+    });
+
     test('attaches detached so a branch checked out elsewhere is not a conflict', () async {
       // The operator path reviews the branch they are standing on:
       // `run.sh workflow run code-review` injects BRANCH from the current

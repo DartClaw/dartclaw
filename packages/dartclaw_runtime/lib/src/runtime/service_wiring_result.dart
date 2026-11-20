@@ -33,6 +33,7 @@ DartclawRuntime _assembleRuntime(
   ScopeReconciler? scopeReconciler,
   GroupSessionInitializer? groupSessionInit,
   OutboundMcpPool? outboundMcpPool, {
+  required String? localRepositoryDir,
   Future<void> Function()? trackedWorkflowGitCleanup,
   StandaloneExecutionLease? standaloneExecutionLease,
 }) {
@@ -66,6 +67,7 @@ DartclawRuntime _assembleRuntime(
     messageService: storage.messages,
     workflowStepExecutionRepository: storage.workflowStepExecutionRepository,
     worktreeManager: task.worktreeManager,
+    localRepositoryDir: localRepositoryDir,
     taskExecutor: task.hasExecutionStack ? task.taskExecutor : null,
     workflowRegistry: workflowRegistry,
     workflowService: workflowService,

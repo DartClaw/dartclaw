@@ -354,8 +354,10 @@ inside a container with:
 - Host-mediated egress over framed `docker exec` pipes for `provider`, granted `mcp` tools and `registry` for `workspace` only. The container holds no credential.
 - Mount allowlist for workspace files. The data directory as a whole, with its credentials, logs, sessions and gateway
   token, is never mounted; only DartClaw-owned subdirectories are. When `serve` runs from the data directory (as
-  `dartclaw service install` sets it up), it works in the workspace directory instead, and a mounted directory that
-  contains the data directory shows it empty. `serve` logs one INFO line for each directory it substitutes, leaves out
+  `dartclaw service install` sets it up), it works in the workspace directory instead, with no local repository and
+  nothing at `/project`, and a mounted directory that contains the data directory shows it empty. Agents can write the
+  workspace's `.git/`, so the workspace is never a project repository: register a project for worktree tasks and
+  workflows, and keep local-path projects outside the workspace and every agent workspace. `serve` logs one INFO line for each directory it substitutes, leaves out
   or masks.
 
 ACP agents have no container execution: DartClaw mediates no provider credential or host capability for an ACP client,

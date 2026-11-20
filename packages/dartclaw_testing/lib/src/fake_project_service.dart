@@ -45,10 +45,14 @@ typedef RecordedProjectUpdate = ({
 });
 
 /// In-memory [ProjectService] fake with optional lifecycle callbacks.
+///
+/// [hasLocalProject] `false` models a runtime with no local repository, which
+/// has no `_local` project; [localProject] must then be omitted.
 class FakeProjectService implements ProjectService {
   new({
     Iterable<Project> projects = const [],
     Project? localProject,
+    bool hasLocalProject = true,
     this.includeLocalProjectInGetAll = true,
     this.defaultProjectId,
     DateTime Function()? now,
@@ -58,17 +62,19 @@ class FakeProjectService implements ProjectService {
     this.onDelete,
     this.onEnsureFresh,
     this.onResolveWorkflowBaseRef,
-  }) : _localProject =
-           localProject ??
-           Project(
-             id: '_local',
-             name: 'local',
-             remoteUrl: '',
-             localPath: '/workspace',
-             defaultBranch: 'main',
-             status: ProjectStatus.ready,
-             createdAt: DateTime.parse('2026-01-01T00:00:00Z'),
-           ),
+  }) : assert(hasLocalProject || localProject == null, 'a localProject needs hasLocalProject'),
+       _localProject = !hasLocalProject
+           ? null
+           : localProject ??
+                 Project(
+                   id: '_local',
+                   name: 'local',
+                   remoteUrl: '',
+                   localPath: '/workspace',
+                   defaultBranch: 'main',
+                   status: ProjectStatus.ready,
+                   createdAt: DateTime.parse('2026-01-01T00:00:00Z'),
+                 ),
        _now = now ?? DateTime.now {
     for (final project in projects) {
       seed(project);
@@ -85,7 +91,8 @@ class FakeProjectService implements ProjectService {
   final FakeProjectEnsureFreshCallback? onEnsureFresh;
   final FakeProjectResolveWorkflowBaseRefCallback? onResolveWorkflowBaseRef;
 
-  final Project _localProject;
+  final Project? _localProject;
+  String get _localId => _localProject?.id ?? '_local';
   final Map<String, Project> _projects = {};
 
   bool initializeCalled = false;
@@ -101,7 +108,7 @@ class FakeProjectService implements ProjectService {
 
   /// Adds or replaces a seeded project.
   void seed(Project project) {
-    if (project.id == _localProject.id) {
+    if (project.id == _localId) {
       return;
     }
     _projects[project.id] = project;
@@ -115,7 +122,7 @@ class FakeProjectService implements ProjectService {
   @override
   Future<Project?> get(String id) async {
     getCalls.add(id);
-    if (id == _localProject.id) {
+    if (id == _localId) {
       return _localProject;
     }
     return _projects[id];
@@ -127,14 +134,14 @@ class FakeProjectService implements ProjectService {
     if (!includeLocalProjectInGetAll) {
       return projects;
     }
-    return [_localProject, ...projects];
+    return [?_localProject, ...projects];
   }
 
   @override
-  Future<Project> get defaultProject async {
+  Future<Project?> get defaultProject async {
     final configuredDefaultId = defaultProjectId;
     if (configuredDefaultId != null) {
-      if (configuredDefaultId == _localProject.id) {
+      if (configuredDefaultId == _localId) {
         return _localProject;
       }
       final configuredDefault = _projects[configuredDefaultId];
@@ -149,7 +156,7 @@ class FakeProjectService implements ProjectService {
   }
 
   @override
-  Project get localProject => _localProject;
+  Project? get localProject => _localProject;
 
   @override
   Future<Project> create({
@@ -186,7 +193,7 @@ class FakeProjectService implements ProjectService {
     }
 
     final id = _slugify(name);
-    if (id == _localProject.id) {
+    if (id == _localId) {
       throw ArgumentError('Reserved ID "$id"');
     }
     if (_projects.containsKey(id)) {

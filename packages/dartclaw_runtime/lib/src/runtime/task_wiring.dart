@@ -68,6 +68,7 @@ class TaskWiring {
     required this.config,
     required String dataDir,
     required String runtimeCwd,
+    required String? localRepositoryDir,
     String? localFallbackDir,
     RemotePushService? remotePushServiceOverride,
     required EventBus eventBus,
@@ -76,6 +77,7 @@ class TaskWiring {
     bool workflowOnly = false,
   }) : _dataDir = dataDir,
        _runtimeCwd = runtimeCwd,
+       _localRepositoryDir = localRepositoryDir,
        _localFallbackDir = localFallbackDir,
        _remotePushServiceOverride = remotePushServiceOverride,
        _eventBus = eventBus,
@@ -86,8 +88,12 @@ class TaskWiring {
   final DartclawConfig config;
   final String _dataDir;
 
-  /// The repository this composition operates on — the invocation cwd.
+  /// The directory standalone tasks run in.
   final String _runtimeCwd;
+
+  /// The repository a task without a project operates on, `null` when the
+  /// runtime has none (see `DartclawRuntime.localRepositoryDir`).
+  final String? _localRepositoryDir;
 
   /// Non-null in the zero-server lane, which roots its worktrees beside the
   /// repository it was invoked in rather than in the managed workspace.
@@ -143,13 +149,13 @@ class TaskWiring {
   /// available to Google Chat card handling.
   Future<void> wirePreServer() async {
     _mergeExecutor = MergeExecutor(
-      projectDir: _runtimeCwd,
+      projectDir: _localRepositoryDir,
       defaultStrategy: config.tasks.worktreeMergeStrategy == 'merge' ? MergeStrategy.merge : MergeStrategy.squash,
     );
     _taskFileGuard = TaskFileGuard();
     _worktreeManager = WorktreeManager(
       dataDir: _dataDir,
-      projectDir: _runtimeCwd,
+      projectDir: _localRepositoryDir,
       baseRef: config.tasks.worktreeBaseRef,
       staleTimeoutHours: config.tasks.worktreeStaleTimeoutHours,
       // Worktrees are checkouts of the repository the lane operates on. The
@@ -184,7 +190,7 @@ class TaskWiring {
     required ExecutionCoordinator executions,
     required ExecutionPolicyResolver policyResolver,
   }) async {
-    _diffGenerator = DiffGenerator(projectDir: _runtimeCwd);
+    _diffGenerator = DiffGenerator(projectDir: _localRepositoryDir);
     _artifactCollector = ArtifactCollector(
       tasks: _storage.taskService,
       sessionsDir: _storage.sessions.baseDir,
@@ -240,6 +246,7 @@ class TaskWiring {
       ),
       workspaceRoot: config.workspaceDir,
       currentDirectory: _runtimeCwd,
+      localRepositoryDir: _localRepositoryDir,
       dataDir: _dataDir,
       workflowOnly: _workflowOnly,
     );

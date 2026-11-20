@@ -46,6 +46,9 @@ The `_local` project:
 - Uses local merge semantics (squash-merge into the base ref) -- no remote push
 - Is the task/workflow **default project** when no external projects exist
 - Requires a `.git/` directory and a local base ref
+- Does not exist when `dartclaw serve` starts in or inside its data directory, as under
+  `dartclaw service install`: DartClaw then works in the workspace directory, which agents can write and is never a
+  project repository, so worktree tasks and workflows need a registered project
 
 When you register external projects, `_local` remains available for task/workflow project selection but is not offered as
 an owner chat destination. The first external project (or whichever is marked `default: true`) becomes the task/workflow
@@ -351,9 +354,9 @@ In containerized mode, a task container (the default `workspace` profile) gets t
 | Mount | Source | Access | Purpose |
 |-------|--------|--------|---------|
 | `/workspace` | `<data_dir>/workspace/` | Read-write | Behavior files, and task worktrees under `.dartclaw/worktrees/` |
-| `/project` | The directory `dartclaw serve` was started in (the `_local` repository) | Read-only | `_local` checkout |
+| `/project` | The directory `dartclaw serve` was started in (the `_local` repository; not mounted when `serve` starts in its data directory) | Read-only | `_local` checkout |
 | `/projects` | `<data_dir>/projects/` | Read-only | All cloned projects |
-| `/projects/<id>` | A config-defined `localPath` project outside `<data_dir>/projects/` | Read-only | Local-path project checkout |
+| `/projects/<id>` | A config-defined `localPath` project outside `<data_dir>/projects/` (one inside `<data_dir>/workspace/` or an agent workspace is skipped at config load with a warning) | Read-only | Local-path project checkout |
 
 There is no per-task file scoping inside those mounts: a task targeting `my-app` can read the `docs-site` clone. A task
 without a worktree that targets a cloned project runs in its read-only `/projects/<id>` view, so declare

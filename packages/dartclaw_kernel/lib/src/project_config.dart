@@ -6,7 +6,10 @@ import 'project_runtime.dart' show CloneStrategy, PrConfig, PrStrategy;
 
 import 'package:path/path.dart' as p;
 
+import 'agent_definition.dart' show AgentWorkspace;
 import 'config_load_warnings.dart';
+import 'dartclaw_config.dart' show DartclawConfig;
+import 'path_canonicalization.dart';
 
 /// Validation result for a configured or API-supplied local project path.
 class LocalProjectPathValidation {
@@ -113,6 +116,22 @@ LocalProjectPathValidation validateProjectLocalPath(
     pathExists: pathExists,
     gitRepository: gitRepository,
   );
+}
+
+/// Whether [path] is at or inside a workspace agents can write under
+/// [dataDir]: the owner workspace or any named agent's managed workspace,
+/// symlinks resolved where they exist.
+///
+/// Such a workspace is never a project repository: agents write it, `.git/`
+/// included, so host Git there would run their config and hooks. Config load,
+/// project registration and the `projects.json` loader all refuse a `localPath`
+/// this accepts.
+bool isWithinAgentWorkspace(String path, {required String dataDir}) {
+  final candidate = canonicalizePathWithExistingAncestors(path);
+  final owner = canonicalizePathWithExistingAncestors(DartclawConfig.workspaceDirFor(dataDir));
+  return p.equals(owner, candidate) ||
+      p.isWithin(owner, candidate) ||
+      AgentWorkspace.isWithinAnyManagedWorkspace(candidate, dataDir: dataDir);
 }
 
 bool _looksLikeGitRepository(String path) {
@@ -241,8 +260,14 @@ class ProjectConfig {
 /// Parses the `projects:` YAML section into a [ProjectConfig].
 ///
 /// Returns [ProjectConfig.defaults] if the section is absent or null.
-/// Invalid entries are warned and skipped rather than throwing.
-ProjectConfig parseProjectConfig(Map<String, dynamic>? projectsMap, List<String> warns, {String? base}) {
+/// Invalid entries are warned and skipped rather than throwing, including a
+/// `localPath` inside a workspace agents can write ([isWithinAgentWorkspace]).
+ProjectConfig parseProjectConfig(
+  Map<String, dynamic>? projectsMap,
+  List<String> warns, {
+  String? base,
+  String? dataDir,
+}) {
   if (projectsMap == null || projectsMap.isEmpty) return const ProjectConfig.defaults();
 
   final definitions = <String, ProjectDefinition>{};
@@ -335,6 +360,13 @@ ProjectConfig parseProjectConfig(Map<String, dynamic>? projectsMap, List<String>
         continue;
       }
       localPath = validation.normalizedPath;
+      if (dataDir != null && isWithinAgentWorkspace(localPath, dataDir: dataDir)) {
+        warns.add(
+          'projects.$id: localPath "$localPath" is inside an agent-writable workspace (the owner workspace or a '
+          'named agent\'s), which is never a project repository — skipping',
+        );
+        continue;
+      }
       if (!validation.pathExists) {
         addConfigAdvisory(warns, 'projects.$id: localPath "$localPath" does not exist at config-load time — accepting');
       } else if (!validation.gitRepository) {

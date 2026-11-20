@@ -9,6 +9,8 @@ import 'package:dartclaw_workflow/testing.dart' show FakeProviderAuthPreflight;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
+import 'headless_runtime_test_support.dart' show armAgentWritableRepository, expectAgentTrapsLive;
+
 void _git(String workingDirectory, List<String> args) {
   final result = Process.runSync('git', args, workingDirectory: workingDirectory);
   if (result.exitCode != 0) throw StateError('git ${args.join(' ')} failed: ${result.stderr}');
@@ -28,6 +30,7 @@ DartclawConfig _config(
   String dataDir, {
   GatewayConfig gateway = const GatewayConfig(authMode: 'none'),
   TurnLimitsConfig turnLimits = const TurnLimitsConfig.defaults(),
+  TaskConfig tasks = const TaskConfig.defaults(),
 }) => DartclawConfig(
   agent: const AgentConfig(provider: 'claude'),
   credentials: const CredentialsConfig(entries: {'anthropic': CredentialEntry(apiKey: 'anthropic-key')}),
@@ -36,6 +39,7 @@ DartclawConfig _config(
   governance: GovernanceConfig(turnLimits: turnLimits),
   scheduling: const SchedulingConfig(heartbeatEnabled: true),
   server: ServerConfig(dataDir: dataDir, claudeExecutable: Platform.resolvedExecutable),
+  tasks: tasks,
 );
 
 /// The composition-root contract a caller outside the CLI app depends on:
@@ -68,17 +72,21 @@ void main() {
     GatewayConfig gateway = const GatewayConfig(authMode: 'none'),
     TurnLimitsConfig turnLimits = const TurnLimitsConfig.defaults(),
     List<DatabaseBackend>? openedBackends,
+    TaskRepository Function(DatabaseBackend)? taskRepositoryFactory,
+    AgentHarness? harness,
+    TaskConfig tasks = const TaskConfig.defaults(),
   }) => DartclawRuntime.build(
-    _config(tempDir.path, gateway: gateway, turnLimits: turnLimits),
+    _config(tempDir.path, gateway: gateway, turnLimits: turnLimits, tasks: tasks),
     dataDir: tempDir.path,
     port: 3000,
-    harnessFactory: _harnessFactoryFor(FakeAgentHarness()),
+    harnessFactory: _harnessFactoryFor(harness ?? FakeAgentHarness()),
     taskBackendFactory: (_) async {
       final backend = await openPreparedTaskBackend();
       openedBackends?.add(backend);
       return backend;
     },
     taskBackendIsPrepared: true,
+    taskRepositoryFactory: taskRepositoryFactory,
     stderrLine: (_) {},
     exitFn: _unexpectedExit,
     resolvedConfigPath: configFile.path,
@@ -256,6 +264,185 @@ void main() {
 
     final branches = Process.runSync('git', ['branch', '--list'], workingDirectory: repoDir.path).stdout as String;
     expect(branches, contains('dartclaw/workflow/embedderrun'), reason: 'an embedder build must delete no branch');
+  });
+
+  group('a runtime started from its data directory', () {
+    // The `dartclaw service install` layout: `serve` starts in the data directory,
+    // whose workspace every workspace container mounts read-write, `.git/` included.
+    late String workspace;
+    late String marker;
+    late DartclawRuntime runtime;
+    late FakeAgentHarness harness;
+
+    setUp(() async {
+      workspace = p.join(tempDir.path, 'workspace');
+      marker = p.join(tempDir.path, 'agent-command-ran');
+      armAgentWritableRepository(workspace, marker);
+      harness = FakeAgentHarness();
+      runtime = await build(
+        runtimeCwd: tempDir.path,
+        taskRepositoryFactory: (_) => InMemoryTaskRepository(),
+        harness: harness,
+      );
+      addTearDown(runtime.shutdown);
+      runtime.taskExecutor!.stopPolling();
+    });
+
+    Future<Task?> runUntil(Task task, bool Function(TaskStatus status) settledWhen) async {
+      await runtime.taskExecutor!.pollOnce();
+      final deadline = DateTime.now().add(const Duration(seconds: 5));
+      Task? current;
+      while (DateTime.now().isBefore(deadline)) {
+        current = await runtime.taskService.get(task.id);
+        if (current != null && settledWhen(current.status)) break;
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+      return current;
+    }
+
+    void expectRefusedBeforeGit(Task? settled) {
+      expect(File(marker).existsSync(), isFalse, reason: 'host Git ran a command the agent wrote into the workspace');
+      expect(settled?.status, TaskStatus.failed);
+      expect(settled?.retryCount, 0, reason: 'no retry can find a local repository');
+      expect(settled?.worktreeJson, isNull);
+      expect(
+        settled?.configJson['errorSummary'],
+        allOf(contains('no local repository'), contains('registered project')),
+      );
+      expectAgentTrapsLive(workspace, marker);
+    }
+
+    test('refuses a no-project worktree task before host Git runs', () async {
+      final task = await runtime.taskService.create(
+        id: 'no-project-worktree',
+        title: 'No-project worktree task',
+        description: 'Must fail at worktree setup.',
+        autoStart: true,
+        provider: 'claude',
+        maxRetries: 2,
+        configJson: const {'needsWorktree': true},
+      );
+
+      expectRefusedBeforeGit(await runUntil(task, (status) => status == TaskStatus.failed));
+    });
+
+    test('refuses a task naming _local before host Git runs', () async {
+      final task = await runtime.taskService.create(
+        id: 'explicit-local',
+        title: 'Explicit _local task',
+        description: 'Must fail at project resolution.',
+        autoStart: true,
+        provider: 'claude',
+        projectId: '_local',
+        maxRetries: 2,
+        configJson: const {'readOnly': true},
+      );
+
+      expectRefusedBeforeGit(await runUntil(task, (status) => status == TaskStatus.failed));
+    });
+
+    for (final withRegisteredProject in [false, true]) {
+      final label = withRegisteredProject ? ' beside a registered default project' : '';
+      test('runs a read-only no-project task without a Git baseline in the workspace$label', () async {
+        if (withRegisteredProject) {
+          // The default project a task without a projectId resolves; it still runs in the runtime directory.
+          final repository = Directory.systemTemp.createTempSync('dartclaw_registered_project_');
+          addTearDown(() => repository.deleteSync(recursive: true));
+          Process.runSync('git', ['init', '-q', '-b', 'main'], workingDirectory: repository.path);
+          await runtime.projectService.create(name: 'registered', localPath: repository.path);
+          expect((await runtime.projectService.defaultProject)?.id, 'registered');
+        }
+        final task = await runtime.taskService.create(
+          id: 'read-only-no-project',
+          title: 'Read-only task',
+          description: 'Looks around the workspace.',
+          autoStart: true,
+          provider: 'claude',
+          configJson: const {'readOnly': true},
+        );
+
+        await runtime.taskExecutor!.pollOnce();
+        // The baseline is taken before the turn, so a started turn means it was decided.
+        await harness.turnInvoked.timeout(const Duration(seconds: 5));
+
+        expect(File(marker).existsSync(), isFalse, reason: 'the read-only baseline ran host Git in the workspace');
+        expect((await runtime.taskService.get(task.id))?.status, TaskStatus.running);
+        harness.completeSuccess();
+        expectAgentTrapsLive(workspace, marker);
+      });
+    }
+  });
+
+  test('a no-project worktree task beside a registered default project diffs and accepts into that project', () async {
+    // The `dartclaw service install` layout: no local repository, so the default
+    // project is the registered one, and every step after the worktree must use it.
+    final workspace = p.join(tempDir.path, 'workspace');
+    final marker = p.join(tempDir.path, 'agent-command-ran');
+    armAgentWritableRepository(workspace, marker);
+    final repository = Directory.systemTemp.createTempSync('dartclaw_registered_project_');
+    addTearDown(() => repository.deleteSync(recursive: true));
+    _git(repository.path, ['init', '-b', 'main']);
+    _git(repository.path, ['config', 'user.name', 'Test User']);
+    _git(repository.path, ['config', 'user.email', 'test@example.com']);
+    File(p.join(repository.path, 'README.md')).writeAsStringSync('hello\n');
+    _git(repository.path, ['add', 'README.md']);
+    _git(repository.path, ['commit', '-m', 'initial']);
+    // Accepting a project-backed task pushes its branch to the project's remote.
+    final origin = Directory.systemTemp.createTempSync('dartclaw_registered_origin_');
+    addTearDown(() => origin.deleteSync(recursive: true));
+    _git(origin.path, ['init', '--bare', '-b', 'main']);
+    _git(repository.path, ['remote', 'add', 'origin', origin.path]);
+    _git(repository.path, ['push', '-q', 'origin', 'main']);
+    final harness = FakeAgentHarness();
+    final runtime = await build(
+      runtimeCwd: tempDir.path,
+      taskRepositoryFactory: (_) => InMemoryTaskRepository(),
+      harness: harness,
+      tasks: const TaskConfig(completionAction: 'accept'),
+    );
+    addTearDown(runtime.shutdown);
+    runtime.taskExecutor!.stopPolling();
+    await runtime.projectService.create(name: 'registered', localPath: repository.path);
+    expect(runtime.localRepositoryDir, isNull);
+    expect((await runtime.projectService.defaultProject)?.id, 'registered');
+
+    final task = await runtime.taskService.create(
+      id: 'default-project-worktree',
+      title: 'Default-project worktree task',
+      description: 'Adds a file.',
+      autoStart: true,
+      provider: 'claude',
+      configJson: const {'needsWorktree': true},
+    );
+    await runtime.taskExecutor!.pollOnce();
+    await harness.turnInvoked.timeout(const Duration(seconds: 5));
+    final worktree = (await runtime.taskService.get(task.id))!.worktreeJson!;
+    final worktreePath = worktree['path'] as String;
+    final branch = Process.runSync('git', [
+      'rev-parse',
+      '--verify',
+      'refs/heads/${worktree['branch']}',
+    ], workingDirectory: repository.path);
+    expect(branch.exitCode, 0, reason: 'the worktree is created from the registered project');
+    File(p.join(worktreePath, 'agent.txt')).writeAsStringSync('from the agent\n');
+    harness.completeSuccess();
+
+    final deadline = DateTime.now().add(const Duration(seconds: 10));
+    Task? settled;
+    while (DateTime.now().isBefore(deadline)) {
+      settled = await runtime.taskService.get(task.id);
+      if (settled != null && (settled.status.terminal || settled.status == TaskStatus.accepted)) break;
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+    }
+
+    expect(settled?.status, TaskStatus.accepted, reason: '${settled?.configJson}');
+    final diff = (await runtime.taskService.listArtifacts(task.id)).where((a) => a.kind == ArtifactKind.diff);
+    expect(diff, hasLength(1), reason: 'the diff is collected against the registered project');
+    expect(File(diff.single.path).readAsStringSync(), contains('agent.txt'));
+    final pushed = Process.runSync('git', ['show', '${worktree['branch']}:agent.txt'], workingDirectory: origin.path);
+    expect(pushed.exitCode, 0, reason: "accept pushes the registered project's branch: ${pushed.stderr}");
+    expect(File(marker).existsSync(), isFalse, reason: 'host Git ran in the workspace');
+    expectAgentTrapsLive(workspace, marker);
   });
 
   test('a completion that fails leaves the staging owning teardown', () async {

@@ -339,7 +339,7 @@ void main() {
               containerEnabled: true,
               containerMountRoots: [repository.path],
               dataDir: dataDir,
-              ownedRoots: [p.join(dataDir, 'workspace'), p.join(dataDir, 'projects')],
+              ownedRoots: [p.join(dataDir, 'projects')],
             ),
           ).call,
         );
@@ -357,19 +357,66 @@ void main() {
         );
       });
 
-      test('accepts an API localPath inside a DartClaw-owned root in the data directory', () async {
-        final localPath = p.join(dataDir, 'workspace', 'checkout');
+      test('rejects an API localPath inside the workspace directory', () async {
+        expect(
+          await localPathClient.expectJsonErrorCode(
+            'POST',
+            '/api/projects',
+            json: {'name': 'Workspace App', 'localPath': p.join(dataDir, 'workspace', 'checkout')},
+            status: 400,
+          ),
+          'LOCAL_PATH_NOT_MOUNTABLE',
+        );
+      });
+
+      test('accepts an API localPath inside the projects clone directory', () async {
+        final localPath = p.join(dataDir, 'projects', 'checkout');
 
         final body = await localPathClient.expectJsonObject(
           'POST',
           '/api/projects',
-          json: {'name': 'Workspace App', 'localPath': localPath},
+          json: {'name': 'Clone Dir App', 'localPath': localPath},
           status: 201,
         );
 
         expect(body['localPath'], localPath);
       });
     });
+
+    for (final (label, segments) in [
+      ('the workspace directory', ['workspace']),
+      ('a named agent workspace', ['agents', 'researcher', 'workspace', 'checkout']),
+    ]) {
+      test('rejects an API localPath inside $label without container isolation', () async {
+        final dataDir = Directory.systemTemp.createTempSync('project_routes_workspace_rule_').path;
+        addTearDown(() => Directory(dataDir).deleteSync(recursive: true));
+        final client = ApiRouteTestClient(
+          projectRoutes(
+            projects,
+            mutations: ProjectMutationService(
+              projects: projects,
+              projectConfig: ProjectConfig(allowApiLocalPath: true, localPathAllowlist: [dataDir]),
+              dataDir: dataDir,
+              ownedRoots: [p.join(dataDir, 'projects')],
+            ),
+          ).call,
+        );
+
+        final body = await client.expectJsonObject(
+          'POST',
+          '/api/projects',
+          json: {
+            'name': 'Workspace App',
+            'localPath': p.joinAll([dataDir, ...segments]),
+          },
+          status: 400,
+        );
+        final error = body['error'] as Map<String, dynamic>;
+
+        expect(error['code'], 'INVALID_LOCAL_PATH');
+        expect((error['details'] as Map<String, dynamic>)['reason'], 'inside-workspace');
+      });
+    }
 
     test('duplicate ID returns 409', () async {
       projects.seed(makeProject(id: 'my-app'));

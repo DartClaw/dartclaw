@@ -775,7 +775,9 @@ const Map<String, FieldMeta> _agentFields = {
         'localPath': EntryFieldMeta(
           type: ConfigFieldType.string,
           description:
-              'Existing checkout used directly. Must be absolute, free of traversal, and inside the allowlist.',
+              'Existing checkout used directly. Must be absolute, free of traversal, inside the allowlist, and outside '
+              '`<data_dir>/workspace/` and every `<data_dir>/agents/<id>/workspace/`, which agents can write (a path '
+              'there is skipped with a warning).',
           nullable: true,
         ),
         'branch': EntryFieldMeta(

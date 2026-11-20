@@ -120,7 +120,7 @@ esac
       final security = ContainerCapableSecurityWiring(
         config: securityConfig,
         dataDir: tempDir.path,
-        runtimeCwd: tempDir.path,
+        localRepositoryDir: tempDir.path,
         eventBus: eventBus,
         exitFn: _unexpectedExit,
         auditLogger: GuardAuditLogger(dataDir: tempDir.path),

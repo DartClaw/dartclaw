@@ -132,6 +132,7 @@ final class ScenarioTaskHarness {
       ),
       runners: TaskExecutorRunners(turns: turns),
       currentDirectory: tempDir.path,
+      localRepositoryDir: tempDir.path,
       onAutoAccept: onAutoAccept,
       pollInterval: pollInterval,
     );

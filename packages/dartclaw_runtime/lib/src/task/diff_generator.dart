@@ -120,15 +120,21 @@ class DiffResult {
 }
 
 /// Generates structured diff data by running git commands.
+///
+/// A null constructor `projectDir` is a runtime with no local repository: a
+/// call that names no `projectDir` of its own then throws
+/// [NoLocalRepositoryException] before any Git runs.
 class DiffGenerator {
   static final _log = Logger('DiffGenerator');
 
-  final String _projectDir;
+  final String? _projectDir;
   final GitRunner _runGit;
 
-  new({required String projectDir, GitRunner? processRunner})
+  new({required String? projectDir, GitRunner? processRunner})
     : _projectDir = projectDir,
       _runGit = processRunner ?? runGit;
+
+  String _repositoryFor(String? projectDir) => projectDir ?? _projectDir ?? (throw const NoLocalRepositoryException());
 
   /// Runs [arguments] in [projectDir], or in [worktreePath] of that project
   /// through the host-worktree authority.
@@ -173,7 +179,7 @@ class DiffGenerator {
     String? projectDir,
     String? worktreePath,
   }) async {
-    final repository = projectDir ?? _projectDir;
+    final repository = _repositoryFor(projectDir);
     final checkout = worktreePath ?? repository;
 
     final filesByPath = <String, DiffFileEntry>{};
@@ -242,7 +248,7 @@ class DiffGenerator {
     String? worktreePath,
     bool fromMergeBase = true,
   }) async {
-    final repository = projectDir ?? _projectDir;
+    final repository = _repositoryFor(projectDir);
     final changes = <DiffFileChange>[];
     for (final revisionRange in [
       fromMergeBase ? '$baseRef...$branch' : '$baseRef..$branch',

@@ -72,32 +72,39 @@ class PreMergeInvariantException extends WorktreeException implements Exception 
 /// Stashes uncommitted changes before merge and restores them after.
 ///
 /// It merges in [worktreePath] when given, a checkout of [projectDir]'s
-/// repository, else in [projectDir] itself.
+/// repository, else in [projectDir] itself. A null [projectDir] is a runtime
+/// with no local repository: [merge] then throws [NoLocalRepositoryException]
+/// before any Git runs.
 class MergeExecutor {
   static final _log = Logger('MergeExecutor');
 
-  final String _projectDir;
-  final String _worktreePath;
+  final String? _repositoryDir;
+  final String? _checkoutDir;
   final MergeStrategy _defaultStrategy;
   final WorkflowGitPort _gitPort;
 
   new({
-    required String projectDir,
+    required String? projectDir,
     String? worktreePath,
     MergeStrategy defaultStrategy = MergeStrategy.squash,
     WorkflowGitPort? gitPort,
-  }) : _projectDir = projectDir,
-       _worktreePath = worktreePath ?? projectDir,
+  }) : _repositoryDir = projectDir,
+       _checkoutDir = worktreePath,
        _defaultStrategy = defaultStrategy,
        _gitPort = gitPort ?? WorkflowGitPortProcess();
 
-  /// The repository this executor merges into.
-  String get projectDir => _projectDir;
+  /// The repository this executor merges into, or `null` when the runtime has
+  /// no local repository.
+  String? get projectDir => _repositoryDir;
+
+  String get _projectDir => _repositoryDir ?? (throw const NoLocalRepositoryException());
+  String get _worktreePath => _checkoutDir ?? _projectDir;
 
   /// Merges [branch] onto [baseRef] using the configured strategy.
   ///
   /// On conflict, aborts the merge and returns [MergeConflict].
   /// Always restores the original branch and stashed changes.
+  /// Throws [NoLocalRepositoryException] when this executor has no repository.
   Future<MergeResult> merge({
     required String branch,
     required String baseRef,

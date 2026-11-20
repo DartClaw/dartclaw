@@ -618,7 +618,7 @@ class DartclawServer {
       containerEnabled: _core.config?.container.enabled ?? false,
       containerMountRoots: _projectRouteContainerMountRoots(projects),
       dataDir: _core.dataDir,
-      ownedRoots: [?_core.config?.workspaceDir, ?_core.config?.projectsClonesDir],
+      ownedRoots: [?_core.config?.projectsClonesDir],
       tasks: _tasks.taskService,
       worktreeManager: _tasks.worktreeManager,
       taskFileGuard: _tasks.taskFileGuard,
@@ -637,13 +637,14 @@ class DartclawServer {
   }
 
   List<String> _projectRouteContainerMountRoots(ProjectService projects) {
-    final runtimeRoot = p.normalize(p.absolute(projects.localProject.localPath));
+    // `_local` is the runtime's local repository, the one SecurityWiring mounts at `/project`.
+    final localRepository = projects.localProject?.localPath;
+    final localRoot = localRepository == null ? null : p.normalize(p.absolute(localRepository));
     final config = _core.config;
-    if (config == null) return [runtimeRoot];
+    if (config == null) return [?localRoot];
 
     final roots = <String>{
-      runtimeRoot,
-      if (config.workspaceDir.trim().isNotEmpty) p.normalize(p.absolute(config.workspaceDir)),
+      ?localRoot,
       if (config.projectsClonesDir.trim().isNotEmpty) p.normalize(p.absolute(config.projectsClonesDir)),
       ..._configuredLocalPathRoots(config),
     };

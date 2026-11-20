@@ -833,6 +833,81 @@ void main() {
       expect(mountRoots, isNot(contains(Directory.current.resolveSymbolicLinksSync())));
     });
 
+    test('container-mode local-path registration refuses the workspace in either data-directory layout', () async {
+      for (final nested in [false, true]) {
+        final layout = nested ? 'nested' : 'standalone';
+        final runtimeRoot = Directory(p.join(tempDir.path, 'workspace-rule-$layout', 'runtime-repo'))
+          ..createSync(recursive: true);
+        final dataDir = Directory(
+          nested
+              ? p.join(runtimeRoot.path, '.dartclaw-example')
+              : p.join(tempDir.path, 'workspace-rule-$layout', 'state'),
+        )..createSync(recursive: true);
+        final containerServer = composeServer(
+          core: ServerCoreDeps(
+            sessions: sessions,
+            messages: messages,
+            worker: worker,
+            dataDir: dataDir.path,
+            staticDir: _staticDirPath,
+            gatewayToken: 'test-token',
+            tokenService: TokenService(token: 'test-token'),
+            config: DartclawConfig(
+              server: ServerConfig(dataDir: dataDir.path),
+              container: const ContainerConfig(enabled: true, image: 'dartclaw-agent:test'),
+              projects: const ProjectConfig(allowApiLocalPath: true),
+            ),
+          ),
+          turn: ServerTurnDeps(
+            turns: composeServerTurns(
+              sessions: sessions,
+              messages: messages,
+              worker: worker,
+              behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'),
+              eventBus: eventBus,
+            ),
+          ),
+          tasks: ServerTaskDeps(
+            taskService: taskService,
+            worktreeManager: worktreeManager,
+            taskFileGuard: taskFileGuard,
+            runnerObserver: runnerObserver,
+            mergeExecutor: mergeExecutor,
+            projectService: FakeProjectService(
+              localProject: Project(
+                id: '_local',
+                name: 'runtime-repo',
+                remoteUrl: '',
+                localPath: runtimeRoot.path,
+                defaultBranch: 'main',
+                status: ProjectStatus.ready,
+                createdAt: DateTime.utc(2026, 11, 20),
+              ),
+            ),
+            eventBus: eventBus,
+          ),
+          observability: ServerObservabilityDeps(eventBus: eventBus),
+        );
+        Future<Response> register(String localPath, String name) async => containerServer.handler(
+          Request(
+            'POST',
+            Uri.parse('http://localhost/api/projects'),
+            body: jsonEncode({'name': name, 'localPath': localPath}),
+            headers: {'content-type': 'application/json', 'authorization': 'Bearer test-token'},
+          ),
+        );
+
+        final inWorkspace = await register(p.join(dataDir.path, 'workspace', 'checkout'), 'Workspace $layout');
+        expect(inWorkspace.statusCode, 400, reason: layout);
+        final error =
+            (jsonDecode(await inWorkspace.readAsString()) as Map<String, dynamic>)['error'] as Map<String, dynamic>;
+        expect(error['code'], 'LOCAL_PATH_NOT_MOUNTABLE', reason: layout);
+
+        final inClones = await register(p.join(dataDir.path, 'projects', 'checkout'), 'Clones $layout');
+        expect(inClones.statusCode, 201, reason: layout);
+      }
+    });
+
     test('task artifact usage reads the core dataDir instead of config.server.dataDir', () async {
       final create = await server.handler(
         Request(

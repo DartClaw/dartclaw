@@ -45,6 +45,7 @@ class TaskExecutor {
     Future<void> Function(String taskId)? onAutoAccept,
     String? workspaceRoot,
     required String currentDirectory,
+    required String? localRepositoryDir,
     String? dataDir,
     bool workflowOnly = false,
     this.pollInterval = const Duration(seconds: 2),
@@ -64,6 +65,7 @@ class TaskExecutor {
        _projectService = services.projectService,
        _workspaceRoot = workspaceRoot,
        _currentDirectory = currentDirectory,
+       _localRepositoryDir = localRepositoryDir,
        _maxMemoryBytes = limits.maxMemoryBytes,
        _compactInstructions = limits.compactInstructions,
        _identifierPreservation = limits.identifierPreservation,
@@ -96,6 +98,10 @@ class TaskExecutor {
   final ProjectService? _projectService;
   final String? _workspaceRoot;
   final String _currentDirectory;
+
+  /// The runtime's local repository, `null` when it has none: [_currentDirectory]
+  /// is then the agent-writable workspace, where host Git must not run.
+  final String? _localRepositoryDir;
   final int? _maxMemoryBytes;
   final String? _compactInstructions;
   final IdentifierPreservationMode _identifierPreservation;
@@ -214,7 +220,8 @@ class TaskExecutor {
 
   Future<void> _failForProject(Task task, String projectId) => _failureHandler.markFailedOrRetry(
     task,
-    errorSummary: 'Project "$projectId" not found',
+    // `_local` is absent only when the runtime has no local repository.
+    errorSummary: projectId == '_local' ? const NoLocalRepositoryException().message : 'Project "$projectId" not found',
     kind: TaskFailureReason.projectSetup,
     retryable: false,
   );
@@ -541,6 +548,7 @@ class TaskExecutor {
       }
 
       if (_taskNeedsWorktree(task) && _worktreeManager != null && !usesInlineWorkflowCheckout) {
+        String? defaultedProjectId;
         final workflowWorktreeKey = await _worktreeBinder.workflowOwnedWorktreeKey(task);
         final workflowWorktreeTaskId = await _worktreeBinder.workflowOwnedWorktreeTaskId(task);
         final requiresStoryBranch = await _worktreeBinder.workflowMapIterationOwnsBranch(task);
@@ -562,15 +570,19 @@ class TaskExecutor {
             baseRef: _taskBaseRef(task),
             existingWorktreeJson: task.worktreeJson,
           );
+          // The default project this worktree came from becomes the task's
+          // project, so diff, accept, merge and cleanup resolve the same one.
+          if (worktreeProject != null && taskProjectId(task) == null) defaultedProjectId = worktreeProject.id;
         }
         _taskFileGuard?.register(task.id, worktreeInfo.path);
         task = (await _tasks.updateFields(
           task.id,
           worktreeJson: worktreeInfo.toJson(),
+          projectId: defaultedProjectId,
         )).copyWith(workflowStepExecution: task.workflowStepExecution);
       }
 
-      final executionDirectory = taskExecutionDirectory(
+      final (path: executionDirectory, site: executionSite) = taskExecutionDirectory(
         task,
         standaloneDirectory: _currentDirectory,
         worktreePath: worktreeInfo?.path,
@@ -591,13 +603,14 @@ class TaskExecutor {
         }
       }
 
-      final readOnlyProjectDir = worktreeInfo != null && executionDirectory == worktreeInfo.path
+      final readOnlyProjectDir = executionSite == TaskExecutionSite.worktree
           ? _worktreeManager?.projectDirFor(project != null && project.id != '_local' ? project : null)
           : null;
       readOnlyProjectStatusBeforeTurn = await _captureReadOnlyProjectStatus(
         task,
         executionDirectory,
         projectDir: readOnlyProjectDir,
+        site: executionSite,
       );
 
       final sessionId = task.sessionId;
@@ -942,8 +955,9 @@ class TaskExecutor {
         task,
         errorSummary: _failureHandler.sanitizeErrorSummary(error.toString()),
         kind: TaskExecutionFailure(error),
-        // A retry would hand the agent another turn in the worktree it tampered with.
-        retryable: error is! TamperedWorktreeException,
+        // A retry would hand the agent another turn in the worktree it tampered
+        // with, or look again for a local repository this runtime cannot gain.
+        retryable: error is! TamperedWorktreeException && error is! NoLocalRepositoryException,
       );
       return;
     }

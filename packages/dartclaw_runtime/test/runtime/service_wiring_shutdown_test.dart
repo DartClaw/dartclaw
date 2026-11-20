@@ -102,6 +102,7 @@ DartclawRuntime _runtime({
     messageService: _Messages(),
     workflowStepExecutionRepository: _StepExecutions(),
     worktreeManager: _Worktrees(),
+    localRepositoryDir: null,
     taskExecutor: null,
     workflowRegistry: _Workflows(),
     workflowService: _WorkflowRuns(),

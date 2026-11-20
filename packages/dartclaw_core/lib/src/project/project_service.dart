@@ -94,13 +94,17 @@ abstract class ProjectService {
   /// 1. First config-defined project with `default: true`
   /// 2. First registered external project (config-defined or runtime)
   /// 3. Implicit `_local` project as fallback
-  Future<Project> get defaultProject;
-
-  /// Returns the implicit `_local` project.
   ///
-  /// The `_local` project represents the runtime's working directory. It is always
-  /// [ProjectStatus.ready] and is never persisted to `projects.json`.
-  Project get localProject;
+  /// `null` when there is none of these: no registered project and no `_local`.
+  Future<Project?> get defaultProject;
+
+  /// Returns the implicit `_local` project, or `null` when the runtime has no
+  /// local repository.
+  ///
+  /// The `_local` project represents the runtime's local repository. It is always
+  /// [ProjectStatus.ready] and is never persisted to `projects.json`. When it is
+  /// `null`, [get] answers `null` for `_local` and [getAll] omits it.
+  Project? get localProject;
 
   /// Initializes the service: loads `projects.json`, reconciles with config,
   /// recovers stale cloning states.

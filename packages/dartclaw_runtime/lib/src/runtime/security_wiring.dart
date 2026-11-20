@@ -33,7 +33,7 @@ class SecurityWiring implements Reconfigurable {
   new({
     required this.config,
     required String dataDir,
-    required String runtimeCwd,
+    required String? localRepositoryDir,
     String? sourceCheckoutDir,
     required EventBus eventBus,
     required ExitFn exitFn,
@@ -46,7 +46,7 @@ class SecurityWiring implements Reconfigurable {
     CodexRefreshAuthority? codexRefresh,
     required GuardAuditLogger auditLogger,
   }) : _dataDir = dataDir,
-       _runtimeCwd = runtimeCwd,
+       _localRepositoryDir = localRepositoryDir,
        _sourceCheckoutDir = sourceCheckoutDir ?? Directory.current.path,
        _auditLogger = auditLogger,
        _codexRefresh = codexRefresh,
@@ -62,9 +62,9 @@ class SecurityWiring implements Reconfigurable {
   final DartclawConfig config;
   final String _dataDir;
 
-  /// The repository the runtime operates on, mounted at `/project` unless it is
-  /// the workspace (already at `/workspace`) or lies inside the data directory.
-  final String _runtimeCwd;
+  /// The runtime's local repository, mounted at `/project` unless it lies
+  /// inside the data directory; `null` when the runtime has none, so nothing is.
+  final String? _localRepositoryDir;
 
   /// DartClaw's own checkout, which holds the container image build context and `build/bridge`.
   /// This is not the repository the runtime operates on.
@@ -754,15 +754,10 @@ class SecurityWiring implements Reconfigurable {
     );
   }
 
-  // A runtime directory at or inside the data directory resolves to the
-  // workspace, which the owner set already mounts read-write at `/workspace`.
-  late final List<String> _ownerProjectMounts =
-      p.equals(
-        canonicalizePathWithExistingAncestors(_runtimeCwd),
-        canonicalizePathWithExistingAncestors(config.workspaceDir),
-      )
-      ? const []
-      : _operatorMount(_runtimeCwd, '/project');
+  late final List<String> _ownerProjectMounts = switch (_localRepositoryDir) {
+    final repository? => _operatorMount(repository, '/project'),
+    null => const [],
+  };
   late final List<String> _localPathProjectMounts = _composeLocalPathProjectMounts();
 
   /// Maps an operator-chosen directory into the container without exposing the

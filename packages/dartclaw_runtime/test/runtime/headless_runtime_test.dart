@@ -20,6 +20,8 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         OutputFormat,
         WorkflowDefinition,
         WorkflowGitStrategy,
+        WorkflowGitWorktreeMode,
+        WorkflowGitWorktreeStrategy,
         WorkflowStep,
         WorkflowVariable,
         WorkflowRun,
@@ -819,7 +821,7 @@ steps:
         }, origin: WorkflowRunOrigin.unknown);
         expect(run.variablesJson['BRANCH'], 'runtime-feature');
         expect(Directory.current.path, isNot(runtimeCwd.path));
-        expect(runtime.projectService.localProject.localPath, runtimeCwd.path);
+        expect(runtime.projectService.localProject?.localPath, runtimeCwd.path);
       },
     );
   });
@@ -868,7 +870,8 @@ steps:
         config,
         runtimeCwd: tempDir.path,
         body: (runtime) async {
-          expect(runtime.projectService.localProject.localPath, config.workspaceDir);
+          expect(runtime.localRepositoryDir, isNull, reason: 'the workspace is never a project repository');
+          expect(runtime.projectService.localProject, isNull, reason: 'no local repository, so no _local project');
         },
       );
     });
@@ -881,7 +884,8 @@ steps:
         config,
         runtimeCwd: inside.path,
         body: (runtime) async {
-          expect(runtime.projectService.localProject.localPath, config.workspaceDir);
+          expect(runtime.localRepositoryDir, isNull, reason: 'the workspace is never a project repository');
+          expect(runtime.projectService.localProject, isNull, reason: 'no local repository, so no _local project');
         },
       );
     });
@@ -896,9 +900,66 @@ steps:
         nested.config(),
         runtimeCwd: repository.path,
         body: (runtime) async {
-          expect(runtime.projectService.localProject.localPath, repository.path);
+          expect(runtime.projectService.localProject?.localPath, repository.path);
+          expect(runtime.localRepositoryDir, repository.path);
         },
       );
+    });
+
+    test('a workflow that resolves no project refuses before host Git runs in the workspace', () async {
+      final config = fixture.config();
+      final marker = p.join(fixture.reposDir.path, 'agent-command-ran');
+      armAgentWritableRepository(config.workspaceDir, marker, branch: 'agent-branch');
+      final wired = await fixture.runtime(config, runtimeCwd: tempDir.path);
+
+      await expectLater(
+        () => wired.workflowService.start(
+          branchGuardDefinition(projectRequired: false),
+          const {},
+          origin: WorkflowRunOrigin.unknown,
+        ),
+        throwsA(
+          isA<StateError>().having((error) => error.message, 'message', contains('this runtime has no local one')),
+        ),
+      );
+      expect(await wired.taskService.list(), isEmpty);
+      expect(File(marker).existsSync(), isFalse);
+      expectAgentTrapsLive(config.workspaceDir, marker);
+    });
+
+    test('a workflow naming _local refuses before host Git runs in the workspace', () async {
+      final config = fixture.config();
+      final marker = p.join(fixture.reposDir.path, 'agent-command-ran');
+      armAgentWritableRepository(config.workspaceDir, marker, branch: 'agent-branch');
+      final wired = await fixture.runtime(config, runtimeCwd: tempDir.path);
+      // PROJECT without BRANCH, checked out inline: the shape whose start never asks for a project directory.
+      final definition = WorkflowDefinition(
+        name: 'inline-local',
+        description: 'Edits the project checkout in place',
+        variables: const {'PROJECT': WorkflowVariable(required: true, description: 'Target project')},
+        gitStrategy: const WorkflowGitStrategy(
+          worktree: WorkflowGitWorktreeStrategy(mode: WorkflowGitWorktreeMode.inline),
+        ),
+        steps: const [
+          WorkflowStep(id: 'edit', name: 'Edit', taskType: WorkflowTaskType.agent, prompts: ['Edit the file']),
+        ],
+      );
+
+      expect(await wired.projectService.get('_local'), isNull);
+      expect((await wired.projectService.getAll()).map((project) => project.id), isNot(contains('_local')));
+      await expectLater(
+        () => wired.workflowService.start(definition, const {'PROJECT': '_local'}, origin: WorkflowRunOrigin.unknown),
+        throwsA(
+          isA<ArgumentError>().having(
+            (error) => '${error.message}',
+            'message',
+            allOf(contains('no local repository'), contains('registered project')),
+          ),
+        ),
+      );
+      expect(await wired.taskService.list(), isEmpty);
+      expect(File(marker).existsSync(), isFalse);
+      expectAgentTrapsLive(config.workspaceDir, marker);
     });
   });
 
@@ -909,7 +970,7 @@ steps:
       fixture.config(),
       runtimeCwd: p.relative(runtimeCwd.path),
       body: (runtime) async {
-        expect(runtime.projectService.localProject.localPath, runtimeCwd.path);
+        expect(runtime.projectService.localProject?.localPath, runtimeCwd.path);
       },
     );
   });
@@ -1018,7 +1079,7 @@ steps:
   });
 
   test('tracked workflow git cleanup for named projects runs in the project checkout', () async {
-    final runtimeCwd = Directory(p.join(tempDir.path, 'runtime-cwd'))..createSync(recursive: true);
+    final runtimeCwd = Directory(p.join(fixture.reposDir.path, 'runtime-cwd'))..createSync(recursive: true);
     final projectDir = fixture.seedGitRepo('project-alpha', readme: '# project\n');
     final workspaceDir = Directory(p.join(tempDir.path, 'workspace'))..createSync(recursive: true);
 
@@ -1065,7 +1126,7 @@ steps:
   });
 
   test('tracked workflow git cleanup preserves non-terminal runs for resume', () async {
-    final runtimeCwd = Directory(p.join(tempDir.path, 'runtime-cwd'))..createSync(recursive: true);
+    final runtimeCwd = Directory(p.join(fixture.reposDir.path, 'runtime-cwd'))..createSync(recursive: true);
     final projectDir = fixture.seedGitRepo('project-alpha', readme: '# project\n');
     final workspaceDir = Directory(p.join(tempDir.path, 'workspace'))..createSync(recursive: true);
 

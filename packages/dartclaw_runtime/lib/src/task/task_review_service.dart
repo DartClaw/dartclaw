@@ -350,6 +350,8 @@ class TaskReviewService {
       return ReviewNotFound(taskId);
     } on VersionConflictException {
       return const ReviewActionFailed('Task was modified concurrently. Please refresh and try again.');
+    } on NoLocalRepositoryException catch (error) {
+      return ReviewActionFailed(error.message);
     } on TamperedWorktreeException catch (error) {
       _log.warning('Refusing to ${_displayAction(normalizedAction)} task $taskId: $error');
       return ReviewActionFailed(error.toString());

@@ -146,6 +146,7 @@ final class TaskExecutorTestHarness {
       onAutoAccept: onAutoAccept,
       pollInterval: pollInterval,
       currentDirectory: currentDirectory ?? workspaceDir,
+      localRepositoryDir: currentDirectory ?? workspaceDir,
     );
   }
 

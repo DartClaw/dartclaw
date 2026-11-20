@@ -311,13 +311,29 @@ extension _TaskExecutorHelpers on TaskExecutor {
 
   bool _isWorkflowOwnedLocalRef(String? ref) => ref != null && ref.startsWith('dartclaw/workflow/');
 
-  /// [projectDir] is set when [executionDirectory] is a task worktree of it.
+  /// [projectDir] is set when [executionDirectory] is a task worktree of it;
+  /// [site] is which kind of directory [executionDirectory] is.
   Future<GitStatusSnapshot?> _captureReadOnlyProjectStatus(
     Task task,
     String executionDirectory, {
     required String? projectDir,
+    required TaskExecutionSite site,
   }) async {
     if (!_isReadOnlyTask(task)) return null;
+    // An agent-writable workspace is never a project repository: agents can
+    // write its `.git/`, so host Git there would run their config and hooks.
+    // The runtime directory is that workspace when there is no local repository.
+    final agentWritable = switch (site) {
+      TaskExecutionSite.agentWorkspace => true,
+      TaskExecutionSite.runtimeDirectory => _localRepositoryDir == null,
+      TaskExecutionSite.worktree || TaskExecutionSite.project => false,
+    };
+    if (agentWritable) {
+      TaskExecutor._log.fine(
+        'Task ${task.id}: skipping read-only mutation baseline in agent-writable "$executionDirectory"',
+      );
+      return null;
+    }
     try {
       return await TaskReadOnlyGuard(
         worktreePath: executionDirectory,

@@ -99,7 +99,9 @@ final class ProjectMutationService {
 
   /// The data directory and the DartClaw-owned roots inside it, fed to
   /// [operatorMount] so a `localPath` the container mount masks or skips is
-  /// refused like one outside every mount root. No check without [dataDir].
+  /// refused like one outside every mount root. [dataDir] also locates the
+  /// agent-writable workspaces refused in every posture
+  /// ([isWithinAgentWorkspace]). Neither check runs without [dataDir].
   final String? dataDir;
   final List<String> ownedRoots;
   final TaskService? tasks;
@@ -195,12 +197,21 @@ final class ProjectMutationService {
             400,
             'LOCAL_PATH_NOT_MOUNTABLE',
             'Runtime localPath projects are not mountable in container mode unless the path is inside an existing mounted root '
-                'and, inside the data directory, only within a DartClaw-owned subdirectory',
+                'and outside the data directory, whose projects clone directory is the one exception',
             details: {
               'field': 'localPath',
               'localPath': normalizedLocalPath,
               'mountRoots': _normalizedRoots(containerMountRoots),
             },
+          );
+        }
+        final dataDir = this.dataDir;
+        if (dataDir != null && isWithinAgentWorkspace(normalizedLocalPath, dataDir: dataDir)) {
+          return _refused(
+            400,
+            'INVALID_LOCAL_PATH',
+            'localPath is inside a workspace agents can write, which is never a project repository',
+            details: {'field': 'localPath', 'reason': 'inside-workspace'},
           );
         }
       }

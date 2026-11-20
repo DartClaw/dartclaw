@@ -29,13 +29,14 @@ WorkflowTurnAdapter _buildWorkflowTurnAdapter(
   ///
   /// Answers only — the caller decides what an unresolvable id means, because
   /// the arms disagree: terminal cleanup skips it, promotion reports it, and
-  /// the rest refuse. A `null` here means either "no project id" (only the
-  /// zero-server lane, which falls back to its local repository) or "that id
-  /// names no project".
+  /// the rest refuse. A `null` here means either "no project id" (the
+  /// zero-server lane falls back to its local repository) or "that id names no
+  /// project", which is what `_local` is in a runtime with no local repository.
   Future<Project?> resolveProject(String? projectId) async {
     final trimmed = projectId?.trim();
     if (trimmed == null || trimmed.isEmpty) {
-      return localFallbackDir != null ? null : await projectService.defaultProject;
+      if (localFallbackDir != null) return null;
+      return projectService.defaultProject;
     }
     if (localFallbackDir != null && trimmed == _localProjectId) return null;
     return projectService.get(trimmed);
@@ -47,7 +48,11 @@ WorkflowTurnAdapter _buildWorkflowTurnAdapter(
     final trimmed = projectId?.trim();
     final resolved = await resolveProject(projectId);
     if (resolved != null) return resolved;
-    if (trimmed == null || trimmed.isEmpty || trimmed == _localProjectId) return null;
+    if (trimmed == null || trimmed.isEmpty) return null;
+    if (trimmed == _localProjectId) {
+      if (localFallbackDir != null) return null;
+      throw ArgumentError(const NoLocalRepositoryException().message);
+    }
     throw ArgumentError('Project "$trimmed" not found');
   }
 

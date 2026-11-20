@@ -245,7 +245,7 @@ class TasksPage extends DashboardPage {
             'value': project.id,
             'label': project.name,
             'status': project.status.name,
-            'isDefault': (project.id == defaultProject.id).toString(),
+            'isDefault': (project.id == defaultProject?.id).toString(),
           },
       ],
     );

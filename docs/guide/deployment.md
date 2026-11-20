@@ -198,7 +198,8 @@ context. Packaged installs need no source path because their assets are embedded
 
 The agent runs as your user — no `sudo` or dedicated OS user needed. `WorkingDirectory` pins the process cwd to the
 instance directory; without it launchd starts the agent at `/`, which DartClaw would treat as its local project root and
-walk on every start, triggering macOS privacy prompts for `~/Downloads` and mounted volumes. Installation snapshots the absolute entries from
+walk on every start, triggering macOS privacy prompts for `~/Downloads` and mounted volumes. Started from its instance
+directory, the service has no local repository: register a project for worktree tasks and workflows ([Projects & Git](projects-and-git.md)). Installation snapshots the absolute entries from
 the current shell's `PATH` into the plist, so provider CLIs and channel sidecars resolve the same way during verification
 and service startup. If that PATH changes, run `dartclaw service install` again to refresh the loaded definition. To have
 it start at login, set `RunAtLoad` to `true` in the plist.

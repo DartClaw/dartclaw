@@ -493,7 +493,7 @@ class StorageWiring {
       }
     }
 
-    final managedRoot = Directory(p.join(config.server.dataDir, 'agents'));
+    final managedRoot = Directory(AgentWorkspace.managedRootFor(config.server.dataDir));
     if (managedRoot.existsSync() &&
         FileSystemEntity.typeSync(managedRoot.path, followLinks: false) == FileSystemEntityType.directory) {
       for (final child in managedRoot.listSync(followLinks: false)) {

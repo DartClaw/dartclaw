@@ -174,7 +174,7 @@ class DartclawConfig {
 
   // --- Derived path getters ---
   /// workspaceDir.
-  String get workspaceDir => p.join(server.dataDir, 'workspace');
+  String get workspaceDir => workspaceDirFor(server.dataDir);
 
   /// sessionsDir.
   String get sessionsDir => p.join(server.dataDir, 'sessions');
@@ -211,6 +211,9 @@ class DartclawConfig {
   /// Exists so [load] can name the same directory as [credentialsDir] before a
   /// [DartclawConfig] is built to ask.
   static String credentialsDirFor(String dataDir) => p.join(dataDir, 'credentials');
+
+  /// The owner workspace under [dataDir]; [workspaceDir] for a loaded config.
+  static String workspaceDirFor(String dataDir) => p.join(dataDir, 'workspace');
 
   /// Creates a [DartclawConfig] value.
   const new({
@@ -446,7 +449,7 @@ class DartclawConfig {
       const AgentConfig.defaults(),
       warns,
       dataDir: server.dataDir,
-      ownerWorkspaceDir: p.join(server.dataDir, 'workspace'),
+      ownerWorkspaceDir: workspaceDirFor(server.dataDir),
     );
     final auth = _parseAuth(yaml, const AuthConfig.defaults(), warns);
     final gateway = _parseGateway(yaml, environment, const GatewayConfig.defaults(), warns);
@@ -478,7 +481,12 @@ class DartclawConfig {
     final tasks = _parseTasks(yaml, const TaskConfig.defaults(), warns);
     final governance = _parseGovernance(yaml, const GovernanceConfig.defaults(), warns);
     final features = _parseFeatures(yaml);
-    final projects = parseProjectConfig(_sectionMap('projects', yaml, warns), warns, base: configBaseDir);
+    final projects = parseProjectConfig(
+      _sectionMap('projects', yaml, warns),
+      warns,
+      base: configBaseDir,
+      dataDir: server.dataDir,
+    );
     final alerts = _parseAlerts(yaml, const AlertsConfig.defaults(), warns);
     _warnRetiredAndthenConfig(yaml, warns);
     _warnRemovedAgentOrchestrationConfig(yaml, warns);

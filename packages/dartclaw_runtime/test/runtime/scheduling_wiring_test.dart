@@ -188,7 +188,7 @@ void main() {
           ? ContainerCapableSecurityWiring(
               config: config,
               dataDir: tempDir.path,
-              runtimeCwd: tempDir.path,
+              localRepositoryDir: tempDir.path,
               eventBus: eventBus,
               exitFn: neverExit,
               auditLogger: auditLogger,
@@ -196,7 +196,7 @@ void main() {
           : SecurityWiring(
               config: config,
               dataDir: tempDir.path,
-              runtimeCwd: tempDir.path,
+              localRepositoryDir: tempDir.path,
               eventBus: eventBus,
               exitFn: neverExit,
               auditLogger: auditLogger,

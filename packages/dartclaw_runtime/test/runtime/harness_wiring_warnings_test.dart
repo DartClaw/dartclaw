@@ -195,7 +195,7 @@ void main() {
         final capable = ContainerCapableSecurityWiring(
           config: config,
           dataDir: tempDir.path,
-          runtimeCwd: tempDir.path,
+          localRepositoryDir: tempDir.path,
           eventBus: eventBus,
           exitFn: _unexpectedExit,
           auditLogger: GuardAuditLogger(dataDir: tempDir.path),

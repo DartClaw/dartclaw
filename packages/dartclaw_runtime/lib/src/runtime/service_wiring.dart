@@ -147,6 +147,12 @@ class DartclawRuntime {
   /// repository the runtime operates on.
   final WorktreeManager worktreeManager;
 
+  /// The repository a task, worktree or workflow without a registered project
+  /// operates on, or `null` when this runtime has none because it was started
+  /// from its data directory: the workspace it runs in then is never a project
+  /// repository, so such work needs a registered project.
+  final String? localRepositoryDir;
+
   /// The queue consumer that runs tasks and workflow steps, or `null` in a
   /// lifecycle-only composition, which dispatches nothing.
   final TaskExecutor? taskExecutor;
@@ -198,6 +204,7 @@ class DartclawRuntime {
     required this.messageService,
     required this.workflowStepExecutionRepository,
     required this.worktreeManager,
+    required this.localRepositoryDir,
     required this.taskExecutor,
     required this.workflowRegistry,
     required this.workflowService,
@@ -553,26 +560,36 @@ class _RuntimeAssembly {
   final ResolvedAssets resolvedAssets;
   final PlatformCapabilities platformCapabilities;
 
-  /// The repository this build operates on, defaulting to the invocation cwd
+  /// The directory this build runs in, defaulting to the invocation cwd
   /// (`Directory.current.path`), which is read here and nowhere else for it.
   /// An injected relative path is made absolute here, once, so no consumer
   /// re-resolves it against the process cwd.
   ///
-  /// Agent spawns and behavior files, the container `/project` mount, worktree
-  /// placement, diff generation, the `_local` project and the workflow output
-  /// root all key off it. A headless caller injects one so a run started from a
-  /// repository other than the launch directory still roots there. A directory
-  /// that is or lies inside the data directory (a `serve` installed by
-  /// `dartclaw service install` starts there) resolves to
-  /// `config.workspaceDir` instead: the data directory is never mounted, so no
-  /// container could reach it as a working directory.
-  final String runtimeCwd;
+  /// Agent spawns and behavior files key off it; the `_local` project keys off
+  /// [localRepositoryDir]. A headless caller injects one so a run started from
+  /// a repository other than the launch directory still roots there. A
+  /// directory that is or lies inside
+  /// the data directory (a `serve` installed by `dartclaw service install`
+  /// starts there) resolves to `config.workspaceDir` instead: the data
+  /// directory is never mounted, so no container could reach it as a working
+  /// directory.
+  String get runtimeCwd => _directories.runtimeCwd;
+
+  /// The repository a task, worktree, merge, diff or workflow without a
+  /// registered project operates on, and the container `/project` mount: the
+  /// [runtimeCwd], or `null` when that is the substituted workspace. The
+  /// workspace is never a project repository — agents write it, `.git/`
+  /// included, so host Git there would run their config and hooks.
+  String? get localRepositoryDir => _directories.localRepositoryDir;
+
+  final ({String runtimeCwd, String? localRepositoryDir}) _directories;
 
   /// The directory a workflow run falls back to when it resolves no project —
-  /// non-null only for the zero-server lane, and the one arm that selects its
-  /// local-repository posture: worktree root, workflow output root, publish
-  /// strategy, and the source-tree asset precedence a checkout run expects.
-  String? get localFallbackDir => _localRepositoryPosture ? runtimeCwd : null;
+  /// non-null only for the zero-server lane with a local repository, and the
+  /// one arm that selects its local-repository posture: worktree root, workflow
+  /// output root, publish strategy, and the source-tree asset precedence a
+  /// checkout run expects.
+  String? get localFallbackDir => _localRepositoryPosture ? localRepositoryDir : null;
 
   final bool _localRepositoryPosture;
 
@@ -671,7 +688,7 @@ class _RuntimeAssembly {
        platformCapabilities =
            platformCapabilities ?? PlatformCapabilities(environment: environment ?? Platform.environment),
        _environment = environment ?? Platform.environment,
-       runtimeCwd = _runtimeDirectory(
+       _directories = _runtimeDirectories(
          runtimeCwd ?? Directory.current.path,
          dataDir: dataDir,
          workspaceDir: config.workspaceDir,
@@ -684,17 +701,24 @@ class _RuntimeAssembly {
 
   static DartclawServer _identityServerFactory(DartclawServer server) => server;
 
-  static String _runtimeDirectory(String requested, {required String dataDir, required String workspaceDir}) {
+  static ({String runtimeCwd, String? localRepositoryDir}) _runtimeDirectories(
+    String requested, {
+    required String dataDir,
+    required String workspaceDir,
+  }) {
     final resolved = p.normalize(p.absolute(requested));
     final canonical = canonicalizePathWithExistingAncestors(resolved);
     final canonicalDataDir = canonicalizePathWithExistingAncestors(dataDir);
-    if (!p.equals(canonicalDataDir, canonical) && !p.isWithin(canonicalDataDir, canonical)) return resolved;
+    if (!p.equals(canonicalDataDir, canonical) && !p.isWithin(canonicalDataDir, canonical)) {
+      return (runtimeCwd: resolved, localRepositoryDir: resolved);
+    }
     final workspace = p.normalize(p.absolute(workspaceDir));
     _log.info(
       'Runtime directory $resolved is or lies inside the data directory $dataDir, which is never mounted into a '
-      'container; using the workspace directory $workspace instead',
+      'container; using the workspace directory $workspace instead, with no local repository: tasks and workflows '
+      'that need Git must name a registered project',
     );
-    return workspace;
+    return (runtimeCwd: workspace, localRepositoryDir: null);
   }
 
   Future<void> wireBase() async {
@@ -880,6 +904,7 @@ class _RuntimeAssembly {
       channel?.scopeReconciler,
       groupSessionInit,
       outboundMcpPool,
+      localRepositoryDir: localRepositoryDir,
       trackedWorkflowGitCleanup: _trackedWorkflowGitCleanup(storage, project, workflowService),
       standaloneExecutionLease: _ownedExecutionLease,
     );
@@ -948,7 +973,12 @@ class _RuntimeAssembly {
   }
 
   Future<ProjectWiring> _wireProjects(_WiringContext ctx) async {
-    final project = ProjectWiring(config: config, dataDir: ctx.dataDir, runtimeCwd: runtimeCwd, eventBus: ctx.eventBus);
+    final project = ProjectWiring(
+      config: config,
+      dataDir: ctx.dataDir,
+      localRepositoryDir: localRepositoryDir,
+      eventBus: ctx.eventBus,
+    );
     await project.wire(readOnly: headless);
     return project;
   }
@@ -1003,7 +1033,7 @@ class _RuntimeAssembly {
     final security = SecurityWiring(
       config: config,
       dataDir: ctx.dataDir,
-      runtimeCwd: runtimeCwd,
+      localRepositoryDir: localRepositoryDir,
       eventBus: ctx.eventBus,
       exitFn: exitFn,
       platformCapabilities: platformCapabilities,
@@ -1059,6 +1089,7 @@ class _RuntimeAssembly {
       config: config,
       dataDir: ctx.dataDir,
       runtimeCwd: runtimeCwd,
+      localRepositoryDir: localRepositoryDir,
       localFallbackDir: localFallbackDir,
       remotePushServiceOverride: remotePushServiceOverride,
       eventBus: ctx.eventBus,
@@ -1491,6 +1522,7 @@ class _RuntimeAssembly {
       null,
       null,
       null,
+      localRepositoryDir: localRepositoryDir,
     );
     _ownedStorage = null;
     return runtime;

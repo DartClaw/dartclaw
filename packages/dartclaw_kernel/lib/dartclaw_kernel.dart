@@ -157,7 +157,13 @@ export 'src/onboarding_config.dart' show OnboardingConfig;
 export 'src/platform_capabilities.dart'
     show BashShellPolicy, PlatformCapabilities, ProcessTerminationSemantics, UnsupportedCapabilityError;
 export 'src/project_config.dart'
-    show LocalProjectPathValidation, ProjectConfig, ProjectDefinition, parseProjectConfig, validateProjectLocalPath;
+    show
+        LocalProjectPathValidation,
+        ProjectConfig,
+        ProjectDefinition,
+        isWithinAgentWorkspace,
+        parseProjectConfig,
+        validateProjectLocalPath;
 export 'src/provider_identity.dart' show ProviderIdentity;
 export 'src/provider_validator.dart' show ProviderValidator, processOutputToText, extractVersionLine;
 export 'src/providers_config.dart' show ProviderAuth, ProviderEntry, ProvidersConfig;

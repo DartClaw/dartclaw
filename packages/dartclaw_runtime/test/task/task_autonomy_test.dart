@@ -145,6 +145,7 @@ void main() {
     services: TaskExecutorServices(tasks: tasks, sessions: sessions, messages: messages, artifactCollector: collector),
     runners: TaskExecutorRunners(turns: turnManager ?? turns),
     currentDirectory: workspaceDir,
+    localRepositoryDir: workspaceDir,
     pollInterval: const Duration(milliseconds: 10),
   );
 

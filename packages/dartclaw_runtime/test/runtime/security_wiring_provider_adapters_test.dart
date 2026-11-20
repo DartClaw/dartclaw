@@ -46,7 +46,7 @@ void main() {
       providers: providers,
     ),
     dataDir: tempDir.path,
-    runtimeCwd: tempDir.path,
+    localRepositoryDir: tempDir.path,
     eventBus: eventBus,
     exitFn: _unexpectedExit,
     subscriptionCredentials: subscriptions,

@@ -2,6 +2,7 @@ import 'package:collection/collection.dart';
 import 'package:path/path.dart' as p;
 
 import 'execution_policy.dart';
+import 'path_canonicalization.dart';
 import 'output_schema.dart';
 import 'task_legacy_compatibility.dart';
 
@@ -30,7 +31,7 @@ final class AgentWorkspace {
 
   /// Derives one named agent's fixed managed workspace binding.
   static AgentWorkspace managed({required String agentId, required String dataDir, required String ownerWorkspaceDir}) {
-    final managedRoot = p.normalize(p.absolute(p.join(dataDir, 'agents')));
+    final managedRoot = managedRootFor(dataDir);
     if (agentId == 'main') {
       throw FormatException(
         'Agent "main" cannot use managed destination $managedRoot/main/workspace because that id is reserved for '
@@ -43,13 +44,34 @@ final class AgentWorkspace {
         '1-64 lowercase letters, digits, hyphens or underscores, starting with a letter or digit',
       );
     }
-    final directory = p.normalize(p.join(managedRoot, agentId, 'workspace'));
+    final directory = managedDirectoryFor(dataDir, agentId);
     final owner = p.normalize(p.absolute(ownerWorkspaceDir));
     if (!p.isWithin(managedRoot, directory) || _pathsOverlap(directory, owner)) {
       throw FormatException('Managed workspace for agent "$agentId" overlaps the owner workspace: $directory');
     }
     return AgentWorkspace(agentId: agentId, directory: directory);
   }
+
+  /// Whether [path] is at or inside the managed workspace of any agent id
+  /// under [dataDir], configured or not; symlinks are resolved first.
+  static bool isWithinAnyManagedWorkspace(String path, {required String dataDir}) {
+    final root = canonicalizePathWithExistingAncestors(managedRootFor(dataDir));
+    final candidate = canonicalizePathWithExistingAncestors(path);
+    if (!p.isWithin(root, candidate)) return false;
+    final segments = p.split(p.relative(candidate, from: root));
+    return segments.length >= 2 && segments[1] == _managedWorkspaceName;
+  }
+
+  /// The absolute directory under [dataDir] that holds every named agent's
+  /// managed home, `<data_dir>/agents`.
+  static String managedRootFor(String dataDir) => p.normalize(p.absolute(p.join(dataDir, 'agents')));
+
+  /// The absolute managed workspace directory of [agentId] under [dataDir],
+  /// `<data_dir>/agents/<agentId>/workspace`; the id is not validated here.
+  static String managedDirectoryFor(String dataDir, String agentId) =>
+      p.normalize(p.join(managedRootFor(dataDir), agentId, _managedWorkspaceName));
+
+  static const _managedWorkspaceName = 'workspace';
 
   /// Refuses a changed, removed, or newly-added binding for an existing session.
   static void requireCurrent({

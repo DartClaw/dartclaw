@@ -80,17 +80,31 @@ service graph, and the standalone-only behaviours are parameters of the one root
   (`cwd: '/'`, no spawn) rather than from a wired harness — that is what makes a registry available before one exists.
 - `runtimeCwd` (default `Directory.current.path`, made absolute once; one that is or lies inside the data directory,
   as under `dartclaw service install`, becomes `config.workspaceDir` with one INFO line, because no container can reach
-  the data directory) is the repository the runtime operates on, and
-  each wiring that means that repository takes it as a required constructor input: `ProjectWiring` →
+  the data directory) is the directory the runtime operates in. `localRepositoryDir` is the repository it operates on:
+  `runtimeCwd` itself, or `null` when `runtimeCwd` was substituted, because **the workspace directory is never a
+  project repository** – agents write its `.git/`, and host Git there runs their hooks, filters and `core.fsmonitor`.
+  `_runtimeDirectories` decides both once; nothing downstream re-derives "is this the workspace". Without a local
+  repository there is no `_local` project (`ProjectService.localProject` and `get('_local')` answer `null`,
+  `defaultProject` answers `null` while no project is registered, `getAll` omits it); `WorktreeManager`, `MergeExecutor` and `DiffGenerator` throw `NoLocalRepositoryException`
+  before any Git for a task with no project, a task or workflow naming `_local` is refused with that exception's
+  message (never retried), the read-only baseline never runs in `TaskExecutionSite.agentWorkspace`, nor in `runtimeDirectory` without a local
+  repository, a worktree task created from the default project records that project as its `projectId` (so diff,
+  accept and cleanup resolve the same one), and
+  `SecurityWiring` mounts nothing at `/project`. Each wiring that means the directory or the repository takes it as a
+  required constructor input: `ProjectWiring` (`localRepositoryDir`) →
   `ProjectServiceImpl.localProject` (`_local`, the one answer: the server's container mount roots, the conversation
-  `_local` context and the session reference root read it from `ProjectService`, and a composition without one has no
-  `_local`); `SecurityWiring` (the container `/project` mount, which goes through the one data-directory rule,
+  `_local` context and the session reference root read it from `ProjectService`); `SecurityWiring` (the container `/project` mount, which goes through the one data-directory rule,
   `container/data_dir_mount_rule.dart#operatorMount`, like every local-path and named-agent execution-directory mount:
   a source that is or lies inside the data directory is skipped, one that contains it is masked by an anonymous volume;
-  `ProjectMutationService` asks the same rule before accepting an API `localPath`); `HarnessWiring`
+  `ProjectMutationService` asks the same rule before accepting an API `localPath`, with only the projects clone
+  directory as an owned root, and refuses one inside the owner or a named agent's workspace in every posture through the
+  kernel's `isWithinAgentWorkspace`, the predicate config load and the `projects.json` loader also skip such a
+  `localPath` with);
+  `SecurityWiring` and `TaskWiring` take `localRepositoryDir`; `HarnessWiring`
   (`<runtimeCwd>/.dartclaw` behavior files, every spawning `HarnessFactoryConfig.cwd`, the model-catalogue probe; capability probes stay `cwd: '/'` and
-  never spawn); `TaskWiring` (`MergeExecutor`, `WorktreeManager.projectDir`, `DiffGenerator`,
-  `TaskExecutor.currentDirectory`) and, for `serve`, the artifact workspace. Two process-cwd reads
+  never spawn); `TaskWiring` (`MergeExecutor`, `WorktreeManager.projectDir`, `DiffGenerator` and
+  `TaskExecutor.localRepositoryDir` from `localRepositoryDir`, `TaskExecutor.currentDirectory` from `runtimeCwd`) and,
+  for `serve`, the artifact workspace. Two process-cwd reads
   remain in runtime and core library code: the `runtimeCwd` default itself, and `SecurityWiring`'s optional
   `sourceCheckoutDir`, which locates DartClaw's own checkout for the image build context (`docker/`) and
   `build/bridge` – a checkout of DartClaw, not the repository the runtime operates on. The workflow package's
@@ -98,7 +112,8 @@ service graph, and the standalone-only behaviours are parameters of the one root
   `hostWorkingDirectory`) and the CLI's invocation-directory reads are not the runtime directory either: the first
   locate DartClaw's own assets, the introspector value is inert (no container manager), and the CLI reads are the
   process boundary that supplies the `runtimeCwd` default.
-- `localFallbackDir` is non-null **exactly when the composition came through `stageHeadless`** — `build(headless: true)`
+- `localFallbackDir` is non-null **exactly when the composition came through `stageHeadless` and has a local
+  repository** (it is `localRepositoryDir`) — `build(headless: true)`
   leaves it null and keeps the managed-workspace posture, because the flag also arms a destructive sweep and no SDK
   embedder asked for that against its process cwd. It is the single arm selecting the
   local-repository posture: a run may resolve no project (absent or `_local` id) and falls back to it; worktrees root
@@ -274,7 +289,7 @@ tests construct sparse compositions through the same two functions.
   injected `DatabaseBackendFactory` closures return a fresh backend per open. Standalone persistence tests use the real
   file store and a temp data directory (`test/runtime/headless_file_storage_test.dart`); the lease test starts a second
   Dart process to prove the cross-process refusal (`test/runtime/standalone_execution_lease_test.dart`).
-- Suites run in parallel; keep them that way. `dart test` runs suites as isolates in **one OS process**, so ports, the filesystem, and the working directory are shared. Bind port `0`, keep fixtures in per-test temp dirs, and never assign `Directory.current` in-process – inject it. `WorktreeManager(projectDir:)`, `TaskExecutor(currentDirectory:)`, `HarnessWiring`/`SecurityWiring`/`ProjectWiring` (`runtimeCwd:`) and `ProjectServiceImpl(localDir:)` require a directory; `DartclawRuntime.build`/`stageHeadless` default `runtimeCwd` to the process cwd, so a test must pass one. Give each a per-test temp dir or its `dataDir`, never the process cwd; `wireTestSecurity`/`wireTestHarness` default `runtimeCwd` to `dataDir` for that reason. A suite that composes `SecurityWiring` with containers (the parity suite) passes the checkout root as `sourceCheckoutDir`; suites that build `ContainerManager` directly pass a literal or temp `buildContextDir`. A test that needs a different process cwd runs a child process: `test/static/fixtures/unrelated_cwd_node_harness_fixture.dart` is the one file that assigns it, and `controller_test_support_test.dart` runs it in its own process. Breaking this forces the package back to `-j 1` (≈5× wall time). See `dev/guidelines/TESTING-STRATEGY.md` Layer 2 note.
+- Suites run in parallel; keep them that way. `dart test` runs suites as isolates in **one OS process**, so ports, the filesystem, and the working directory are shared. Bind port `0`, keep fixtures in per-test temp dirs, and never assign `Directory.current` in-process – inject it. `TaskExecutor(currentDirectory:)` and `HarnessWiring` (`runtimeCwd:`) require a directory, and `WorktreeManager(projectDir:)`, `ProjectWiring`/`SecurityWiring` (`localRepositoryDir:`) and `ProjectServiceImpl(localDir:)` take one or `null` for no local repository; `DartclawRuntime.build`/`stageHeadless` default `runtimeCwd` to the process cwd, so a test must pass one. Give each a per-test temp dir or its `dataDir`, never the process cwd; `wireTestSecurity`/`wireTestHarness` default `runtimeCwd` to `dataDir` for that reason. A suite that composes `SecurityWiring` with containers (the parity suite) passes the checkout root as `sourceCheckoutDir`; suites that build `ContainerManager` directly pass a literal or temp `buildContextDir`. A test that needs a different process cwd runs a child process: `test/static/fixtures/unrelated_cwd_node_harness_fixture.dart` is the one file that assigns it, and `controller_test_support_test.dart` runs it in its own process. Breaking this forces the package back to `-j 1` (≈5× wall time). See `dev/guidelines/TESTING-STRATEGY.md` Layer 2 note.
 - Template-rendering correctness (HTML structure, escaping) is asserted at Layer 2/3 against rendered output strings — visual layout is covered by manual UI smoke tests, not Dart tests.
 
 ## Key files

@@ -224,6 +224,44 @@ final class HeadlessRuntimeFixture {
   }
 }
 
+/// Makes [dir] a committed repository on [branch] whose config, attributes and
+/// hooks each run a host command creating [marker], the shape an agent can give
+/// a repository it may write: `core.fsmonitor`, a clean filter on every path,
+/// and a `post-checkout` hook. Arms the traps last, so creating the fixture runs
+/// none of them.
+void armAgentWritableRepository(String dir, String marker, {String branch = 'main'}) {
+  Directory(dir).createSync(recursive: true);
+  runGitSync(dir, ['init', '-b', branch]);
+  runGitSync(dir, ['config', 'user.name', 'Agent']);
+  runGitSync(dir, ['config', 'user.email', 'agent@example.com']);
+  File(p.join(dir, 'README.md')).writeAsStringSync('agent\n');
+  runGitSync(dir, ['add', 'README.md']);
+  runGitSync(dir, ['commit', '-m', 'initial']);
+  String script(String name, String body) {
+    final file = File(p.join(dir, '.git', name))..writeAsStringSync('#!/bin/sh\ntouch "$marker"\n$body');
+    Process.runSync('chmod', ['+x', file.path]);
+    return file.path;
+  }
+
+  runGitSync(dir, ['config', 'core.fsmonitor', script('agent-fsmonitor', 'exit 1\n')]);
+  runGitSync(dir, ['config', 'filter.agent.clean', script('agent-clean', 'cat\n')]);
+  File(p.join(dir, '.git', 'info', 'attributes'))
+    ..createSync(recursive: true)
+    ..writeAsStringSync('* filter=agent\n');
+  final hook = File(p.join(dir, '.git', 'hooks', 'post-checkout'))
+    ..createSync(recursive: true)
+    ..writeAsStringSync('#!/bin/sh\ntouch "$marker"\n');
+  Process.runSync('chmod', ['+x', hook.path]);
+  if (File(marker).existsSync()) fail('arming $dir already ran an agent command');
+}
+
+/// Proves [armAgentWritableRepository]'s traps are live: host `git status` in
+/// [dir] runs one of them.
+void expectAgentTrapsLive(String dir, String marker) {
+  Process.runSync('git', ['status'], workingDirectory: dir);
+  expect(File(marker).existsSync(), isTrue, reason: 'the armed repository must run its commands under host Git');
+}
+
 WorkflowDefinition branchGuardDefinition({
   String name = 'branch-guard',
   bool projectRequired = true,

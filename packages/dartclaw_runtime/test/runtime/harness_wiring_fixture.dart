@@ -63,7 +63,7 @@ Future<SecurityWiring> wireTestSecurity({
   final security = SecurityWiring(
     config: config,
     dataDir: dataDir,
-    runtimeCwd: runtimeCwd ?? dataDir,
+    localRepositoryDir: runtimeCwd ?? dataDir,
     sourceCheckoutDir: sourceCheckoutDir,
     eventBus: eventBus,
     exitFn: exitFn,
@@ -136,7 +136,7 @@ class ContainerCapableSecurityWiring extends SecurityWiring {
   new({
     required super.config,
     required super.dataDir,
-    required super.runtimeCwd,
+    required super.localRepositoryDir,
     required super.eventBus,
     required super.exitFn,
     required super.auditLogger,

@@ -33,14 +33,14 @@ void main() {
 
   String dir(String relative) => (Directory(p.join(root, relative))..createSync(recursive: true)).path;
 
-  SecurityWiring wiring({required String dataDir, required String runtimeCwd, ProjectConfig? projects}) =>
+  SecurityWiring wiring({required String dataDir, required String? localRepositoryDir, ProjectConfig? projects}) =>
       SecurityWiring(
         config: DartclawConfig(
           server: ServerConfig(dataDir: dataDir),
           projects: projects ?? const ProjectConfig(),
         ),
         dataDir: dataDir,
-        runtimeCwd: runtimeCwd,
+        localRepositoryDir: localRepositoryDir,
         eventBus: eventBus,
         exitFn: _unexpectedExit,
         auditLogger: GuardAuditLogger(dataDir: dataDir),
@@ -52,7 +52,7 @@ void main() {
     final dataDir = dir('data');
     File(p.join(dataDir, 'gateway_token')).writeAsStringSync('gateway-secret');
     File(p.join(dir('data/credentials/claude'), 'setup-token.json')).writeAsStringSync('{}');
-    final security = wiring(dataDir: dataDir, runtimeCwd: dataDir);
+    final security = wiring(dataDir: dataDir, localRepositoryDir: dataDir);
 
     final plan = security.workspaceMountPlan();
     security.workspaceMountPlan();
@@ -75,10 +75,10 @@ void main() {
     expect(logged.single.message, allOf(contains(dataDir), contains('data directory')));
   });
 
-  test('a runtime directory equal to the workspace is not mounted a second time at /project', () {
+  test('a runtime with no local repository mounts nothing at /project', () {
     final dataDir = dir('data');
     final workspace = dir('data/workspace');
-    final security = wiring(dataDir: dataDir, runtimeCwd: workspace);
+    final security = wiring(dataDir: dataDir, localRepositoryDir: null);
 
     final plan = security.workspaceMountPlan();
 
@@ -93,7 +93,7 @@ void main() {
   test('a data directory inside the runtime directory is masked at /project', () {
     final repo = dir('repo');
     final dataDir = dir('repo/.dartclaw-example');
-    final security = wiring(dataDir: dataDir, runtimeCwd: repo);
+    final security = wiring(dataDir: dataDir, localRepositoryDir: repo);
 
     final plan = security.workspaceMountPlan();
 
@@ -118,7 +118,7 @@ void main() {
     final agentWorkspace = dir('outer/state/agents/researcher/workspace');
     final security = wiring(
       dataDir: dataDir,
-      runtimeCwd: runtimeCwd,
+      localRepositoryDir: runtimeCwd,
       projects: ProjectConfig(
         definitions: {
           'same': ProjectDefinition(id: 'same', localPath: dataDir),

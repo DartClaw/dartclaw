@@ -290,7 +290,7 @@ String resolveBashWorkdir({
     }
     return _containedWorkdir(resolved, dataDir: dataDir);
   }
-  final workspaceRoot = p.join(dataDir, 'workspace');
+  final workspaceRoot = DartclawConfig.workspaceDirFor(dataDir);
   Directory(workspaceRoot).createSync(recursive: true);
   return p.normalize(p.absolute(workspaceRoot));
 }
@@ -368,7 +368,7 @@ Never _throwUnsafeBashInterpolation() {
 
 String _containedWorkdir(String resolved, {required String dataDir}) {
   final dataDirRoot = p.normalize(p.absolute(dataDir));
-  final workspaceRoot = p.join(dataDirRoot, 'workspace');
+  final workspaceRoot = DartclawConfig.workspaceDirFor(dataDirRoot);
   final candidate = p.isAbsolute(resolved)
       ? p.normalize(p.absolute(resolved))
       : p.normalize(p.join(workspaceRoot, resolved));

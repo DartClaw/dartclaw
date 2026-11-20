@@ -47,7 +47,7 @@ void main() {
     return SecurityWiring(
       config: (config ?? DartclawConfig()).copyWith(container: container),
       dataDir: tempDir.path,
-      runtimeCwd: tempDir.path,
+      localRepositoryDir: tempDir.path,
       eventBus: eventBus,
       exitFn: _throwExit,
       platformCapabilities: PlatformCapabilities(operatingSystem: operatingSystem),

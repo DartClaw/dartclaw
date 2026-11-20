@@ -315,7 +315,8 @@ agent:
         contains('AGENT A USER'),
         contains('AGENT A TOOLS'),
         isNot(contains('CHANGED AGENT A')),
-        isNot(contains('AGENT A SOUL')),
+        // The definition's prompt is appended after the workspace SOUL.md, never in its place.
+        matches(RegExp(r'AGENT A SOUL[\s\S]*EXPLICIT A SOUL')),
         isNot(contains('OWNER')),
       ),
     );

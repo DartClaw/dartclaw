@@ -54,7 +54,7 @@ This aligns with ADR-037's from-scratch-client precedent, with a narrower scope:
 ## References
 
 - 0.19 PRD - constraints, decisions log, FR1 outbound MCP client, and FR3 egress trust boundary.
-- Research: `dev/bundle/docs/research/outpost-pattern-integration/research.md` - MCP stdio lifecycle and Dart client package survey.
+- Research (private repo): `docs/research/outpost-pattern-integration/research.md` - MCP stdio lifecycle and Dart client package survey.
 - [ADR-037: Universal ACP Harness (AcpHarness)](037-universal-acp-harness.md)
 - [ADR-029: Temporal Knowledge Graph and the Durable Knowledge Loop](029-temporal-knowledge-graph-durable-knowledge-loop.md)
 - [ADR-009: Internal MCP Server as Primary Tool Extension Point](009-internal-mcp-server.md)

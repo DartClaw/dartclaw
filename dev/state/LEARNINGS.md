@@ -254,6 +254,7 @@
 ## Specs / Documentation
 
 - **A `git grep` Verify over `dev/` or `docs/` matches the bundle's own FIS, PRD and research.** It can never go clean; exclude `':!dev/bundle'` and dry-run it before relying on it.
+- **A quoted glob pathspec without a trailing `**` selects no files.** `git grep … -- 'packages/*/lib'` matches 0 files (the glob must match the whole path, so `lib` never matches `lib/x.dart`), and an emptiness Verify passes vacuously; write `':(glob)packages/*/lib/**'` and dry-run a positive match first.
 - **Multi-restatement spec docs.** When fixing a fact, grep all restatements; verify new claims against code; check the inventory measures the AC's property; diff applied edits vs the finding list.
 - **A checklist item naming a recorder in another story has no owner.** Verify the artifact exists before relying on it; absence is a gate defect.
 - **Cross-story deferral can land a seam nowhere.** Chained "story X owns it" deferrals shipped a type whose only `throw` was a fake – grep the producer before done.

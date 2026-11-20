@@ -1,5 +1,9 @@
 # Key Development Commands
 
+The tiers below run through [mise](https://mise.jdx.dev) tasks defined in `mise.toml`; `ci.yml`'s `Check` job runs
+`mise run setup` and `mise run lint`. mise installs the pinned Dart 3.14.0 on first use. Prerequisite: `brew install
+mise`, then `mise trust` once per clone or worktree. `mise tasks` lists every task.
+
 ## Running the Application
 
 ```bash
@@ -53,13 +57,14 @@ dart run dartclaw_cli:dartclaw workflow validate <path>
 ## Build
 
 ```bash
-# Install / sync dependencies (workspace root)
-dart pub get
+# Install both locked dependency sets and generate the embedded asset libraries
+# (workspace root). REQUIRED after cloning or creating a git worktree.
+mise run setup
 
-# REQUIRED after cloning or creating a git worktree, and after editing built-in
-# templates, static files, skills, or workflow definitions. The embedded asset
-# libraries are generated, not committed, and lib/ imports them — without this
-# the analyzer reports ~32 errors and nothing compiles. CI and
+# Rerun after editing built-in templates, static files, skills, or workflow
+# definitions. The embedded asset libraries are generated, not committed, and
+# lib/ imports them — without this the analyzer reports ~32 errors and nothing
+# compiles. `mise run setup`, `mise check`, `mise check-full` and
 # dev/tools/build.sh run it automatically.
 dart run dev/tools/embed_assets.dart
 
@@ -136,8 +141,10 @@ not use it as a substitute for setup verification. Treat each VM as single-calle
 ## CI-Equivalent Gate
 
 Run this from the workspace root before pushing shared branches, before declaring a CI fix done, and after changes that
-touch package boundaries, tests, build tooling, workflow definitions, or cross-package behavior. It mirrors
-`.github/workflows/ci.yml`, with an added whitespace check.
+touch package boundaries, tests, build tooling, workflow definitions, or cross-package behavior. The commands cover
+the GitHub `Check` job and add the local workspace tests, PostgreSQL and fitness gates. The fitness command owns
+the Dart fitness suite in this run. The separate `PowerShell scripts` job uses the [Windows script check](RELEASE_PREPARATION.md#checks-on-this-machine-and-its-vms). The Linux release lane
+below adds container posture. A test regression fails the local `tests` gate.
 
 ```bash
 dart pub get --enforce-lockfile
@@ -145,9 +152,9 @@ dart pub get --directory dev/tools/mascot_favicon --enforce-lockfile
 dart run dev/tools/embed_assets.dart
 dart format --line-length=120 --output=none --set-exit-if-changed .
 dart analyze --fatal-infos
-bash dev/tools/test_workspace.sh
+bash dev/tools/test_workspace.sh --separate-fitness
 # Proves plain PostgreSQL 14 first, then explicit pgvector/hybrid behavior.
-# The runner may provision disposable resources with Docker in CI or use supplied disposable endpoints.
+# The runner may provision disposable resources with Docker or use supplied disposable endpoints.
 bash dev/tools/postgres_contract.sh
 dart run dev/tools/arch_check.dart
 bash dev/tools/fitness/run_all.sh
@@ -159,10 +166,20 @@ git status --short
 into the server's static assets, so canonical CSS edits need no separate sync step.
 
 For release preparation, reuse completed review evidence with the input comparisons required by
-[Release Preparation](RELEASE_PREPARATION.md), and run only missing or affected checks. Obtain GitHub CI once on the
-final squash commit. For a **clean committed release candidate** missing that local coverage,
+[Release Preparation](RELEASE_PREPARATION.md), and run only missing or affected checks. Obtain `Check` and
+`PowerShell scripts` once on the exact final squash SHA; local results carry through the ledger's input comparison
+because the squash commit has the branch tip's Git tree. For a **clean committed release candidate** missing that local coverage,
 `bash dev/tools/release_check.sh --version <version> --local` runs these local gates plus release cleanup/version
-checks and the host build, retaining per-gate receipts. Add `--resume` to
+checks, the host build and the Lima `linux` gate, retaining per-gate receipts. Lima (`brew install lima`) creates
+`dartclaw-release-linux` from `dev/tools/lima/linux.yaml`, without host mounts, and transfers the same committed
+candidate. The guest runs the local gates (build included) with `--omit linux,ci`, then the root container posture
+profile. To select only that lane:
+
+```bash
+bash dev/tools/release_check.sh --version <version> --gate linux
+```
+
+Add `--resume` to
 reuse eligible results, `--status` to inspect them, or `--gate <id>` to rerun one gate. The dirty development checkout
 still uses the individual commands above. See [Release Preparation](RELEASE_PREPARATION.md) for scope and exit codes.
 PowerShell validation uses `dev/tools/check_powershell.ps1` both locally in Windows and in CI; PSScriptAnalyzer is required.
@@ -210,6 +227,9 @@ curl -s "https://pub.dev/api/packages/<package_name>" | jq '{name: .name, latest
 # Format a file or directory (120-char width configured in analysis_options.yaml)
 dart format --line-length=120 <file_or_dir>
 
+# Format check, `dart analyze --fatal-infos` and the architecture check: the CI `Check` job
+mise run lint
+
 # Static analysis + lint (strict-casts, strict-raw-types, lints/recommended).
 # Requires the generated asset libraries — see `dart run dev/tools/embed_assets.dart`
 # under ## Build for when it must be run.
@@ -219,68 +239,51 @@ dart analyze
 
 ## Testing (Unit, Integration, E2E)
 
-> **Strategy**: See `dev/guidelines/TESTING-STRATEGY.md` for philosophy, test layers, async patterns, and coverage guidance.
->
-> **Reporter**: Use `--reporter=failures-only` for agent-driven test runs — it suppresses passing-test output and only shows failures, reducing noise. This is the default the Dart MCP `run_tests` tool uses internally.
->
-> **Parallelism**: All suites run at default parallelism, including the CLI/server/workflow packages that were previously serialized. Suites share one OS process, so they can only interfere through process-level state: keep port binds ephemeral (`port: 0`), keep fixtures in per-test temp dirs, and never assign `Directory.current` in a test — inject the working directory instead (see `WorktreeManager(projectDir:)`). A test that breaks one of those rules forces the whole package back to `-j 1`, which costs 3–5× wall time.
+Pick a test file that owns the changed behavior. Run it by name while diagnosing a failure, then run the file.
+Pass several files or a test directory from the same package to one invocation. Include a consumer when a public
+contract, fixture, or shared helper changes. Use one process per package because some CLI and kernel suites
+temporarily change the working directory.
 
-Tier rows used by `andthen:exec-plan`; `{file}` and `{test}` are
-substituted from a FIS proof line. Keep them in step with the commands below and with `test_workspace.sh`.
+On a fresh checkout, run `mise run setup` to install both locked dependency sets.
+The runtime's controller tests execute the shipped JavaScript with Node.js (22.7+ or 20.19.x).
+The `andthen:exec-plan` tiers run from the workspace root. Both tiers regenerate the embedded assets and run
+`mise run lint` (format check, analyzer, architecture check) first. The fixed fast check then exercises the assembled
+HTTP handlers. A story also runs its own behavior proofs. The full tier runs developer-tool checks and each workspace
+member's default tests, including slow process tests and Dart fitness. The CI-equivalent gate above adds real
+PostgreSQL and the remaining fitness checks. A live proof needs its own file, prerequisites and explicit selector.
 
 | Tier | Command |
 |---|---|
-| fast | `dart run dev/tools/embed_assets.dart && dart analyze --fatal-infos && dart test --reporter=failures-only packages/dartclaw_kernel && dart test --reporter=failures-only packages/dartclaw_core && dart test --reporter=failures-only packages/dartclaw_search && dart test --reporter=failures-only packages/dartclaw_workflow && dart test --reporter=failures-only packages/dartclaw_runtime && dart test --reporter=failures-only -x slow apps/dartclaw_cli` |
-| full | `bash dev/tools/test_workspace.sh` |
-| run one test | `dart test --reporter=failures-only {file} --name "{test}"` |
+| fast | `mise check` |
+| full | `mise check-full` |
+| run one test | `dart test --reporter=failures-only {file} --plain-name "{test}"` |
 
-The `full` tier runs the default workspace suites; it does not include integration-tagged live checks or a release
-build. The CI-equivalent gate above adds PostgreSQL explicitly. Provider-dependent checks remain separate and must
-be named as unexecuted when reporting only the default or database suites.
-
-Use the workspace root for package-wide server/CLI validation. The default suites use domain fakes where database
-behavior is not the claim. SQL dialect, schema, transaction, search, interlock, migration, restore and runtime wiring
-claims require `bash dev/tools/postgres_contract.sh` or another explicitly named real-PostgreSQL proof. The integration-tagged
-`packages/dartclaw_runtime/test/runtime/server_builder_integration_test.dart` remains an explicit secondary proof surface and
-should be run intentionally with `dart test --run-skipped -t integration packages/dartclaw_runtime/test/runtime/server_builder_integration_test.dart`
-when you need that extra signal.
+`{file}` and `{test}` come from the FIS proof. Use its literal test name, including punctuation. Check that the runner
+reports the intended case and a positive pass count. A default-skipped suite can exit successfully with zero tests run.
+For a named opt-in case, use its file and tag with `--run-skipped` after preparing its dependencies.
 
 ```bash
-# Test a specific package (failures-only reporter for agent runs)
-dart test --reporter=failures-only packages/dartclaw_core
-dart test --reporter=failures-only packages/dartclaw_runtime
-dart test --reporter=failures-only packages/dartclaw_kernel
-dart test --reporter=failures-only packages/dartclaw_workflow
-dart test --reporter=failures-only apps/dartclaw_cli
+# One behavior, including literal parentheses in its name
+dart test --reporter=failures-only packages/dartclaw_core/test/storage/session_service_test.dart \
+  --plain-name "returns null for invalid UUID (path traversal defense)"
 
-# Mixed workflow/server/CLI gate — one command per package. A single
-# `dart test A B C` spans all three in ONE process, which puts dartclaw_cli's
-# cwd-mutating suites alongside server/workflow suites that resolve relative
-# paths. test_workspace.sh runs per package for the same reason.
-dart test --reporter=failures-only packages/dartclaw_workflow
-dart test --reporter=failures-only packages/dartclaw_runtime
-dart test --reporter=failures-only apps/dartclaw_cli
-
-# Fast local CLI iteration: skip real-build / real-process tests tagged slow.
-dart test --reporter=failures-only -x slow apps/dartclaw_cli
-
-# Run only slow CLI tests when validating build/release behavior.
-dart test --reporter=failures-only --run-skipped -t slow apps/dartclaw_cli
-
-# Test all packages exactly as CI does
-bash dev/tools/test_workspace.sh
-
-# Specific test directory
+# One shared interface contract, or a whole affected directory
+dart test --reporter=failures-only packages/dartclaw_core/test/search/search_backend_test.dart
 dart test --reporter=failures-only packages/dartclaw_core/test/storage
 
-# Single test file
-dart test --reporter=failures-only packages/dartclaw_core/test/storage/session_service_test.dart
+# The isolated Knowledge Hub corpus exercises wiki, graph, memory and inbox together
+dart test --reporter=failures-only packages/dartclaw_runtime/test/integration/knowledge_hub_corpus_integration_test.dart
 
-# Tests matching a name pattern
-dart test --reporter=failures-only packages/dartclaw_core --name "SessionKey"
+# Workflow Bash steps: iterate on command behavior or exercise real OS deadlines and process termination
+dart test --reporter=failures-only -x slow packages/dartclaw_workflow/test/workflow/bash_step_runner_test.dart
+dart test --reporter=failures-only -t slow packages/dartclaw_workflow/test/workflow/bash_step_runner_test.dart
 
-# Run only contract tests
-dart test --reporter=failures-only -t contract packages/dartclaw_core
+# Package scope, with optional exclusion of slow CLI build/process cases during iteration
+dart test --reporter=failures-only packages/dartclaw_runtime
+dart test --reporter=failures-only -x slow apps/dartclaw_cli
+
+# Opt-in runtime composition with a fake harness
+dart test --reporter=failures-only --run-skipped -t integration packages/dartclaw_runtime/test/runtime/server_builder_integration_test.dart
 
 # Fast workflow validation while iterating on workflow YAML, gates, outputs, and review artifacts
 bash dev/testing/profiles/workflow-contract/run.sh
@@ -301,15 +304,6 @@ bash dev/testing/profiles/workflow-live/run.sh --full --skip-e2e
 # Only the heavy real-provider agent e2e (implement-story + implement-prd).
 # Long-running — launch detached (e.g. nohup … & disown) and poll the log.
 bash dev/testing/profiles/workflow-live/run.sh --e2e
-
-# Run live core integration tests (requires real claude binary + API credentials)
-dart test --reporter=failures-only --run-skipped -t integration packages/dartclaw_core
-
-# Knowledge-hub corpus integration (no credentials, no server — seeded in-process).
-# Walks one seeded wiki/KG/memory/inbox corpus through search, the hub, and lint.
-# The Knowledge Hub has no UI-smoke coverage, so this is its proof surface.
-dart test --run-skipped -t integration \
-  packages/dartclaw_runtime/test/integration/knowledge_hub_corpus_integration_test.dart
 
 # Per-package coverage
 dart test --coverage=coverage/ packages/dartclaw_core

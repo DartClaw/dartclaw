@@ -70,22 +70,41 @@ class PreMergeInvariantException extends WorktreeException implements Exception 
 ///
 /// Supports squash-merge (default) and merge-commit strategies.
 /// Stashes uncommitted changes before merge and restores them after.
+///
+/// It merges in [worktreePath] when given, a checkout of [projectDir]'s
+/// repository, else in [projectDir] itself. A null [projectDir] is a runtime
+/// with no local repository: [merge] then throws [NoLocalRepositoryException]
+/// before any Git runs.
 class MergeExecutor {
   static final _log = Logger('MergeExecutor');
 
-  final String _projectDir;
+  final String? _repositoryDir;
+  final String? _checkoutDir;
   final MergeStrategy _defaultStrategy;
   final WorkflowGitPort _gitPort;
 
-  new({required String projectDir, MergeStrategy defaultStrategy = MergeStrategy.squash, WorkflowGitPort? gitPort})
-    : _projectDir = projectDir,
-      _defaultStrategy = defaultStrategy,
-      _gitPort = gitPort ?? WorkflowGitPortProcess();
+  new({
+    required String? projectDir,
+    String? worktreePath,
+    MergeStrategy defaultStrategy = MergeStrategy.squash,
+    WorkflowGitPort? gitPort,
+  }) : _repositoryDir = projectDir,
+       _checkoutDir = worktreePath,
+       _defaultStrategy = defaultStrategy,
+       _gitPort = gitPort ?? WorkflowGitPortProcess();
+
+  /// The repository this executor merges into, or `null` when the runtime has
+  /// no local repository.
+  String? get projectDir => _repositoryDir;
+
+  String get _projectDir => _repositoryDir ?? (throw const NoLocalRepositoryException());
+  String get _worktreePath => _checkoutDir ?? _projectDir;
 
   /// Merges [branch] onto [baseRef] using the configured strategy.
   ///
   /// On conflict, aborts the merge and returns [MergeConflict].
   /// Always restores the original branch and stashed changes.
+  /// Throws [NoLocalRepositoryException] when this executor has no repository.
   Future<MergeResult> merge({
     required String branch,
     required String baseRef,
@@ -101,18 +120,28 @@ class MergeExecutor {
     // 1. Record current HEAD and branch
     final originalHead = await _revParse('HEAD', failureMessage: 'Failed to record current HEAD');
 
-    final originalBranch = await _wrapGit('Failed to record current branch', () => _gitPort.currentBranch(_projectDir));
+    final originalBranch = await _wrapGit(
+      'Failed to record current branch',
+      () => _gitPort.currentBranch(_worktreePath, projectDir: _projectDir),
+    );
     final isDetached = originalBranch == 'HEAD';
 
     // 2. Stash uncommitted changes
-    final didStash = await _wrapGit('Failed to stash local changes', () => _gitPort.stashPush(_projectDir));
+    final didStash = await _wrapGit(
+      'Failed to stash local changes',
+      () => _gitPort.stashPush(_worktreePath, projectDir: _projectDir),
+    );
 
     try {
       // 3. Checkout base ref
-      await _wrapGit('Failed to checkout $baseRef', () => _gitPort.checkout(_projectDir, baseRef));
+      await _wrapGit(
+        'Failed to checkout $baseRef',
+        () => _gitPort.checkout(_worktreePath, baseRef, projectDir: _projectDir),
+      );
 
       try {
         // 4. Merge
+        await _assertExpectedBase(ref: 'HEAD', expectedBaseSha: expectedBaseSha);
         MergeResult result;
         if (effectiveStrategy == MergeStrategy.squash) {
           result = await _squashMerge(branch, commitMessage);
@@ -136,16 +165,16 @@ class MergeExecutor {
       } finally {
         // 5. Restore original branch/HEAD
         if (isDetached) {
-          await _gitPort.checkout(_projectDir, originalHead);
+          await _gitPort.checkout(_worktreePath, originalHead, projectDir: _projectDir);
         } else {
-          await _gitPort.checkout(_projectDir, originalBranch);
+          await _gitPort.checkout(_worktreePath, originalBranch, projectDir: _projectDir);
         }
       }
     } finally {
       // 6. Restore stash
       if (didStash) {
         try {
-          await _gitPort.stashPop(_projectDir);
+          await _gitPort.stashPop(_worktreePath, projectDir: _projectDir);
         } on WorkflowGitException catch (e) {
           final popStderr = e.stderr;
           if (_isUntrackedOverlap(popStderr)) {
@@ -167,12 +196,12 @@ class MergeExecutor {
             // before dropping the stash — safe because the stash contents
             // are intentionally being discarded.
             try {
-              await _gitPort.resetHard(_projectDir, 'HEAD');
+              await _gitPort.resetHard(_worktreePath, 'HEAD', projectDir: _projectDir);
             } on WorkflowGitException catch (resetError) {
               _log.warning('Failed to reset working tree after stash-pop overlap: ${resetError.stderr}');
             }
             try {
-              await _gitPort.stashDrop(_projectDir);
+              await _gitPort.stashDrop(_worktreePath, projectDir: _projectDir);
             } on WorkflowGitException catch (dropError) {
               _log.warning('Failed to drop stash after overlap: ${dropError.stderr}');
             }
@@ -193,14 +222,19 @@ class MergeExecutor {
 
   Future<MergeResult> _squashMerge(String branch, String commitMessage) async {
     try {
-      await _gitPort.merge(_projectDir, ref: branch, strategy: WorkflowGitMergeStrategy.squash);
+      await _gitPort.merge(
+        _worktreePath,
+        projectDir: _projectDir,
+        ref: branch,
+        strategy: WorkflowGitMergeStrategy.squash,
+      );
     } on WorkflowGitException catch (e) {
       return _handleConflict(e, strategy: MergeStrategy.squash);
     }
 
     // Commit the squashed changes
     try {
-      final commit = await _gitPort.commit(_projectDir, message: commitMessage);
+      final commit = await _gitPort.commit(_worktreePath, projectDir: _projectDir, message: commitMessage);
       return MergeSuccess(commitSha: commit.sha, commitMessage: commitMessage);
     } on WorkflowGitException catch (e) {
       if (e.stdout.contains('nothing to commit')) {
@@ -213,7 +247,13 @@ class MergeExecutor {
 
   Future<MergeResult> _mergeMerge(String branch, String commitMessage) async {
     try {
-      await _gitPort.merge(_projectDir, ref: branch, strategy: WorkflowGitMergeStrategy.merge, message: commitMessage);
+      await _gitPort.merge(
+        _worktreePath,
+        projectDir: _projectDir,
+        ref: branch,
+        strategy: WorkflowGitMergeStrategy.merge,
+        message: commitMessage,
+      );
     } on WorkflowGitException catch (e) {
       return _handleConflict(e, strategy: MergeStrategy.merge);
     }
@@ -224,7 +264,7 @@ class MergeExecutor {
 
   Future<MergeConflict> _handleConflict(WorkflowGitException mergeError, {required MergeStrategy strategy}) async {
     // Get conflicting files
-    final conflictingFiles = await _gitPort.diffNameOnly(_projectDir, diffFilter: 'U');
+    final conflictingFiles = await _gitPort.diffNameOnly(_worktreePath, projectDir: _projectDir, diffFilter: 'U');
 
     final details = mergeError.stderr.isNotEmpty ? mergeError.stderr : mergeError.stdout;
 
@@ -241,7 +281,7 @@ class MergeExecutor {
   Future<void> _restoreAfterConflict(MergeStrategy strategy) async {
     if (strategy == MergeStrategy.squash) {
       try {
-        await _gitPort.resetHard(_projectDir, 'HEAD');
+        await _gitPort.resetHard(_worktreePath, 'HEAD', projectDir: _projectDir);
       } on WorkflowGitException catch (e) {
         _log.warning('Failed to restore repo after squash conflict: ${e.stderr}');
       }
@@ -249,7 +289,7 @@ class MergeExecutor {
     }
 
     try {
-      await _gitPort.mergeAbort(_projectDir);
+      await _gitPort.mergeAbort(_worktreePath, projectDir: _projectDir);
     } on WorkflowGitException catch (e) {
       _log.warning('Failed to abort merge conflict cleanly: ${e.stderr}');
     }
@@ -258,7 +298,7 @@ class MergeExecutor {
   Future<void> _assertPreMergeInvariants({required String baseRef, String? expectedBaseSha}) async {
     final status = await _wrapGit(
       'Failed to verify merge precondition: repository index state is unknown',
-      () => _gitPort.status(_projectDir),
+      () => _gitPort.status(_worktreePath, projectDir: _projectDir),
     );
     if (!status.indexClean) {
       throw PreMergeInvariantException(
@@ -269,7 +309,10 @@ class MergeExecutor {
     }
 
     if (status.untracked.isNotEmpty) {
-      final stashPaths = await _wrapGit('Failed to inspect stash paths', () => _gitPort.stashedPaths(_projectDir));
+      final stashPaths = await _wrapGit(
+        'Failed to inspect stash paths',
+        () => _gitPort.stashedPaths(_worktreePath, projectDir: _projectDir),
+      );
       final overlap = status.untracked.toSet().intersection(stashPaths.toSet()).toList()..sort();
       if (overlap.isNotEmpty) {
         throw PreMergeInvariantException(
@@ -280,13 +323,17 @@ class MergeExecutor {
       }
     }
 
+    await _assertExpectedBase(ref: baseRef, expectedBaseSha: expectedBaseSha);
+  }
+
+  Future<void> _assertExpectedBase({required String ref, required String? expectedBaseSha}) async {
     final expected = expectedBaseSha?.trim();
     if (expected != null && expected.isNotEmpty) {
-      final actual = await _revParse(baseRef, failureMessage: 'Failed to verify target branch SHA');
+      final actual = await _revParse(ref, failureMessage: 'Failed to verify target branch SHA');
       if (actual != expected) {
         throw PreMergeInvariantException(
           reason: TargetShaMismatch(expected: expected, actual: actual),
-          detail: 'Merge target $baseRef moved before merge entry.',
+          detail: 'Merge target $ref moved before merge entry.',
           gitStderr: 'expected $expected, actual $actual',
         );
       }
@@ -294,7 +341,7 @@ class MergeExecutor {
   }
 
   Future<String> _revParse(String ref, {required String failureMessage}) async {
-    return _wrapGit(failureMessage, () => _gitPort.revParse(_projectDir, ref));
+    return _wrapGit(failureMessage, () => _gitPort.revParse(_worktreePath, ref, projectDir: _projectDir));
   }
 
   Future<T> _wrapGit<T>(String failureMessage, Future<T> Function() action) async {

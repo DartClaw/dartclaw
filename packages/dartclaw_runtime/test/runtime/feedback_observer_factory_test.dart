@@ -221,7 +221,7 @@ void main() {
   });
 
   group('a turn that fails', () {
-    test('clears the status and stops the open stream, and leaves the failure to the queue', () async {
+    test('leaves the session active, stops the open stream, and leaves the failure to the queue', () async {
       const key = 'agent:main:slack:group:C1:thread:1.1';
       final session = await sessions.getOrCreateByKey(key, type: SessionType.channel);
       final response = Completer<String>();
@@ -233,8 +233,7 @@ void main() {
       response.completeError(StateError('harness crashed'));
 
       expect(await result, isFalse);
-      expect(api.statuses.first.status, 'is working...');
-      expect(api.statuses.last.status, '');
+      expect(api.statuses.map((s) => s.status), [SlackSessionStatus.processing, SlackSessionStatus.active]);
       expect(api.stops, hasLength(1));
       expect(api.updates, isEmpty);
     });
@@ -274,6 +273,6 @@ void main() {
 
     expect(await result, isFalse);
     expect(api.startedStreams, isEmpty);
-    expect(api.statuses.map((s) => s.status), ['is working...', '']);
+    expect(api.statuses.map((s) => s.status), [SlackSessionStatus.processing, SlackSessionStatus.active]);
   });
 }

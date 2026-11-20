@@ -48,6 +48,7 @@ void main() {
       runners: TaskExecutorRunners(turns: h.turns),
       limits: TaskExecutorLimits(budgetConfig: budgetConfig),
       currentDirectory: h.workspaceDir,
+      localRepositoryDir: h.workspaceDir,
       dataDir: h.tempDir.path,
       pollInterval: const Duration(milliseconds: 10),
     );

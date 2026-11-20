@@ -83,6 +83,7 @@ final class WorkflowOneShotRunner {
     required String? effortOverride,
     required List<String>? allowedTools,
     required bool readOnly,
+    Future<void> Function(TurnOutcome outcome)? onTurnCompleted,
     TurnProvenance? provenance,
   }) async {
     final repo = _workflowStepExecutionRepository;
@@ -91,6 +92,9 @@ final class WorkflowOneShotRunner {
     final followUps = workflowStepExecution?.followUpPrompts ?? const <String>[];
     final structuredSchema = workflowStepExecution?.structuredSchema;
     String? providerSessionId = workflowStepExecution?.providerSessionId;
+    final supportsDurableSession = runner.harness.supportsProviderSessionResume;
+    final hasLiveContinuity = !supportsDurableSession && runner.harness.supportsSessionContinuity;
+    AgentHarness.requireProviderSessionResumeSupport(runner.harness, providerSessionId, false);
     final stepTimeout = switch (task.configJson[WorkflowTaskConfig.workflowTurnTimeoutSeconds]) {
       final int seconds when seconds >= 0 => Duration(seconds: seconds),
       final num seconds when seconds >= 0 => Duration(seconds: seconds.toInt()),
@@ -180,11 +184,12 @@ final class WorkflowOneShotRunner {
         maxTurns: maxTurns,
         outputSchema: outputSchema,
         providerSessionId: providerSessionId,
-        requestProviderSessionResume: structuredSchema != null && providerSessionId == null,
+        requestProviderSessionResume: structuredSchema != null && providerSessionId == null && supportsDurableSession,
         turnTimeout: stepTimeout,
         provenance: provenance,
       );
       accumulateUsage(outcome);
+      await onTurnCompleted?.call(outcome);
       if (repo == null) {
         throw StateError('Workflow one-shot execution requires a WorkflowStepExecutionRepository');
       }
@@ -223,7 +228,7 @@ final class WorkflowOneShotRunner {
     if (structuredSchema != null) {
       final declaredKeys = executionEnvelopeDeclaredOutputKeys(structuredSchema);
       final eventKey = declaredKeys.isEmpty ? executionEnvelopeOutputsKey : declaredKeys.first;
-      if (providerSessionId == null || providerSessionId!.isEmpty) {
+      if ((providerSessionId == null || providerSessionId!.isEmpty) && !hasLiveContinuity) {
         finalizerFailureReason = 'missing_provider_session';
       } else {
         final finalizerPrompt = buildFinalizerPrompt(structuredSchema);

@@ -14,7 +14,14 @@ import 'package:dartclaw_testing/dartclaw_testing.dart'
         InMemoryTaskRepository,
         InMemoryWorkflowStepExecutionRepository;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show WorkflowDefinition, WorkflowPersistencePorts, WorkflowRun, WorkflowService, WorkflowStep, WorkflowTaskType;
+    show
+        WorkflowDefinition,
+        WorkflowPersistencePorts,
+        WorkflowRun,
+        WorkflowService,
+        WorkflowStep,
+        WorkflowTaskType,
+        workflowApprovedCandidate;
 import 'package:dartclaw_workflow/testing.dart' show InMemoryWorkflowRunRepository;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -169,6 +176,44 @@ void main() {
   });
 
   group('workflow_resume', () {
+    for (final publish in [false, true]) {
+      test(
+        'registered workflow_resume cannot approve an execution-surface ${publish ? 'publish' : 'promotion'} hold',
+        () async {
+          adminSenders = ['admin'];
+          final run = await insertRun('held');
+          await repository.update(
+            run.copyWith(
+              contextJson: {
+                ...run.contextJson,
+                '_workflow.git.execution_surface_hold': {
+                  'branch': 'held-branch',
+                  'paths': ['.mcp.json'],
+                  'publish': publish,
+                  'candidate': 'reviewed-tree',
+                },
+              },
+            ),
+          );
+          final result = toolResult(
+            await _call(
+              newHandler().forCaller(harnessRunning(() => turn(ChannelType.slack, sender: 'admin'))),
+              'workflow_resume',
+              {'run_id': 'held'},
+            ),
+          );
+          expect(result['isError'], isTrue);
+          final payload = resultPayload(result);
+          expect(payload.toString(), contains('person_required'));
+          expect(payload.toString(), contains('web UI'));
+          expect(payload.toString(), contains('API'));
+          final held = (await repository.getById('held'))!;
+          expect(held.status, WorkflowRunStatus.awaitingApproval);
+          expect(workflowApprovedCandidate(held.contextJson), isNull);
+        },
+      );
+    }
+
     test('a WhatsApp DM admin and a Signal group admin resume; a non-admin in the group is refused', () async {
       adminSenders = ['+4670000001', '+4670000002'];
       await insertRun('run-wa');

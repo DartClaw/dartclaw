@@ -9,10 +9,64 @@
 ## High
 <!-- Severity: blocks correctness, security, or critical workflow. Address with priority. -->
 
-_No tech debt recorded yet._
+### TD-148 – `TaskFileGuard` registers task worktrees but enforces nothing
+
+**Impact**: security – a task's file access is not confined to its worktree by DartClaw
+**Found**: 2026-10-20, architecture-doc verification (security-architecture.md, task-execution-architecture.md)
+**Affects**: `packages/dartclaw_runtime/lib/src/task/task_file_guard.dart`, `task_executor.dart` (register), `worktree_cleanup.dart` (deregister), ADR-017
+
+**Context**: `TaskExecutor` registers each declared worktree and cleanup deregisters it, but `TaskFileGuard.isAllowed` has no production caller, so the registry is bookkeeping only. ADR-017 still says "`TaskFileGuard` enforces per-task scoping at the application layer". Containment today comes from the execution directory being the worktree, provider writable roots, container mounts, `FileGuard` for sensitive paths and `TaskToolFilterGuard`; legacy owner profiles still mount `/projects:ro`, so a task can read every project clone.
+
+**Needs decision**: wire `isAllowed` into the guard chain as a task-scoped file guard (which reads count as escapes, how `/projects:ro` and shared workflow worktrees are treated), or delete the registry and amend ADR-017 to name the boundaries that actually hold.
+
+**Trigger**: any work on task isolation, multi-project mounts or ADR-017.
+
+Last reviewed: 2026-10-20
+
+### TD-151 – Agents can write the worktree root and the workspace repository's gitdir
+
+**Impact**: security – a racing container process can redirect host Git in a task worktree; workspace git sync is off under containers
+**Found**: 2026-11-19, 0.28.1 review round 3 Finding 13 follow-up (private `docs/specs/0.28.1/prd.md` § Review rounds)
+**Affects**: `security_wiring.dart` / `security_profile.dart` (owner-workspace mounts), `task_wiring.dart` (worktree root), `host_worktree_git.dart`, `workspace/workspace_git_sync.dart`, `workspace_skill_linker.dart` (`rev-parse --git-common-dir`, `info/exclude` write)
+
+**Context**: every owner-workspace container mounts all of `<workspaceDir>` read-write, including `.dartclaw/worktrees` and the workspace repository's `.git/`. `runHostWorktreeGit` refuses a tampered worktree before each command, but a process still running in any container can swap a worktree for a symlink or plant a nested repository between check and command. No agent-writable workspace is a project repository: a runtime started from its data directory has no local repository and no `_local` project, and a local-path project inside the owner or a named agent's workspace is refused, so no task, workflow or merge runs host Git in either. Workspace git sync cannot be hardened by Git options because the agent owns its config, so it is not registered under container isolation, which also stops memory and wiki backups there. The skill linker trusts `rev-parse --git-common-dir` from an agent-writable worktree, and at startup from each named agent's workspace, and writes `info/exclude` where it points.
+
+**Needs decision**: a mount layout in which an agent cannot write the worktree root or its own gitlink (worktrees root read-only, each task's worktree its own mountpoint, gitlink read-only), and, only to run git sync under containers again, moving the workspace repository's gitdir into the data dir (with a migration and a nested-repository rule).
+
+**Trigger**: any work on container mounts, worktree layout or workspace git sync.
+
+Last reviewed: 2026-11-20
 
 ## Medium
 <!-- Severity: maintainability, clarity, or non-critical correctness. Schedule deliberately. -->
+
+### TD-150 – Nothing produces `TaskStatus.interrupted`; a task left `running` stays `running`
+
+**Impact**: correctness – orphaned tasks never settle; a reserved status and its UI are unreachable
+**Found**: 2026-10-20, architecture-doc verification (task-execution-architecture.md § status table)
+**Affects**: `packages/dartclaw_core/lib/src/task/task_status.dart`, `TaskExecutor` (dispatches `queued` only), `server.dart` startup, task detail and list templates, CLI workflow progress
+
+**Context**: `interrupted` has transitions (`running → interrupted → queued | cancelled`), labels, a task-detail banner ("The previous run stopped unexpectedly…") and CLI handling, but no code transitions into it. Nothing at startup or after a lost turn moves a `running` task with no active turn anywhere, so a task orphaned by a crash or restart (or by TD-149) stays `running` until someone cancels it.
+
+**Needs decision**: add the producer (for example startup recovery: `running` tasks with no live turn → `interrupted`) or delete the status, its edges and its UI.
+
+**Trigger**: crash-recovery work on tasks, or TD-149.
+
+Last reviewed: 2026-10-20
+
+### TD-149 – Push-back moves a task to `running` and nothing runs it
+
+**Impact**: correctness – a pushed-back task without a channel origin is stuck; the push-back counter never counts
+**Found**: 2026-10-20, architecture-doc verification (task-execution-architecture.md § 6.3)
+**Affects**: `packages/dartclaw_runtime/lib/src/task/task_review_service.dart` (`push_back` → `running`), `TaskExecutor`, `Task.transition` (`pushBackCount`), push-back delivery in `service_wiring.dart`
+
+**Context**: 0.12 decision D19 made push-back `review → running` with the feedback delivered as a new turn. Today delivery runs only when the task has a channel `TaskOrigin`, and it starts the turn on the origin's channel session, not through `TaskExecutor`, so nothing moves the task back to `review` afterwards. A task created in the web UI or API gets no turn at all. `TaskExecutor` dispatches `queued` tasks only, and its prompt composer already consumes `pushBackComment`, which only a `queued` re-run would reach. `Task.transition` increments `pushBackCount` only on `review → queued`, so the count stays 0 and the task page's three-push-backs warning never shows.
+
+**Needs decision**: keep D19 and give the running task a completion path (and count push-backs on `review → running`), or reverse D19 to `review → queued` so the executor re-runs the task with the comment.
+
+**Trigger**: any push-back or task review work.
+
+Last reviewed: 2026-10-20
 
 ### TD-119 – Logical-agent session cancellation lacks caller-to-child causality
 
@@ -67,17 +121,15 @@ Last reviewed: 2026-05-18
 
 **Trigger**: adding a second runtime-artifacts consumer, introducing architecture/e2e/screenshot artifacts, or revising the S80 `/reviews` convention.
 
-**References**: `dartclaw-private/docs/specs/0.16.4/s80-workflow-runtime-artifacts-dir-mixed-review-claude-2026-04-30.md` M1.
-
 Last reviewed: 2026-05-18
 
 ### TD-051 – Task accept flow is coupled to review transitions
 
 **Impact**: feature friction and lifecycle rigidity
 **Found**: 0.14.1 workshop polish plan review (2026-03-24)
-**Affects**: `packages/dartclaw_runtime/lib/src/task/task_executor.dart`, `packages/dartclaw_runtime/lib/src/task/task_review_service.dart`, `packages/dartclaw_kernel/lib/src/task_status.dart`
+**Affects**: `packages/dartclaw_runtime/lib/src/task/task_executor.dart`, `packages/dartclaw_runtime/lib/src/task/task_review_service.dart`, `packages/dartclaw_core/lib/src/task/task_status.dart`
 
-**Context**: Task completion currently flows through `running -> review`, and the real accept-side effects live in `TaskReviewService`: local merge, project-backed push/PR creation, artifact persistence, and cleanup. This works well for manual review, but it makes "auto-accept on completion" awkward because acceptance behavior is not exposed as a reusable lifecycle operation. The state machine also does not permit `running -> accepted`, so any future simplification must either preserve the current review hop or refactor the lifecycle model deliberately.
+**Context**: Task completion currently flows through `running -> review`, and the real accept-side effects live in `TaskReviewService`: local merge, project-backed push/PR creation, artifact persistence, and cleanup. This works well for manual review, but it makes "auto-accept on completion" awkward because acceptance behavior is not exposed as a reusable lifecycle operation. The state machine does permit `running -> accepted`: `reviewMode: auto-accept` (and `worktree-only` on a task without a worktree) takes it directly from `TaskExecutor`, without `TaskReviewService`'s accept side effects, so any future simplification must either preserve the current review hop or refactor the lifecycle model deliberately.
 
 **Current resolution for 0.14.1**: Keep the existing lifecycle and implement the simple path (`running -> review -> accepted` via immediate system accept) rather than expanding the state machine.
 
@@ -160,8 +212,6 @@ Last reviewed: 2026-08-28
 
 **Trigger**: operator reports of `<data_dir>/workflows/runs/` disk-usage growth, first 0.16.5+ multi-tenant operator, or a runtime-data retention policy pass.
 
-**References**: `dartclaw-private/docs/specs/0.16.4/fis/s80-workflow-runtime-artifacts-dir.md` retention hand-off; `dartclaw-private/docs/specs/0.16.4/s80-workflow-runtime-artifacts-dir-mixed-review-claude-2026-04-30-3.md` L3.
-
 Last reviewed: 2026-05-18
 
 ### TD-093 – Runtime-artifacts claims lose tie-breaks to colliding worktree-relative files
@@ -178,8 +228,6 @@ Last reviewed: 2026-05-18
 
 **Trigger**: operator report of a remediation step reading a stale worktree review report, or any context-extractor refactor that touches `_fileSystemOutputRoots`.
 
-**References**: `dartclaw-private/docs/specs/0.16.4/s80-workflow-runtime-artifacts-dir-mixed-review-claude-2026-04-30.md` L2.
-
 Last reviewed: 2026-05-18
 
 ### TD-092 – Revisit `ArtifactCommitResult.skippedPaths` after runtime-artifact cleanup
@@ -195,8 +243,6 @@ Last reviewed: 2026-05-18
 **Fix**: On the next artifact-committer API cleanup, decide whether `skippedPaths` remains a generally useful failure-detail field. Drop it only if no production caller or test still relies on the value.
 
 **Trigger**: workflow artifact committer refactor, resolver result-shape cleanup, or repeated confusion around skipped path semantics.
-
-**References**: `dartclaw-private/docs/specs/0.16.4/s80-workflow-runtime-artifacts-dir-mixed-review-claude-2026-04-30.md` L3.
 
 Last reviewed: 2026-05-18
 
@@ -242,7 +288,7 @@ Last reviewed: 2026-05-18
 
 **Trigger**: TD-066 schema migration or a user reports unexplained token accounting drift on Codex.
 
-**References**: `dartclaw-private/docs/specs/0.16.4/workflow-final-gap-remediation/final-gap-closure-ledger.md` Part 13.
+**References**: `dartclaw-private/docs/specs/0.16.4/prd.md` § Carry-over Tech Debt → Closure-ledger explicit deferrals (TOKEN-EFFICIENCY F4).
 
 Last reviewed: 2026-05-18
 
@@ -261,7 +307,7 @@ Last reviewed: 2026-05-18
 
 **Why deferred**: invasive cross-cutting refactor; wrong-sized for a remediation slot in 0.16.4 (S73's scope is already broad and mixes runtime + skill-doc + YAML changes). Better as a focused FIS in a future milestone where the `Task` model is naturally being touched.
 
-**Source review**: `docs/specs/0.16.4/workflow-e2e-test-and-runtime-code-review-claude-2026-04-28.md` (private repo) finding M11.
+**Source review**: `docs/specs/0.16.4/prd.md` (private repo) § Carry-over Tech Debt → Advisory DECIDE items, finding M11.
 
 **Trigger**: when the `Task` model is being touched for an unrelated reason, or when a third writer/reader of the per-step metrics surface needs to be added (the third call site is the signal that the prefix convention has officially outgrown its space).
 

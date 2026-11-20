@@ -20,8 +20,10 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart';
 import 'package:test/test.dart';
 
 import 'workflow_git_test_support.dart';
+import '../execution_surface_test_support.dart';
 
 void main() {
+  executionSurfacePromotionTests(foreach: false);
   group('promoteWorkflowBranchLocally — inline integration worktree', () {
     late WorkflowGitFixture fixture;
 
@@ -30,6 +32,23 @@ void main() {
     });
 
     tearDown(() => fixture.dispose());
+
+    test('execution-surface hold precedes both commit sweeps', () async {
+      await fixture.createStoryBranch('S01', committedFiles: {'.mcp.json': '{}'});
+      fixture.writeUncommittedIntegrationFiles({'pending.txt': 'pending'});
+      final before = await fixture.rawGit(['rev-parse', fixture.integrationBranch]);
+      final result = await promoteWorkflowBranchLocally(
+        projectDir: fixture.projectDir,
+        runId: fixture.runId,
+        branch: fixture.storyBranch('S01'),
+        integrationBranch: fixture.integrationBranch,
+        strategy: 'squash',
+        storyId: 'S01',
+      );
+      expect(result.runtimeType.toString(), 'WorkflowGitPromotionHeld');
+      expect((await fixture.rawGit(['rev-parse', fixture.integrationBranch])).stdout, before.stdout);
+      expect((await fixture.rawGit(['status', '--porcelain'])).stdout, contains('pending.txt'));
+    });
 
     test('Issue B — sweeps dirty integration worktree before merging (STATE.md / LEARNINGS.md)', () async {
       // Model the inline-mode state that broke Issue B: an upstream skill

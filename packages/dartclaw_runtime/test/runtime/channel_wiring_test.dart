@@ -12,7 +12,6 @@ import 'package:dartclaw_runtime/src/runtime/channel_agent_binding.dart';
 import 'package:dartclaw_runtime/src/runtime/channel_wiring.dart';
 import 'package:dartclaw_runtime/src/runtime/feedback_observer_factory.dart';
 import 'package:dartclaw_runtime/src/runtime/reserved_command_handler.dart';
-import 'package:dartclaw_runtime/src/runtime/storage_wiring.dart' show StorageWiring;
 import 'package:dartclaw_runtime/src/turn_manager.dart' show TurnManager;
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_google_chat/dartclaw_google_chat.dart';
@@ -494,7 +493,10 @@ void main() {
       );
       expect(turns.started, isEmpty);
       expect(turns.reserved.single.agentName, 'ana', reason: 'the turn runs on the logical-agent surface');
-      expect(slackApi.statuses.map((status) => status.status), ['is working...', '']);
+      expect(slackApi.statuses.map((status) => status.status), [
+        SlackSessionStatus.processing,
+        SlackSessionStatus.active,
+      ]);
     });
 
     test('pause replay does not reconstruct a bound session as a primary turn', () async {
@@ -673,7 +675,6 @@ agent:
 
   group('trusted turn context', () {
     late ChannelWiring channels;
-    late StorageWiring storage;
     late RecordingChannelTurnManager turns;
 
     setUp(() async {
@@ -727,7 +728,6 @@ agent:
         },
       );
       channels = wired.channels;
-      storage = wired.storage;
       addTearDown(channels.channelManager!.queue.dispose);
     });
 
@@ -754,7 +754,7 @@ agent:
       senderId: 'users/42',
     );
 
-    test('run origin thread: the queue route and the direct route build the same provenance for a Google Chat thread message', () async {
+    test('run origin thread: the queue route builds the provenance for a Google Chat thread message', () async {
       final manager = channels.channelManager!;
       final sessionKey = manager.deriveSessionKey(googleChatThread);
       manager.registerChannel(
@@ -763,20 +763,8 @@ agent:
 
       manager.handleInboundMessage(googleChatThread);
       await untilDispatched();
-      final viaQueue = turns.started.single.provenance;
-      turns.started.clear();
-      await ChannelWiring.dispatchInboundChannelMessage(
-        channelManager: manager,
-        sessions: storage.sessions,
-        messages: storage.messages,
-        turnManagerGetter: () => turns,
-        config: DartclawConfig.defaults(),
-        message: googleChatThread,
-      );
-      final viaDirect = turns.started.single.provenance;
 
-      expect(viaQueue, expectedFor(sessionKey));
-      expect(viaDirect, viaQueue);
+      expect(turns.started.single.provenance, expectedFor(sessionKey));
     });
 
     test('run origin thread: a channel declaring no capability yields none, and a bound agent turn keeps its logical-agent reservation', () async {
@@ -839,6 +827,42 @@ agent:
     notifier.reload(loadWithCap(5));
 
     expect(queue.maxConcurrentTurns, 5);
+  });
+
+  test('a live sessions.dm_scope change reaches channel session-key derivation', () async {
+    final config = loadDartclawConfig(
+      configPath: 'dartclaw.yaml',
+      fileReader: (path) => path == 'dartclaw.yaml'
+          ? 'data_dir: ${tempDir.path}\n'
+                'sessions:\n'
+                '  dm_scope: per-contact\n'
+                'channels:\n'
+                '  signal:\n'
+                '    enabled: true\n'
+          : null,
+      env: {'HOME': tempDir.path},
+    );
+    final eventBus = EventBus();
+    addTearDown(eventBus.dispose);
+    final (:channels, storage: _) = await wireTestChannels(config, runtimeCwd: tempDir.path, eventBus: eventBus);
+    addTearDown(() => channels.scopeReconciler?.cancel());
+    final manager = channels.channelManager!;
+    addTearDown(manager.queue.dispose);
+    ChannelMessage dm(String sender) => ChannelMessage(channelType: ChannelType.signal, senderJid: sender, text: 'hi');
+    expect(manager.deriveSessionKey(dm('alice')), isNot(manager.deriveSessionKey(dm('bob'))));
+
+    eventBus.fire(
+      ConfigChangedEvent(
+        changedKeys: ['sessions.dm_scope'],
+        oldValues: {'sessions.dm_scope': 'per-contact'},
+        newValues: {'sessions.dm_scope': 'shared'},
+        requiresRestart: false,
+        timestamp: DateTime.now(),
+      ),
+    );
+    await Future<void>.delayed(Duration.zero);
+
+    expect(manager.deriveSessionKey(dm('alice')), manager.deriveSessionKey(dm('bob')));
   });
 
   test('parses each channel section through the shared channel config resolver', () async {

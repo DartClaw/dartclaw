@@ -18,7 +18,7 @@ void main() {
   late SessionService sessions;
   late ChannelManager channelManager;
   late GoogleChatWebhookHandler handler;
-  late ChannelMessage? dispatchedMessage;
+  late FakeChannelManager inboundManager;
 
   setUp(() async {
     tempDir = Directory.systemTemp.createTempSync('google_chat_webhook_slash_test_');
@@ -26,16 +26,13 @@ void main() {
     tasks = TaskService(InMemoryTaskRepository());
     sessions = SessionService(baseDir: tempDir.path, eventBus: eventBus);
     channelManager = ChannelManager(queue: _NoopMessageQueue(), config: const ChannelConfig.defaults());
-    dispatchedMessage = null;
+    inboundManager = FakeChannelManager();
     handler = _buildHandler(
       taskService: tasks,
       sessionService: sessions,
       eventBus: eventBus,
       channelManager: channelManager,
-      dispatchMessage: (message) async {
-        dispatchedMessage = message;
-        return 'Agent reply';
-      },
+      inboundManager: inboundManager,
     );
   });
 
@@ -64,7 +61,7 @@ void main() {
 
     final body = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
 
-    expect(dispatchedMessage, isNull);
+    expect(inboundManager.received.lastOrNull, isNull);
     expect((await tasks.list()), hasLength(1));
     expect(body['cardsV2'], isA<List<dynamic>>());
     expect(_cardHeader(body), {
@@ -94,7 +91,7 @@ void main() {
 
     final body = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
 
-    expect(dispatchedMessage, isNull);
+    expect(inboundManager.received.lastOrNull, isNull);
     expect((await tasks.list()), hasLength(1));
     expect(body['cardsV2'], isA<List<dynamic>>());
     expect(_cardHeader(body), {
@@ -127,7 +124,7 @@ void main() {
     );
     final kvService = KvService(filePath: '${tempDir.path}/budget-kv.json');
     await kvService.set(
-      BudgetEnforcer.dateKeyForTime(DateTime.now().toUtc()),
+      UsageTracker.dateKeyForTime(DateTime.now().toUtc()),
       jsonEncode({'total_input_tokens': 300, 'total_output_tokens': 200, 'by_agent': <String, dynamic>{}}),
     );
     final budgetEnforcer = BudgetEnforcer(
@@ -140,7 +137,7 @@ void main() {
       eventBus: eventBus,
       channelManager: channelManager,
       budgetEnforcer: budgetEnforcer,
-      dispatchMessage: (message) async => 'Agent reply',
+      inboundManager: inboundManager,
     );
 
     final response = await _post(handler, {
@@ -201,7 +198,7 @@ void main() {
 
     final body = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
 
-    expect(dispatchedMessage, isNull);
+    expect(inboundManager.received.lastOrNull, isNull);
     expect(body['cardsV2'], isA<List<dynamic>>());
     expect(_cardHeader(body), {'title': 'Emergency Stop', 'subtitle': 'Confirmation'});
   });
@@ -221,7 +218,7 @@ void main() {
 
     final body = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
 
-    expect(dispatchedMessage, isNull);
+    expect(inboundManager.received.lastOrNull, isNull);
     expect((await tasks.list()), isEmpty);
     expect(body['cardsV2'], isA<List<dynamic>>());
     expect(_cardHeader(body), {'title': 'Unknown Command', 'subtitle': 'Error'});
@@ -238,7 +235,7 @@ void main() {
 
     final body = jsonDecode(await response.readAsString()) as Map<String, dynamic>;
 
-    expect(dispatchedMessage, isNull);
+    expect(inboundManager.received.lastOrNull, isNull);
     expect((await tasks.list()), isEmpty);
     expect(body['cardsV2'], isA<List<dynamic>>());
     expect(_cardHeader(body), {'title': 'Unknown Command', 'subtitle': 'Error'});
@@ -256,8 +253,8 @@ void main() {
       'user': {'name': 'users/123', 'displayName': 'Alice', 'type': 'HUMAN'},
     });
 
-    expect(await response.readAsString(), '{"text":"Agent reply"}');
-    expect(dispatchedMessage, isNotNull);
+    expect(await response.readAsString(), '{}');
+    expect(inboundManager.received.lastOrNull, isNotNull);
     expect((await tasks.list()), isEmpty);
   });
 
@@ -268,10 +265,7 @@ void main() {
       eventBus: eventBus,
       channelManager: channelManager,
       includeSlashHandling: false,
-      dispatchMessage: (message) async {
-        dispatchedMessage = message;
-        return 'Agent reply';
-      },
+      inboundManager: inboundManager,
     );
 
     final response = await _post(handler, {
@@ -287,8 +281,8 @@ void main() {
       'user': {'name': 'users/123', 'displayName': 'Alice', 'type': 'HUMAN'},
     });
 
-    expect(await response.readAsString(), '{"text":"Agent reply"}');
-    expect(dispatchedMessage, isNotNull);
+    expect(await response.readAsString(), '{}');
+    expect(inboundManager.received.lastOrNull, isNotNull);
     expect((await tasks.list()), isEmpty);
   });
 
@@ -299,7 +293,7 @@ void main() {
       eventBus: eventBus,
       channelManager: channelManager,
       includeSlashHandling: false,
-      dispatchMessage: (message) async => 'Agent reply',
+      inboundManager: inboundManager,
     );
 
     final response = await _post(handler, {
@@ -311,7 +305,7 @@ void main() {
     });
 
     expect(await response.readAsString(), '{"text":"Slash commands are not available."}');
-    expect(dispatchedMessage, isNull);
+    expect(inboundManager.received.lastOrNull, isNull);
   });
 
   test('slash commands are refused by DM access control checks', () async {
@@ -321,10 +315,7 @@ void main() {
       eventBus: eventBus,
       channelManager: channelManager,
       dmAccess: DmAccessController(mode: DmAccessMode.allowlist, allowlist: const {}),
-      dispatchMessage: (message) async {
-        dispatchedMessage = message;
-        return 'Agent reply';
-      },
+      inboundManager: inboundManager,
     );
 
     final response = await _post(handler, {
@@ -342,7 +333,7 @@ void main() {
     // A denied sender gets the same empty acknowledgement an ordinary refused
     // message gets — no card, and no session archived.
     expect(await response.readAsString(), '{}');
-    expect(dispatchedMessage, isNull);
+    expect(inboundManager.received.lastOrNull, isNull);
   });
 }
 
@@ -351,7 +342,7 @@ GoogleChatWebhookHandler _buildHandler({
   required SessionService sessionService,
   required EventBus eventBus,
   required ChannelManager channelManager,
-  required Future<String> Function(ChannelMessage message) dispatchMessage,
+  required FakeChannelManager inboundManager,
   DmAccessController? dmAccess,
   BudgetEnforcer? budgetEnforcer,
   bool includeSlashHandling = true,
@@ -364,8 +355,7 @@ GoogleChatWebhookHandler _buildHandler({
     ),
     jwtVerifier: FakeGoogleJwtVerifier(),
     config: const GoogleChatConfig(dmAccess: DmAccessMode.open, groupAccess: GroupAccessMode.open),
-    channelManager: null,
-    dispatchMessage: dispatchMessage,
+    channelManager: inboundManager,
     dmAccess: resolvedDmAccess,
     eventBus: eventBus,
     slashCommandParser: includeSlashHandling ? const SlashCommandParser() : null,

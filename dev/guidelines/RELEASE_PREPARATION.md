@@ -39,17 +39,18 @@ bash dev/tools/release_check.sh --version 0.27.0 --status
 | `secrets` | No provider-shaped credential literal in tracked files (`dev/tools/secret_scan.sh`); fixtures assemble fake tokens at runtime | Host |
 | `doc-cuts` | The release range removes at most 1000 net markdown lines (`dev/tools/check_doc_cuts.sh`), else a commit message in it carries `Docs-Cut: <reason>` | Host |
 | `dependencies`, `assets` | Tracked enforced lockfiles; generated embedded assets | Host |
-| `format`, `analyze`, `tests` | Formatting, static analysis, default workspace suites | Host |
+| `format`, `analyze`, `tests` | Formatting, static analysis, developer-tool checks and default app/package tests | Host |
 | `postgres` | Plain PostgreSQL, explicit pgvector/hybrid, migration and restore contracts | Disposable live databases |
-| `architecture`, `fitness` | Package rules, schemas, architecture fitness | Host |
+| `architecture`, `fitness` | Package rules, schemas and the Dart suite in `dev/fitness` | Host |
 | `build` | Both host release bundles through `build.sh` | Host |
 | `whitespace` | Whitespace errors in the candidate commit | Host |
-| `ci` | All four named jobs in the latest push-triggered Checks run | GitHub; always refreshed |
+| `linux` | Local gates, including `build`, then root container posture on the same commit | Lima Ubuntu arm64 VM; always refreshed |
+| `ci` | `Check` and `PowerShell scripts` in the latest push-triggered Checks run | GitHub; always refreshed |
 
 Release preparation owns coverage of these gates and reuses completed review proof where eligible. A story or spec
 never carries a task that re-runs a release gate. Runner receipts are bound to a single committed candidate;
 cross-commit reuse belongs in the qualification ledger with the input comparison. Story-level proof is the story's
-own tests plus the `fast` / `full` tiers in [Key Development Commands](KEY_DEVELOPMENT_COMMANDS.md#testing).
+own tests plus the `fast` / `full` tiers in [Key Development Commands](KEY_DEVELOPMENT_COMMANDS.md#testing-unit-integration-e2e).
 
 For the first host build, populate the verified native archive cache using the command in
 [Key Development Commands](KEY_DEVELOPMENT_COMMANDS.md#build). PostgreSQL contract tests may use container-provisioned
@@ -63,35 +64,53 @@ CI receipts also retain the run ID, URL and job results in the log. Attempts are
 a failed retry never falls back to an older pass. Preserve the final evidence directory with the release record.
 
 Within the runner, `--resume` reuses only intact successful receipts for the same clean commit, commands and environment. Dependencies,
-assets, cleanup, database, build and CI run again because their outputs or external state can change independently of
+assets, cleanup, database, build, Linux and CI run again because their outputs or external state can change independently of
 Git. A changed commit, dirty checkout, changed environment or missing/modified evidence makes a receipt `stale`.
 An interrupted attempt remains `incomplete`. `--status` reports recorded results, not current external service health.
 Do not edit the shared checkout while checks run; candidate identity is checked before and after execution.
 
 Exit codes: **0** means the selected automated gates passed, **1** means failure, **2** means invalid arguments, and
-**3** means missing/stale/incomplete coverage. `--quick` skips only workspace tests and always exits 3 on an otherwise
-successful run. `--gate` and `--local` success do not imply full release readiness. Select manual/live/platform checks
-for changed surfaces and claims in this release. Do not run the whole inventory as a routine release gate.
+**3** means missing/stale/incomplete coverage. `--quick` reports and skips the workspace `tests` gate and the composite
+`linux` gate and exits 3 on an otherwise successful run. `--gate` and `--local` results cover only the selected
+automated gates. Select only the manual, live, and platform checks relevant to changed surfaces and claims in this release.
 
 A milestone's qualification ledger lives in its plan bundle, not in the public tree, and never adds release gates.
 Unavailable environments needed for a selected claim
 remain holds; optional device and owner audits are deferred under the experimental-stage testing scope below.
 
-The final CI gate requires `Check`, `Container boundary`, `PowerShell scripts`, and `PostgreSQL contract` each green
-by name on the full HEAD SHA. It excludes pull-request runs whose Check job may intentionally skip. Local checks can
-run before pushing; GitHub is consulted only by `ci`. Linux-native container posture and native Windows x64 release
-qualification remain distinct from successful macOS checks.
+GitHub `Checks` runs only `Check` (dependencies, assets, format, analyze, architecture) and `PowerShell scripts`.
+The final CI gate requires both green by name on the full HEAD SHA and excludes pull-request runs whose Check job
+may intentionally skip. Tests, fitness, PostgreSQL and container posture run through local gates and the `linux`
+gate. A test regression fails the local `tests` gate while GitHub stays green. Local results carry to the final
+squash commit through the qualification ledger's input comparison: a squash commit has the branch tip's Git tree.
+GitHub is consulted only by `ci`. Native Windows x64 qualification remains separate.
 
 Use one final push-triggered Checks run. Inspect failures before retrying. For a confirmed infrastructure failure,
-rerun only the failed jobs in that run. A test failure requires diagnosis and focused local verification; if source
+rerun only the failed jobs in that run. A check failure requires diagnosis and focused local verification; if source
 changes, re-squash and push the corrected candidate, then obtain its exact-SHA checks. Do not repeat passed local
 gates or live journeys whose inputs are unchanged. A failure is never waived as flaky without evidence.
 
 ## Checks on this machine and its VMs
 
-Use the Mac for default suites, PostgreSQL, host builds, UI and live providers. Use Docker Desktop for its container
-conformance lane and the Ubuntu VM's own Docker Engine for the native Linux lane. Share a committed source snapshot,
-but keep `.dart_tool`, build outputs and test data separate per OS. A running VM is a prerequisite, not gate evidence.
+Use the Mac for default suites, PostgreSQL, host builds, UI and live providers. Docker Desktop supplies local
+container resources. The native Linux lane uses Lima, replacing the Parallels Ubuntu release lane; the
+[Parallels guide](PARALLELS_LINUX_AGENT_VM.md) remains for desktop-agent use. Install Lima with `brew install lima`.
+The `linux` gate creates `dartclaw-release-linux` from `dev/tools/lima/linux.yaml` once and reuses it. The template
+provides Ubuntu arm64, its own Docker Engine and Dart (pinned with the Check job). The VM shares no host directories.
+A Git bundle transfers the candidate `HEAD` and the host's `refs/heads/main`. The runner verifies the candidate's
+commit and tree in a clean guest checkout and installs the bundled ref as local `main` for `doc-cuts`.
+The guest keeps its own `.dart_tool`, build outputs and test data. Gate evidence comes from the checks inside the
+running VM.
+
+```bash
+bash dev/tools/release_check.sh --version 0.27.0 --gate linux
+```
+
+`--local` includes `linux` after the host gates. The guest runs `--local --omit linux,ci` to prevent recursion and
+GitHub API calls, then runs `sudo -E env "PATH=$PATH" bash dev/testing/profiles/container/run.sh --ci`. The guest
+sets `DARTCLAW_NATIVE_ALLOW_DOWNLOAD=1` for the build's checksum-pinned native archive; pinned release-asset downloads
+are allowed. The host receipt retains combined output and the candidate identity. Any failed guest gate stops the
+lane before the profile; a failed profile fails the lane. A broken VM error names the VM and its recreation command.
 
 The PowerShell parser and Error-severity analyzer have one entry point shared with CI:
 
@@ -107,12 +126,12 @@ wait for that matrix on every iteration.
 
 ## Repository protection setup
 
-The release cut requires all four named checks green on the pushed main commit. A required-check ruleset for `main`
+The release cut requires `Check` and `PowerShell scripts` green on the pushed main commit. A required-check ruleset for `main`
 is separate repository setup: enabling it would block the documented direct squash push until that exact commit has
 passed checks on another ref. Set it up with a direct-push-compatible sequence outside the release cut. No PR is
 required by this release workflow. Maintainers record milestone status in the private `docs/ROADMAP.md`.
 
-**Release-workflow dry run.** When a release lands a change to `dev/tools/build_*`, `dev/tools/install_windows_test.ps1`, `install.ps1`, `dev/testing/profiles/windows-runtime/`, or `.github/workflows/release-binaries.yml`, run `Release Binaries` from `workflow_dispatch` on the branch before squashing. It builds all five targets, validates the archives, runs the Windows smoke and the installer test, and publishes nothing — `publish` is gated on `github.ref_type == 'tag'`. Nothing else exercises that matrix until the tag is pushed.
+**Release-workflow dry run.** When a release lands a change to `dev/tools/build_*`, `dev/tools/install_windows_test.ps1`, `install.ps1`, `dev/testing/profiles/windows-runtime/`, or `.github/workflows/release-binaries.yml`, run `Release Binaries` from `workflow_dispatch` on the branch before squashing. It builds all four targets, validates the archives, runs the Windows smoke and the installer test, and publishes nothing — `publish` is gated on `github.ref_type == 'tag'`. Nothing else exercises that matrix until the tag is pushed.
 
 ## Pre-tag gates
 
@@ -143,7 +162,7 @@ experimental-stage scope in
 
 ## Post-tag audits
 
-- Release assets: confirm GitHub Releases has `dartclaw-v{VERSION}-macos-arm64.tar.gz`, `dartclaw-v{VERSION}-macos-x64.tar.gz`, `dartclaw-v{VERSION}-linux-x64.tar.gz`, `dartclaw-v{VERSION}-linux-arm64.tar.gz`, and `dartclaw-v{VERSION}-windows-x64.zip`, each with a matching `.sha256`, plus the matching five `dartclaw-workflow-v{VERSION}-<target>` archives with the same extensions and their own `.sha256`; `SHA256SUMS.txt` must cover all ten archives. Each archive must contain `VERSION` and its matching executable under `bin/`, contain no SQLite native library or mapping, and include only the selected native embedding libraries documented by its manifest.
+- Release assets: confirm GitHub Releases has `dartclaw-v{VERSION}-macos-arm64.tar.gz`, `dartclaw-v{VERSION}-linux-x64.tar.gz`, `dartclaw-v{VERSION}-linux-arm64.tar.gz`, and `dartclaw-v{VERSION}-windows-x64.zip`, each with a matching `.sha256`, plus the matching four `dartclaw-workflow-v{VERSION}-<target>` archives with the same extensions and their own `.sha256`; `SHA256SUMS.txt` must cover all eight archives. Each archive must contain `VERSION` and its matching executable under `bin/`, contain no SQLite native library or mapping, and include only the selected native embedding libraries documented by its manifest.
 - Lean archive layout: each archive contains `VERSION`, `bin/dartclaw-workflow` (or `.exe`), no SQLite asset, and only its documented optional native embedding files.
 - Homebrew: approve the `Release Binaries` workflow's `homebrew` job in the `distribution-publication` environment, confirm both rendered formulas reached `DartClaw/homebrew-dartclaw`, then verify co-installation with `brew tap DartClaw/dartclaw && brew install dartclaw dartclaw-workflow && dartclaw --version && dartclaw-workflow --version`. If the environment secret is absent, render with `dart run dev/tools/render_homebrew_formula.dart` and publish manually. A successful job that reports skipping publication is not publication evidence; the same applies to Scoop.
 - Scoop: confirm the `scoop` job rendered each published Windows ZIP checksum into its own manifest in `DartClaw/scoop-dartclaw` (`bucket/dartclaw.json`, `bucket/dartclaw-workflow.json`), then follow [Windows Scoop Qualification](../testing/scenarios/windows-scoop.md) for the install/version/update/uninstall audit on Windows x64 for both, including co-installation with `scoop install dartclaw/dartclaw dartclaw/dartclaw-workflow && dartclaw --version && dartclaw-workflow --version`. If publication fails, render with `dev/tools/render_scoop_manifest.dart` (adding `--artifact dartclaw-workflow` for the lean manifest) and publish manually.
@@ -166,7 +185,7 @@ Then bump in a single commit:
 
 `dev/tools/check_versions.sh` enforces every pin above except the schema `$id` — the pubspecs, `version.dart`, both
 Homebrew formulas, both Scoop manifests including each manifest's concrete install-time URL, and the CHANGELOG's top
-heading. The per-push fitness runner, release check `versions` gate and the tag workflow's *Verify release version lockstep*
+heading. The local fitness runner, release check `versions` gate and the tag workflow's *Verify release version lockstep*
 step all run it, so a drifted packaging pin or a heading left at `[Unreleased]` past the pin fails the build instead
 of shipping a formula or manifest naming assets that do not exist for that tag. The `$id` is held by the schema
 generator's `--check`, which the fitness suite runs.
@@ -178,7 +197,7 @@ Development happens directly on `feat/<version>` — no nested sub-branches for 
 1. **Scope-frozen** commit on `feat/<version>` – final version pins and CHANGELOG entry, consolidated private PRD and exported-bundle cleanup. Assemble review evidence and run only missing or affected checks. The dry run above is required if this release touched the release-workflow surface. Do not push each preparation fix for CI.
 2. **Squash-merge** to `main` with the release-style message; that commit *is* the release. Compare the final candidate with the evidence inputs, run cleanup/version/whitespace checks, and fill any coverage gaps. Push once, then run `release_check.sh --version <version> --gate ci` after its Checks run is green. Require coverage of every gate in the ledger, all selected manual checks, and an exact-SHA green CI receipt. `--status` must exit 0 only when using the runner for all gate evidence; reused review evidence is recorded in the ledger, never relabelled as a fresh receipt. Maintainers mark the milestone "release-ready, awaiting tag" in the private roadmap.
 3. **Tag** annotated `v<version>` from the squash commit; push tag.
-   The release workflow stages ten archives across five native targets privately. Only after every build and the staged Windows
+   The release workflow stages eight archives across four native targets privately. Only after every build and the staged Windows
    installer test pass does one job publish the archives, their checksums, and aggregate `SHA256SUMS.txt`. Homebrew and
    Scoop publication starts only after that job succeeds.
 4. **Delete the remote feature branch; retain the local `feat/<version>` branch as the release-development archive.**

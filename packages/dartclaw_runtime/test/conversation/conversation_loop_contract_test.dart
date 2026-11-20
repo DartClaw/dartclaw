@@ -621,11 +621,9 @@ void main() {
 
     turns.clearBusy();
     turns.setBusy();
-    for (var pumps = 0; pumps < 200 && turns.reserveCount < 2; pumps++) {
-      await pumpEventQueue();
-    }
-    expect(turns.reserveCount, 2, reason: 'the freed slot is re-attempted once');
+    await pumpEventQueue();
     await conversation.drain();
+    expect(turns.reserveCount, 2, reason: 'the freed slot is re-attempted once');
     expect(turns.executeCount, 0);
     expect((await conversation.snapshot(sessionId)).findSubmission('raced')?.workState, ConversationWorkState.queued);
 

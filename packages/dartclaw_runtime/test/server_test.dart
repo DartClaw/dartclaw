@@ -10,6 +10,7 @@ import 'package:dartclaw_runtime/src/turn_runner.dart' show TurnRunner;
 import 'package:dartclaw_testing/dartclaw_testing.dart'
     show FakeProjectService, InMemoryTaskRepository, RecordingGitRunner, openPreparedTaskBackend;
 import 'package:dartclaw_workflow/testing.dart';
+import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart' show Request, Response;
 import 'package:test/test.dart';
@@ -212,6 +213,36 @@ void main() {
     expect(body, contains('href="/"'));
   });
 
+  test('session reset reaches the reset service the server was composed with', () async {
+    final resetServer = composeServer(
+      core: ServerCoreDeps(
+        sessions: sessions,
+        messages: messages,
+        worker: worker,
+        staticDir: _staticDirPath,
+        resetService: SessionResetService(sessions: sessions, messages: messages, resetHour: -1),
+      ),
+      turn: ServerTurnDeps(
+        turns: composeServerTurns(
+          sessions: sessions,
+          messages: messages,
+          worker: worker,
+          behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'),
+        ),
+      ),
+    );
+    addTearDown(resetServer.shutdown);
+    final session = await sessions.createSession();
+    await messages.insertMessage(sessionId: session.id, role: 'user', content: 'before reset');
+
+    final response = await resetServer.handler(
+      Request('POST', Uri.parse('http://localhost/api/sessions/${session.id}/reset')),
+    );
+
+    expect(response.statusCode, 200, reason: await response.readAsString());
+    expect(await messages.getMessages(session.id), isEmpty);
+  });
+
   test('workflow-enabled server sends slash-prefixed text through the normal turn path', () async {
     final sessionDataDir = p.join(tempDir.path, 'slash-data');
     final localSessions = SessionService(baseDir: sessionDataDir);
@@ -324,6 +355,42 @@ void main() {
 
       expect(response.statusCode, 403);
     });
+  });
+
+  test('the request log redacts bearer secrets carried in the query string', () async {
+    final config = DartclawConfig(
+      server: ServerConfig(host: 'localhost', dataDir: tempDir.path),
+    );
+    server = composeServer(
+      core: ServerCoreDeps(
+        sessions: sessions,
+        messages: messages,
+        worker: worker,
+        staticDir: _staticDirPath,
+        authEnabled: false,
+        config: config,
+      ),
+      turn: ServerTurnDeps(
+        turns: composeServerTurns(
+          sessions: sessions,
+          messages: messages,
+          worker: worker,
+          behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'),
+          config: config,
+        ),
+      ),
+    );
+    final logged = <String>[];
+    final sub = Logger('HTTP').onRecord.listen((record) => logged.add(record.message));
+    addTearDown(sub.cancel);
+
+    for (final query in ['token=gw-secret&view=1', 't=link-secret', 'secret=hook-secret']) {
+      await server.handler(Request('GET', Uri.parse('http://localhost/health?$query'), headers: {'host': 'localhost'}));
+    }
+
+    final log = logged.join('\n');
+    expect(log, isNot(anyOf(contains('gw-secret'), contains('link-secret'), contains('hook-secret'))));
+    expect(log, allOf(contains('token=REDACTED&view=1'), contains('t=REDACTED'), contains('secret=REDACTED')));
   });
 
   test('authentication-disabled run-now rejects cross-origin browser requests', () async {
@@ -693,12 +760,13 @@ void main() {
     test('container-mode local-path registration is judged against the _local directory', () async {
       final runtimeRoot = Directory(p.join(tempDir.path, 'runtime-repo'))..createSync();
       final outside = Directory(p.join(tempDir.path, 'elsewhere'))..createSync();
+      final dataDir = Directory(p.join(runtimeRoot.path, '.dartclaw-example'))..createSync();
       final containerServer = composeServer(
         core: ServerCoreDeps(
           sessions: sessions,
           messages: messages,
           worker: worker,
-          dataDir: tempDir.path,
+          dataDir: dataDir.path,
           staticDir: _staticDirPath,
           gatewayToken: 'test-token',
           tokenService: TokenService(token: 'test-token'),
@@ -738,17 +806,23 @@ void main() {
         ),
         observability: ServerObservabilityDeps(eventBus: eventBus),
       );
-      Future<Response> register(String localPath) async => containerServer.handler(
+      Future<Response> register(String localPath, {String name = 'Local App'}) async => containerServer.handler(
         Request(
           'POST',
           Uri.parse('http://localhost/api/projects'),
-          body: jsonEncode({'name': 'Local App', 'localPath': localPath}),
+          body: jsonEncode({'name': name, 'localPath': localPath}),
           headers: {'content-type': 'application/json', 'authorization': 'Bearer test-token'},
         ),
       );
 
       final inside = await register(p.join(runtimeRoot.path, 'checkout'));
       expect(inside.statusCode, 201);
+
+      final inDataDir = await register(p.join(dataDir.path, 'checkout'), name: 'Data Dir App');
+      expect(inDataDir.statusCode, 400);
+      final dataDirError =
+          (jsonDecode(await inDataDir.readAsString()) as Map<String, dynamic>)['error'] as Map<String, dynamic>;
+      expect(dataDirError['code'], 'LOCAL_PATH_NOT_MOUNTABLE');
 
       final refused = await register(p.join(outside.path, 'checkout'));
       expect(refused.statusCode, 400);
@@ -757,6 +831,81 @@ void main() {
       final mountRoots = ((error['details'] as Map<String, dynamic>)['mountRoots'] as List<dynamic>).cast<String>();
       expect(mountRoots, contains(runtimeRoot.resolveSymbolicLinksSync()));
       expect(mountRoots, isNot(contains(Directory.current.resolveSymbolicLinksSync())));
+    });
+
+    test('container-mode local-path registration refuses the workspace in either data-directory layout', () async {
+      for (final nested in [false, true]) {
+        final layout = nested ? 'nested' : 'standalone';
+        final runtimeRoot = Directory(p.join(tempDir.path, 'workspace-rule-$layout', 'runtime-repo'))
+          ..createSync(recursive: true);
+        final dataDir = Directory(
+          nested
+              ? p.join(runtimeRoot.path, '.dartclaw-example')
+              : p.join(tempDir.path, 'workspace-rule-$layout', 'state'),
+        )..createSync(recursive: true);
+        final containerServer = composeServer(
+          core: ServerCoreDeps(
+            sessions: sessions,
+            messages: messages,
+            worker: worker,
+            dataDir: dataDir.path,
+            staticDir: _staticDirPath,
+            gatewayToken: 'test-token',
+            tokenService: TokenService(token: 'test-token'),
+            config: DartclawConfig(
+              server: ServerConfig(dataDir: dataDir.path),
+              container: const ContainerConfig(enabled: true, image: 'dartclaw-agent:test'),
+              projects: const ProjectConfig(allowApiLocalPath: true),
+            ),
+          ),
+          turn: ServerTurnDeps(
+            turns: composeServerTurns(
+              sessions: sessions,
+              messages: messages,
+              worker: worker,
+              behavior: BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test'),
+              eventBus: eventBus,
+            ),
+          ),
+          tasks: ServerTaskDeps(
+            taskService: taskService,
+            worktreeManager: worktreeManager,
+            taskFileGuard: taskFileGuard,
+            runnerObserver: runnerObserver,
+            mergeExecutor: mergeExecutor,
+            projectService: FakeProjectService(
+              localProject: Project(
+                id: '_local',
+                name: 'runtime-repo',
+                remoteUrl: '',
+                localPath: runtimeRoot.path,
+                defaultBranch: 'main',
+                status: ProjectStatus.ready,
+                createdAt: DateTime.utc(2026, 11, 20),
+              ),
+            ),
+            eventBus: eventBus,
+          ),
+          observability: ServerObservabilityDeps(eventBus: eventBus),
+        );
+        Future<Response> register(String localPath, String name) async => containerServer.handler(
+          Request(
+            'POST',
+            Uri.parse('http://localhost/api/projects'),
+            body: jsonEncode({'name': name, 'localPath': localPath}),
+            headers: {'content-type': 'application/json', 'authorization': 'Bearer test-token'},
+          ),
+        );
+
+        final inWorkspace = await register(p.join(dataDir.path, 'workspace', 'checkout'), 'Workspace $layout');
+        expect(inWorkspace.statusCode, 400, reason: layout);
+        final error =
+            (jsonDecode(await inWorkspace.readAsString()) as Map<String, dynamic>)['error'] as Map<String, dynamic>;
+        expect(error['code'], 'LOCAL_PATH_NOT_MOUNTABLE', reason: layout);
+
+        final inClones = await register(p.join(dataDir.path, 'projects', 'checkout'), 'Clones $layout');
+        expect(inClones.statusCode, 201, reason: layout);
+      }
     });
 
     test('task artifact usage reads the core dataDir instead of config.server.dataDir', () async {

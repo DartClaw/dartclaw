@@ -7,6 +7,8 @@ import 'package:dartclaw_core/dartclaw_core.dart';
 import 'package:logging/logging.dart';
 import 'package:uuid/uuid.dart';
 
+import 'execution_surface.dart';
+import 'host_worktree_git.dart';
 import 'merge_executor.dart';
 import 'pr_creator.dart';
 import 'remote_push_service.dart';
@@ -38,6 +40,18 @@ final class ReviewSuccess extends ReviewResult {
   final Task task;
 
   const new(this.task);
+}
+
+/// An automatic accept is held until a person reviews [paths].
+final class ReviewExecutionSurfaceHold extends ReviewResult {
+  final String taskId;
+  final List<String> paths;
+
+  const new({required this.taskId, required this.paths});
+
+  String get message =>
+      'Execution surface changes require a person to review ${paths.join(', ')}. '
+      'Accept this task in the web UI or through the API; an agent tool cannot approve this hold.';
 }
 
 /// Review action failed because the merge produced conflicts.
@@ -138,7 +152,7 @@ class TaskReviewService {
   }
 
   /// Executes a review action for [taskId].
-  Future<ReviewResult> review(String taskId, String action, {String? comment, String trigger = 'user'}) async {
+  Future<ReviewResult> review(String taskId, String action, {String? comment, required String trigger}) async {
     return _withTaskLock(taskId, () => _reviewUnlocked(taskId, action, comment: comment, trigger: trigger));
   }
 
@@ -152,6 +166,7 @@ class TaskReviewService {
     final result = await review(taskId, action, comment: comment, trigger: trigger);
     return switch (result) {
       ReviewSuccess(:final task) => ChannelReviewSuccess(taskTitle: task.title, action: action),
+      ReviewExecutionSurfaceHold(:final message) => ChannelReviewError(message),
       ReviewMergeConflict(:final taskTitle) => ChannelReviewMergeConflict(taskTitle: taskTitle),
       ReviewNotFound(taskId: final missingTaskId) => ChannelReviewError(
         'No task found with ID ${_shortTaskId(missingTaskId)}.',
@@ -188,6 +203,7 @@ class TaskReviewService {
 
     Task? task;
     TaskStatus? oldStatus;
+    var forceDeleteBranch = false;
 
     try {
       task = await _tasks.get(taskId);
@@ -205,6 +221,49 @@ class TaskReviewService {
         );
       }
 
+      if (targetStatus == TaskStatus.accepted) {
+        if (task.worktreeJson != null && !task.isWorkflowOwnedGitTask && trigger != 'user' && trigger != 'channel') {
+          final worktree = WorktreeInfo.fromJson(task.worktreeJson!);
+          var baseRef = _baseRef;
+          final project = await _cleanupProjectForTask(task);
+          if (taskTargetsExternalProject(task) && project == null) {
+            return ReviewActionFailed('Project "${taskProjectId(task)}" not found.');
+          }
+          final projectDir = project?.localPath ?? _worktreeManager?.projectDirFor(null) ?? _mergeExecutor?.projectDir;
+          if (projectDir == null) {
+            return const ReviewActionFailed('Worktree infrastructure is not available to inspect the task worktree.');
+          }
+          if (project != null) {
+            baseRef = await executionSurfaceBaseRef(
+              projectDir: projectDir,
+              defaultBranch: project.defaultBranch,
+              processRunner: _runGit,
+            );
+          }
+          final paths = await executionSurfacePaths(
+            projectDir: projectDir,
+            worktreePath: worktree.path,
+            baseRef: baseRef,
+            branch: worktree.branch,
+            processRunner: _runGit,
+          );
+          if (paths.isNotEmpty) {
+            await _tasks.updateFields(
+              taskId,
+              configJson: {
+                ...task.configJson,
+                executionSurfaceHoldKey: {'paths': paths},
+              },
+            );
+            return ReviewExecutionSurfaceHold(taskId: taskId, paths: paths);
+          }
+        }
+        if (task.configJson.containsKey(executionSurfaceHoldKey)) {
+          final config = {...task.configJson}..remove(executionSurfaceHoldKey);
+          task = await _tasks.updateFields(taskId, configJson: config);
+        }
+      }
+
       if (targetStatus == TaskStatus.accepted && task.worktreeJson != null && !task.isWorkflowOwnedGitTask) {
         final isProjectBacked = taskTargetsExternalProject(task);
 
@@ -213,7 +272,6 @@ class TaskReviewService {
           if (earlyFailure != null) return earlyFailure;
           // null means push succeeded — continue to transition
         } else if (_mergeExecutor != null) {
-          // Existing local merge flow (unchanged).
           final worktreeInfo = WorktreeInfo.fromJson(task.worktreeJson!);
           final strategy = _mergeStrategy == 'merge' ? MergeStrategy.merge : MergeStrategy.squash;
           final mergeResult = await _mergeExecutor.merge(
@@ -232,6 +290,7 @@ class TaskReviewService {
               details: details,
             );
           }
+          forceDeleteBranch = mergeResult is MergeSuccess && strategy == MergeStrategy.squash;
         } else {
           return const ReviewActionFailed(
             'Merge infrastructure is not available. Use the web UI or configure merge support.',
@@ -277,7 +336,13 @@ class TaskReviewService {
           task.worktreeJson != null &&
           !(targetStatus == TaskStatus.accepted && task.isWorkflowOwnedGitTask)) {
         final cleanupProject = await _cleanupProjectForTask(task);
-        await cleanupWorktree(_worktreeManager, _taskFileGuard, taskId, project: cleanupProject);
+        await cleanupWorktree(
+          _worktreeManager,
+          _taskFileGuard,
+          taskId,
+          project: cleanupProject,
+          forceDeleteBranch: forceDeleteBranch,
+        );
       }
 
       return ReviewSuccess(updated);
@@ -285,6 +350,11 @@ class TaskReviewService {
       return ReviewNotFound(taskId);
     } on VersionConflictException {
       return const ReviewActionFailed('Task was modified concurrently. Please refresh and try again.');
+    } on NoLocalRepositoryException catch (error) {
+      return ReviewActionFailed(error.message);
+    } on TamperedWorktreeException catch (error) {
+      _log.warning('Refusing to ${_displayAction(normalizedAction)} task $taskId: $error');
+      return ReviewActionFailed(error.toString());
     } on StateError {
       final currentTask = await _tasks.get(taskId);
       final previousStatus = oldStatus ?? currentTask?.status ?? TaskStatus.draft;
@@ -358,7 +428,8 @@ class TaskReviewService {
 
   Future<ReviewResult?> _prepareProjectBranchForPush(Task task, Project project, WorktreeInfo worktreeInfo) async {
     final worktreePath = worktreeInfo.path;
-    final statusResult = await _git(worktreePath, [
+    final projectDir = project.localPath;
+    final statusResult = await _git(projectDir, worktreePath, [
       'status',
       '--porcelain',
       '--untracked-files=all',
@@ -369,13 +440,13 @@ class TaskReviewService {
 
     final hasWorktreeChanges = _stdout(statusResult).trim().isNotEmpty;
     if (hasWorktreeChanges) {
-      final addResult = await _git(worktreePath, ['add', '-A'], action: 'stage worktree changes');
+      final addResult = await _git(projectDir, worktreePath, ['add', '-A'], action: 'stage worktree changes');
       if (addResult.exitCode != 0) {
         await _persistPushErrorArtifact(task.id, 'git add failed: ${_stderr(addResult)}');
         return const ReviewActionFailed('Failed to stage worktree changes before publish.');
       }
 
-      final commitResult = await _git(worktreePath, [
+      final commitResult = await _git(projectDir, worktreePath, [
         'commit',
         '-m',
         'task(${task.id}): ${task.title}',
@@ -386,8 +457,16 @@ class TaskReviewService {
       }
     }
 
-    final baseRef = await _resolvePublishBaseRef(worktreePath, project.defaultBranch);
-    final diffResult = await _git(worktreePath, ['diff', '--quiet', '$baseRef...HEAD'], action: 'verify publish diff');
+    final baseRef = await executionSurfaceBaseRef(
+      projectDir: projectDir,
+      defaultBranch: project.defaultBranch,
+      processRunner: _runGit,
+    );
+    final diffResult = await _git(projectDir, worktreePath, [
+      'diff',
+      '--quiet',
+      '$baseRef...HEAD',
+    ], action: 'verify publish diff');
     if (diffResult.exitCode > 1) {
       await _persistPushErrorArtifact(task.id, 'git diff verification failed: ${_stderr(diffResult)}');
       return const ReviewActionFailed('Failed to verify branch changes before publish.');
@@ -400,24 +479,18 @@ class TaskReviewService {
     return null;
   }
 
-  Future<String> _resolvePublishBaseRef(String worktreePath, String defaultBranch) async {
-    final originRef = 'origin/$defaultBranch';
-    final originResult = await _git(worktreePath, [
-      'rev-parse',
-      '--verify',
-      originRef,
-    ], action: 'resolve publish base ref');
-    if (originResult.exitCode == 0) {
-      return originRef;
-    }
-    return defaultBranch;
-  }
-
-  Future<ProcessResult> _git(String workingDirectory, List<String> arguments, {required String action}) async {
+  /// Runs [arguments] in [worktreePath] of [projectDir] through the
+  /// host-worktree authority; a [TamperedWorktreeException] propagates.
+  Future<ProcessResult> _git(
+    String projectDir,
+    String worktreePath,
+    List<String> arguments, {
+    required String action,
+  }) async {
     try {
-      return await _runGit(arguments, workingDirectory: workingDirectory);
+      return await runHostWorktreeGit(arguments, projectDir: projectDir, worktreePath: worktreePath, runner: _runGit);
     } on ProcessException catch (error, stackTrace) {
-      _log.warning('Failed to $action in $workingDirectory', error, stackTrace);
+      _log.warning('Failed to $action in $worktreePath', error, stackTrace);
       return ProcessResult(0, 128, '', error.message);
     }
   }
@@ -439,10 +512,6 @@ class TaskReviewService {
       switch (prResult) {
         case PrCreated(:final url):
           await _persistPrArtifact(taskId, 'Pull Request', ArtifactKind.pr, url, isFilePath: false);
-          return null;
-
-        case PrGhNotFound(:final instructions):
-          await _persistPrArtifact(taskId, 'PR Instructions', ArtifactKind.pr, instructions, isFilePath: true);
           return null;
 
         case PrCreationFailed(:final error, :final details):

@@ -108,6 +108,9 @@ class ContainerManager implements ContainerExecutor, VolatileContainerGeneratedS
   /// if an MCP bridge exists to configure a client against.
   final bool hasMcpBridge;
 
+  /// Client variables supplied by the host gateway for granted registry access.
+  final Map<String, String> registryClientEnvironment;
+
   final String buildContextDir;
   @override
   final String workingDir;
@@ -124,13 +127,15 @@ class ContainerManager implements ContainerExecutor, VolatileContainerGeneratedS
     this.volatileGeneratedState = false,
     this.artifactsDir,
     this.hasMcpBridge = false,
+    Map<String, String> registryClientEnvironment = const {},
     this.localPathAllowlist = const [],
     this.bridgeBinaryPath,
     required this.buildContextDir,
     this.workingDir = '/project',
     RunCommand? runCommand,
     StartCommand? startCommand,
-  }) : _ownerLabel = ownerLabel,
+  }) : registryClientEnvironment = Map.unmodifiable(registryClientEnvironment),
+       _ownerLabel = ownerLabel,
        _run = runCommand ?? Process.run,
        _start = startCommand ?? Process.start;
 
@@ -203,7 +208,7 @@ class ContainerManager implements ContainerExecutor, VolatileContainerGeneratedS
       final names = await ownedContainers(dataDir, runtimeBinary: runtimeBinary, runCommand: runCommand);
       for (final name in names) {
         try {
-          final result = await runCommand(runtimeBinary, ['rm', '-f', name]).timeout(runtimeProbeTimeout);
+          final result = await runCommand(runtimeBinary, ['rm', '-f', '-v', name]).timeout(runtimeProbeTimeout);
           if (result.exitCode != 0 && !_confirmsAbsence(result.stderr)) {
             throw StateError('${result.stderr}');
           }
@@ -277,11 +282,18 @@ class ContainerManager implements ContainerExecutor, VolatileContainerGeneratedS
     }
   }
 
-  /// Ensure the container image exists (build or pull).
+  /// Ensures the image exists, building only the missing default image.
+  ///
+  /// Throws [StateError] when a custom image is missing or the default build fails.
   Future<void> ensureImage() async {
     if (await imageExists(_binary, config.image, runCommand: _run)) {
       _log.info('Container image ${config.image} found for $profileId');
       return;
+    }
+    if (config.image != const ContainerConfig().image) {
+      throw StateError(
+        'Container image ${config.image} is unavailable. ${missingImageRemediation(_binary, config.image)}',
+      );
     }
     _log.info('Building container image ${config.image} for $profileId...');
     final dockerContextDir = p.join(buildContextDir, 'docker');
@@ -290,6 +302,12 @@ class ContainerManager implements ContainerExecutor, VolatileContainerGeneratedS
       throw StateError('Failed to build Docker image: ${buildResult.stderr}');
     }
   }
+
+  /// Returns build guidance for an unavailable image and the selected runtime.
+  static String missingImageRemediation(String runtimeBinary, String image) => image == const ContainerConfig().image
+      ? 'Build $image using docker/Dockerfile; see docs/guide/security.md.'
+      : 'Build it first with `$runtimeBinary build -t $image <context>`; '
+            'see docs/guide/security.md § Language Toolchains in the Agent Image.';
 
   /// Inspects an image without pulling or building it. Propagates command failures.
   static Future<bool> imageExists(String runtimeBinary, String image, {RunCommand runCommand = Process.run}) async {
@@ -320,7 +338,7 @@ class ContainerManager implements ContainerExecutor, VolatileContainerGeneratedS
     }
 
     // Remove stale container if exists
-    await _run(_binary, ['rm', '-f', containerName]);
+    await _run(_binary, ['rm', '-f', '-v', containerName]);
     _validateLocalPathProjectMounts();
     if (!volatileGeneratedState) await _createGeneratedStateDir();
     // Bind-mount ownership passes through verbatim on native Linux, so the
@@ -356,6 +374,8 @@ class ContainerManager implements ContainerExecutor, VolatileContainerGeneratedS
       // Host-owned artifacts destination: the execution writes its durable
       // outputs where the host reads them back from, inside the boundary.
       if (_artifactsMount case final mount?) ...['-v', mount],
+      // Registry variables first, so DartClaw's own win whatever a record holds.
+      ...registryClientEnvironment.entries.expand((entry) => ['-e', '${entry.key}=${entry.value}']),
       '-e', 'ANTHROPIC_BASE_URL=$providerBridgeUrl',
       config.image,
       volatileGeneratedState ? 'cat' : 'sleep',
@@ -446,7 +466,9 @@ class ContainerManager implements ContainerExecutor, VolatileContainerGeneratedS
       return;
     }
     await _run(_binary, ['stop', '-t', '5', containerName]);
-    final removal = await _run(_binary, ['rm', '-f', containerName]);
+    // `-v` removes the anonymous package-cache volume with the container; every
+    // removal here passes it, since `rm -f` alone leaves the volume behind.
+    final removal = await _run(_binary, ['rm', '-f', '-v', containerName]);
     // Generated state is deleted whether or not removal succeeded: a leaked
     // container must not also leave a readable generated home behind.
     await _deleteGeneratedStateDir(generatedStateDir, containerName);
@@ -618,9 +640,21 @@ class ContainerManager implements ContainerExecutor, VolatileContainerGeneratedS
 
   /// Translates a host path into the corresponding container path for a mounted directory.
   ///
-  /// Returns null when the host path is not covered by any configured mount.
+  /// Returns null when the host path is not covered by any configured mount, or
+  /// when it lands at or under an anonymous volume, which shows the container
+  /// an empty directory rather than the host file (a masked data directory).
   @override
   String? containerPathForHostPath(String hostPath) {
+    final translated = _translateThroughBinds(hostPath);
+    if (translated == null) return null;
+    for (final mount in _allMounts) {
+      if (mount.contains(':')) continue;
+      if (p.posix.equals(mount, translated) || p.posix.isWithin(mount, translated)) return null;
+    }
+    return translated;
+  }
+
+  String? _translateThroughBinds(String hostPath) {
     final normalizedHostPath = canonicalizePathWithExistingAncestors(hostPath);
     String? matchingRoot;
     String? matchingContainerRoot;

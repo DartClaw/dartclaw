@@ -1,30 +1,25 @@
 class Dartclaw < Formula
   desc "Security-conscious AI agent runtime"
   homepage "https://github.com/DartClaw/dartclaw"
-  version "0.28.0"
+  version "0.28.1"
   license "MIT"
 
+  # Releases carry no Intel Mac archive, so Homebrew refuses an Intel Mac by name.
   on_macos do
-    on_arm do
-      url "https://github.com/DartClaw/dartclaw/releases/download/v#{version}/dartclaw-v#{version}-macos-arm64.tar.gz"
-      sha256 "1111111111111111111111111111111111111111111111111111111111111111"
-    end
-
-    on_intel do
-      url "https://github.com/DartClaw/dartclaw/releases/download/v#{version}/dartclaw-v#{version}-macos-x64.tar.gz"
-      sha256 "2222222222222222222222222222222222222222222222222222222222222222"
-    end
+    depends_on arch: :arm64
+    url "https://github.com/DartClaw/dartclaw/releases/download/v#{version}/dartclaw-v#{version}-macos-arm64.tar.gz"
+    sha256 "1111111111111111111111111111111111111111111111111111111111111111"
   end
 
   on_linux do
     on_intel do
       url "https://github.com/DartClaw/dartclaw/releases/download/v#{version}/dartclaw-v#{version}-linux-x64.tar.gz"
-      sha256 "3333333333333333333333333333333333333333333333333333333333333333"
+      sha256 "2222222222222222222222222222222222222222222222222222222222222222"
     end
 
     on_arm do
       url "https://github.com/DartClaw/dartclaw/releases/download/v#{version}/dartclaw-v#{version}-linux-arm64.tar.gz"
-      sha256 "4444444444444444444444444444444444444444444444444444444444444444"
+      sha256 "3333333333333333333333333333333333333333333333333333333333333333"
     end
   end
 

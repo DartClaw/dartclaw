@@ -8,8 +8,7 @@ import 'workflow_artifact_committer.dart' show workflowHasArtifactProducer;
 import 'output_resolver.dart' show FileSystemOutput;
 import 'schema_presets.dart' show isReviewReportPathPreset, schemaPresets;
 import 'schema_validator.dart' show SchemaValidator;
-import 'workflow_output_contract.dart'
-    show executionEnvelopeOutputsKey, executionEnvelopeStepOutcomeKey, reservedEnvelopeOutputKeys;
+import 'workflow_output_contract.dart' show reservedEnvelopeOutputKeys;
 import 'step_config_resolver.dart' show WorkflowRoleDefaults, globMatchStepId, resolveStepConfig;
 import 'workflow_template_engine.dart';
 

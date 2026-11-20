@@ -487,10 +487,22 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
       // Deferred pause: siblings have settled, so no in-flight task wait gets
       // aborted into a spurious failure. No-ops when a teardown or hold
       // already moved the run off `running`.
-      await _pauseRun(
-        run,
-        mapCtx.abortReason ?? "Foreach step '${controllerStep.id}' was interrupted and can be resumed.",
-      );
+      final hold = context.executionSurfaceHold;
+      if (hold != null) {
+        final refreshedRun = (await _repository.getById(run.id)) ?? run;
+        await _transitionStepAwaitingApproval(
+          refreshedRun,
+          controllerStep,
+          context,
+          stepIndex: stepIndex,
+          reason: hold.message,
+        );
+      } else {
+        await _pauseRun(
+          run,
+          mapCtx.abortReason ?? "Foreach step '${controllerStep.id}' was interrupted and can be resumed.",
+        );
+      }
       return null;
     }
     var tokenUsageComplete = true;
@@ -605,7 +617,7 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
       context['step.${controllerStep.id}.outcome'] = 'blocked';
       context['step.${controllerStep.id}.outcome.reason'] =
           "Foreach step '${controllerStep.id}': ${mapCtx.blockedCount} item(s) blocked (recoverable): "
-          '${_sanitizeAgentReportedText(blockedIds.join(', '))}';
+          '${scrubAgentReportedText(blockedIds.join(', '))}';
     }
     return MapStepResult(
       results: List<dynamic>.from(mapCtx.results),
@@ -1008,6 +1020,13 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
             mergeResolveEnabled: definition.gitStrategy?.mergeResolve.enabled == true,
           );
           switch (promotionResult) {
+            case PromotionHeld(:final hold):
+              context.executionSurfaceHold ??= WorkflowExecutionSurfaceHold.fromPromotion(storyBranch, hold);
+              mapCtx.aborted = true;
+              mapCtx.inFlightCount--;
+              await persistProgress();
+              stopAfterPromotion = true;
+              return;
             case PromotionSuccess(:final commitSha):
               if (storyId != null && storyId.isNotEmpty) promotedIds.add(storyId);
               context['${controllerStep.id}[$iterIndex].promotion'] = 'success';
@@ -1048,6 +1067,13 @@ extension WorkflowExecutorForeachIterationRunner on WorkflowExecutor {
                   return;
                 }
                 switch (resolveResult) {
+                  case final WorkflowGitPromotionHeld hold:
+                    context.executionSurfaceHold ??= WorkflowExecutionSurfaceHold.fromPromotion(storyBranch, hold);
+                    mapCtx.aborted = true;
+                    mapCtx.inFlightCount--;
+                    await persistProgress();
+                    stopAfterPromotion = true;
+                    return;
                   case WorkflowGitPromotionSuccess(:final commitSha):
                     if (storyId != null && storyId.isNotEmpty) promotedIds.add(storyId);
                     context['${controllerStep.id}[$iterIndex].promotion'] = 'success';
@@ -1321,24 +1347,7 @@ String? _foreachEscalatedHold(MapStepContext mapCtx) {
 String? _foreachBlockerDetail(WorkflowFailure? failure) {
   final trimmed = failure?.message.trim();
   if (trimmed == null || trimmed.isEmpty) return null;
-  return _sanitizeAgentReportedText(trimmed);
-}
-
-/// Flattens and bounds agent-reported text before embedding it in an
-/// operator-facing reason: ANSI/CSI escape sequences are removed, whitespace
-/// collapses to single spaces, any remaining control characters – including
-/// the C1 range (U+0080–U+009F, single-code-point CSI/OSC introducers some
-/// terminals honor) – are stripped, and the value is truncated. Agent output
-/// is untrusted; the surrounding engine-built sentence must stay
-/// authoritative.
-String _sanitizeAgentReportedText(String value, {int maxLength = 300}) {
-  final flattened = value
-      .replaceAll(RegExp(r'\x1B\[[0-9;]*[A-Za-z]'), '')
-      .replaceAll(RegExp(r'\s+'), ' ')
-      .replaceAll(RegExp(r'[\x00-\x1F\x7F-\x9F]'), '')
-      .trim();
-  if (flattened.length <= maxLength) return flattened;
-  return '${flattened.substring(0, maxLength)}…';
+  return scrubAgentReportedText(trimmed);
 }
 
 Set<String> _completedForeachSubStepIds(WorkflowContext context, String stepId, int iterIndex) {

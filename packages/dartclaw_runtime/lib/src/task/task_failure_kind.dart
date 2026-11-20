@@ -15,7 +15,6 @@ enum TaskFailureReason implements TaskFailureKind {
   projectSetup,
   missingArtifactInput,
   sessionMissing,
-  absentPrompt,
   readOnlyMutation,
   budgetExceeded,
   loopDetected,

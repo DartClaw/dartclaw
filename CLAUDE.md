@@ -18,6 +18,7 @@ DartClaw is **pragmatic, lightweight, adaptable, and approachable**. This is a p
 - **Single user, breaking changes acceptable.** Fix production code that causes a test hazard or defect in the same change; never defer a fix because it touches production code.
 - **Approachable over clever.** Plain, readable code beats elegant indirection – the codebase must stay small, auditable, and easy to pick up.
 - **When in doubt, leave it out.** Missing is cheap to add later; bloat is expensive to remove. Cutting scope is a legitimate resolution.
+- **Good enough for real use, not complete.** A change is done when it works on the paths in actual use. Handle an edge case only when it has occurred in use or risks a security boundary, data loss, or unbounded cost; any other unsupported case fails with a clear error, and a review finding about a hypothetical case is dropped, not fixed or backlogged. The bar is `dev/state/PRODUCT.md` § Proportionality; an open direction, strategy, or design question is settled by its § Deciding.
 - **Model-first delegation.** Judgment belongs to the model, behind a schema or tool contract. The host validates once, bounds, persists and enforces – and never re-derives, repairs, defaults or overrules a model-supplied value; a value that fails its contract fails the step and is re-asked. No repair ladders, sentinel defaults, or prose scraping over model or user text. Documented templates: `memory_journal.dart`, `heartbeat_job.dart`, `merge_resolve_coordinator.dart` + `dartclaw-merge-resolve/SKILL.md`, `review_artifact_policy.dart`, `content_classifier.dart`/`anthropic_api_classifier.dart`, `execution_envelope_schema.dart`/`prompt_augmenter.dart`.
 - **One authority per concern.** Every concern has exactly one owner; a second implementation of an existing seam – parser, validator, resolver, formatter, schema constant, policy evaluator – is a defect, however well written. Two implementations are two answers with no arbiter, and they drift. Templates: `memory_corpus_authority.dart`, `review_artifact_policy.dart`, `execution_envelope_schema.dart`.
 
@@ -49,9 +50,11 @@ Keep this root file lean – cross-cutting rules here, package-specific ones in 
 
 Documents here are read whole when their trigger matches, so keep them short and trim stale entries when you append. Split one that grows too long into topic files beside it, leaving a pointer line per file in it; open a topic file only when the task names its topic. Skills refer to documents by entry name, so keep names stable.
 
+When a document's factual description of the code (a path, symbol, route, label or command) disagrees with the code, trust the code and fix or delete the stale statement in the same change. When it states a rule, invariant, decision or spec, or a behaviour the code may have broken, surface the conflict, because either side may be the defect.
+
 Create a document that does not exist yet, and its entry here, from `project-document-templates.md`, or through a subagent that invokes the `andthen:init` skill with `seed <name>` when that file is not loaded. Planning documents (PRDs, plans, FIS, roadmap, research, wireframes) are canonical in the private repo `../dartclaw-private/`, absent from a public-only checkout; public work sees them only as exported bundles.
 
-- **Product** – `dev/state/PRODUCT.md`: vision, philosophy, scope, non-goals (firmly rejected concepts included), Proportionality facts. Read before proposing a feature, a design, or new machinery, or triaging a request: features anchor to it, and its stage and scale size what gets built.
+- **Product** – `dev/state/PRODUCT.md`: vision, philosophy, scope, the Deciding rules, non-goals (firmly rejected concepts included), Proportionality facts. Read before proposing a feature, a design, or new machinery, triaging a request, or settling an open direction or strategy question: features anchor to it, its stage and scale size what gets built, and § Deciding says which option wins and what only the owner decides.
 - **Roadmap** – `../dartclaw-private/docs/ROADMAP.md` (private): the sole roadmap – active milestone, follow-ups, future scope. Read when sequencing work across milestones; maintainers update it when a milestone opens or ships. Public-only work uses its assigned requirements or exported plan; never create a public mirror.
 - **Specs & Plans** – `dev/bundle/docs/specs/<version-or-feature>/` (support docs in `dev/bundle/docs/`, private `docs/` layout preserved): transient exported copies of the `prd.md`, `plan.json`, and one FIS per story (`s01-*.md`, …) that are canonical in private `docs/specs/`; ADRs are not bundled, and `dev/state/SPEC-LIFECYCLE.md` says when bundle files appear and disappear. Read the governing FIS before implementing; update the FIS and its story's `plan.json` row as execution proceeds. `plan.json` has one writer per copy at a time, so a `plan` breakdown's story subagents never write it. An oversized FIS is a story too big: decompose it (`OVERSIZE:`), never trim it.
 - **Decisions** – `dev/state/DECISIONS.md`: ADR index, Still Current notes, supersession lineage. Read before proposing or changing a design or architecture choice; settled decisions are not relitigated without new evidence.
@@ -90,7 +93,7 @@ Run from this checkout: `dev/tools/dartclaw-workflows/run.sh` – full documenta
 
 ### Project Guidelines and Standards
 - **Read** `dev/guidelines/DEVELOPMENT-ARCHITECTURE-GUIDELINES.md` before coding, architecture, UX/UI, or review work: CUPID, DDD, scalability/resilience, coding standards, and § Review Defect Classes – the two named classes every review reports as defects (*prose parsing / repair ladder / sentinel over model or user text*; *second implementation of an existing seam*).
-- **Read** `dev/guidelines/DART-EFFECTIVE-GUIDELINES.md` before writing Dart: style, documentation, usage, API design, async, error handling, Dart 3.x features, linter config.
+- **Read** `dev/guidelines/DART-EFFECTIVE-GUIDELINES.md` § Dart 3.13 and § Dart 3.14 before writing Dart: the workspace is on language version 3.13, newer than most Dart a model has seen. Read the whole file when simplifying or reviewing Dart: style, documentation, usage, API design, async, error handling, Dart 3.x features, linter config – breaches there are cheap to fix afterwards.
 - **Read** `dev/guidelines/DART-PACKAGE-GUIDELINES.md` when touching a pubspec or workspace package: structure, versioning, pub.dev scoring, publishing.
 - **Read** `dev/guidelines/HTMX-GUIDELINES.md` before writing web UI fragments: attributes, server-side rendering, streaming updates, error handling, security.
 - **Read** `dev/guidelines/TRELLIS-GUIDELINES.md` before writing templates: escaping rules, fragment patterns, HTMX integration, security.
@@ -101,7 +104,7 @@ Run from this checkout: `dev/tools/dartclaw-workflows/run.sh` – full documenta
 - Vendored third-party assets (e.g. highlight.js) live in `packages/dartclaw_runtime/lib/src/static/` – see its `VENDORS.md` for versions and upgrade instructions.
 - Never reference specific story IDs or titles in code, filenames, or user-facing docs (project/development documents are the exception).
 - Version-specific documents (qualification ledgers, milestone runbooks) live in the plan bundle `dev/bundle/docs/specs/<version>/` and canonically in private `docs/specs/<version>/`, never elsewhere in the public tree.
-- Tests must run on Linux CI and local macOS – prefer Dart APIs over platform-specific shell flags; see `TESTING-STRATEGY.md` for POSIX file-permission checks.
+- Tests must run in the local Linux lane and on macOS – prefer Dart APIs over platform-specific shell flags; see `TESTING-STRATEGY.md` for POSIX file-permission checks.
 - **Tech debt backlog is a last resort** – `dev/state/TECH-DEBT-BACKLOG.md` is reserved for items that **cannot** be resolved without further requirements input or an architecture decision. Fixable now with current understanding → fix now, or capture it in an active spec/FIS. Entries describing known cleanups invite rot and dilute signal.
 - **Timestamps** – always run `date '+%Y-%m-%d %H:%M %Z'` before writing one. Never guess; internal time may be the wrong timezone.
 
@@ -120,11 +123,13 @@ Run from this checkout: `dev/tools/dartclaw-workflows/run.sh` – full documenta
 
 See `dev/guidelines/KEY_DEVELOPMENT_COMMANDS.md` – read before/after modifying code.
 
-**Formatting is a hard CI gate**, and CI stops there before analyze/tests, so format drift hides later failures. Before committing, pushing, or declaring a CI fix done, run `dart format --line-length=120 --output=none --set-exit-if-changed .`. If it reports changed files, run `dart format --line-length=120` on them, include the formatting diff, then rerun the check.
+**Formatting is a hard CI gate**, and CI stops there before analysis, so format drift hides later failures. Before committing, pushing, or declaring a CI fix done, run `dart format --line-length=120 --output=none --set-exit-if-changed .`. If it reports changed files, run `dart format --line-length=120` on them, include the formatting diff, then rerun the check.
 
 Run the full CI-equivalent gate from `KEY_DEVELOPMENT_COMMANDS.md` before pushing shared branches, before declaring a CI fix done, and after changes touching package boundaries, tests, build tooling, workflow definitions, or cross-package behavior.
 For release preparation, the evidence-reuse procedure in `RELEASE_PREPARATION.md` satisfies this gate: retain completed
-review proof, verify unchanged inputs, and run affected checks. GitHub CI runs on the final squash commit.
+review proof, verify unchanged inputs, and run affected checks. GitHub `Checks` requires only `Check` and `PowerShell scripts` on the exact final squash SHA. Tests, fitness,
+PostgreSQL and container posture run through local gates and the Lima `linux` gate; local proof carries to the squash
+commit through the ledger's input comparison because its Git tree matches the branch tip.
 
 Example configs: `bash examples/run.sh` – defaults to `dev.yaml` (no auth, guards off), data in `.dartclaw-example/`. It needs `DARTCLAW_DATABASE_URL` pointing at a PostgreSQL 14+ database whose schema `doctor --fix` has bootstrapped once (`examples/README.md`). Pick a config with `bash examples/run.sh production --port 8080`.
 

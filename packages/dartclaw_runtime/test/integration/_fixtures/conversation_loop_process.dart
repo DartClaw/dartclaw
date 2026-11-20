@@ -37,7 +37,7 @@ Future<void> main(List<String> arguments) async {
         sessions,
         messages,
         turns,
-        worker,
+
         attachmentIdFactory: () => attachmentId,
         attachmentWriteFailpoint: (name, id) {
           if (name != boundary) return;

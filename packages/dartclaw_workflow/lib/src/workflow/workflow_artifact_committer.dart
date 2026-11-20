@@ -152,19 +152,18 @@ Future<ArtifactCommitResult> maybeCommitStepArtifacts(ArtifactCommitPolicy polic
     );
   }
   final worktreeDir = (policy.task.worktreeJson?['path'] as String?)?.trim();
-  final effectiveWorktreeDir = switch (worktreeDir) {
-    final String dir when dir.isNotEmpty && Directory(dir).existsSync() && _isGitWorktree(dir) => dir,
-    _ => null,
-  };
-  final projectDir = effectiveWorktreeDir ?? resolved.dir;
+  // A task worktree stays the target even when it or its `.git` is gone: the
+  // commit fails rather than landing in the project checkout instead.
+  final projectDir = resolved.dir;
+  final checkoutDir = worktreeDir == null || worktreeDir.isEmpty ? projectDir : worktreeDir;
 
-  if (!Directory(projectDir).existsSync()) {
+  if (!Directory(checkoutDir).existsSync()) {
     _log.warning(
       "artifact-commit: step '${step.id}' resolved project '${resolved.projectId}' "
-      "but directory '$projectDir' does not exist – skipping commit",
+      "but directory '$checkoutDir' does not exist – skipping commit",
     );
     return ArtifactCommitResult.failed(
-      failureReason: "artifact-commit: directory '$projectDir' does not exist",
+      failureReason: "artifact-commit: directory '$checkoutDir' does not exist",
       skippedPaths: preliminaryArtifacts.requiredPaths,
       fatal: failureIsFatal,
     );
@@ -176,7 +175,7 @@ Future<ArtifactCommitResult> maybeCommitStepArtifacts(ArtifactCommitPolicy polic
       step: step,
       outputs: outputValues,
       planDir: planDir,
-      projectRoot: projectDir,
+      projectRoot: checkoutDir,
       runtimeArtifactsRoot: runtimeArtifactsRoot,
     );
     producedPaths = producedArtifacts.requiredPaths;
@@ -204,37 +203,38 @@ Future<ArtifactCommitResult> maybeCommitStepArtifacts(ArtifactCommitPolicy polic
   final commitMessage = resolvedMessage.isEmpty ? 'chore(workflow): ${step.id} artifacts' : resolvedMessage;
 
   try {
-    await git.add(projectDir, producedPaths);
-    final staged = await git.diffNameOnly(projectDir, cached: true);
+    await git.add(checkoutDir, producedPaths, projectDir: projectDir);
+    final staged = await git.diffNameOnly(checkoutDir, projectDir: projectDir, cached: true);
     if (staged.isEmpty) {
-      final missingAtHead = await _pathsMissingAtHead(git, projectDir, producedPaths);
+      final missingAtHead = await _pathsMissingAtHead(git, checkoutDir, producedPaths, projectDir: projectDir);
       if (missingAtHead.isNotEmpty) {
         return _missingAtHeadFailure(missingAtHead, stepId: step.id, fatal: failureIsFatal);
       }
-      _log.info("artifact-commit: no staged changes in '$projectDir' after step '${step.id}' – skipping commit");
+      _log.info("artifact-commit: no staged changes in '$checkoutDir' after step '${step.id}' – skipping commit");
       return ArtifactCommitResult.skipped(skippedPaths: producedPaths);
     }
     final commit = await git.commit(
-      projectDir,
+      checkoutDir,
+      projectDir: projectDir,
       message: commitMessage,
       authorName: _artifactCommitAuthorName,
       authorEmail: _artifactCommitAuthorEmail,
     );
     _log.info(
-      "artifact-commit: committed ${staged.length} file(s) in '$projectDir' "
+      "artifact-commit: committed ${staged.length} file(s) in '$checkoutDir' "
       "after step '${step.id}' with message '$commitMessage'",
     );
-    final missingAtHead = await _pathsMissingAtHead(git, projectDir, producedPaths);
+    final missingAtHead = await _pathsMissingAtHead(git, checkoutDir, producedPaths, projectDir: projectDir);
     if (missingAtHead.isNotEmpty) {
       return _missingAtHeadFailure(missingAtHead, stepId: step.id, fatal: failureIsFatal);
     }
     return ArtifactCommitResult.committed(committedPaths: staged, commitSha: commit.sha);
   } on WorkflowGitException catch (e) {
-    final reason = "artifact-commit: ${e.message} in '$projectDir'";
+    final reason = "artifact-commit: ${e.message} in '$checkoutDir'";
     _log.warning('$reason: ${e.stderr.isNotEmpty ? e.stderr : e.stdout}');
     return ArtifactCommitResult.failed(failureReason: reason, skippedPaths: producedPaths, fatal: failureIsFatal);
   } catch (e) {
-    final reason = "artifact-commit: unexpected error for step '${step.id}' in '$projectDir': $e";
+    final reason = "artifact-commit: unexpected error for step '${step.id}' in '$checkoutDir': $e";
     _log.warning(reason);
     return ArtifactCommitResult.failed(failureReason: reason, skippedPaths: producedPaths, fatal: failureIsFatal);
   }
@@ -255,10 +255,15 @@ String _planDirFromOutputs(Map<String, Object?> outputs) {
   return p.dirname(explicitPlanPath);
 }
 
-Future<List<String>> _pathsMissingAtHead(WorkflowGitPort git, String projectDir, List<String> paths) async {
+Future<List<String>> _pathsMissingAtHead(
+  WorkflowGitPort git,
+  String checkoutDir,
+  List<String> paths, {
+  required String projectDir,
+}) async {
   final missing = <String>[];
   for (final path in paths) {
-    if (!await git.pathExistsAtRef(projectDir, ref: 'HEAD', path: path)) {
+    if (!await git.pathExistsAtRef(checkoutDir, projectDir: projectDir, ref: 'HEAD', path: path)) {
       missing.add(path);
     }
   }
@@ -330,10 +335,6 @@ String? _resolveArtifactProjectTemplate(
     return null;
   }
   return resolved.isEmpty ? null : resolved;
-}
-
-bool _isGitWorktree(String dir) {
-  return Directory(p.join(dir, '.git')).existsSync() || File(p.join(dir, '.git')).existsSync();
 }
 
 /// Resolved artifact-commit target project.

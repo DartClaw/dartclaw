@@ -192,6 +192,10 @@ The runtime also writes metadata keys automatically:
 - `<stepId>.tokenCount`
 - step-type-specific bookkeeping under `_loop.*`, `_approval.*`, and `_map.*`
 
+The host reserves `outputs`, `step_outcome`, `_workflow.git.execution_surface_hold`, and
+`_workflow.git.approved_candidate` as declared output names. The Git approval records live outside step data.
+Ordinary underscore outputs and workflow variables remain available.
+
 Agent steps receive a workflow output contract automatically. A dedicated no-tools structured finalization turn after the main work turn emits a strict execution envelope `{ "outputs": { ... }, "step_outcome": { ... } }`. Declared model-derived keys appear under `outputs`; `step_outcome` is omitted when the step sets `emitsOwnOutcome: true`. The envelope is the only source for declared outputs: assistant prose, JSON fences and inline `<workflow-context>` blocks are inert text. A run persisted before the 0.25 envelope format must be re-run under 0.25.
 
 The finalization turn restarts the Claude process. A work turn that left subagents running in the background (Claude Code's `Agent` tool runs them that way by default) is held open until they report and the CLI's own notification turn ends, bounded by the step's turn timeout, so the restart cannot kill them; the step log then shows `Turn boundary held: N background task(s)` and the held turns' tokens count toward the step. A shell command left running in the background is not waited for. Skill prompts need no `run_in_background: false` workaround.
@@ -589,13 +593,24 @@ Key runtime behavior:
 - `integrationBranch: true` creates a workflow-owned integration branch from `BRANCH` (or project default branch).
 - Existing workflow definitions that still use `bootstrap: true` continue to load as a deprecated alias, but new definitions should use `integrationBranch`.
 - Workflow-owned steps use task `reviewMode: auto-accept`; model human checkpoints with dedicated review or `approval` steps.
-- `worktree: auto` resolves to `per-map-item` for parallel map/foreach scopes, to `shared` for workflow-level steps when `integrationBranch: true`, and otherwise to `inline`.
+- `worktree: auto` resolves to `per-map-item` for parallel map/foreach scopes, to `shared` for every other scope (serial map/foreach included) when `integrationBranch: true`, and otherwise to `inline`.
 - Omitted `gitStrategy.promotion` is inferred from the resolved worktree mode: `merge` for per-map-item isolation, `none` for inline/shared execution.
 - `worktree: shared` reuses one workflow-owned worktree across serial phases.
 - `worktree: per-map-item` isolates mapped story implementation branches while enabling promotion into the integration branch.
 - Dependency-aware `mapOver` / `foreach` collections validate ids and dependency metadata before dispatch; unknown IDs fail fast.
 - In promotion-aware `per-map-item` runs, dependents wait on the promoted set, not just the completed set. Promotion conflicts keep downstream items undispatched until retry / resume.
 - Publish runs deterministically at workflow completion (`publish.status`, `publish.branch`, `publish.remote`, `publish.pr_url`) rather than relying on task-accept side effects.
+- Promotion and publish stop at `awaitingApproval` when committed or pending changes touch an
+  [execution surface](tasks.md#review-workflow), before committing pending files, merging or pushing. The run shows
+  the operation, destination, relevant worktrees and held paths. In connected mode, review the changes and approve
+  through the run page, the HTTP API or a channel approval button. A channel post offers approval only when it shows
+  the whole path list; otherwise it gives the path count and the run page. Approval covers the Git revisions and
+  pending files for that operation and destination. Resume retries delivery without rerunning completed work. A changed candidate
+  that still touches an execution surface prompts a fresh review. Agent tools and automatic approval policies cannot release the hold.
+  See [standalone recovery](#standalone-cli-zero-server) for runs without a server.
+- Workflow publish requires one push URL for the displayed remote. To inspect the configured destination before
+  approving, run `git remote get-url --push --all <remote>` in the source checkout. GitHub token credentials use HTTPS.
+- If Git review reports a split index, run `git update-index --no-split-index` in the named worktree and retry.
 - For GitHub-backed projects, deterministic publish uses the project's configured `github-token` credential for both branch push and PR creation. It does not depend on `gh auth login` or ambient SSH state.
 - When a run completes with blocked (recoverable) stories – e.g. an ordinary (unmarked) `needsInput` story with no open dependent – the PR body lists them under an **Unresolved items** heading, naming the blocked story ids, so a green-looking PR never silently omits a story. The settle digest reports the same blocked rows. (An *escalated* remediation exhaustion never reaches this completed-with-blocked state: it always pauses the run for review first, regardless of dependents.)
 - `cleanup.enabled` (default `true`) removes workflow-owned worktrees and deletes the workflow's local branches – the workflow-root branch (`dartclaw/workflow/<runToken>`), the integration branch (`.../integration`), and any per-task story branches – when the run reaches a terminal status (completed, cancelled, or failed). Set `false` to retain them for post-mortem inspection; operators are then responsible for manual cleanup. A publish failure preserves evidence regardless of this flag.
@@ -898,6 +913,13 @@ Standalone mode composes workflow infrastructure only: task, session and turn pe
 
 `resume`, `cancel`, `pause`, and `retry` accept the same `--standalone` (with `--force`), reaching the engine through the same headless composition and the same `WorkflowService` the server uses. `cancel` and `pause` only transition persisted run state, so they provision no skills, configure no provider capacity, and start no provider process. This closes the zero-server loop: when a `workflow run --standalone` pauses at an `approval` step, `dartclaw workflow resume <run-id> --standalone` drives it forward to completion without ever starting `dartclaw serve`, and `dartclaw workflow cancel <run-id> --standalone --feedback "…"` records a rejection. Invalid-state attempts (resuming a `running` run, retrying a non-`failed` one) surface the engine guard as a clean message + non-zero exit; a stale `running` run left by a killed process is not auto-reconciled. See the [CLI reference](cli-reference.md#workflow-resume) for the full command surface.
 
+An [execution-surface hold](#workflow-owned-git-lifecycle) during promotion or publish requires connected mode for in-run approval.
+Standalone prints the held operation, branch and paths and exits 2 when it reaches the hold. `workflow status --standalone`
+shows the same recovery guidance. Standalone `resume` refuses the hold. Review the work in the workflow repository,
+using `git worktree list` to find its checkout. Save your commits and pending changes before cancelling, because
+cleanup can remove workflow branches and worktrees. You can finish the reviewed Git operation manually or start a fresh
+connected run. The server uses a separate run store and cannot resume the standalone run.
+
 `--inline` runs any definition on the **current branch** with no workflow-owned integration branch, worktree, or merge-back – it overrides the definition's git strategy (`integrationBranch: false` + `worktree: inline`) at run time. It applies identically in standalone and connected mode through the single `WorkflowService.start(...)` seam, so you no longer need a duplicate `*-inline` definition just to flip git behavior. Multi-story inline runs (e.g. `implement-prd --inline`) execute stories one at a time in the shared checkout – concurrency is clamped to 1 automatically. `--inline` is orthogonal to `--allow-dirty-localpath`: it changes git strategy only and does not relax the dirty-tree guard. See [CLI operations](cli-operations.md#inline-runs---inline) for examples.
 
 ### Agent workflow tools
@@ -997,7 +1019,7 @@ To wire it up end-to-end, expose the server publicly (or via a tunnel for local 
 
 ### `implement-story` – Feature Pipeline
 
-Pipeline that first classifies `FEATURE` with `dartclaw-discover-andthen-spec`. It accepts an inline feature description or an existing FIS path; an existing written source that is not a FIS fails with a pointer to `implement-prd`. Inline descriptions produce a FIS with `andthen:plan`; existing FIS files are reused. The workflow then implements via `andthen:exec-plan`, runs an integrated `andthen:review`, and enters the remediation loop only when the loop `entryGate` sees remaining findings. If implementation completes every story in its plan, `andthen:exec-plan` runs one simplification pass inside that step.
+Pipeline that first classifies `FEATURE` with `dartclaw-discover-andthen-spec`. It accepts an inline feature description or an existing FIS path; an existing written source that is not a FIS fails with a pointer to `implement-prd`. Inline descriptions produce a FIS with `andthen:plan`; existing FIS files are reused. The workflow then implements via `andthen:exec-plan`, runs an integrated `andthen:review`, and enters the remediation loop only when the loop `entryGate` sees remaining findings. If implementation completes every story in its plan, `andthen:exec-plan` runs one simplification pass inside that step. A final `ship` step runs `andthen:ship --auto`, which commits the close-out and returns the pull request's title and body instead of pushing; `gitStrategy.publish.pullRequest` makes that the PR publish opens, so its body ends with AndThen's `## Ship summary` section.
 
 Notable patterns:
 - **Narrow input guard**: FIS-path reuse is decided by `dartclaw-discover-andthen-spec`, not by relying on `andthen:plan` inference.
@@ -1013,7 +1035,7 @@ Role usage:
 
 ### `implement-prd` – Story Fan-Out
 
-Multi-story pipeline organized around PRD-as-input, a merged plan step (`andthen:plan`) that produces the story plan and per-story specs in one pass when needed, and the per-story exec layer. A per-story `foreach` pipeline then runs `implement -> review-story -> story-remediation` under `worktree: auto`, which means serial runs stay inline while real fan-out still gets per-item git isolation/promotion. Built-in step sequence: `discover-plan-state -> plan -> story-pipeline -> plan-review -> review-aggregate -> remediation-loop`.
+Multi-story pipeline organized around PRD-as-input, a merged plan step (`andthen:plan`) that produces the story plan and per-story specs in one pass when needed, and the per-story exec layer. A per-story `foreach` pipeline then runs `implement -> review-story -> story-remediation` under `worktree: auto`, which means serial runs stay inline while real fan-out still gets per-item git isolation/promotion. Built-in step sequence: `discover-plan-state -> plan -> plan-approval -> story-pipeline -> plan-review -> review-aggregate -> remediation-loop -> ship`. `ship` runs `andthen:ship --auto`: it deletes the shipped plan bundle, commits, and returns the pull request publish opens, as in `implement-story`.
 
 Notable patterns:
 - **PRD / Plan / Exec altitudes**: `discover-plan-state` requires an existing PRD, excludes `done` and `skipped` stories and direct or transitive dependents of `skipped` stories, and prunes only `done` dependencies; `plan` is the only step allowed to produce `stories` and `story_specs`; the foreach pipeline is the exec layer. An empty discovery catalog means no story remains runnable.

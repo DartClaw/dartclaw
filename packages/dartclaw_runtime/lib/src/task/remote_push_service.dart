@@ -6,6 +6,7 @@ import 'package:logging/logging.dart';
 
 import '../project/project_auth_support.dart';
 import 'git_credential_env.dart';
+import 'host_worktree_git.dart';
 
 /// Result of a remote push attempt.
 sealed class PushResult {
@@ -69,11 +70,54 @@ class RemotePushService {
     _tempFiles.clear();
   }
 
+  /// Resolves the single effective endpoint before an approval is recorded.
+  Future<String> workflowPushDestination(Project project) async {
+    final reference = project.credentialsRef;
+    final entry = reference == null ? null : _credentials?[reference];
+    final plannedUrl = gitHubRepositoryForToken(project.remoteUrl, entry)?.canonicalHttpsUrl ?? project.remoteUrl;
+    final config = await _workflowPushConfig(project, plannedUrl);
+    return _resolveWorkflowPushDestination(project, config);
+  }
+
+  Future<List<String>> _workflowPushConfig(Project project, String plannedUrl) async {
+    if (plannedUrl == project.remoteUrl) return const [];
+    final configured = await (_processRunner ?? runGit)(
+      ['config', '--get-all', 'remote.origin.pushurl'],
+      workingDirectory: project.localPath,
+      noSystemConfig: false,
+    );
+    if (configured.exitCode == 0) return const [];
+    if (configured.exitCode != 1) throw StateError('Failed to read the origin push URL configuration.');
+    // An explicit push URL selects only the credential transport. A url
+    // override would append another fetch and push URL to the remote.
+    return ['-c', 'remote.origin.pushurl=$plannedUrl'];
+  }
+
+  Future<String> _resolveWorkflowPushDestination(Project project, List<String> config) async =>
+      await resolveWorkflowPushDestination(
+        workingDirectory: project.localPath,
+        remote: 'origin',
+        config: config,
+        runner: _processRunner ?? runGit,
+        noSystemConfig: false,
+      ) ??
+      (throw StateError('Origin has no workflow push URL.'));
+
   /// Pushes [branch] to the remote for [project].
   ///
   /// Runs git push via [Isolate.run] to avoid blocking the event loop.
   /// Resolves credentials from [project.credentialsRef].
-  Future<PushResult> push({required Project project, required String branch}) async {
+  /// With [sourceRevision], pushes that full object ID to [branch] if the
+  /// configured push endpoint still matches [expectedDestination].
+  Future<PushResult> push({
+    required Project project,
+    required String branch,
+    String? sourceRevision,
+    String? expectedDestination,
+  }) async {
+    if (sourceRevision != null && !RegExp(r'^(?:[a-f0-9]{40}|[a-f0-9]{64})$').hasMatch(sourceRevision)) {
+      return const PushError('Workflow push requires a full source revision.');
+    }
     final credentials = _credentials;
     if (credentials != null) {
       final auth = describeProjectAuth(project, credentials);
@@ -95,23 +139,30 @@ class RemotePushService {
 
     final localPath = project.localPath;
     final runner = _processRunner;
+    final List<String> gitArgs;
+    if (sourceRevision == null) {
+      gitArgs = buildRemoteOverrideArgs(project.remoteUrl, plan.remoteUrl, ['push', 'origin', branch]);
+    } else {
+      try {
+        final config = await _workflowPushConfig(project, plan.remoteUrl);
+        final destination = await _resolveWorkflowPushDestination(project, config);
+        if (destination != expectedDestination) return const PushError('Origin push URL changed after review.');
+        gitArgs = [...config, ...pinnedBranchPushArguments(remote: 'origin', branch: branch, revision: sourceRevision)];
+      } catch (error) {
+        return const PushError('Failed to verify the reviewed origin push URL.');
+      }
+    }
 
     late int exitCode;
     late String stderr;
 
     if (runner != null) {
       // Test path — use injectable runner directly.
-      final result = await runner(
-        buildRemoteOverrideArgs(project.remoteUrl, plan.remoteUrl, ['push', 'origin', branch]),
-        workingDirectory: localPath,
-        plan: plan,
-        noSystemConfig: false,
-      );
+      final result = await runner(gitArgs, workingDirectory: localPath, plan: plan, noSystemConfig: false);
       exitCode = result.exitCode;
       stderr = result.stderr as String;
     } else {
       // Production path — run in Isolate to avoid blocking event loop.
-      final gitArgs = buildRemoteOverrideArgs(project.remoteUrl, plan.remoteUrl, ['push', 'origin', branch]);
       final envCopy = Map<String, String>.unmodifiable(plan.environment);
       final wdCopy = localPath;
 
@@ -135,6 +186,10 @@ class RemotePushService {
       return const PushSuccess();
     }
 
+    if (sourceRevision != null) {
+      if (expectedDestination != null) stderr = redactGitDestination(stderr, expectedDestination);
+      stderr = redactGitDestination(redactGitDestination(stderr, plan.remoteUrl), project.remoteUrl);
+    }
     final stderrLower = stderr.toLowerCase();
 
     if (stderrLower.contains('permission denied') ||
@@ -157,3 +212,42 @@ class RemotePushService {
     return PushError(stderr.trim().isNotEmpty ? stderr.trim() : 'git push exited with code $exitCode');
   }
 }
+
+String gitBranchName(String ref) {
+  const prefix = 'refs/heads/';
+  final normalized = normalizeGitRefOperand(ref, label: 'workflow branch');
+  return normalized.startsWith(prefix) ? normalized.substring(prefix.length) : normalized;
+}
+
+List<String> pinnedBranchPushArguments({required String remote, required String branch, required String revision}) => [
+  ...hostWorktreeGitOptions,
+  'push',
+  '--no-follow-tags',
+  '--',
+  remote,
+  '$revision:refs/heads/${gitBranchName(branch)}',
+];
+
+Future<String?> resolveWorkflowPushDestination({
+  required String workingDirectory,
+  required String remote,
+  List<String> config = const [],
+  GitRunner runner = runGit,
+  bool noSystemConfig = true,
+}) async {
+  final result = await runner(
+    [...config, 'remote', 'get-url', '--all', '--push', remote],
+    workingDirectory: workingDirectory,
+    noSystemConfig: noSystemConfig,
+  );
+  if (result.exitCode == 2) return null;
+  if (result.exitCode != 0) throw StateError('Failed to resolve the workflow push URL for "$remote".');
+  final destinations = (result.stdout as String).trim().split('\n');
+  if (destinations.length != 1 || destinations.single.isEmpty) {
+    throw StateError('Workflow publish requires one push URL for "$remote".');
+  }
+  return destinations.single;
+}
+
+String redactGitDestination(String output, String destination) =>
+    destination.isEmpty ? output : output.replaceAll(destination, '[remote]');

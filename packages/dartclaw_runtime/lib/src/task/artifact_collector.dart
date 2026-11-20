@@ -8,6 +8,7 @@ import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
 
 import 'diff_generator.dart';
+import 'host_worktree_git.dart' show TamperedWorktreeException;
 import 'task_config_view.dart';
 import 'task_service.dart';
 import 'task_project_ref.dart';
@@ -119,18 +120,20 @@ class ArtifactCollector {
     try {
       final worktreeInfo = WorktreeInfo.fromJson(worktreeData);
       var effectiveBaseRef = _taskBaseRef(task) ?? _baseRef ?? 'main';
-      final projectDir = worktreeInfo.path;
+      String? projectDir;
       final projectId = taskProjectId(task);
       if (projectId != null && projectId != '_local') {
         final project = await _projectService?.get(projectId);
         if (project != null) {
           effectiveBaseRef = _effectiveProjectBaseRef(project, effectiveBaseRef);
+          projectDir = project.localPath;
         }
       }
       final diffResult = await diffGen.generate(
         baseRef: effectiveBaseRef,
         branch: worktreeInfo.branch,
         projectDir: projectDir,
+        worktreePath: worktreeInfo.path,
       );
 
       final artifactsDir = Directory(p.join(_dataDir, 'tasks', task.id, 'artifacts'));
@@ -147,6 +150,10 @@ class ArtifactCollector {
           path: diffFile.path,
         ),
       ];
+    } on TamperedWorktreeException {
+      // An empty artifact list would send a tampered task to review as if it
+      // changed nothing; the refusal has to fail it instead.
+      rethrow;
     } catch (e) {
       _log.warning('Failed to generate diff for task ${task.id}: $e');
       return const <TaskArtifact>[];

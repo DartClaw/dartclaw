@@ -34,6 +34,26 @@ class WorkflowGitPromotionSuccess extends WorkflowGitPromotionResult {
   const new({required this.commitSha});
 }
 
+/// Promotion stopped before commits or merge until a person approves [candidate].
+class WorkflowGitPromotionHeld extends WorkflowGitPromotionResult {
+  /// Execution-surface paths in the candidate that need a person's review.
+  final List<String> paths;
+
+  /// Identity of the reviewed source, base and operation; approval must match it.
+  final String candidate;
+
+  /// Integration branch the promotion would merge into, when known.
+  final String? destination;
+
+  /// Worktree holding the source branch, when it is checked out.
+  final String? worktreePath;
+
+  /// Worktree holding [destination], when it is checked out.
+  final String? destinationWorktreePath;
+
+  const new(this.paths, {required this.candidate, this.destination, this.worktreePath, this.destinationWorktreePath});
+}
+
 class WorkflowGitPromotionConflict extends WorkflowGitPromotionResult {
   final List<String> conflictingFiles;
   final String details;
@@ -53,10 +73,23 @@ class WorkflowGitPromotionSerializeRemaining extends WorkflowGitPromotionResult 
   const new();
 }
 
+/// The pull request a workflow step authored for its own publish, named by
+/// `gitStrategy.publish.pullRequest`.
+class WorkflowPullRequest {
+  /// Pull request title.
+  final String title;
+
+  /// Pull request body, Markdown.
+  final String body;
+
+  const new({required this.title, required this.body});
+}
+
 /// Workflow publish status.
 enum WorkflowPublishStatus {
   success,
   manual,
+  held,
   failed;
 
   String toJson() => name;
@@ -66,7 +99,7 @@ enum WorkflowPublishStatus {
 
 /// Result of deterministic workflow publish.
 class WorkflowGitPublishResult {
-  /// `success`, `manual`, or `failed`.
+  /// Outcome of the host publish boundary.
   final WorkflowPublishStatus status;
 
   /// Branch that was published.
@@ -81,7 +114,29 @@ class WorkflowGitPublishResult {
   /// Error detail for failed publish.
   final String? error;
 
-  const new({required this.status, required this.branch, required this.remote, required this.prUrl, this.error});
+  /// Paths requiring person review before publish can proceed.
+  final List<String> heldPaths;
+
+  /// Identity of the Git candidate that requires review when [status] is held.
+  final String? heldCandidate;
+
+  /// Remote ref (`<remote>/<branch>`) the held publish would push to, when known.
+  final String? heldDestination;
+
+  /// Worktree whose contents make up [heldCandidate], when known.
+  final String? heldWorktreePath;
+
+  const new({
+    required this.status,
+    required this.branch,
+    required this.remote,
+    required this.prUrl,
+    this.error,
+    this.heldPaths = const [],
+    this.heldCandidate,
+    this.heldDestination,
+    this.heldWorktreePath,
+  });
 }
 
 /// Resolved workflow start contract values produced by host-side preflight.
@@ -135,10 +190,14 @@ class WorkflowTurnAdapter {
     String? storyId,
   })?
   promoteWorkflowBranch;
+
+  /// [pullRequest] is the step-authored pull request when the definition
+  /// declares `gitStrategy.publish.pullRequest`; null otherwise.
   final Future<WorkflowGitPublishResult> Function({
     required String runId,
     required String projectId,
     required String branch,
+    WorkflowPullRequest? pullRequest,
   })?
   publishWorkflowBranch;
   final Future<void> Function({

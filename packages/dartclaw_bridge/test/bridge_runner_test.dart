@@ -9,6 +9,15 @@ import 'package:test/test.dart';
 
 void main() {
   group('BridgeRunner handshake', () {
+    test('registry surface handshakes and listens', () async {
+      final pipe = await _HostPipe.start(BridgeSurface.registry);
+      addTearDown(pipe.dispose);
+      expect(BridgeSurface.fromWire('registry'), BridgeSurface.registry);
+      expect(pipe.handshake.metadata['surface'], 'registry');
+      expect(pipe.ready.metadata['port'], pipe.runner.boundPort);
+      expect(pipe.runner.boundPort, greaterThan(0));
+    });
+
     test('announces version and surface, then binds and reports readiness', () async {
       final pipe = await _HostPipe.start(BridgeSurface.mcp);
       addTearDown(pipe.dispose);
@@ -46,6 +55,73 @@ void main() {
   });
 
   group('BridgeRunner request forwarding', () {
+    test('an oversized request frame leaves the writer usable', () async {
+      final pipe = await _HostPipe.start(BridgeSurface.registry, limits: const BridgeLimits(maxMetadataBytes: 512));
+      addTearDown(pipe.dispose);
+
+      final rejected = await pipe.post('/pub/${'x' * 512}', '');
+      expect(rejected.statusCode, 413);
+      expect((await pipe.frames.next).type, BridgeFrameType.cancel);
+
+      final accepted = pipe.post('/pub/package', '');
+      final start = await pipe.nextRequestStart();
+      pipe.send(BridgeFrame(type: BridgeFrameType.responseStart, requestId: start.requestId));
+      pipe.send(BridgeFrame(type: BridgeFrameType.responseEnd, requestId: start.requestId));
+      expect((await accepted).statusCode, 200);
+    });
+
+    test('parallel requests serialize frames while stdout is flushing', () async {
+      final failures = <Object>[];
+      late _GatedConsumer output;
+      final pipe = await runZonedGuarded(
+        () => _HostPipe.start(BridgeSurface.registry, consumer: (sink) => output = _GatedConsumer(sink)),
+        (error, _) => failures.add(error),
+      )!;
+      addTearDown(pipe.dispose);
+      final gate = output.blockNextFlush();
+      final first = pipe.post('/pub/one', '');
+      first.ignore();
+      await output.blocked.future;
+      final second = pipe.post('/pub/two', '');
+      second.ignore();
+      await pumpEventQueue();
+      gate.complete();
+      expect(failures, isEmpty);
+      final requests = <int>{};
+      while (requests.length < 2) {
+        final start = await pipe.nextRequestStart();
+        requests.add(start.requestId);
+        pipe.send(BridgeFrame(type: BridgeFrameType.responseStart, requestId: start.requestId));
+        pipe.send(BridgeFrame(type: BridgeFrameType.responseEnd, requestId: start.requestId));
+      }
+      expect((await first).statusCode, 200);
+      expect((await second).statusCode, 200);
+      expect(failures, isEmpty);
+    });
+
+    test('a response overrunning the cap after it started aborts the connection', () async {
+      for (final hostFailure in [false, true]) {
+        final pipe = await _HostPipe.start(BridgeSurface.provider, limits: const BridgeLimits(maxResponseBytes: 4));
+        addTearDown(pipe.dispose);
+        final result = pipe.post('/archive', '');
+        final failed = expectLater(result, throwsA(isA<HttpException>()));
+        final start = await pipe.nextRequestStart();
+        pipe.send(BridgeFrame(type: BridgeFrameType.responseStart, requestId: start.requestId));
+        pipe.send(BridgeFrame(type: BridgeFrameType.responseChunk, requestId: start.requestId, body: [65, 66]));
+        await pumpEventQueue();
+        pipe.send(
+          hostFailure
+              ? BridgeFrame(
+                  type: BridgeFrameType.failure,
+                  requestId: start.requestId,
+                  metadata: const {'status': 502, 'message': 'response exceeds 4 bytes'},
+                )
+              : BridgeFrame(type: BridgeFrameType.responseChunk, requestId: start.requestId, body: [67, 68, 69]),
+        );
+        await failed;
+      }
+    });
+
     test('forwards method, path, and body, then streams the host response back', () async {
       final pipe = await _HostPipe.start(BridgeSurface.provider);
       addTearDown(pipe.dispose);
@@ -267,13 +343,17 @@ final class _HostPipe {
   final BridgeFrame ready;
   final HttpClient _client = HttpClient();
 
-  static Future<_HostPipe> start(BridgeSurface surface, {BridgeLimits limits = BridgeLimits.defaults}) async {
+  static Future<_HostPipe> start(
+    BridgeSurface surface, {
+    BridgeLimits limits = BridgeLimits.defaults,
+    StreamConsumer<List<int>> Function(StreamConsumer<List<int>> sink)? consumer,
+  }) async {
     final toBridge = StreamController<List<int>>();
     final fromBridge = StreamController<List<int>>();
     final runner = BridgeRunner(
       surface: surface,
       hostInput: toBridge.stream,
-      hostOutput: IOSink(fromBridge.sink),
+      hostOutput: IOSink(consumer == null ? fromBridge.sink : consumer(fromBridge.sink)),
       limits: limits,
       port: 0,
     );
@@ -342,4 +422,26 @@ StreamQueue<BridgeFrame> _frameQueue(Stream<List<int>> bytes, {BridgeLimits limi
   final frames = StreamController<BridgeFrame>();
   bytes.listen((chunk) => reader.addChunk(chunk).forEach(frames.add), onError: frames.addError, onDone: frames.close);
   return StreamQueue<BridgeFrame>(frames.stream);
+}
+
+final class _GatedConsumer implements StreamConsumer<List<int>> {
+  new(this.sink);
+  final StreamConsumer<List<int>> sink;
+  final Completer<void> blocked = Completer<void>();
+  Completer<void>? _gate;
+
+  Completer<void> blockNextFlush() => _gate = Completer<void>();
+
+  @override
+  Future<void> addStream(Stream<List<int>> stream) async {
+    await sink.addStream(stream);
+    final gate = _gate;
+    if (gate == null) return;
+    _gate = null;
+    blocked.complete();
+    await gate.future;
+  }
+
+  @override
+  Future<void> close() => sink.close();
 }

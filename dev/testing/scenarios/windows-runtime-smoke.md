@@ -1,8 +1,3 @@
----
-profile: windows-runtime
-platform: windows-x64
-providers: [claude, codex]
----
 # Scenario: Windows Runtime Smoke
 
 Runs the Windows release-readiness profile as a layered check. Artifact mode is `supported` only when every required

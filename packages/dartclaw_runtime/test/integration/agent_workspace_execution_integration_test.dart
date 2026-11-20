@@ -315,7 +315,8 @@ agent:
         contains('AGENT A USER'),
         contains('AGENT A TOOLS'),
         isNot(contains('CHANGED AGENT A')),
-        isNot(contains('AGENT A SOUL')),
+        // The definition's prompt is appended after the workspace SOUL.md, never in its place.
+        matches(RegExp(r'AGENT A SOUL[\s\S]*EXPLICIT A SOUL')),
         isNot(contains('OWNER')),
       ),
     );
@@ -491,7 +492,7 @@ agent:
       config: const ContainerConfig(enabled: true, image: agentProbeImage),
       containerName: 'dartclaw-managed-marker-${DateTime.now().microsecondsSinceEpoch}',
       profileId: 'workspace',
-      workspaceMounts: SecurityProfile.workspace(workspaceDir: agentADir.path, projectDir: null).workspaceMounts,
+      workspaceMounts: SecurityProfile.workspace(workspaceDir: agentADir.path).workspaceMounts,
       generatedStateDir: p.join(dataDir.path, 'containers', 'managed-marker'),
       hasMcpBridge: false,
       buildContextDir: checkoutRoot,

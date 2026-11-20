@@ -12,7 +12,7 @@
 
       <section tl:if="${adminAvailable}" class="memory-dashboard-section" aria-labelledby="memory-admin-title">
         <h2 id="memory-admin-title" class="section-title">Personal memory administration</h2>
-        <div class="card">
+        <div class="card memory-admin-card">
           <form action="/memory" method="get" class="form-row">
             <div class="form-field">
               <label class="form-label t-caption tracking-caps" for="memory-corpus">Agent corpus</label>
@@ -32,12 +32,12 @@
           <p class="card-detail card-detail-muted">This is the selected agent's private canonical memory. Shared wiki and knowledge graph stay on the Knowledge page.</p>
           <p tl:if="${adminState == 'degraded'}" class="card-detail warning-text" role="status">Canonical entries remain available. Search may be incomplete while the derived index is degraded.</p>
           <p tl:if="${adminNotice}" class="card-detail" role="status" tl:text="${adminNotice}">Result</p>
-          <div tl:if="${adminCanBrowse}">
+          <div tl:if="${adminCanBrowse}" class="memory-admin-browse">
             <form action="/memory" method="get" class="list-toolbar">
               <input type="hidden" name="corpus" tl:attr="value=${adminSelector}">
               <div class="form-field">
                 <label class="form-label t-caption tracking-caps" for="memory-entry-query">Search selected corpus</label>
-                <input id="memory-entry-query" class="form-input form-input--search" type="search" name="q" tl:attr="value=${adminQuery}" placeholder="Search canonical entries">
+                <input id="memory-entry-query" class="form-input" type="search" name="q" tl:attr="value=${adminQuery}" placeholder="Search canonical entries">
               </div>
               <button class="btn btn-ghost" type="submit">Search</button>
               <a class="btn btn-ghost" tl:attr="href=${adminClearUrl}">Clear</a>

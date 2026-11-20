@@ -1,9 +1,12 @@
 import 'dart:io';
 
 import 'package:dartclaw_runtime/src/task/diff_generator.dart';
+import 'package:dartclaw_runtime/src/task/host_worktree_git.dart' show TamperedWorktreeException;
 import 'package:dartclaw_runtime/src/task/worktree_manager.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:test/test.dart';
+
+import 'host_worktree_tamper_fixture.dart';
 
 void main() {
   group('DiffGenerator', () {
@@ -24,7 +27,9 @@ void main() {
       generator = DiffGenerator(projectDir: '/project', processRunner: git.run);
 
       responses['diff --numstat -z main...feature'] = pr('10\t2\tlib/main.dart\u00003\t0\tlib/new.dart\u0000');
-      responses['diff --name-status -z main...feature'] = pr('M\u0000lib/main.dart\u0000A\u0000lib/new.dart\u0000');
+      responses['diff --raw --no-abbrev --no-ext-diff --no-textconv -z main...feature'] = pr(
+        ':100644 100644 a b M\u0000lib/main.dart\u0000:000000 100644 0 b A\u0000lib/new.dart\u0000',
+      );
       responses['diff -U3 --no-color main...feature'] = pr(
         'diff --git a/lib/main.dart b/lib/main.dart\n'
         '--- a/lib/main.dart\n'
@@ -88,7 +93,9 @@ void main() {
       generator = DiffGenerator(projectDir: '/project', processRunner: git.run);
 
       responses['diff --numstat -z main...feature'] = pr('-\t-\tassets/image.png\u0000');
-      responses['diff --name-status -z main...feature'] = pr('A\u0000assets/image.png\u0000');
+      responses['diff --raw --no-abbrev --no-ext-diff --no-textconv -z main...feature'] = pr(
+        ':000000 100644 0 b A\u0000assets/image.png\u0000',
+      );
       responses['diff -U3 --no-color main...feature'] = pr('');
 
       final result = await generator.generate(baseRef: 'main', branch: 'feature');
@@ -104,7 +111,9 @@ void main() {
       generator = DiffGenerator(projectDir: '/project', processRunner: git.run);
 
       responses['diff --numstat -z main...feature'] = pr('5\t2\t\u0000lib/old.dart\u0000lib/new.dart\u0000');
-      responses['diff --name-status -z main...feature'] = pr('R083\u0000lib/old.dart\u0000lib/new.dart\u0000');
+      responses['diff --raw --no-abbrev --no-ext-diff --no-textconv -z main...feature'] = pr(
+        ':100644 100644 a b R083\u0000lib/old.dart\u0000lib/new.dart\u0000',
+      );
       responses['diff -U3 --no-color main...feature'] = pr('');
 
       final result = await generator.generate(baseRef: 'main', branch: 'feature');
@@ -119,7 +128,9 @@ void main() {
       generator = DiffGenerator(projectDir: '/project', processRunner: git.run);
 
       responses['diff --numstat -z main...feature'] = pr('0\t15\tlib/removed.dart\u0000');
-      responses['diff --name-status -z main...feature'] = pr('D\u0000lib/removed.dart\u0000');
+      responses['diff --raw --no-abbrev --no-ext-diff --no-textconv -z main...feature'] = pr(
+        ':100644 000000 a 0 D\u0000lib/removed.dart\u0000',
+      );
       responses['diff -U3 --no-color main...feature'] = pr('');
 
       final result = await generator.generate(baseRef: 'main', branch: 'feature');
@@ -136,8 +147,8 @@ void main() {
       // Deletion-only and addition-only edits to files that were only modified:
       // inferring status from the counts alone reports these as deleted/added.
       responses['diff --numstat -z main...feature'] = pr('0\t15\tlib/trimmed.dart\u00009\t0\tlib/appended.dart\u0000');
-      responses['diff --name-status -z main...feature'] = pr(
-        'M\u0000lib/trimmed.dart\u0000M\u0000lib/appended.dart\u0000',
+      responses['diff --raw --no-abbrev --no-ext-diff --no-textconv -z main...feature'] = pr(
+        ':100644 100644 a b M\u0000lib/trimmed.dart\u0000:100644 100644 a b M\u0000lib/appended.dart\u0000',
       );
 
       final result = await generator.generate(baseRef: 'main', branch: 'feature');
@@ -146,9 +157,12 @@ void main() {
     });
 
     test('throws WorktreeException when any git read fails', () async {
-      // --name-status runs after --numstat, so a failure there is only caught
+      // Raw metadata runs after --numstat, so a failure there is only caught
       // if it is checked on its own.
-      for (final failing in ['diff --numstat -z main...feature', 'diff --name-status -z main...feature']) {
+      for (final failing in [
+        'diff --numstat -z main...feature',
+        'diff --raw --no-abbrev --no-ext-diff --no-textconv -z main...feature',
+      ]) {
         generator = DiffGenerator(projectDir: '/project', processRunner: git.run);
         responses = {failing: pr('', exitCode: 128, stderr: 'fatal: bad ref')};
 
@@ -167,7 +181,7 @@ void main() {
       responses['diff -U3 --no-color main...feature'] = pr('');
       responses['diff --numstat -z HEAD'] = pr('');
       responses['diff -U3 --no-color HEAD'] = pr('');
-      responses['ls-files --others --exclude-standard'] = pr('');
+      responses['ls-files --others --exclude-standard -z'] = pr('');
 
       await generator.generate(baseRef: 'main', branch: 'feature');
 
@@ -192,7 +206,7 @@ void main() {
       responses['diff -U3 --no-color main...feature'] = pr('');
       responses['diff --numstat -z HEAD'] = pr('');
       responses['diff -U3 --no-color HEAD'] = pr('');
-      responses['ls-files --others --exclude-standard'] = pr('notes/spec-publish.md\n');
+      responses['ls-files --others --exclude-standard -z'] = pr('notes/spec-publish.md\u0000');
 
       final result = await generator.generate(baseRef: 'main', branch: 'feature', projectDir: tempDir.path);
 
@@ -257,6 +271,53 @@ void main() {
       expect(restored.oldPath, equals('old.dart'));
       expect(restored.binary, isTrue);
       expect(restored.status, equals(DiffFileStatus.renamed));
+    });
+  });
+
+  group('DiffGenerator in a linked worktree', () {
+    late HostWorktreeTamperFixture fixture;
+    late DiffGenerator generator;
+
+    setUp(() async {
+      fixture = await HostWorktreeTamperFixture.create();
+      generator = DiffGenerator(projectDir: fixture.projectDir);
+    });
+    tearDown(() => fixture.dispose());
+
+    Future<DiffResult> review() =>
+        generator.generate(baseRef: 'main', branch: fixture.branch, worktreePath: fixture.worktreePath);
+    Future<List<DiffFileChange>> changes() =>
+        generator.changes(baseRef: 'main', branch: fixture.branch, worktreePath: fixture.worktreePath);
+
+    test('reports the uncommitted change of an untampered worktree', () async {
+      fixture.write('README.md');
+      fixture.write('new.txt');
+
+      final result = await review();
+      expect(result.files.map((file) => file.path), ['README.md', 'new.txt']);
+      expect((await changes()).map((change) => change.path), containsAll(['README.md', 'new.txt']));
+    });
+
+    test('refuses a worktree whose gitlink names an agent gitdir', () async {
+      fixture.write('README.md');
+      await fixture.rewriteGitlinkToAgentGitdir();
+
+      await expectLater(review(), throwsA(isA<TamperedWorktreeException>()));
+      await expectLater(changes(), throwsA(isA<TamperedWorktreeException>()));
+      expect(fixture.existingMarkers, isEmpty);
+    });
+
+    test('runs no config of a repository nested in an untampered worktree', () async {
+      await fixture.nestRepository();
+
+      for (final read in [review, changes]) {
+        try {
+          await read();
+        } on TamperedWorktreeException {
+          // Refusing the nested repository is the other admissible outcome.
+        }
+      }
+      expect(fixture.existingMarkers, isEmpty);
     });
   });
 }

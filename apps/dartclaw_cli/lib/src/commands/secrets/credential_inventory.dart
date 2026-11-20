@@ -1,9 +1,11 @@
 import 'dart:io';
 
 import 'package:dartclaw_acp/dartclaw_acp.dart' show acpConfigFor;
+import 'package:dartclaw_core/dartclaw_core.dart' show SubscriptionCredentialStore;
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' show resolveChannelConfig;
 import 'package:dartclaw_slack/dartclaw_slack.dart' show SlackConfig;
+import 'package:path/path.dart' as p;
 
 /// Where a resolved credential's value actually comes from.
 enum CredentialProvenance {
@@ -171,16 +173,47 @@ class _SecretAudit {
     ];
   }
 
-  static List<SecretFinding> _permissions(String configPath, String credentialsDir) => [
-    ..._looseFile(configPath, 'the config file'),
-    ..._looseDirectory(credentialsDir, 'the credential directory'),
-    for (final entity in _credentialEntities(credentialsDir))
-      ...switch (entity) {
-        File() => _looseFile(entity.path, 'a credential file'),
-        Directory() => _looseDirectory(entity.path, 'a credential directory'),
-        _ => const <SecretFinding>[],
-      },
-  ];
+  static List<SecretFinding> _permissions(String configPath, String credentialsDir) {
+    final isShielded = _shieldedCodexState(credentialsDir);
+    return [
+      ..._looseFile(configPath, 'the config file'),
+      ..._looseDirectory(credentialsDir, 'the credential directory'),
+      for (final entity in _credentialEntities(credentialsDir))
+        if (!isShielded(entity))
+          ...switch (entity) {
+            File() => _looseFile(entity.path, 'a credential file'),
+            Directory() => _looseDirectory(entity.path, 'a credential directory'),
+            _ => const <SecretFinding>[],
+          },
+    ];
+  }
+
+  // The codex CLI rewrites its home's 0644/0755 modes after any chmod, so only
+  // an owner-only ancestor can make that state safe; auth.json keeps its own check.
+  static bool Function(FileSystemEntity) _shieldedCodexState(String credentialsDir) {
+    final authPath = SubscriptionCredentialStore.codexAuthPathIn(credentialsDir);
+    final String home;
+    try {
+      home = Directory(SubscriptionCredentialStore.codexHomeIn(credentialsDir)).resolveSymbolicLinksSync();
+    } on FileSystemException {
+      return (_) => false;
+    }
+    return (entity) {
+      if (p.equals(entity.path, authPath)) return false;
+      try {
+        var directory = p.dirname(entity.resolveSymbolicLinksSync());
+        while (p.isWithin(home, directory)) {
+          if (_isOwnerOnly(directory)) return true;
+          directory = p.dirname(directory);
+        }
+        return p.equals(directory, home) && _isOwnerOnly(home);
+      } on FileSystemException {
+        return false;
+      }
+    };
+  }
+
+  static bool _isOwnerOnly(String directory) => FileStat.statSync(directory).mode & 0x3f == 0;
 
   static List<FileSystemEntity> _credentialEntities(String credentialsDir) {
     final directory = Directory(credentialsDir);

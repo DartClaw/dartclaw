@@ -45,7 +45,7 @@ void main() {
       sessions,
       messages,
       turns,
-      worker,
+
       ownerWorkspaceDir: sessions.baseDir,
       onConversationCreated: (created) => conversation = created,
     ).call;
@@ -196,13 +196,7 @@ void main() {
       final localTurns = FakeTurnManager(localMessages, worker);
       final localApi = ApiRouteTestClient(
         localAdminMiddleware()(
-          sessionRoutes(
-            pausingSessions,
-            localMessages,
-            localTurns,
-            worker,
-            ownerWorkspaceDir: pausingSessions.baseDir,
-          ).call,
+          sessionRoutes(pausingSessions, localMessages, localTurns, ownerWorkspaceDir: pausingSessions.baseDir).call,
         ),
       );
 
@@ -236,7 +230,7 @@ void main() {
       final localTurns = FakeTurnManager(pausingMessages, worker);
       final localApi = ApiRouteTestClient(
         localAdminMiddleware()(
-          sessionRoutes(sessions, pausingMessages, localTurns, worker, ownerWorkspaceDir: sessions.baseDir).call,
+          sessionRoutes(sessions, pausingMessages, localTurns, ownerWorkspaceDir: sessions.baseDir).call,
         ),
       );
 
@@ -259,13 +253,7 @@ void main() {
       final localTurns = FakeTurnManager(pausingMessages, worker);
       final localApi = ApiRouteTestClient(
         localAdminMiddleware()(
-          sessionRoutes(
-            pausingSessions,
-            pausingMessages,
-            localTurns,
-            worker,
-            ownerWorkspaceDir: pausingSessions.baseDir,
-          ).call,
+          sessionRoutes(pausingSessions, pausingMessages, localTurns, ownerWorkspaceDir: pausingSessions.baseDir).call,
         ),
       );
 
@@ -295,7 +283,13 @@ void main() {
       final localTurns = FakeTurnManager(pausingMessages, worker);
       final localApi = ApiRouteTestClient(
         localAdminMiddleware()(
-          sessionRoutes(sessions, pausingMessages, localTurns, worker, ownerWorkspaceDir: sessions.baseDir).call,
+          sessionRoutes(
+            sessions,
+            pausingMessages,
+            localTurns,
+            ownerWorkspaceDir: sessions.baseDir,
+            onConversationCreated: (created) => addTearDown(created.beginShutdown),
+          ).call,
         ),
       );
 
@@ -322,7 +316,7 @@ void main() {
       final localTurns = FakeTurnManager(messages, worker);
       final localApi = ApiRouteTestClient(
         localAdminMiddleware()(
-          sessionRoutes(localSessions, messages, localTurns, worker, ownerWorkspaceDir: localSessions.baseDir).call,
+          sessionRoutes(localSessions, messages, localTurns, ownerWorkspaceDir: localSessions.baseDir).call,
         ),
       );
       await localTurns.reserveTurn(existing.id);
@@ -463,7 +457,7 @@ void main() {
         sessions,
         messages,
         turns,
-        worker,
+
         sidebarData: ({String? activeSessionId}) async => emptySidebarData,
         buildSidebarHtml: ({required SidebarData sidebarData, List<NavItem> navItems = const []}) {
           expect(sidebarData, equals(emptySidebarData));
@@ -488,7 +482,7 @@ void main() {
         sessions,
         messages,
         turns,
-        worker,
+
         sidebarData: ({String? activeSessionId}) async => (
           main: null,
           dmChannels: <SidebarSession>[],
@@ -546,7 +540,7 @@ void main() {
         localSessions,
         messages,
         localTurns,
-        worker,
+
         ownerWorkspaceDir: localSessions.baseDir,
       ).call;
       final session = await localSessions.createSession();
@@ -654,13 +648,7 @@ void main() {
       final localMessages = MessageService(baseDir: tempDir.path);
       final localTurns = FakeTurnManager(localMessages, worker);
       final localApi = ApiRouteTestClient(
-        sessionRoutes(
-          pausingSessions,
-          localMessages,
-          localTurns,
-          worker,
-          ownerWorkspaceDir: pausingSessions.baseDir,
-        ).call,
+        sessionRoutes(pausingSessions, localMessages, localTurns, ownerWorkspaceDir: pausingSessions.baseDir).call,
       );
 
       final send = localApi.request(
@@ -687,13 +675,7 @@ void main() {
       final localMessages = MessageService(baseDir: tempDir.path);
       final localTurns = FakeTurnManager(localMessages, worker);
       final localApi = ApiRouteTestClient(
-        sessionRoutes(
-          pausingSessions,
-          localMessages,
-          localTurns,
-          worker,
-          ownerWorkspaceDir: pausingSessions.baseDir,
-        ).call,
+        sessionRoutes(pausingSessions, localMessages, localTurns, ownerWorkspaceDir: pausingSessions.baseDir).call,
       );
 
       final send = localApi.request(
@@ -905,9 +887,10 @@ void main() {
         sessions,
         messages,
         turns,
-        worker,
+
         projectService: FakeProjectService(localProject: localProject),
         ownerWorkspaceDir: sessions.baseDir,
+        onConversationCreated: (created) => addTearDown(created.beginShutdown),
       ).call;
       final projectRes = await projectHandler(
         apiRequest(
@@ -1203,13 +1186,14 @@ void main() {
           sessions,
           messages,
           turns,
-          worker,
+
           conversationFailpoint: (boundary, _) async {
             if (boundary != 'preparing_claim') return;
             claimEntered.complete();
             await releaseClaim.future;
           },
           ownerWorkspaceDir: sessions.baseDir,
+          onConversationCreated: (created) => addTearDown(created.beginShutdown),
         ).call,
       );
       final attachment = await uploadSessionAttachment(raceHandler, session.id);
@@ -1367,7 +1351,7 @@ void main() {
       );
       addTearDown(realTurns.executions.dispose);
       final realHandler = localAdminMiddleware()(
-        sessionRoutes(sessions, messages, realTurns, failingWorker, ownerWorkspaceDir: sessions.baseDir).call,
+        sessionRoutes(sessions, messages, realTurns, ownerWorkspaceDir: sessions.baseDir).call,
       );
       final session = await sessions.createSession(type: SessionType.channel, channelKey: 'signal:owner');
       final turnId = await realTurns.startTurn(session.id, [
@@ -1609,7 +1593,7 @@ void main() {
         sessions,
         messages,
         turns,
-        worker,
+
         projectService: FakeProjectService(localProject: localProject),
         ownerWorkspaceDir: sessions.baseDir,
       ).call;
@@ -1651,7 +1635,7 @@ void main() {
         sessions,
         messages,
         turns,
-        worker,
+
         projectService: FakeProjectService(localProject: localProject),
         ownerWorkspaceDir: sessions.baseDir,
       ).call;
@@ -1728,7 +1712,7 @@ void main() {
         sessions,
         messages,
         turns,
-        worker,
+
         resetService: SessionResetService(sessions: sessions, messages: messages),
         ownerWorkspaceDir: sessions.baseDir,
       ).call;
@@ -1743,7 +1727,7 @@ void main() {
         sessions,
         messages,
         turns,
-        worker,
+
         resetService: SessionResetService(sessions: sessions, messages: messages),
         ownerWorkspaceDir: sessions.baseDir,
       ).call;
@@ -1759,9 +1743,10 @@ void main() {
           sessions,
           messages,
           turns,
-          worker,
+
           resetService: SessionResetService(sessions: sessions, messages: messages),
           ownerWorkspaceDir: sessions.baseDir,
+          onConversationCreated: (created) => addTearDown(created.beginShutdown),
         ).call,
       );
       final attachment = await uploadSessionAttachment(handler, session.id);
@@ -1830,7 +1815,7 @@ void main() {
         sessions,
         messages,
         turns,
-        worker,
+
         resetService: SessionResetService(sessions: sessions, messages: messages),
         ownerWorkspaceDir: sessions.baseDir,
       ).call;
@@ -1849,7 +1834,7 @@ void main() {
         sessions,
         messages,
         turns,
-        worker,
+
         resetService: SessionResetService(sessions: sessions, messages: messages),
         ownerWorkspaceDir: sessions.baseDir,
       ).call;
@@ -1867,7 +1852,7 @@ void main() {
         sessions,
         messages,
         turns,
-        worker,
+
         resetService: SessionResetService(sessions: sessions, messages: messages),
         ownerWorkspaceDir: sessions.baseDir,
       ).call;

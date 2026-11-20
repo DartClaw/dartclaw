@@ -63,7 +63,7 @@ void main() {
         providers: _mediatedProviders,
       ),
       dataDir: tempDir.path,
-      runtimeCwd: tempDir.path,
+      localRepositoryDir: tempDir.path,
       eventBus: eventBus,
       exitFn: _unexpectedExit,
       subscriptionCredentials: _storedCredentials,

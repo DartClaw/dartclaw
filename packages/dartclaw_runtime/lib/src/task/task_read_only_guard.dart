@@ -1,6 +1,8 @@
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:logging/logging.dart';
 
+import 'host_worktree_git.dart';
+
 /// Snapshot of a worktree's porcelain git status.
 final class GitStatusSnapshot {
   final Set<String> entries;
@@ -26,12 +28,17 @@ final class ReadOnlyViolation extends ReadOnlyEvaluation {
 }
 
 /// Detects project mutations that occurred during a read-only task turn.
+///
+/// With [projectDir] set, [worktreePath] is a task worktree of that project and
+/// `status` runs through the host-worktree authority, so a tampered worktree
+/// throws [TamperedWorktreeException] from [snapshot] and [mutationSummary].
 final class TaskReadOnlyGuard {
-  new({required this.worktreePath, GitRunner? git, this.noSystemConfig = false, Logger? log})
+  new({required this.worktreePath, this.projectDir, GitRunner? git, this.noSystemConfig = false, Logger? log})
     : _git = git ?? runGit,
       _log = log ?? Logger('TaskReadOnlyGuard');
 
   final String worktreePath;
+  final String? projectDir;
   final GitRunner _git;
 
   /// Whether the `git status` spawn neutralizes system git config.
@@ -45,11 +52,17 @@ final class TaskReadOnlyGuard {
   Future<GitStatusSnapshot> baseline() => snapshot();
 
   Future<GitStatusSnapshot> snapshot() async {
-    final result = await _git(
-      const ['status', '--porcelain=v1', '-z', '--untracked-files=all'],
-      workingDirectory: worktreePath,
-      noSystemConfig: noSystemConfig,
-    );
+    const args = ['status', '--porcelain=v1', '-z', '--untracked-files=all'];
+    final projectDir = this.projectDir;
+    final result = projectDir == null
+        ? await _git(args, workingDirectory: worktreePath, noSystemConfig: noSystemConfig)
+        : await runHostWorktreeGit(
+            args,
+            projectDir: projectDir,
+            worktreePath: worktreePath,
+            noSystemConfig: noSystemConfig,
+            runner: _git,
+          );
     if (result.exitCode != 0) {
       throw StateError('git status failed in "$worktreePath": ${result.stderr}');
     }
@@ -72,6 +85,8 @@ final class TaskReadOnlyGuard {
         ReadOnlyClean() => null,
         ReadOnlyViolation(:final mutatedPaths) => _summary(mutatedPaths),
       };
+    } on TamperedWorktreeException {
+      rethrow;
     } catch (error) {
       _log.fine('Skipping read-only mutation check for "$worktreePath" because git status failed: $error');
       return null;

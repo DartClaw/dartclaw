@@ -20,6 +20,8 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         OutputFormat,
         WorkflowDefinition,
         WorkflowGitStrategy,
+        WorkflowGitWorktreeMode,
+        WorkflowGitWorktreeStrategy,
         WorkflowStep,
         WorkflowVariable,
         WorkflowRun,
@@ -107,8 +109,28 @@ void main() {
     }
   });
 
+  test('task worktree native skills remain readable without the host cache', () async {
+    final repository = fixture.seedGitRepo('portable-skills');
+    const name = 'dartclaw-discover-andthen-spec';
+    for (final root in ['.claude', '.agents']) {
+      File(p.join(tempDir.path, root, 'skills', name, 'SKILL.md'))
+        ..createSync(recursive: true)
+        ..writeAsStringSync('# Native skill\n');
+    }
+    await fixture.withWiredRuntime(
+      fixture.config(),
+      runtimeCwd: repository.path,
+      body: (runtime) async {
+        final worktree = await runtime.worktreeManager.create('portable-skills', baseRef: 'main');
+        for (final root in ['.claude', '.agents']) {
+          Directory(p.join(tempDir.path, root)).renameSync(p.join(tempDir.path, '$root-hidden'));
+          expect(File(p.join(worktree.path, root, 'skills', name, 'SKILL.md')).readAsStringSync(), '# Native skill\n');
+        }
+      },
+    );
+  });
+
   test('skill bootstrap does not create remote project clone directories before initialization', () async {
-    seedAndthenSrc(p.join(tempDir.path, 'andthen-src'), sha: 'bootstrap-head');
     final builtInSkillsSource = seedDcNativeSkillsSource(p.join(tempDir.path, 'built-in-skills'));
     final cfg = fixture.config(
       projects: ProjectConfig(
@@ -641,7 +663,7 @@ steps:
     expect(unexpectedDataDirSkillEntries(tempDir.path), isEmpty);
     final registeredNames = wired.workflowRegistry.listAll().map((workflow) => workflow.name).toSet();
     expect(registeredNames, containsAll(['implement-prd', 'implement-story', 'code-review']));
-    expect(runner.calls.where((call) => call.executable.endsWith('install-skills.sh')), isEmpty);
+    expect(runner.calls, isEmpty);
   });
 
   test('dispose cleans up workflow task worktrees in headless mode', () async {
@@ -799,7 +821,7 @@ steps:
         }, origin: WorkflowRunOrigin.unknown);
         expect(run.variablesJson['BRANCH'], 'runtime-feature');
         expect(Directory.current.path, isNot(runtimeCwd.path));
-        expect(runtime.projectService.localProject.localPath, runtimeCwd.path);
+        expect(runtime.projectService.localProject?.localPath, runtimeCwd.path);
       },
     );
   });
@@ -840,6 +862,107 @@ steps:
     );
   });
 
+  group('a runtime directory and the data directory', () {
+    test('a runtime directory that is the data directory resolves to the workspace directory', () async {
+      final config = fixture.config();
+
+      await fixture.withWiredRuntime(
+        config,
+        runtimeCwd: tempDir.path,
+        body: (runtime) async {
+          expect(runtime.localRepositoryDir, isNull, reason: 'the workspace is never a project repository');
+          expect(runtime.projectService.localProject, isNull, reason: 'no local repository, so no _local project');
+        },
+      );
+    });
+
+    test('a runtime directory inside the data directory resolves to the workspace directory', () async {
+      final config = fixture.config();
+      final inside = Directory(p.join(tempDir.path, 'logs', 'nested'))..createSync(recursive: true);
+
+      await fixture.withWiredRuntime(
+        config,
+        runtimeCwd: inside.path,
+        body: (runtime) async {
+          expect(runtime.localRepositoryDir, isNull, reason: 'the workspace is never a project repository');
+          expect(runtime.projectService.localProject, isNull, reason: 'no local repository, so no _local project');
+        },
+      );
+    });
+
+    test('a runtime directory containing the data directory stays the runtime directory', () async {
+      final repository = fixture.seedGitRepo('repo-with-data-dir');
+      final nested = HeadlessRuntimeFixture(
+        Directory(p.join(repository.path, '.dartclaw-example'))..createSync(recursive: true),
+      );
+
+      await nested.withWiredRuntime(
+        nested.config(),
+        runtimeCwd: repository.path,
+        body: (runtime) async {
+          expect(runtime.projectService.localProject?.localPath, repository.path);
+          expect(runtime.localRepositoryDir, repository.path);
+        },
+      );
+    });
+
+    test('a workflow that resolves no project refuses before host Git runs in the workspace', () async {
+      final config = fixture.config();
+      final marker = p.join(fixture.reposDir.path, 'agent-command-ran');
+      armAgentWritableRepository(config.workspaceDir, marker, branch: 'agent-branch');
+      final wired = await fixture.runtime(config, runtimeCwd: tempDir.path);
+
+      await expectLater(
+        () => wired.workflowService.start(
+          branchGuardDefinition(projectRequired: false),
+          const {},
+          origin: WorkflowRunOrigin.unknown,
+        ),
+        throwsA(
+          isA<StateError>().having((error) => error.message, 'message', contains('this runtime has no local one')),
+        ),
+      );
+      expect(await wired.taskService.list(), isEmpty);
+      expect(File(marker).existsSync(), isFalse);
+      expectAgentTrapsLive(config.workspaceDir, marker);
+    });
+
+    test('a workflow naming _local refuses before host Git runs in the workspace', () async {
+      final config = fixture.config();
+      final marker = p.join(fixture.reposDir.path, 'agent-command-ran');
+      armAgentWritableRepository(config.workspaceDir, marker, branch: 'agent-branch');
+      final wired = await fixture.runtime(config, runtimeCwd: tempDir.path);
+      // PROJECT without BRANCH, checked out inline: the shape whose start never asks for a project directory.
+      final definition = WorkflowDefinition(
+        name: 'inline-local',
+        description: 'Edits the project checkout in place',
+        variables: const {'PROJECT': WorkflowVariable(required: true, description: 'Target project')},
+        gitStrategy: const WorkflowGitStrategy(
+          worktree: WorkflowGitWorktreeStrategy(mode: WorkflowGitWorktreeMode.inline),
+        ),
+        steps: const [
+          WorkflowStep(id: 'edit', name: 'Edit', taskType: WorkflowTaskType.agent, prompts: ['Edit the file']),
+        ],
+      );
+
+      expect(await wired.projectService.get('_local'), isNull);
+      expect((await wired.projectService.getAll()).map((project) => project.id), isNot(contains('_local')));
+      await expectLater(
+        () => wired.workflowService.start(definition, const {'PROJECT': '_local'}, origin: WorkflowRunOrigin.unknown),
+        throwsA(
+          isA<ArgumentError>().having(
+            (error) => '${error.message}',
+            'message',
+            allOf(contains('no local repository'), contains('registered project')),
+          ),
+        ),
+      );
+      expect(await wired.taskService.list(), isEmpty);
+      expect(File(marker).existsSync(), isFalse);
+      expectAgentTrapsLive(config.workspaceDir, marker);
+    });
+  });
+
   test('relative runtime cwd is resolved once to an absolute directory', () async {
     final runtimeCwd = fixture.seedGitRepo('relative-runtime-repo', readme: 'runtime\n');
 
@@ -847,7 +970,7 @@ steps:
       fixture.config(),
       runtimeCwd: p.relative(runtimeCwd.path),
       body: (runtime) async {
-        expect(runtime.projectService.localProject.localPath, runtimeCwd.path);
+        expect(runtime.projectService.localProject?.localPath, runtimeCwd.path);
       },
     );
   });
@@ -956,7 +1079,7 @@ steps:
   });
 
   test('tracked workflow git cleanup for named projects runs in the project checkout', () async {
-    final runtimeCwd = Directory(p.join(tempDir.path, 'runtime-cwd'))..createSync(recursive: true);
+    final runtimeCwd = Directory(p.join(fixture.reposDir.path, 'runtime-cwd'))..createSync(recursive: true);
     final projectDir = fixture.seedGitRepo('project-alpha', readme: '# project\n');
     final workspaceDir = Directory(p.join(tempDir.path, 'workspace'))..createSync(recursive: true);
 
@@ -1003,7 +1126,7 @@ steps:
   });
 
   test('tracked workflow git cleanup preserves non-terminal runs for resume', () async {
-    final runtimeCwd = Directory(p.join(tempDir.path, 'runtime-cwd'))..createSync(recursive: true);
+    final runtimeCwd = Directory(p.join(fixture.reposDir.path, 'runtime-cwd'))..createSync(recursive: true);
     final projectDir = fixture.seedGitRepo('project-alpha', readme: '# project\n');
     final workspaceDir = Directory(p.join(tempDir.path, 'workspace'))..createSync(recursive: true);
 

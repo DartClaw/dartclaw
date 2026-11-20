@@ -7,6 +7,7 @@ import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:test/test.dart';
 
 import '../helpers/factories.dart';
+import 'task_executor_test_support.dart' show initGitRepo;
 
 GitRunner _fakeRunner({int exitCode = 0, String stdout = '', String stderr = ''}) =>
     RecordingGitRunner(defaultResult: ProcessResult(0, exitCode, stdout, stderr)).run;
@@ -94,6 +95,125 @@ void main() {
       expect(git.calls.single.workingDirectory, '/data/my-app');
       // Push needs insteadOf/proxy/sshCommand from user or system git config.
       expect(git.calls.single.noSystemConfig, isFalse);
+    });
+
+    test('workflow push transfers the selected object to the configured project destination', () async {
+      const revision = '0123456789012345678901234567890123456789';
+      const destination = 'https://example.test/project.git';
+      const branch = 'dartclaw/workflow/publish';
+      final git = _recordingRunner()..setResponse(['remote', 'get-url'], ProcessResult(0, 0, '$destination\n', ''));
+      final service = RemotePushService(processRunner: git.run);
+
+      final result = await service.push(
+        project: makeProject(remoteUrl: destination),
+        branch: branch,
+        sourceRevision: revision,
+        expectedDestination: destination,
+      );
+
+      expect(result, isA<PushSuccess>());
+      expect(git.calls[0].arguments, ['remote', 'get-url', '--all', '--push', 'origin']);
+      expect(git.calls[1].arguments, [
+        '-c',
+        'core.hooksPath=/dev/null',
+        '-c',
+        'core.fsmonitor=false',
+        'push',
+        '--no-follow-tags',
+        '--',
+        'origin',
+        '$revision:refs/heads/$branch',
+      ]);
+    });
+
+    for (final explicitPushUrl in [true, false]) {
+      test('credentialed workflow honors Git push routing (explicitPushUrl=$explicitPushUrl)', () async {
+        final repo = await initGitRepo();
+        addTearDown(() => repo.deleteSync(recursive: true));
+        final bare = Directory.systemTemp.createTempSync('reviewed-push-');
+        addTearDown(() => bare.deleteSync(recursive: true));
+        Future<String> git(List<String> args) async {
+          final result = await Process.run('git', args, workingDirectory: repo.path);
+          expect(result.exitCode, 0, reason: result.stderr as String);
+          return (result.stdout as String).trim();
+        }
+
+        const projectUrl = 'git@github.com:acme/repo.git';
+        const canonicalUrl = 'https://github.com/acme/repo.git';
+        const pushAlias = 'fixture://reviewed-repo';
+        final target = 'file://${bare.path}/reviewed.git';
+        final unrelated = 'file://${bare.path}/unrelated.git';
+        await git(['init', '--bare', '${bare.path}/reviewed.git']);
+        await git(['init', '--bare', '${bare.path}/unrelated.git']);
+        await git(['remote', 'add', 'origin', projectUrl]);
+        if (explicitPushUrl) await git(['remote', 'set-url', '--push', 'origin', pushAlias]);
+        await git(['config', 'url.$target.insteadOf', explicitPushUrl ? pushAlias : canonicalUrl]);
+        await git(['config', 'url.$unrelated.insteadOf', target]);
+        final revision = await git(['rev-parse', 'HEAD']);
+        final project = makeProject(remoteUrl: projectUrl, localPath: repo.path, credentialsRef: 'fixture');
+        final service = RemotePushService(
+          credentials: const CredentialsConfig(entries: {'fixture': CredentialEntry.githubToken(token: 'ghp_test')}),
+          dataDir: bare.path,
+        );
+        addTearDown(service.dispose);
+
+        final destination = await service.workflowPushDestination(project);
+        expect(destination, target);
+        final result = await service.push(
+          project: project,
+          branch: 'publish',
+          sourceRevision: revision,
+          expectedDestination: destination,
+        );
+        expect(result, isA<PushSuccess>());
+        expect(await git(['--git-dir=${bare.path}/reviewed.git', 'rev-parse', 'refs/heads/publish']), revision);
+        expect(await git(['--git-dir=${bare.path}/unrelated.git', 'for-each-ref']), isEmpty);
+      });
+    }
+
+    test('a GitHub-token push to a push URL on another host sends that host no credential', () async {
+      final repo = await initGitRepo();
+      addTearDown(() => repo.deleteSync(recursive: true));
+      final dataDir = Directory.systemTemp.createTempSync('foreign-push-');
+      addTearDown(() => dataDir.deleteSync(recursive: true));
+      final authorizations = <String>[];
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      addTearDown(() => server.close(force: true));
+      server.listen((request) async {
+        final authorization = request.headers.value(HttpHeaders.authorizationHeader);
+        if (authorization != null) authorizations.add(authorization);
+        await request.drain<void>();
+        request.response
+          ..statusCode = HttpStatus.unauthorized
+          ..headers.set(HttpHeaders.wwwAuthenticateHeader, 'Basic realm="foreign"');
+        await request.response.close();
+      });
+      Future<String> git(List<String> args) async {
+        final result = await Process.run('git', args, workingDirectory: repo.path);
+        expect(result.exitCode, 0, reason: result.stderr as String);
+        return (result.stdout as String).trim();
+      }
+
+      const projectUrl = 'git@github.com:acme/repo.git';
+      await git(['remote', 'add', 'origin', projectUrl]);
+      await git(['config', 'remote.origin.pushurl', 'http://127.0.0.1:${server.port}/foreign.git']);
+      final revision = await git(['rev-parse', 'HEAD']);
+      final project = makeProject(remoteUrl: projectUrl, localPath: repo.path, credentialsRef: 'fixture');
+      final service = RemotePushService(
+        credentials: const CredentialsConfig(entries: {'fixture': CredentialEntry.githubToken(token: 'ghp_test')}),
+        dataDir: dataDir.path,
+      );
+      addTearDown(service.dispose);
+
+      final result = await service.push(
+        project: project,
+        branch: 'publish',
+        sourceRevision: revision,
+        expectedDestination: await service.workflowPushDestination(project),
+      );
+
+      expect(result, isA<PushAuthFailure>());
+      expect(authorizations, isEmpty);
     });
 
     test('local-path projects push without remote.origin.url override', () async {

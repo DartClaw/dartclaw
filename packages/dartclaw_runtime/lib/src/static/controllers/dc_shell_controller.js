@@ -907,7 +907,16 @@ export default class DcShellController extends Stimulus.Controller {
       details.dataset.sidebarProject = project.id;
       details.open = true;
       const summary = document.createElement('summary');
-      summary.textContent = project.name || project.id;
+      summary.dataset.icon = 'chevron-down';
+      const identicon = document.createElement('span');
+      identicon.className = 'identicon';
+      identicon.setAttribute('aria-hidden', 'true');
+      identicon.dataset.identiconId = project.id;
+      identicon.dataset.identiconInitials = railInitial(project.name || project.id);
+      const name = document.createElement('span');
+      name.className = 'sidebar-project-name';
+      name.textContent = project.name || project.id;
+      summary.append(identicon, name);
       const projectRows = document.createElement('div');
       projectRows.className = 'rail-rows';
       for (const entry of entries) {
@@ -926,6 +935,7 @@ export default class DcShellController extends Stimulus.Controller {
       details.append(summary, projectRows, create);
       host.append(details);
     }
+    applyIdenticons(host);
     for (const row of list.querySelectorAll('[data-inbox-session-id]')) {
       row.querySelector('[data-inbox-project]')?.setAttribute('hidden', '');
     }

@@ -38,7 +38,6 @@ void registerSessionMessageRoutes(
   required SessionService sessions,
   required MessageService messages,
   required TurnManager turns,
-  required AgentHarness worker,
   MessageRedactor? redactor,
   ProjectService? projectService,
   required SessionMutationCoordinator sessionMutations,
@@ -276,7 +275,7 @@ void registerSessionMessageRoutes(
       return errorResponse(404, 'TURN_NOT_FOUND', 'Turn not found or expired');
     }
 
-    return sseStreamResponse(worker, turns, id, turnId, redactor: redactor);
+    return sseStreamResponse(turns, id, turnId, redactor: redactor);
   });
 }
 

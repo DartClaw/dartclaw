@@ -1,4 +1,5 @@
 tags:
   contract:
+  slow:
   integration:
     skip: "Skipped by default; run explicitly with: dart test --run-skipped -t integration packages/dartclaw_runtime"

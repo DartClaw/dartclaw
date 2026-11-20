@@ -2,7 +2,7 @@
 
 How `dartclaw.yaml` becomes an immutable `DartclawConfig`, how a key is described, validated and written back, and how a change reaches a running server: the composed model, the load pipeline, the field registry, persistence, hot reload, the extension seam, credential configuration and the settings form. Per-key defaults and meanings live in the generated reference in [`docs/guide/configuration.md`](../../docs/guide/configuration.md#full-config-reference) and the published `schemas/dartclaw.schema.json`, not here. What the guards, the credential stores and container isolation do with configuration is [Security Architecture](security-architecture.md); the HTTP surface as a whole is [CLI & API Architecture](cli-api-architecture.md).
 
-**Current through**: 0.28.0
+**Current through**: 0.28.1
 
 ---
 
@@ -234,7 +234,7 @@ Both routers read bodies through the capped reader in `api_helpers.dart` (`readR
 
 ### Live-field side effects
 
-`ConfigChangeSubscriber` (`config/config_change_subscriber.dart`) listens for `ConfigChangedEvent` and applies the four `live` runtime keys by exact dotted key: `scheduling.heartbeat.enabled`, `workspace.git_sync.enabled`, `workspace.git_sync.push_enabled` and `context.warning_threshold` (clamped 50–99). Only `PATCH`/settings deliver exact keys; the notifier emits section wildcards to `Reconfigurable`s, so a key that must take effect at runtime has to be declared `live` and handled in that switch. `ScopeReconciler` updates a `LiveScopeConfig` when `sessions.dm_scope` or `sessions.group_scope` change. **Known defect:** `service_wiring.dart` (`_wireScopeReconciler`) builds the reconciler its own `LiveScopeConfig`, while `ChannelManager` reads the separate instance built in `channel_wiring.dart`, and nothing else reads the reconciler's. A `PATCH` of either key is persisted but changes session-key derivation only after a restart.
+`ConfigChangeSubscriber` (`config/config_change_subscriber.dart`) listens for `ConfigChangedEvent` and applies the four `live` runtime keys by exact dotted key: `scheduling.heartbeat.enabled`, `workspace.git_sync.enabled`, `workspace.git_sync.push_enabled` and `context.warning_threshold` (clamped 50–99). Only `PATCH`/settings deliver exact keys; the notifier emits section wildcards to `Reconfigurable`s, so a key that must take effect at runtime has to be declared `live` and handled in that switch. `ScopeReconciler` updates a `LiveScopeConfig` when `sessions.dm_scope` or `sessions.group_scope` change. `ChannelWiring` builds the reconciler on the same `LiveScopeConfig` it gives `ChannelManager`, so a `PATCH` of either key changes session-key derivation for the next message.
 
 The heartbeat and git-sync effects go through one `RuntimeToggleApplier` (`config/runtime_toggle_applier.dart`) for both the toggle routes and the subscriber, and it is the only writer of `WorkspaceGitSync.pushEnabled` and the matching `RuntimeConfig` fields. A persisted `workspace.*` reload reaches it through `WorkspaceGitSyncReconfigurer`, so an ephemeral push toggle is cleared by the next persisted `workspace.*` write, deliberately, and `RuntimeConfig` reports the value in force.
 

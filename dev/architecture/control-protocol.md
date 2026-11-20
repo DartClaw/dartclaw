@@ -2,7 +2,7 @@
 
 How DartClaw drives provider binaries and runs a turn: the `AgentHarness` abstraction, the three subprocess protocols behind it (Claude Code JSONL, Codex app-server JSON-RPC, ACP stdio JSON-RPC), the execution coordinator and turn runner that wrap a harness, MCP tool exposure, and harness crash recovery. Package topology and service wiring live in [System Architecture](system-architecture.md). Guard semantics, credential mediation and container isolation live in [Security Architecture](security-architecture.md). Sessions, locks and the event bus live in [Session & State Architecture](session-state-architecture.md). Task and workflow orchestration on top of turns live in [Task Execution](task-execution-architecture.md) and [Workflow Architecture](workflow-architecture.md).
 
-**Current through**: 0.28.0
+**Current through**: 0.28.1
 
 ---
 
@@ -69,6 +69,8 @@ Capabilities are getters that default to the safe answer. Callers read them; the
 ### 2.2 Provider-session resume
 
 By default DartClaw owns conversation continuity and replays bounded persisted history (`buildReplaySafeHistory`, `conversation_history.dart`: user/assistant pairs only, synthetic markers and guard-blocked exchanges filtered, oldest pairs dropped to a budget). `providerSessionId` or `requestProviderSessionResume` opts a turn into provider-owned continuity instead. A harness whose `supportsProviderSessionResume` is false refuses either input before provider work (`AgentHarness.requireProviderSessionResumeSupport`). `TurnResult.providerSessionId` is non-null only when the provider state outlives the process. Claude enables session persistence and passes `--resume`. Codex needs a system or DartClaw-dedicated `CODEX_HOME`; container and temporary auth-clean homes are non-durable (`CodexEnvironment.supportsProviderSessionResume`). A missing rollout fails the turn and never falls back to `thread/start`.
+
+Workflow work and finalizer turns keep one worker lease. A harness with durable resume support must return its requested provider ID; a harness without it may use `supportsSessionContinuity` for the immediate finalizer on that same live worker, without a persisted resume ID. An explicit persisted ID still requires durable-resume support.
 
 ### 2.3 Structured output
 
@@ -186,7 +188,7 @@ Representative exchanges:
  "tool_input":{"command":"curl http://evil.com"}}}}
 {"type":"control_response","response":{"subtype":"success","request_id":"req_55_abc",
  "response":{"continue":true,"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny",
- "permissionDecisionReason":"Network blocked: domain not in allowlist (evil.com)"}}}}
+ "permissionDecisionReason":"Network blocked: domain not in allowlist (evil.com); to allow it, add the host to guards.network.extra_allowed_domains"}}}}
 
 // claude → Dart: end of turn
 {"type":"result","stop_reason":"end_turn","total_cost_usd":0.0042,"duration_ms":3500,

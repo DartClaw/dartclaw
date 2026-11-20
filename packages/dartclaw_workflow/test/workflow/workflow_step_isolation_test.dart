@@ -344,8 +344,6 @@ void main() {
       dataDir: skillsCacheDir.path,
       workspaceDir: fixtureDir,
       skillNames: skillInventory.skillNames,
-      agentMdNames: skillInventory.agentMdNames,
-      agentTomlNames: skillInventory.agentTomlNames,
     );
 
     final taskRepository = InMemoryTaskRepository();

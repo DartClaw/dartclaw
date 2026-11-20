@@ -93,7 +93,7 @@ void main() {
   late FakeGoogleChatRestClient restClient;
   late GoogleChatChannel channel;
   late FakeGoogleJwtVerifier jwtVerifier;
-  late ChannelMessage? dispatchedMessage;
+  late FakeChannelManager channelManager;
   late EventBus eventBus;
   late GoogleChatWebhookHandler handler;
 
@@ -131,7 +131,7 @@ void main() {
     );
     jwtVerifier = FakeGoogleJwtVerifier();
     eventBus = EventBus();
-    dispatchedMessage = null;
+    channelManager = FakeChannelManager();
     handler = GoogleChatWebhookHandler(
       channel: channel,
       jwtVerifier: jwtVerifier,
@@ -143,11 +143,7 @@ void main() {
       ),
       eventBus: eventBus,
       trustedProxies: const ['192.168.1.100'],
-      dispatchMessage: (message) async {
-        dispatchedMessage = message;
-        return 'Agent reply';
-      },
-      responseTimeout: const Duration(milliseconds: 50),
+      channelManager: channelManager,
     );
   });
 
@@ -218,7 +214,7 @@ void main() {
       final response = await _post(handler, body: _payload());
 
       expect(response.statusCode, 200);
-      expect(await response.readAsString(), '{"text":"Agent reply"}');
+      expect(await response.readAsString(), '{}');
     });
   });
 
@@ -226,9 +222,9 @@ void main() {
     test('processes valid MESSAGE event', () async {
       await _post(handler, body: _payload());
 
-      expect(dispatchedMessage, isNotNull);
-      expect(dispatchedMessage!.senderJid, 'users/123');
-      expect(dispatchedMessage!.metadata['spaceName'], 'spaces/AAAA');
+      expect(channelManager.received.lastOrNull, isNotNull);
+      expect(channelManager.received.lastOrNull!.senderJid, 'users/123');
+      expect(channelManager.received.lastOrNull!.metadata['spaceName'], 'spaces/AAAA');
     });
 
     test('captures thread and avatar metadata from webhook ingress', () async {
@@ -241,16 +237,16 @@ void main() {
         ),
       );
 
-      expect(dispatchedMessage, isNotNull);
-      expect(dispatchedMessage!.metadata['senderAvatarUrl'], 'https://example.com/avatar.png');
-      expect(dispatchedMessage!.metadata['threadName'], 'spaces/AAAA/threads/CCCC');
+      expect(channelManager.received.lastOrNull, isNotNull);
+      expect(channelManager.received.lastOrNull!.metadata['senderAvatarUrl'], 'https://example.com/avatar.png');
+      expect(channelManager.received.lastOrNull!.metadata['threadName'], 'spaces/AAAA/threads/CCCC');
     });
 
     test('captures space display name from webhook ingress', () async {
       await _post(handler, body: _payload(spaceType: 'ROOM'));
 
-      expect(dispatchedMessage, isNotNull);
-      expect(dispatchedMessage!.metadata['spaceDisplayName'], 'Primary');
+      expect(channelManager.received.lastOrNull, isNotNull);
+      expect(channelManager.received.lastOrNull!.metadata['spaceDisplayName'], 'Primary');
     });
 
     test('prefers argumentText over raw text when present', () async {
@@ -259,20 +255,20 @@ void main() {
         body: _payload(text: '<users/app> accept', argumentText: 'accept'),
       );
 
-      expect(dispatchedMessage, isNotNull);
-      expect(dispatchedMessage!.text, 'accept');
+      expect(channelManager.received.lastOrNull, isNotNull);
+      expect(channelManager.received.lastOrNull!.text, 'accept');
     });
 
     test('extracts group JID for ROOM spaces', () async {
       await _post(handler, body: _payload(spaceType: 'ROOM'));
 
-      expect(dispatchedMessage!.groupJid, 'spaces/AAAA');
+      expect(channelManager.received.lastOrNull!.groupJid, 'spaces/AAAA');
     });
 
     test('keeps DM messages without group JID', () async {
       await _post(handler, body: _payload(spaceType: 'DM'));
 
-      expect(dispatchedMessage!.groupJid, isNull);
+      expect(channelManager.received.lastOrNull!.groupJid, isNull);
     });
 
     test('extracts mentions from annotations', () async {
@@ -290,13 +286,13 @@ void main() {
         ),
       );
 
-      expect(dispatchedMessage!.mentionedJids, ['users/999']);
+      expect(channelManager.received.lastOrNull!.mentionedJids, ['users/999']);
     });
 
     test('filters bot messages by sender.type', () async {
       await _post(handler, body: _payload(senderType: 'BOT'));
 
-      expect(dispatchedMessage, isNull);
+      expect(channelManager.received.lastOrNull, isNull);
     });
 
     test('filters bot messages by configured bot user fallback', () async {
@@ -304,26 +300,22 @@ void main() {
         channel: channel,
         jwtVerifier: jwtVerifier,
         config: const GoogleChatConfig(botUser: 'users/bot', typingIndicatorMode: TypingIndicatorMode.disabled),
-        dispatchMessage: (message) async {
-          dispatchedMessage = message;
-          return 'Agent reply';
-        },
+        channelManager: channelManager,
       );
 
       await _post(handler, body: _payload(senderName: 'users/bot'));
 
-      expect(dispatchedMessage, isNull);
+      expect(channelManager.received.lastOrNull, isNull);
     });
 
     test('drops empty text messages', () async {
       await _post(handler, body: _payload(text: '   '));
 
-      expect(dispatchedMessage, isNull);
+      expect(channelManager.received.lastOrNull, isNull);
     });
 
     test('routes through ChannelManager when one is provided', () async {
       ChannelMessage? queuedMessage;
-      var directDispatchCalls = 0;
       final disabledChannel = GoogleChatChannel(
         config: const GoogleChatConfig(
           webhookPath: '/integrations/googlechat',
@@ -348,11 +340,6 @@ void main() {
           typingIndicatorMode: TypingIndicatorMode.disabled,
         ),
         channelManager: manager,
-        dispatchMessage: (message) async {
-          directDispatchCalls++;
-          dispatchedMessage = message;
-          return 'Direct reply';
-        },
       );
 
       final response = await _post(handler, body: _payload());
@@ -360,8 +347,6 @@ void main() {
 
       expect(response.statusCode, 200);
       expect(await response.readAsString(), '{}');
-      expect(directDispatchCalls, 0);
-      expect(dispatchedMessage, isNull);
       expect(queuedMessage, isNotNull);
       expect(queuedMessage!.senderJid, 'users/123');
       expect(restClient.sentMessages, [('spaces/AAAA', 'Queued reply')]);
@@ -382,34 +367,37 @@ void main() {
       final response = await _post(handler, body: _payload(type: 'REMOVED_FROM_SPACE'));
 
       expect(response.statusCode, 200);
-      expect(dispatchedMessage, isNull);
+      expect(channelManager.received.lastOrNull, isNull);
       expect(restClient.sentMessages, isEmpty);
     });
   });
 
   group('typing indicator', () {
-    test('sends placeholder then patches on timeout when enabled', () async {
+    test('sends placeholder then patches it with the queued reply when enabled', () async {
       final completer = Completer<String>();
+      final messageChannel = GoogleChatChannel(
+        config: const GoogleChatConfig(
+          typingIndicatorMode: TypingIndicatorMode.message,
+          dmAccess: DmAccessMode.open,
+          groupAccess: GroupAccessMode.open,
+        ),
+        restClient: restClient,
+      );
       handler = GoogleChatWebhookHandler(
-        channel: channel,
+        channel: messageChannel,
         jwtVerifier: jwtVerifier,
         config: const GoogleChatConfig(
           typingIndicatorMode: TypingIndicatorMode.message,
           dmAccess: DmAccessMode.open,
           groupAccess: GroupAccessMode.open,
         ),
-        dispatchMessage: (message) {
-          dispatchedMessage = message;
-          return completer.future;
-        },
-        responseTimeout: const Duration(milliseconds: 50),
+        channelManager: _buildChannelManager(channel: messageChannel, onDispatch: (message) => completer.future),
       );
 
       final response = await _post(handler, body: _payload());
 
       expect(response.statusCode, 200);
       expect(await response.readAsString(), '{}');
-      expect(dispatchedMessage, isNotNull);
       expect(restClient.sentMessages, [('spaces/AAAA', '_DartClaw is typing..._')]);
 
       completer.complete('Final answer');
@@ -418,62 +406,7 @@ void main() {
       expect(restClient.editedMessages, [('spaces/AAAA/messages/1', 'Final answer')]);
     });
 
-    test('keeps placeholders separate for overlapping turns in the same space', () async {
-      final first = Completer<String>();
-      final second = Completer<String>();
-      var callCount = 0;
-      handler = GoogleChatWebhookHandler(
-        channel: channel,
-        jwtVerifier: jwtVerifier,
-        config: const GoogleChatConfig(
-          typingIndicatorMode: TypingIndicatorMode.message,
-          dmAccess: DmAccessMode.open,
-          groupAccess: GroupAccessMode.open,
-        ),
-        dispatchMessage: (message) {
-          dispatchedMessage = message;
-          callCount++;
-          return callCount == 1 ? first.future : second.future;
-        },
-        responseTimeout: const Duration(milliseconds: 50),
-      );
-
-      await _post(
-        handler,
-        body: _payload(text: 'first', senderName: 'users/123', userName: 'users/123'),
-      );
-      await _post(
-        handler,
-        body: {
-          ..._payload(text: 'second', senderName: 'users/456', userName: 'users/456'),
-          'message': {
-            'name': 'spaces/AAAA/messages/CCCC',
-            'sender': {'name': 'users/456', 'type': 'HUMAN'},
-            'text': 'second',
-            'annotations': const [],
-          },
-          'user': {'name': 'users/456', 'displayName': 'Bob', 'type': 'HUMAN'},
-        },
-      );
-
-      expect(dispatchedMessage, isNotNull);
-      expect(restClient.sentMessages, [
-        ('spaces/AAAA', '_DartClaw is typing..._'),
-        ('spaces/AAAA', '_DartClaw is typing..._'),
-      ]);
-
-      second.complete('Second answer');
-      first.complete('First answer');
-      await Future<void>.delayed(const Duration(milliseconds: 10));
-
-      expect(restClient.editedMessages, [
-        ('spaces/AAAA/messages/2', 'Second answer'),
-        ('spaces/AAAA/messages/1', 'First answer'),
-      ]);
-    });
-
     test('does not send placeholder when disabled', () async {
-      final completer = Completer<String>();
       final disabledChannel = GoogleChatChannel(
         config: const GoogleChatConfig(
           typingIndicatorMode: TypingIndicatorMode.disabled,
@@ -486,12 +419,10 @@ void main() {
         channel: disabledChannel,
         jwtVerifier: jwtVerifier,
         config: const GoogleChatConfig(typingIndicatorMode: TypingIndicatorMode.disabled),
-        dispatchMessage: (message) => completer.future,
-        responseTimeout: const Duration(milliseconds: 1),
+        channelManager: _buildChannelManager(channel: disabledChannel, onDispatch: (message) async => 'Final answer'),
       );
 
       await _post(handler, body: _payload());
-      completer.complete('Final answer');
       await Future<void>.delayed(const Duration(milliseconds: 10));
 
       expect(restClient.sentMessages, [('spaces/AAAA', 'Final answer')]);
@@ -515,7 +446,6 @@ void main() {
         channelManager: _buildChannelManager(
           channel: emojiChannel,
           onDispatch: (message) async {
-            dispatchedMessage = message;
             return completer.future;
           },
         ),
@@ -554,10 +484,10 @@ void main() {
 
       await _post(handler, body: addOnPayload);
 
-      expect(dispatchedMessage, isNotNull);
-      expect(dispatchedMessage!.text, 'Hello from add-on');
-      expect(dispatchedMessage!.senderJid, 'users/123');
-      expect(dispatchedMessage!.metadata['spaceName'], 'spaces/AAAA');
+      expect(channelManager.received.lastOrNull, isNotNull);
+      expect(channelManager.received.lastOrNull!.text, 'Hello from add-on');
+      expect(channelManager.received.lastOrNull!.senderJid, 'users/123');
+      expect(channelManager.received.lastOrNull!.metadata['spaceName'], 'spaces/AAAA');
     });
 
     test('normalizes addedToSpacePayload into legacy ADDED_TO_SPACE event', () async {
@@ -593,7 +523,7 @@ void main() {
       final response = await _post(handler, body: addOnPayload);
 
       expect(response.statusCode, 200);
-      expect(dispatchedMessage, isNull);
+      expect(channelManager.received.lastOrNull, isNull);
     });
   });
 

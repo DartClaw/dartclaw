@@ -41,6 +41,7 @@ final class BridgeRunner {
   HttpServer? _server;
   int _nextRequestId = 1;
   bool _closing = false;
+  Future<void> _writeChain = Future<void>.value();
 
   /// The port the loopback listener accepted on. Valid after [start].
   int get boundPort => _server?.port ?? 0;
@@ -156,10 +157,14 @@ final class BridgeRunner {
 
   Future<void> _write(BridgeFrame frame) async {
     if (_closing) return;
-    _hostOutput.add(encodeBridgeFrame(frame, limits: limits));
-    // Flushing per frame makes the OS pipe the backpressure boundary; without
-    // it the sink would buffer an unbounded amount of container traffic.
-    await _hostOutput.flush();
+    // An invalid request frame must not poison the shared writer.
+    final bytes = encodeBridgeFrame(frame, limits: limits);
+    await (_writeChain = _writeChain.then((_) async {
+      if (_closing) return;
+      // IOSink rejects add() while flush() has bound the stream.
+      _hostOutput.add(bytes);
+      await _hostOutput.flush();
+    }));
   }
 
   // ---------------------------------------------------------------------------
@@ -333,7 +338,7 @@ final class _PendingResponse {
       _request.response.headers.contentType = ContentType.text;
       _request.response.write(message);
     }
-    _finish();
+    _finish(abort: _started);
   }
 
   /// Ends the exchange without writing anything further — the client is gone.
@@ -359,11 +364,16 @@ final class _PendingResponse {
     if (!_clientGone.isCompleted) _clientGone.complete(gone);
   }
 
-  void _finish() {
+  void _finish({bool abort = false}) {
     if (_settled.isCompleted) return;
     _settled.complete();
     _detach();
-    unawaited(_request.response.close().catchError((Object _) {}));
+    if (abort) {
+      // A normal chunked close would certify a truncated archive as complete.
+      _request.response.deadline = Duration.zero;
+    } else {
+      unawaited(_request.response.close().catchError((Object _) {}));
+    }
   }
 
   static bool _isHopByHop(String name) => const {

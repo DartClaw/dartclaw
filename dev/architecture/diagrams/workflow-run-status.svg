@@ -93,7 +93,7 @@
 
   <g class="edges">
     <g class="e main f-pending t-running"><path d="M190,252 H268"/><text class="el" x="229" y="244" text-anchor="middle">start</text></g>
-    <g class="e main f-running t-completed"><path d="M540,228 H640 V140 H778"/><text class="el" x="646" y="132" text-anchor="start">all nodes done</text></g>
+    <g class="e main f-running t-completed"><path d="M540,228 H640 V140 H778"/><text class="el" x="646" y="132" text-anchor="start">done, published if set</text></g>
     <g class="e bad f-running t-failed"><path d="M540,258 H778"/><text class="el" x="548" y="250" text-anchor="start">step, gate or budget failure</text></g>
     <g class="e  f-failed t-running"><path d="M778,278 H542"/><text class="el" x="660" y="292" text-anchor="middle">retry</text></g>
     <g class="e  f-running t-paused"><path d="M290,288 V358"/><text class="el" x="284" y="330" text-anchor="end">pause</text></g>
@@ -143,8 +143,8 @@
     <rect class="box" x="480" y="360" width="260" height="72" rx="9"/>
     <text class="name mono-name" x="492" y="383">awaitingApproval</text>
     <text class="sub" x="492" y="401">approval gate, needsInput,</text>
-    <text class="sub" x="492" y="417">onFailure: pause</text>
-    <g class="d"><text class="p1" x="36" y="622"><tspan class="b">awaitingApproval</tspan> · approval gate, step needsInput outcome or onFailure: pause; all use the _approval.* hold shape</text><text class="p2" x="36" y="642">Approve (resume) continues at the next step; request changes re-enters running at the revise step; reject, cancel or timeout cancels.</text></g>
+    <text class="sub" x="492" y="417">onFailure: pause, or execution-surface hold</text>
+    <g class="d"><text class="p1" x="36" y="622"><tspan class="b">awaitingApproval</tspan> · approval gates, needsInput and onFailure: pause use the pending approval record.</text><text class="p2" x="36" y="642">An execution-surface hold requires a person's approval of the exact promotion or publish candidate.</text></g>
   </g></a>
   <a href="../workflow-architecture.md#54-pause-resume-retry-cancel"><g class="n tint k-neu" id="cancelled">
     <rect class="box" x="130" y="468" width="630" height="60" rx="9"/>

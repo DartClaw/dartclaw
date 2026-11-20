@@ -150,7 +150,7 @@ void main() {
         config: const ContainerConfig(enabled: true, image: agentProbeImage),
         containerName: 'dartclaw-agent-workspace-${DateTime.now().microsecondsSinceEpoch}',
         profileId: 'workspace',
-        workspaceMounts: SecurityProfile.workspace(workspaceDir: agentA.path, projectDir: null).workspaceMounts,
+        workspaceMounts: SecurityProfile.workspace(workspaceDir: agentA.path).workspaceMounts,
         generatedStateDir: p.join(dataDir.path, 'containers', 'agent-a'),
         hasMcpBridge: false,
         buildContextDir: checkoutRoot,

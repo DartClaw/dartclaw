@@ -1,0 +1,6 @@
+name: container_coding_fixture
+publish_to: none
+environment:
+  sdk: ^3.13.0
+dev_dependencies:
+  test: ^1.29.0

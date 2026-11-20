@@ -25,7 +25,6 @@ void main() {
       sessions,
       messages,
       FakeTurnManager(messages, worker),
-      worker,
       ownerWorkspaceDir: sessions.baseDir,
     ).call;
   });

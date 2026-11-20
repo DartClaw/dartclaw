@@ -261,6 +261,7 @@ final class NativeEmbeddingPlatformGate {
         _joinAll(probeOutput, ['bundle', 'bin', 'native_embedding_probe${Platform.isWindows ? '.exe' : ''}']),
       );
 
+      final probeSnapshot = File(_joinAll(probeOutput, ['bundle', 'lib', 'libdartaotnative_embedding_probe.so']));
       final basePackage = packages[archiveNames.first]!;
       final loaderLibrary = selectNativeLoaderLibrary(await _nativeLibraryFiles(basePackage));
       final cases = <ProbeCase>[];
@@ -269,6 +270,9 @@ final class NativeEmbeddingPlatformGate {
         await _copyDirectory(basePackage, package);
         final executable = File(_joinAll(package.path, ['bin', compiledProbe.uri.pathSegments.last]));
         await compiledProbe.copy(executable.path);
+        if (await probeSnapshot.exists()) {
+          await probeSnapshot.copy(_joinAll(package.path, ['lib', probeSnapshot.uri.pathSegments.last]));
+        }
         var caseModelPath = modelPath;
         if (operation == 'missingLibrary') {
           await prepareNativeLibraryFailure(package, corrupt: false);
@@ -480,7 +484,11 @@ String _hostArchitecture() {
 Future<List<Map<String, Object?>>> nativeLibraryManifest(Directory package) async {
   final libraryRoot = Directory(_join(package.path, 'lib'));
   if (!await libraryRoot.exists()) throw StateError('Release archive omitted native libraries');
-  final files = await libraryRoot.list(recursive: true).where((entry) => entry is File).cast<File>().toList();
+  final files = await libraryRoot
+      .list(recursive: true)
+      .where((entry) => entry is File && !entry.uri.pathSegments.last.startsWith('libdartaot'))
+      .cast<File>()
+      .toList();
   final binaryRoot = Directory(_join(package.path, 'bin'));
   if (await binaryRoot.exists()) {
     files.addAll(

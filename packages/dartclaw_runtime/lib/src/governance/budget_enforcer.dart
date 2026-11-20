@@ -1,7 +1,4 @@
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
-import 'package:logging/logging.dart';
-import 'package:timezone/data/latest_all.dart' as tzdata;
-import 'package:timezone/timezone.dart' as tz;
 
 import '../observability/usage_tracker.dart';
 import 'budget_engine.dart';
@@ -38,17 +35,13 @@ class BudgetStatus {
 ///
 /// Reads persisted daily totals from [UsageTracker.dailySummaryForDate] and
 /// keeps its warn-once marker in the same aggregate, so one warning per day
-/// survives a restart. Timezone-aware: [BudgetConfig.timezone] decides which
-/// day "today" is.
-///
-/// Supported timezone formats: `UTC`, `UTC+N`, `UTC-N`, and IANA timezone names.
+/// survives a restart. "Today" is [UsageTracker.dailyKeyFor]'s day, the one the
+/// usage was recorded in; the wiring builds the tracker with
+/// [BudgetConfig.timezone].
 ///
 /// Deliberately has no error handling: a storage failure must surface to the
 /// caller rather than silently allow an over-budget turn.
 class BudgetEnforcer {
-  static final _log = Logger('BudgetEnforcer');
-  static var _timezoneDataInitialized = false;
-
   /// Fraction of the daily budget at which the operator is warned.
   static const _dailyWarningThreshold = 0.8;
 
@@ -90,72 +83,12 @@ class BudgetEnforcer {
       budget: budget,
       percentage: budgetPercentage(consumption.tokensUsed, budget),
       action: _config.action,
-      timezone: _config.timezone,
+      timezone: _usageTracker.timezone,
     );
   }
 
   _DailyBudgetScope _scopeAt(DateTime timestamp) =>
       _DailyBudgetScope(usageTracker: _usageTracker, config: _config, timestamp: timestamp);
-
-  static String _dateKey(DateTime localTime) {
-    final m = localTime.month.toString().padLeft(2, '0');
-    final d = localTime.day.toString().padLeft(2, '0');
-    return 'usage_daily:${localTime.year}-$m-$d';
-  }
-
-  static DateTime _localTimeFor(DateTime timestamp, String timezone) {
-    final utcTimestamp = timestamp.toUtc();
-    final location = _resolveIanaLocation(timezone);
-    if (location != null) {
-      return tz.TZDateTime.from(utcTimestamp, location);
-    }
-    return utcTimestamp.add(_resolveTimezoneOffset(timezone, at: utcTimestamp));
-  }
-
-  /// Resolves timezone string to a UTC offset at [at].
-  static Duration _resolveTimezoneOffset(String timezone, {DateTime? at}) {
-    final fixedOffset = _resolveFixedTimezoneOffset(timezone);
-    if (fixedOffset != null) return fixedOffset;
-    final location = _resolveIanaLocation(timezone);
-    if (location != null) {
-      return tz.TZDateTime.from((at ?? DateTime.now()).toUtc(), location).timeZoneOffset;
-    }
-    _log.warning(
-      'Unrecognized timezone "$timezone" — falling back to UTC. '
-      'Supported formats: UTC, UTC+N, UTC-N, or IANA timezone names',
-    );
-    return Duration.zero;
-  }
-
-  static Duration? _resolveFixedTimezoneOffset(String timezone) {
-    final normalized = timezone.trim().toUpperCase();
-    if (normalized == 'UTC' || normalized == 'GMT') return Duration.zero;
-    final match = RegExp(r'^UTC([+-])(\d{1,2})$').firstMatch(normalized);
-    if (match != null) {
-      final sign = match.group(1) == '+' ? 1 : -1;
-      final hours = int.parse(match.group(2)!);
-      return Duration(hours: sign * hours);
-    }
-    return null;
-  }
-
-  static tz.Location? _resolveIanaLocation(String timezone) {
-    final value = timezone.trim();
-    if (value.isEmpty || !value.contains('/')) return null;
-    try {
-      if (!_timezoneDataInitialized) {
-        tzdata.initializeTimeZones();
-        _timezoneDataInitialized = true;
-      }
-      return tz.getLocation(value);
-    } on tz.LocationNotFoundException {
-      return null;
-    }
-  }
-
-  // Expose for testing.
-  static String dateKeyForTime(DateTime localTime) => _dateKey(localTime);
-  static Duration resolveTimezoneOffset(String timezone, {DateTime? at}) => _resolveTimezoneOffset(timezone, at: at);
 }
 
 // ---------------------------------------------------------------------------
@@ -173,9 +106,8 @@ final class _DailyBudgetScope implements BudgetScope {
   final BudgetConfig _config;
   final DateTime _timestamp;
 
-  /// Resolved lazily so a disabled budget never resolves a timezone — and never
-  /// logs an unknown-zone warning for a guardrail nobody enabled.
-  late final String _dateKey = BudgetEnforcer._dateKey(BudgetEnforcer._localTimeFor(_timestamp, _config.timezone));
+  /// Resolved lazily so a disabled budget reads no usage aggregate.
+  late final String _dateKey = _usageTracker.dailyKeyFor(_timestamp);
 
   @override
   double get warningThreshold => BudgetEnforcer._dailyWarningThreshold;

@@ -54,6 +54,7 @@ void main() {
     ),
     runners: TaskExecutorRunners(turns: turnManager),
     currentDirectory: workspaceDir,
+    localRepositoryDir: workspaceDir,
     pollInterval: const Duration(milliseconds: 10),
   );
 

@@ -1,10 +1,6 @@
 #!/usr/bin/env bash
-# Runs every architectural fitness function gated by S35.
-# Exits non-zero on the first failure so CI surfaces it.
-#
 # Prerequisites: workspace dependencies must be installed (`dart pub get` from
-# the repo root) and ripgrep (`rg`) must be on PATH. CI installs both before
-# invoking this script.
+# the repo root) and ripgrep (`rg`) must be on PATH.
 #
 # Working dir: the script resolves the repo root from its own location, so it
 # can be invoked from anywhere. The `--source` and `--allowlist` paths handed

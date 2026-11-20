@@ -132,6 +132,7 @@ final class ScenarioTaskHarness {
       ),
       runners: TaskExecutorRunners(turns: turns),
       currentDirectory: tempDir.path,
+      localRepositoryDir: tempDir.path,
       onAutoAccept: onAutoAccept,
       pollInterval: pollInterval,
     );
@@ -412,7 +413,7 @@ final class StaticPathWorktreeManager extends WorktreeManager {
   }
 
   @override
-  Future<void> cleanup(String taskId, {Project? project}) async {}
+  Future<void> cleanup(String taskId, {Project? project, bool forceDeleteBranch = false}) async {}
 }
 
 /// Declarative one-off response for [ScriptedAgentWorker.enqueue].

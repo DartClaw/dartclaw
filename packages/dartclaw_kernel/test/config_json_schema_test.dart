@@ -82,11 +82,26 @@ void main() {
       expect(_node(schema, 'guards')['additionalProperties'], false);
     });
 
-    test('only structured allowlist rows carry required, and no position carries default', () {
+    test('required names only declared entry fields, and no position carries default', () {
       for (final position in positions) {
         expect(position.containsKey('default'), isFalse);
-        if (position.containsKey('required')) expect(position['required'], ['id']);
+        if (position.containsKey('required')) {
+          expect((position['properties']! as Map).keys, containsAll(position['required']! as List));
+        }
       }
+      expect(_node(schema, 'container.registries.<entry>.upstreams.[]')['required'], ['route', 'origin']);
+      expect(_node(schema, 'container.registries.<entry>.rewrite_json.[]')['required'], [
+        'route',
+        'path_prefix',
+        'content_types',
+      ]);
+      expect(_node(schema, 'container.registries.<entry>').containsKey('required'), isFalse);
+      final required = [
+        for (final position in positions)
+          if (position['required'] case final List<Object?> names) names.join(','),
+      ];
+      expect(required.where((names) => names == 'id'), hasLength(8), reason: 'channel allowlist rows require id');
+      expect(required, hasLength(10));
     });
 
     test('every read-only field describes itself as file-only', () {

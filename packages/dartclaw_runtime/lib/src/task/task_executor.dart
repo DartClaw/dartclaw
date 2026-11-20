@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
@@ -18,6 +19,7 @@ import '../turn_runner.dart' show TurnRunner;
 import 'artifact_collector.dart';
 import 'delegated_turn_provenance.dart';
 import 'goal_service.dart';
+import 'host_worktree_git.dart' show TamperedWorktreeException;
 import 'task_budget_policy.dart';
 import 'task_config_view.dart';
 import 'task_event_recorder.dart';
@@ -43,6 +45,7 @@ class TaskExecutor {
     Future<void> Function(String taskId)? onAutoAccept,
     String? workspaceRoot,
     required String currentDirectory,
+    required String? localRepositoryDir,
     String? dataDir,
     bool workflowOnly = false,
     this.pollInterval = const Duration(seconds: 2),
@@ -62,6 +65,7 @@ class TaskExecutor {
        _projectService = services.projectService,
        _workspaceRoot = workspaceRoot,
        _currentDirectory = currentDirectory,
+       _localRepositoryDir = localRepositoryDir,
        _maxMemoryBytes = limits.maxMemoryBytes,
        _compactInstructions = limits.compactInstructions,
        _identifierPreservation = limits.identifierPreservation,
@@ -94,6 +98,10 @@ class TaskExecutor {
   final ProjectService? _projectService;
   final String? _workspaceRoot;
   final String _currentDirectory;
+
+  /// The runtime's local repository, `null` when it has none: [_currentDirectory]
+  /// is then the agent-writable workspace, where host Git must not run.
+  final String? _localRepositoryDir;
   final int? _maxMemoryBytes;
   final String? _compactInstructions;
   final IdentifierPreservationMode _identifierPreservation;
@@ -212,7 +220,8 @@ class TaskExecutor {
 
   Future<void> _failForProject(Task task, String projectId) => _failureHandler.markFailedOrRetry(
     task,
-    errorSummary: 'Project "$projectId" not found',
+    // `_local` is absent only when the runtime has no local repository.
+    errorSummary: projectId == '_local' ? const NoLocalRepositoryException().message : 'Project "$projectId" not found',
     kind: TaskFailureReason.projectSetup,
     retryable: false,
   );
@@ -446,6 +455,11 @@ class TaskExecutor {
     Project? project;
     GitStatusSnapshot? readOnlyProjectStatusBeforeTurn;
     try {
+      final containerProfile = runnerPolicy?.containerProfile;
+      task = (await _tasks.updateFields(
+        task.id,
+        containerJson: containerProfile == null ? null : jsonEncode({'profile': containerProfile}),
+      )).copyWith(workflowStepExecution: task.workflowStepExecution);
       // Resolve project for this task.
       final projectService = _projectService;
       if (projectService != null) {
@@ -534,6 +548,7 @@ class TaskExecutor {
       }
 
       if (_taskNeedsWorktree(task) && _worktreeManager != null && !usesInlineWorkflowCheckout) {
+        String? defaultedProjectId;
         final workflowWorktreeKey = await _worktreeBinder.workflowOwnedWorktreeKey(task);
         final workflowWorktreeTaskId = await _worktreeBinder.workflowOwnedWorktreeTaskId(task);
         final requiresStoryBranch = await _worktreeBinder.workflowMapIterationOwnsBranch(task);
@@ -555,15 +570,19 @@ class TaskExecutor {
             baseRef: _taskBaseRef(task),
             existingWorktreeJson: task.worktreeJson,
           );
+          // The default project this worktree came from becomes the task's
+          // project, so diff, accept, merge and cleanup resolve the same one.
+          if (worktreeProject != null && taskProjectId(task) == null) defaultedProjectId = worktreeProject.id;
         }
         _taskFileGuard?.register(task.id, worktreeInfo.path);
         task = (await _tasks.updateFields(
           task.id,
           worktreeJson: worktreeInfo.toJson(),
+          projectId: defaultedProjectId,
         )).copyWith(workflowStepExecution: task.workflowStepExecution);
       }
 
-      final executionDirectory = taskExecutionDirectory(
+      final (path: executionDirectory, site: executionSite) = taskExecutionDirectory(
         task,
         standaloneDirectory: _currentDirectory,
         worktreePath: worktreeInfo?.path,
@@ -584,7 +603,15 @@ class TaskExecutor {
         }
       }
 
-      readOnlyProjectStatusBeforeTurn = await _captureReadOnlyProjectStatus(task, executionDirectory);
+      final readOnlyProjectDir = executionSite == TaskExecutionSite.worktree
+          ? _worktreeManager?.projectDirFor(project != null && project.id != '_local' ? project : null)
+          : null;
+      readOnlyProjectStatusBeforeTurn = await _captureReadOnlyProjectStatus(
+        task,
+        executionDirectory,
+        projectDir: readOnlyProjectDir,
+        site: executionSite,
+      );
 
       final sessionId = task.sessionId;
       final session = sessionId == null ? null : await _sessions.getSession(sessionId);
@@ -607,17 +634,11 @@ class TaskExecutor {
       );
       if (budgetOutcome == BudgetOutcome.exceeded) return;
 
-      final pendingMessage = await _composePendingMessage(task, session.id, workingDirectory: executionDirectory);
-      if (pendingMessage == null) {
-        _log.warning('Task ${task.id} had no message to execute; marking failed');
-        await _failureHandler.markFailedOrRetry(
-          task,
-          errorSummary: 'Task had no executable prompt',
-          kind: TaskFailureReason.absentPrompt,
-          retryable: false,
-        );
-        return;
-      }
+      final pendingMessage = await _composePendingMessage(
+        task,
+        runnerPolicy: runnerPolicy,
+        workingDirectory: executionDirectory,
+      );
       final modelOverride = _modelOverride(task);
       final effortOverride = _effortOverride(task);
       final tokenBudget = _tokenBudget(task);
@@ -648,6 +669,19 @@ class TaskExecutor {
             allowedTools: _allowedTools(task),
             readOnly: _isReadOnlyTask(task),
             provenance: provenance,
+            onTurnCompleted: (outcome) async {
+              final traceService = _traceService;
+              if (traceService != null) {
+                await _persistTrace(
+                  traceService,
+                  outcome: outcome,
+                  taskId: task.id,
+                  runnerId: runnerIndex,
+                  model: modelOverride,
+                  provider: workflowProvider,
+                );
+              }
+            },
           );
         } on StateError catch (error, stackTrace) {
           // A workflow turn failure must win even when dispose
@@ -698,6 +732,7 @@ class TaskExecutor {
           refreshedTask,
           executionDirectory,
           readOnlyProjectStatusBeforeTurn,
+          projectDir: readOnlyProjectDir,
         );
         if (readOnlyMutationSummary != null) {
           _log.warning('Task ${task.id}: $readOnlyMutationSummary');
@@ -839,6 +874,7 @@ class TaskExecutor {
           task,
           executionDirectory,
           readOnlyProjectStatusBeforeTurn,
+          projectDir: readOnlyProjectDir,
         );
         if (readOnlyMutationSummary != null) {
           _log.warning('Task ${task.id}: $readOnlyMutationSummary');
@@ -919,6 +955,9 @@ class TaskExecutor {
         task,
         errorSummary: _failureHandler.sanitizeErrorSummary(error.toString()),
         kind: TaskExecutionFailure(error),
+        // A retry would hand the agent another turn in the worktree it tampered
+        // with, or look again for a local repository this runtime cannot gain.
+        retryable: error is! TamperedWorktreeException && error is! NoLocalRepositoryException,
       );
       return;
     }

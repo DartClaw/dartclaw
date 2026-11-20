@@ -263,6 +263,32 @@ projects:
         expect(config.warnings, isNot(anyElement(contains('local-path must be absolute'))));
       });
 
+      test('a project localPath at or inside an agent-writable workspace is dropped with a warning', () {
+        const yaml = '''
+data_dir: /srv/dartclaw
+projects:
+  workspace-itself:
+    localPath: /srv/dartclaw/workspace
+  inside-workspace:
+    localPath: /srv/dartclaw/workspace/checkout
+  agent-workspace:
+    localPath: /srv/dartclaw/agents/researcher/workspace
+  inside-agent-workspace:
+    localPath: /srv/dartclaw/agents/researcher/workspace/checkout
+  clone-dir:
+    localPath: /srv/dartclaw/projects/checkout
+''';
+        final config = loadYaml(yaml);
+
+        expect(config.projects.definitions.keys, ['clone-dir']);
+        for (final id in ['workspace-itself', 'inside-workspace', 'agent-workspace', 'inside-agent-workspace']) {
+          expect(
+            config.warnings,
+            anyElement(allOf(contains('projects.$id'), contains('agent-writable workspace'), contains('skipping'))),
+          );
+        }
+      });
+
       test('type mismatch (port: "abc") collects warning and uses default', () {
         final config = loadYaml('port: abc\n');
         expect(config.server.port, 3333);

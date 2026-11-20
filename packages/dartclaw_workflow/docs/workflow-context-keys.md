@@ -82,11 +82,16 @@ Per-iteration per-attempt state:
 
 ### `_workflow.git.*`
 
-Set by `workflow_git_lifecycle.dart`.
+The integration branch lives in workflow data. The hold and candidate approval
+live in the host-owned top level of `WorkflowRun.contextJson`. Creating a new
+hold clears the prior approval and interaction. A person resolving the hold
+replaces it with approval for that exact candidate.
 
 | Key | Type | Semantics |
 |-----|------|-----------|
 | `_workflow.git.integration_branch` | `String` | Integration branch name for promotion |
+| `_workflow.git.execution_surface_hold` | `Map` | Pending Git review with `branch`, `paths`, `publish`, `candidate`, and optional `destination`, `worktreePath` and `destinationWorktreePath` |
+| `_workflow.git.approved_candidate` | `String` | Git candidate identity approved for the recorded operation and destination |
 
 ### `_workflow.approvals`
 
@@ -98,7 +103,7 @@ Set once by `WorkflowService.start` when the run is created.
 
 ### `_approval.pending.*`
 
-Set by `_transitionStepAwaitingApproval` in `parallel_group_runner.dart`.
+Set by `_transitionStepAwaitingApproval` in `parallel_group_and_step_outcome_runner.dart`.
 
 | Key | Type | Semantics |
 |-----|------|-----------|

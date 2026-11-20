@@ -4,7 +4,7 @@ Condensed best practices from official Dart documentation. Applies to all pure D
 
 **Sources**: [Effective Dart](https://dart.dev/effective-dart) (style, documentation, usage, design), [Language Tour](https://dart.dev/language), [Primary Constructors](https://dart.dev/language/primary-constructors), [Linter Rules](https://dart.dev/tools/linter-rules)
 
-**Current through**: Dart 3.13
+**Current through**: Dart 3.14
 
 
 ## Style
@@ -487,6 +487,16 @@ void f(int x) {}            // OK
 Locals, `for (final x in …)`, and catch clauses are unaffected.
 
 Language-versioned, so nothing breaks until the SDK constraint is bumped. `dart fix --apply --code=extraneous_modifier` resolves it — same commit as the bump.
+
+
+## Dart 3.14
+
+No language features, so raising `environment: sdk:` to `^3.14.0` gains nothing. What changes is runtime and tooling:
+
+- **macOS spawns with `posix_spawn`.** `Process.start`/`run` resolve a bare executable name against the parent process's `PATH`, not the `PATH` in the `environment:` passed to the child. Linux still uses the child's. When the child's `PATH` differs from the parent's (a test that puts a stub dir on it, say), spawn by absolute path.
+- **`rangeEquals` is not constant-time.** The new typed-data `rangeEquals` lowers to `memcmp` on the VM: use it for byte-slice equality, never for a secret or signature comparison, which stays on `constantTimeEquals`.
+- **`dart migrate` in a pub workspace bumps only the root `pubspec.yaml`**, and refuses a member directory. Each member keeps its own language version, so bump the members by hand.
+- **Flow-analysis soundness fix, not language-versioned**: a subpattern in a list, map, or record pattern no longer promotes the whole matched property to its type. `dart analyze` reports any code that relied on it.
 
 
 ## Linter Configuration

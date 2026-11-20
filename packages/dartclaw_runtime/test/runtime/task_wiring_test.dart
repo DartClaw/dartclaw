@@ -12,6 +12,14 @@ void main() {
       );
     });
 
+    test('execution-surface hold logs a hold without failing auto-accept', () async {
+      final callback = buildAutoAcceptCallback(
+        completionAction: 'accept',
+        reviewTask: (_) async => const ReviewExecutionSurfaceHold(taskId: 'task-1', paths: ['.mcp.json']),
+      );
+      await expectLater(callback!('task-1'), completes);
+    });
+
     test('throws when review returns a merge conflict', () async {
       final callback = buildAutoAcceptCallback(
         completionAction: 'accept',

@@ -33,9 +33,6 @@ jobs:
           - runs_on: macos-15
             target: macos-arm64
             archive_ext: tar.gz
-          - runs_on: macos-15-intel
-            target: macos-x64
-            archive_ext: tar.gz
           - runs_on: windows-latest
             target: windows-x64
             archive_ext: zip
@@ -54,7 +51,7 @@ jobs:
       - name: Setup Dart
         uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
         with:
-          sdk: 3.13.0
+          sdk: 3.14.0
 
       - name: Install Linux native dependency
         if: runner.os == 'Linux'
@@ -85,7 +82,6 @@ jobs:
             --allow-download
 
       - name: Prepare verified embedding model
-        if: matrix.target != 'macos-x64'
         run: dart run apps/dartclaw_cli/tool/prepare_native_embedding_model.dart --destination "${{ env.DARTCLAW_EMBEDDING_MODEL_PATH }}"
 
       # Windows builds run the generator directly; every other target gets both
@@ -142,19 +138,13 @@ jobs:
             throw "Tag $env:GITHUB_REF_NAME does not match dartclawVersion $env:DARTCLAW_VERSION"
           }
 
-      - name: Build standalone binary
-        if: matrix.target == 'macos-x64'
-        run: bash dev/tools/build.sh
-        env:
-          DARTCLAW_RELEASE_TARGET: ${{ matrix.target }}
-
       - name: Test Windows artifact validation
         if: runner.os == 'Windows'
         shell: pwsh
         run: ./dev/tools/build_windows_test.ps1
 
       - name: Prove native embedding package
-        if: runner.os != 'Windows' && matrix.target != 'macos-x64'
+        if: runner.os != 'Windows'
         run: dart run apps/dartclaw_cli/tool/native_embedding_platform_gate.dart --target "${{ matrix.target }}" --evidence "build/native-embedding-${{ matrix.target }}.json"
 
       - name: Prove native embedding package (Windows)
@@ -228,7 +218,7 @@ jobs:
             build/dartclaw-workflow-v*-${{ matrix.target }}.${{ matrix.archive_ext }}.sha256
 
       - name: Upload native embedding evidence
-        if: always() && matrix.target != 'macos-x64'
+        if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: native-embedding-${{ matrix.target }}
@@ -296,12 +286,10 @@ jobs:
             "dartclaw-v${VERSION}-linux-x64.tar.gz"
             "dartclaw-v${VERSION}-linux-arm64.tar.gz"
             "dartclaw-v${VERSION}-macos-arm64.tar.gz"
-            "dartclaw-v${VERSION}-macos-x64.tar.gz"
             "dartclaw-v${VERSION}-windows-x64.zip"
             "dartclaw-workflow-v${VERSION}-linux-x64.tar.gz"
             "dartclaw-workflow-v${VERSION}-linux-arm64.tar.gz"
             "dartclaw-workflow-v${VERSION}-macos-arm64.tar.gz"
-            "dartclaw-workflow-v${VERSION}-macos-x64.tar.gz"
             "dartclaw-workflow-v${VERSION}-windows-x64.zip"
           )
           for archive in "${archives[@]}"; do
@@ -330,7 +318,7 @@ jobs:
       - name: Setup Dart
         uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
         with:
-          sdk: 3.13.0
+          sdk: 3.14.0
 
       - name: Install dependencies
         run: dart pub get --enforce-lockfile
@@ -401,7 +389,7 @@ jobs:
       - name: Setup Dart
         uses: dart-lang/setup-dart@65eb853c7ba17dde3be364c3d2858773e7144260 # v1
         with:
-          sdk: 3.13.0
+          sdk: 3.14.0
 
       - name: Install dependencies
         run: dart pub get --enforce-lockfile

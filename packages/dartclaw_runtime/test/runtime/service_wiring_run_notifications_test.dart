@@ -9,7 +9,14 @@ import 'package:dartclaw_runtime/dartclaw_runtime.dart' hide TurnManager, TurnRu
 import 'package:dartclaw_runtime/src/runtime/service_wiring.dart' show reconcileThreadBindings, wireRunNotifications;
 import 'package:dartclaw_runtime/src/task/workflow_run_notification_subscriber.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager, TurnRunner;
-import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowRun, WorkflowRunOrigin, WorkflowService;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart'
+    show
+        WorkflowApprovalInteraction,
+        WorkflowExecutionSurfaceHold,
+        WorkflowRun,
+        WorkflowRunOrigin,
+        WorkflowService,
+        workflowExecutionSurfaceHoldKey;
 import 'package:dartclaw_workflow/testing.dart' show InMemoryWorkflowRunRepository;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
@@ -94,6 +101,74 @@ void main() {
   }
 
   group('wireRunNotifications', () {
+    test('a hold replaced between notification lookup and issuance gets no approval buttons', () async {
+      final tasks = TaskService(InMemoryTaskRepository());
+      addTearDown(tasks.dispose);
+      final workflows = WorkflowService.lifecycleOnly(
+        repository: repository,
+        taskService: tasks,
+        messageService: MessageService(baseDir: p.join(tempDir.path, 'sessions')),
+        eventBus: eventBus,
+        kvService: KvService(filePath: p.join(tempDir.path, 'kv.json')),
+        dataDir: tempDir.path,
+      );
+      addTearDown(workflows.dispose);
+      final hold = WorkflowExecutionSurfaceHold(
+        branch: 'work/story',
+        paths: ['.github/workflows/check.yml'],
+        candidate: 'displayed-candidate',
+      );
+      final replacement = WorkflowExecutionSurfaceHold(
+        branch: hold.branch,
+        paths: hold.paths,
+        candidate: 'replacement-candidate',
+      );
+      final run = await addRun('run-held', status: WorkflowRunStatus.awaitingApproval);
+      Map<String, dynamic> context(WorkflowExecutionSurfaceHold hold) => {
+        '_approval.pending.stepId': 'gate',
+        workflowExecutionSurfaceHoldKey: hold.toJson(),
+      };
+      await repository.update(run.copyWith(contextJson: context(hold)));
+
+      final threads = FakeThreadedNotifications();
+      final channel = FakeChannel(type: ChannelType.slack, ownsAllJids: true, threadedNotifications: threads);
+      final subscriber = wireRunNotifications(
+        config: configWith(
+          chatNotifications: const WorkflowChatNotificationsConfig(channel: ChannelType.slack, recipient: 'C0NOTIFY'),
+        ),
+        eventBus: eventBus,
+        lookupRun: repository.getById,
+        channelManager: managerOf([channel]),
+        threadBindings: store,
+        issueInteraction: (runId, stepId, {executionSurfaceCandidate}) async {
+          await repository.update(run.copyWith(contextJson: context(replacement)));
+          return workflows.issueApprovalInteraction(
+            runId,
+            stepId,
+            executionSurfaceCandidate: executionSurfaceCandidate,
+          );
+        },
+        bindPost: workflows.bindApprovalPost,
+      )!;
+      addTearDown(subscriber.dispose);
+
+      eventBus.fire(
+        WorkflowApprovalRequestedEvent(
+          runId: run.id,
+          stepId: 'gate',
+          message: hold.message,
+          timestamp: DateTime.utc(2026, 10, 6, 1),
+        ),
+      );
+      await settle(subscriber);
+
+      expect(threads.rendered.single.body, hold.message);
+      expect(threads.rendered.single.actions, isEmpty);
+      final savedRun = (await workflows.get(run.id))!;
+      expect(WorkflowExecutionSurfaceHold.read(savedRun.contextJson)?.candidate, replacement.candidate);
+      expect(WorkflowApprovalInteraction.of(savedRun), isNull);
+    });
+
     test('chat_notifications alone gives every run its own thread and run binding, and no task binding', () async {
       final threads = FakeThreadedNotifications();
       final channel = FakeChannel(type: ChannelType.slack, ownsAllJids: true, threadedNotifications: threads);

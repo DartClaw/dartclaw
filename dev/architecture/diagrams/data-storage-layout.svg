@@ -142,7 +142,7 @@
     <text class="name" x="44" y="481">reproducible</text>
     <g class="badge"><rect x="355" y="469" width="75" height="16" rx="8"/><text x="392" y="481">RE-CREATE</text></g>
     <text class="sub" x="44" y="499">projects/&lt;id&gt;/ clones · worktrees/ · workflows/built-in/</text>
-    <text class="sub" x="44" y="515">containers/ · bridge/ · models/ · .claude/ .codex/ .agents/</text>
+    <text class="sub" x="44" y="515">containers/ · bridge/ · models/ · .claude/ .agents/</text>
     <g class="d"><text class="p1" x="36" y="780"><tspan class="b">reproducible</tspan> · git clones, task worktrees, shipped workflow definitions, container state, bridge binary, embedding model</text><text class="p2" x="36" y="800">Re-cloned, re-materialized or re-downloaded; built-in workflow definitions carry .dartclaw-managed.json fingerprints.</text></g>
   </g></a>
   <a href="../data-model.md#derived-search-indexes"><g class="n line k-store" id="lexical">

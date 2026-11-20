@@ -1,0 +1,51 @@
+port: 3343
+data_dir: "__DATA_DIR__"
+database:
+  url: ${DARTCLAW_POSTGRES_URL}
+agent:
+  provider: __AGENT_PROVIDER__
+  model: __AGENT_MODEL__
+container:
+  enabled: true
+  image: __IMAGE__
+__CONTAINER_REGISTRIES__
+gateway:
+  auth_mode: none
+guards:
+  enabled: true
+__PROVIDERS_BLOCK__
+credentials:
+  __PROVIDER_CREDENTIAL_BLOCK__
+workflow:
+  workspace_dir: "__WORKFLOW_WORKSPACE_DIR__"
+  defaults:
+    workflow:
+      model: __WORKFLOW_MODEL__
+    planner:
+      model: __PLANNER_MODEL__
+__PLANNER_EFFORT__
+    executor:
+      model: __EXECUTOR_MODEL__
+    reviewer:
+      model: __REVIEWER_MODEL__
+projects:
+  coding-fixture:
+    remote: __REMOTE__
+    branch: main
+    default: true
+    pr:
+      strategy: branch-only
+workspace:
+  git_sync:
+    enabled: false
+scheduling:
+  heartbeat:
+    enabled: false
+governance:
+  budget:
+    daily_tokens: 5000000
+  turn_limits:
+    turn_timeout: 1800
+tasks:
+  execution: container
+  completion_action: accept

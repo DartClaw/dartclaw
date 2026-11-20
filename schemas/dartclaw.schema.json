@@ -1,5 +1,5 @@
 {
-  "$id": "https://raw.githubusercontent.com/DartClaw/dartclaw/v0.28.0/schemas/dartclaw.schema.json",
+  "$id": "https://raw.githubusercontent.com/DartClaw/dartclaw/v0.28.1/schemas/dartclaw.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {
@@ -1264,6 +1264,76 @@
         "image": {
           "description": "Container image agent work is executed in. Default dartclaw-agent:latest. (restart required)",
           "type": "string"
+        },
+        "registries": {
+          "additionalProperties": {
+            "additionalProperties": false,
+            "properties": {
+              "enabled": {
+                "description": "Whether the mirror serves this record. Defaults to true for a replacing or added record. (file-only, not settable via API or CLI)",
+                "type": "boolean"
+              },
+              "env": {
+                "description": "Client variables set in workspace containers; {mirror} expands to the mirror base. Names compare case-insensitively and must not repeat another enabled record or a variable DartClaw sets. (file-only, not settable via API or CLI)",
+                "type": "object"
+              },
+              "rewrite_json": {
+                "description": "JSON responses whose URLs on this record's pins are rewritten onto the mirror. (file-only, not settable via API or CLI)",
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "content_types": {
+                      "description": "Media types the rule applies to, compared without parameters and case-insensitively. (file-only, not settable via API or CLI)",
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "path_prefix": {
+                      "description": "Upstream request path prefix the rule applies under. (file-only, not settable via API or CLI)",
+                      "type": "string"
+                    },
+                    "route": {
+                      "description": "Upstream route of this record whose responses the rule covers. (file-only, not settable via API or CLI)",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object",
+                  "required": [
+                    "route",
+                    "path_prefix",
+                    "content_types"
+                  ]
+                },
+                "type": "array"
+              },
+              "upstreams": {
+                "description": "Pinned origins, each under its own mirror route. Redirects are followed only within these. (file-only, not settable via API or CLI)",
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "origin": {
+                      "description": "Exact https origin with a host name: no userinfo, path, query, fragment or IP literal. (file-only, not settable via API or CLI)",
+                      "type": "string"
+                    },
+                    "route": {
+                      "description": "Mirror path segment: lowercase letters, digits and hyphens, unique across enabled records. (file-only, not settable via API or CLI)",
+                      "type": "string"
+                    }
+                  },
+                  "type": "object",
+                  "required": [
+                    "route",
+                    "origin"
+                  ]
+                },
+                "type": "array"
+              }
+            },
+            "type": "object"
+          },
+          "description": "Package-registry ecosystems the host mirror serves to workspace containers, keyed by name. Built-ins: pub, npm, pypi, crates and go (go ships disabled). An entry carrying only enabled toggles the built-in of that name; any other entry replaces that record whole or adds one. An invalid record stops startup. Read-only: each record sets egress pins. (file-only, not settable via API or CLI)",
+          "type": "object"
         }
       },
       "type": [
@@ -1558,7 +1628,7 @@
       "additionalProperties": false,
       "properties": {
         "admin_senders": {
-          "description": "Sender IDs exempt from rate limits and budget blocks; may write shared knowledge, resolve workflow run approvals and accept or reject tasks from a Google Chat review card. An empty list makes every sender an admin, so in a group channel every member. (restart required)",
+          "description": "Sender IDs exempt from per-sender rate limits and queue caps (not the token budget); may write shared knowledge, resolve workflow run approvals and accept or reject tasks from a Google Chat review card. An empty list makes every sender an admin, so in a group channel every member. (restart required)",
           "items": {
             "type": "string"
           },
@@ -2395,7 +2465,7 @@
             "type": "boolean"
           },
           "localPath": {
-            "description": "Existing checkout used directly. Must be absolute, free of traversal, and inside the allowlist. (restart required)",
+            "description": "Existing checkout used directly. Must be absolute, free of traversal, inside the allowlist, and outside `<data_dir>/workspace/` and every `<data_dir>/agents/<id>/workspace/`, which agents can write (a path there is skipped with a warning). (restart required)",
             "type": [
               "null",
               "string"
@@ -3129,7 +3199,7 @@
               "type": "string"
             },
             "stale_timeout_hours": {
-              "description": "Hours an idle task worktree survives before cleanup removes it. (restart required)",
+              "description": "Age in hours past which startup removes a task worktree whose task is missing or finished. Worktrees of active tasks are kept. (restart required)",
               "maximum": 168,
               "minimum": 1,
               "type": "integer"
@@ -3411,7 +3481,7 @@
           "additionalProperties": false,
           "properties": {
             "enabled": {
-              "description": "Commit workspace changes to the local repository on the git-sync schedule. Off by default. (live)",
+              "description": "Commit workspace changes to the local repository on the git-sync schedule. On by default; not available under container isolation, where agents can write the workspace repository. (live)",
               "type": "boolean"
             },
             "interval_minutes": {
@@ -3421,7 +3491,7 @@
               "type": "integer"
             },
             "push_enabled": {
-              "description": "Also push those commits to the configured remote. Ignored while git sync itself is off. (live)",
+              "description": "Also push those commits to the workspace origin remote, when one exists. On by default; ignored while git sync itself is off. (live)",
               "type": "boolean"
             }
           },

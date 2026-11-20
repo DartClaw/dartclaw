@@ -25,20 +25,42 @@ bool taskTargetsExternalProject(Task task) {
   return projectId != null && projectId != '_local';
 }
 
-/// Resolves the directory in which [task] executes and produces artifacts.
-String taskExecutionDirectory(
+/// Where a task executes, which decides what that directory may be trusted for.
+enum TaskExecutionSite {
+  /// The task's own worktree.
+  worktree,
+
+  /// The checkout of the project the task names.
+  project,
+
+  /// The workspace directory of the workflow step's agent, which the agent
+  /// can write and is never a project repository.
+  agentWorkspace,
+
+  /// The runtime directory, which is the agent-writable workspace when the
+  /// runtime has no local repository.
+  runtimeDirectory,
+}
+
+/// Resolves the directory in which [task] executes and produces artifacts, and
+/// which of the four sites it is.
+({String path, TaskExecutionSite site}) taskExecutionDirectory(
   Task task, {
   required String standaloneDirectory,
   String? worktreePath,
   Project? project,
 }) {
   final worktree = worktreePath?.trim();
-  if (worktree != null && worktree.isNotEmpty) return worktree;
+  if (worktree != null && worktree.isNotEmpty) return (path: worktree, site: TaskExecutionSite.worktree);
 
-  if (taskProjectId(task) != null && project != null) return project.localPath;
+  if (taskProjectId(task) != null && project != null) {
+    return (path: project.localPath, site: TaskExecutionSite.project);
+  }
 
   final workflowWorkspace = task.agentExecution?.workspaceDir?.trim();
-  if (workflowWorkspace != null && workflowWorkspace.isNotEmpty) return workflowWorkspace;
+  if (workflowWorkspace != null && workflowWorkspace.isNotEmpty) {
+    return (path: workflowWorkspace, site: TaskExecutionSite.agentWorkspace);
+  }
 
-  return standaloneDirectory;
+  return (path: standaloneDirectory, site: TaskExecutionSite.runtimeDirectory);
 }

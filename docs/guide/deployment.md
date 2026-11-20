@@ -139,12 +139,13 @@ in the repository; `DARTCLAW_NATIVE_ARCHIVE_CACHE` overrides that location. Wind
 `dev/tools/build.sh` runs `dart build cli` for both entry points, producing `build/bin/dartclaw` and
 `build/bin/dartclaw-workflow`. It emits `build/dartclaw-v{VERSION}-{os}-{arch}.tar.gz` and
 `build/dartclaw-workflow-v{VERSION}-{os}-{arch}.tar.gz`, each with its own checksum, `VERSION`, executable in
-`bin/`, and selected native embedding libraries when applicable. Windows builds use `dev/tools/build_windows.ps1` to emit
+`bin/`, and selected native embedding libraries when applicable. On Linux, `lib/` also holds the executable's AOT
+snapshot (`libdartaot<binary>.so`), which the `bin/` launcher loads from `../lib`, so keep both directories together. Windows builds use `dev/tools/build_windows.ps1` to emit
 `dartclaw-v<version>-windows-x64.zip` and `dartclaw-workflow-v<version>-windows-x64.zip`, each with `VERSION`,
 its matching `.exe` in `bin/`. Windows embedding backend modules and their dependencies
 are also staged in `bin/` for native backend discovery; keep the complete archive layout when installing. Templates, static assets, skills, and workflows are
 embedded in the executable, so it needs no companion asset files and no first-run network request. `dart build cli`
-cannot cross-compile: each release target (`macos-arm64`, `macos-x64`, `linux-x64`, `linux-arm64`, `windows-x64`)
+cannot cross-compile: each release target (`macos-arm64`, `linux-x64`, `linux-arm64`, `windows-x64`)
 must be built on a native runner for that OS/arch.
 
 ```bash
@@ -197,7 +198,8 @@ context. Packaged installs need no source path because their assets are embedded
 
 The agent runs as your user — no `sudo` or dedicated OS user needed. `WorkingDirectory` pins the process cwd to the
 instance directory; without it launchd starts the agent at `/`, which DartClaw would treat as its local project root and
-walk on every start, triggering macOS privacy prompts for `~/Downloads` and mounted volumes. Installation snapshots the absolute entries from
+walk on every start, triggering macOS privacy prompts for `~/Downloads` and mounted volumes. Started from its instance
+directory, the service has no local repository: register a project for worktree tasks and workflows ([Projects & Git](projects-and-git.md)). Installation snapshots the absolute entries from
 the current shell's `PATH` into the plist, so provider CLIs and channel sidecars resolve the same way during verification
 and service startup. If that PATH changes, run `dartclaw service install` again to refresh the loaded definition. To have
 it start at login, set `RunAtLoad` to `true` in the plist.
@@ -225,6 +227,9 @@ NoNewPrivileges=true
 [Install]
 WantedBy=default.target
 ```
+
+DartClaw commits task and workflow changes with host Git as the service's user, so that user needs a Git identity
+(`git config --global user.name …` and `user.email …`); without one those commits fail with `Author identity unknown`.
 
 This is a `systemd --user` unit — no root or system administrator needed. Enable auto-start at login with:
 
@@ -296,14 +301,14 @@ DartClaw ships no generator, and the `deploy` command that once emitted them is 
 Run DartClaw as its own account (`dartclaw` below) so the policy can name it. Everything that account sends is
 dropped unless a rule allows it; every other account on the host is untouched.
 
-**These rules do not reach container traffic.** A `network:none` container has no egress at all and reaches the
-network only through the host gateway, which mediates provider and MCP calls on the host's own credentials — so
-gateway traffic leaves as the DartClaw account and is covered here. On Docker Desktop, container traffic that does
-escape leaves through the VM's own stack, which a host firewall does not see. Treat these rules as host-level
-defence in depth, not as the container boundary.
+**These rules apply to the service account on the host.** A `network:none` container reaches the network only
+through the Host Gateway's `provider`, `mcp` and `registry` surfaces. The host makes model and approved tool
+requests. For `workspace`, it also makes credential-free GET/HEAD requests to the pinned public package registries.
+That outbound traffic leaves as the DartClaw account and is covered here. On Docker Desktop, direct container
+traffic would use the VM's own stack, outside the host firewall. Container isolation itself comes from `network:none`.
 
-Substitute your own resolvers and endpoints: the DNS servers below are examples, and you need one `443` allowance
-per provider and per allowlisted MCP or search endpoint your deployment actually calls.
+Substitute your own resolvers and endpoints. Allow port `443` for each provider and each allowlisted MCP or search
+endpoint your deployment calls, plus `pub.dev` and `registry.npmjs.org` if workspace containers install dependencies.
 
 ### macOS (pf)
 

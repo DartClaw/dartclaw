@@ -47,14 +47,18 @@ abstract class WorkflowRunIdCommand extends StandaloneWorkflowLifecycleCommand {
 
   /// POSTs to `/api/workflows/runs/[runId]/[pathSuffix]` and prints either the
   /// JSON envelope or `Workflow <id> <verb> (<status>).`.
-  Future<void> runAgainstRun({required String runId, required String pathSuffix, required String verb}) =>
-      connection!.runAction(connectionContext, runId, pathSuffix, (result) {
-        if (argResults!['json'] as bool) {
-          writeLine(const JsonEncoder.withIndent('  ').convert(result));
-        } else {
-          writeLine('Workflow ${result['id']} $verb (${result['status']}).');
-        }
-      });
+  Future<void> runAgainstRun({
+    required String runId,
+    required String pathSuffix,
+    required String verb,
+    String? executionSurfaceCandidate,
+  }) => connection!.runAction(connectionContext, runId, pathSuffix, (result) {
+    if (argResults!['json'] as bool) {
+      writeLine(const JsonEncoder.withIndent('  ').convert(result));
+    } else {
+      writeLine('Workflow ${result['id']} $verb (${result['status']}).');
+    }
+  }, executionSurfaceCandidate: executionSurfaceCandidate);
 
   /// Drives the in-process engine to settle for execution verbs (resume/retry):
   /// loads the run definition, renders step-progress through [driveStandaloneWorkflowRun],

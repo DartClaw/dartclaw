@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Start DartClaw with the visual testing profile (desktop visual smoke).
-# Turns on feature-visibility flags so Health, Settings, Memory, Scheduling,
-# Tasks, Projects, Workflows surfaces all render with seeded content.
+# Seeds PostgreSQL before serving: accepted, failed and review tasks plus
+# completed, failed and awaitingApproval workflow runs with step tasks.
 #
 # Usage: bash dev/testing/profiles/visual/run.sh [extra args...]
 # Example: bash dev/testing/profiles/visual/run.sh --port 4000
@@ -34,9 +34,16 @@ else
   cp -R "${SEED_DIR}/." "${DATA_DIR}/"
 fi
 
+DATA_DIR="$(cd "${DATA_DIR}" && pwd)"
 CONFIG="${DATA_DIR}/dartclaw.yaml"
 chmod 600 "${DATA_DIR}/gateway_token" 2>/dev/null || true
 profile_postgres_start
+
+# The seed loads the built-in definitions from the generated workflow assets.
+dart run "${REPO_ROOT}/dev/tools/embed_assets.dart" >/dev/null
+dart --packages="${REPO_ROOT}/.dart_tool/package_config.json" \
+  "${REPO_ROOT}/apps/dartclaw_cli/tool/seed_visual_profile.dart" \
+  --config "${CONFIG}" --data-dir "${DATA_DIR}"
 
 cd "${DATA_DIR}"
 
@@ -51,9 +58,6 @@ if [ "${DARTCLAW_TEST_USE_SNAPSHOT:-0}" = "1" ]; then
     exit $?
   fi
 fi
-
-# Generated asset libraries are gitignored; emit them before running from source.
-dart run "${REPO_ROOT}/dev/tools/embed_assets.dart" >/dev/null
 
 dart \
   --packages="${REPO_ROOT}/.dart_tool/package_config.json" \

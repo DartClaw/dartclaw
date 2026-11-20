@@ -1,5 +1,6 @@
 import 'package:dartclaw_core/dartclaw_core.dart' show humanizeDuration;
-import 'package:dartclaw_runtime/dartclaw_runtime.dart' show WriteLine, scrubAgentReportedText;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart' show scrubAgentReportedText;
+import 'package:dartclaw_runtime/dartclaw_runtime.dart' show WriteLine;
 
 import 'live_status_line.dart';
 
@@ -189,7 +190,13 @@ class CliProgressPrinter {
     _emitSpans([
       const StyledSpan('[workflow]', _cTag),
       const StyledSpan(' '),
-      StyledSpan('Failed at step ${completedSteps + 1}/$totalSteps', _cFail),
+      // A run whose steps all completed can still fail in post-step work (publish).
+      StyledSpan(
+        completedSteps >= totalSteps
+            ? 'Failed after step $totalSteps/$totalSteps'
+            : 'Failed at step ${completedSteps + 1}/$totalSteps',
+        _cFail,
+      ),
       if (error != null) ...[const StyledSpan(': ', _cMeta), StyledSpan(scrubAgentReportedText(error), _cReason)],
     ]);
   }

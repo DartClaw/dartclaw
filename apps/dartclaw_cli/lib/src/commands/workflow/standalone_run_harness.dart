@@ -16,6 +16,7 @@ import 'package:dartclaw_runtime/dartclaw_runtime.dart' show ExitFn, TaskService
 import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowDefinition, WorkflowRun, WorkflowService;
 
 import 'cli_progress_printer.dart';
+import 'standalone_execution_surface_recovery.dart';
 import 'workflow_progress_renderer.dart';
 import 'workflow_run_digest.dart';
 
@@ -223,7 +224,9 @@ Future<WorkflowRun> driveStandaloneWorkflowRun({
     }
 
     final finalRun = await runCompleter.future;
-    if (!jsonOutput) {
+    final executionSurfaceHold = standaloneExecutionSurfaceHold(finalRun);
+    if (executionSurfaceHold != null) printer.disposeLive();
+    if (!jsonOutput && executionSurfaceHold == null) {
       switch (finalRun.status) {
         case WorkflowRunStatus.completed:
           printer.workflowCompleted(
@@ -256,6 +259,7 @@ Future<WorkflowRun> driveStandaloneWorkflowRun({
         run: finalRun,
         definition: definition,
         childTasks: childTasks,
+        executionSurfaceHold: executionSurfaceHold,
       );
       if (jsonOutput) {
         stdoutLine(jsonEncode(digest.toJson()));

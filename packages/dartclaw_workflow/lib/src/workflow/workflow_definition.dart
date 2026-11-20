@@ -1090,6 +1090,11 @@ class WorkflowGitStrategy {
   /// Publish behavior setting from `publish.enabled`.
   final bool? publish;
 
+  /// Context key from `publish.pullRequest`: the step output holding the
+  /// `{title, body}` pull request the publish opens. Null keeps the PR built
+  /// from the run's last task.
+  final String? publishPullRequest;
+
   /// End-of-run worktree/branch cleanup setting. `null` means default
   /// (cleanup enabled); see [cleanupEnabled] for the resolved boolean.
   final bool? cleanup;
@@ -1120,9 +1125,10 @@ class WorkflowGitStrategy {
   /// `auto` resolves to `per-map-item` for map/foreach scopes whose effective
   /// `maxParallel` is greater than 1. Runtime callers also pass `null` for
   /// the `"unlimited"` path, which is treated as parallel fan-out.
-  /// Integration-branch workflows resolve non-map scopes to `shared` so the
-  /// workflow-owned branch stays out of the operator's live checkout.
-  /// Remaining `auto` cases resolve to `inline`.
+  /// Integration-branch workflows resolve every other scope, serial map scopes
+  /// included, to `shared` so the workflow-owned branch stays out of the
+  /// operator's live checkout – that checkout cannot switch to a branch the
+  /// shared worktree already holds. Remaining `auto` cases resolve to `inline`.
   String effectiveWorktreeMode({required int? maxParallel, required bool isMap}) {
     final authored = worktree?.mode;
     if (authored == null || authored == WorkflowGitWorktreeMode.auto) {
@@ -1133,7 +1139,7 @@ class WorkflowGitStrategy {
       if (isMap && effectiveMaxParallel > 1) {
         return 'per-map-item';
       }
-      if (!isMap && integrationBranch == true) {
+      if (integrationBranch == true) {
         return 'shared';
       }
       return 'inline';
@@ -1147,6 +1153,7 @@ class WorkflowGitStrategy {
     this.worktree,
     this.promotion,
     this.publish,
+    this.publishPullRequest,
     this.cleanup,
     this.artifacts,
     MergeResolveConfig? mergeResolve,
@@ -1157,7 +1164,8 @@ class WorkflowGitStrategy {
     if (integrationBranch != null) 'integrationBranch': integrationBranch,
     if (worktree != null) 'worktree': worktree!.toJsonValue(),
     if (promotion != null) 'promotion': promotion,
-    if (publish != null) 'publish': {'enabled': publish},
+    if (publish != null || publishPullRequest != null)
+      'publish': {'enabled': ?publish, 'pullRequest': ?publishPullRequest},
     if (cleanup != null) 'cleanup': {'enabled': cleanup},
     if (artifacts != null) 'artifacts': artifacts!.toJson(),
     if (_mergeResolve != null) 'merge_resolve': _mergeResolve.toJson(),
@@ -1179,6 +1187,11 @@ class WorkflowGitStrategy {
       publish: switch (json['publish']) {
         Map<String, dynamic> publish => publish['enabled'] as bool?,
         Map<Object?, Object?> publish => Map<String, dynamic>.from(publish)['enabled'] as bool?,
+        _ => null,
+      },
+      publishPullRequest: switch (json['publish']) {
+        Map<String, dynamic> publish => publish['pullRequest'] as String?,
+        Map<Object?, Object?> publish => Map<String, dynamic>.from(publish)['pullRequest'] as String?,
         _ => null,
       },
       cleanup: switch (json['cleanup']) {

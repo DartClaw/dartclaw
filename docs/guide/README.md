@@ -18,8 +18,9 @@ An experimental, security-conscious AI agent runtime built with Dart. This guide
 | [Windows](windows.md) | Native Windows x64 install, provider setup, smoke validation, and capability limits |
 | [Configuration](configuration.md) | `dartclaw.yaml` reference, environment variables, CLI flags |
 | [CLI Operations](cli-operations.md) | Connected vs standalone CLI mode, authentication, server detection, headless operations |
+| [CLI Reference](cli-reference.md) | Commands, flags, and exit codes |
 | [Workspace](workspace.md) | Owner and named-agent workspace bindings, behavior files, memory ownership, prompt assembly, git sync |
-| [Security](security.md) | Guard chain, workspace grants, process retention, container isolation, host-mediated credentials, content guard |
+| [Security](security.md) | Guard chain, container isolation, host-mediated credentials, read-only package-registry egress, and language toolchain images |
 
 ## Features
 
@@ -28,9 +29,10 @@ An experimental, security-conscious AI agent runtime built with Dart. This guide
 | [Agents](agents.md) | Providers (Claude, Codex, ACP), logical-agent sessions, worker capacity, choosing the right model |
 | [Scheduling](scheduling.md) | Heartbeat, cron jobs, delivery modes |
 | [Search & Memory](search.md) | Search agent, principal-scoped memory and conversation search, hybrid search, explicit memory curation |
-| [Tasks](tasks.md) | Task lifecycle, review workflow, declared worktrees |
+| [Tasks](tasks.md) | Task lifecycle, worktrees, and execution-surface review holds |
 | [Governance](governance.md) | Admin senders, rate limits, daily token budgets, loop detection, and the `/stop` / `/pause` / `/resume` emergency controls |
-| [Workflows](workflows.md) | Writing custom workflows, progressive refinement, trigger surfaces (chat, web forms, GitHub PR webhook), YAML field reference, built-in workflows |
+| [Workflows](workflows.md) | Custom and built-in workflows, progressive refinement, trigger surfaces, and promotion and publish approval holds |
+| [Workflow Reference](workflows-reference.md) | Workflow YAML fields and definition discovery metadata |
 | [AndThen Skills](andthen-skills.md) | Canonical `andthen:<name>` workflow references, provider aliases, and DartClaw-native skill provisioning |
 | [Projects & Git](projects-and-git.md) | Project directory, git worktrees, branch management, merge strategies |
 | [Web UI & API](web-ui-and-api.md) | Conversation inbox, commands, temporary chats, effective context, REST API, SSE streaming |

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
@@ -7,6 +8,7 @@ import 'package:dartclaw_runtime/dartclaw_runtime.dart'
     show ProjectGitRunner, ProjectServiceImpl, WorkflowStartPreconditionException;
 import 'package:dartclaw_testing/dartclaw_testing.dart' show RecordingGitRunner;
 import 'package:dartclaw_runtime/src/project/project_auth_support.dart' show ProjectAuthException;
+import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
@@ -66,11 +68,27 @@ void main() {
   );
 
   group('initialize', () {
+    test('builds no _local project without a local repository', () async {
+      final svc = ProjectServiceImpl(
+        dataDir: dataDir,
+        localDir: null,
+        projectConfig: const ProjectConfig.defaults(),
+        credentials: const CredentialsConfig.defaults(),
+        gitRunner: _fakeGitRunner(),
+      );
+      await svc.initialize();
+
+      expect(svc.localProject, isNull);
+      expect(await svc.get('_local'), isNull);
+      expect(await svc.getAll(), isEmpty);
+      expect(await svc.defaultProject, isNull);
+    });
+
     test('creates _local project', () async {
       final localDir = p.join(tempDir.path, 'runtime-repo');
       final svc = makeService(localDir: localDir);
       await svc.initialize();
-      final local = svc.localProject;
+      final local = svc.localProject!;
       expect(local.id, equals('_local'));
       expect(local.localPath, localDir);
       expect(local.name, 'runtime-repo');
@@ -98,6 +116,48 @@ void main() {
 
       final all = await svc2.getAll();
       expect(all.any((p) => p.remoteUrl == 'git@example.com:u/r.git'), isTrue);
+    });
+
+    test('skips a persisted project inside the workspace and keeps its projects.json entry', () async {
+      final insidePath = p.join(dataDir, 'workspace', 'checkout');
+      final agentPath = p.join(dataDir, 'agents', 'researcher', 'workspace', 'checkout');
+      final outsidePath = p.join(tempDir.path, 'outside-checkout');
+      Project localPathProject(String id, String localPath) => Project(
+        id: id,
+        name: id,
+        remoteUrl: '',
+        localPath: localPath,
+        status: ProjectStatus.ready,
+        createdAt: DateTime.parse('2026-11-01T00:00:00Z'),
+      );
+      final projectsFile = File(p.join(dataDir, 'projects.json'))
+        ..writeAsStringSync(
+          jsonEncode({
+            'in-workspace': localPathProject('in-workspace', insidePath).toJson(),
+            'in-agent-workspace': localPathProject('in-agent-workspace', agentPath).toJson(),
+            'outside': localPathProject('outside', outsidePath).toJson(),
+          }),
+        );
+      final warnings = <String>[];
+      final sub = Logger.root.onRecord
+          .where((record) => record.level >= Level.WARNING)
+          .listen((record) => warnings.add(record.message));
+      addTearDown(sub.cancel);
+
+      final svc = makeService(gitRunner: _fakeGitRunner(exitCode: 0));
+      await svc.initialize();
+
+      expect((await svc.getAll()).map((project) => project.id), unorderedEquals(['_local', 'outside']));
+      expect(await svc.get('in-workspace'), isNull);
+      for (final (id, path) in [('in-workspace', insidePath), ('in-agent-workspace', agentPath)]) {
+        expect(warnings, contains(allOf(contains('"$id"'), contains(path), contains('re-register it outside'))));
+      }
+
+      // A later write keeps the skipped entry, so moving the repository loses nothing.
+      await svc.create(name: 'later', remoteUrl: 'git@example.com:u/later.git');
+      final persisted = jsonDecode(projectsFile.readAsStringSync()) as Map<String, dynamic>;
+      expect(persisted.keys, containsAll(['in-workspace', 'in-agent-workspace', 'outside', 'later']));
+      expect((persisted['in-workspace'] as Map<String, dynamic>)['localPath'], insidePath);
     });
 
     test('recovers stale cloning status to error', () async {
@@ -322,7 +382,7 @@ void main() {
     test('returns _local when no external projects', () async {
       final svc = makeService();
       await svc.initialize();
-      final def = await svc.defaultProject;
+      final def = (await svc.defaultProject)!;
       expect(def.id, equals('_local'));
     });
 
@@ -331,7 +391,7 @@ void main() {
       await svc.initialize();
       await svc.create(name: 'app', remoteUrl: 'git@example.com:u/app.git');
 
-      final def = await svc.defaultProject;
+      final def = (await svc.defaultProject)!;
       expect(def.id, isNot(equals('_local')));
     });
 
@@ -349,7 +409,7 @@ void main() {
       final svc = makeService(projectConfig: config);
       await svc.initialize();
 
-      final def = await svc.defaultProject;
+      final def = (await svc.defaultProject)!;
       expect(def.id, equals('app-two'));
     });
   });
@@ -712,7 +772,7 @@ void main() {
       final svc = makeService(gitRunner: git.runForRecord);
       await svc.initialize();
 
-      await svc.ensureFresh(svc.localProject, ref: 'release/0.16', strict: true);
+      await svc.ensureFresh(svc.localProject!, ref: 'release/0.16', strict: true);
 
       expect(git.recordedArguments, isEmpty);
     });

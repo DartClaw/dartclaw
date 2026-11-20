@@ -3,10 +3,14 @@ import 'dart:io';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:logging/logging.dart';
 
+import 'host_worktree_git.dart';
 import 'worktree_manager.dart';
 
 /// File-level change classification in a diff.
 enum DiffFileStatus { added, modified, deleted, renamed }
+
+/// Metadata for one branch, worktree, or untracked change.
+typedef DiffFileChange = ({String path, String? oldPath, DiffFileStatus status, bool isSymlink});
 
 /// A single hunk within a file diff.
 class DiffHunk {
@@ -116,47 +120,94 @@ class DiffResult {
 }
 
 /// Generates structured diff data by running git commands.
+///
+/// A null constructor `projectDir` is a runtime with no local repository: a
+/// call that names no `projectDir` of its own then throws
+/// [NoLocalRepositoryException] before any Git runs.
 class DiffGenerator {
   static final _log = Logger('DiffGenerator');
 
-  final String _projectDir;
+  final String? _projectDir;
   final GitRunner _runGit;
 
-  new({required String projectDir, GitRunner? processRunner})
+  new({required String? projectDir, GitRunner? processRunner})
     : _projectDir = projectDir,
       _runGit = processRunner ?? runGit;
 
-  // User-visible git under the documented automation-owned/user-visible split:
-  // review diffs must render what the operator's own git renders, so system
-  // git config (diff/textconv drivers) stays in band.
-  Future<ProcessResult> _git(List<String> arguments, {String? workingDirectory}) =>
-      _runGit(arguments, workingDirectory: workingDirectory, noSystemConfig: false);
+  String _repositoryFor(String? projectDir) => projectDir ?? _projectDir ?? (throw const NoLocalRepositoryException());
+
+  /// Runs [arguments] in [projectDir], or in [worktreePath] of that project
+  /// through the host-worktree authority.
+  ///
+  /// [automated] marks automation-owned reads; the others are user-visible Git
+  /// under the documented automation-owned/user-visible split: review diffs must
+  /// render what the operator's own git renders, so system git config
+  /// (diff/textconv drivers) stays in band.
+  Future<ProcessResult> _git(
+    List<String> arguments, {
+    required String projectDir,
+    required String? worktreePath,
+    bool automated = false,
+  }) {
+    if (worktreePath == null) {
+      return _runGit(
+        [if (automated) ...hostWorktreeGitOptions, ...arguments],
+        workingDirectory: projectDir,
+        noSystemConfig: automated,
+      );
+    }
+    return runHostWorktreeGit(
+      arguments,
+      projectDir: projectDir,
+      worktreePath: worktreePath,
+      noSystemConfig: automated,
+      runner: _runGit,
+    );
+  }
 
   /// Generates a structured diff for [branch] relative to [baseRef].
   ///
-  /// Includes both committed branch changes (`baseRef...branch`) and current
-  /// worktree changes so review/publish flows can see files that have not yet
-  /// been committed by the agent.
-  Future<DiffResult> generate({required String baseRef, required String branch, String? projectDir}) async {
-    final workingDirectory = projectDir ?? _projectDir;
+  /// Includes both committed branch changes (`baseRef...branch`) and the
+  /// uncommitted changes of the checkout — [worktreePath] when given, else the
+  /// project checkout — so review/publish flows can see files the agent has not
+  /// committed. [projectDir] overrides the constructor's repository. Throws
+  /// [TamperedWorktreeException] when [worktreePath] fails the host-worktree
+  /// authority.
+  Future<DiffResult> generate({
+    required String baseRef,
+    required String branch,
+    String? projectDir,
+    String? worktreePath,
+  }) async {
+    final repository = _repositoryFor(projectDir);
+    final checkout = worktreePath ?? repository;
 
     final filesByPath = <String, DiffFileEntry>{};
 
     for (final revisionRange in ['$baseRef...$branch', 'HEAD']) {
-      final numstat = await _gitDiffNumstat(revisionRange, workingDirectory: workingDirectory);
-      final nameStatus = await _gitDiffNameStatus(revisionRange, workingDirectory: workingDirectory);
-      final hunks = await _gitDiffUnified(revisionRange, workingDirectory: workingDirectory);
-      _mergeEntries(filesByPath, _parseNumstat(numstat, _parseNameStatus(nameStatus)), _parseUnifiedDiff(hunks));
+      final numstat = await _gitDiffNumstat(revisionRange, projectDir: repository, worktreePath: worktreePath);
+      final changes = await _gitDiffChanges(
+        revisionRange,
+        projectDir: repository,
+        worktreePath: worktreePath,
+        automated: false,
+      );
+      final hunks = await _gitDiffUnified(revisionRange, projectDir: repository, worktreePath: worktreePath);
+      _mergeEntries(
+        filesByPath,
+        _parseNumstat(numstat, {for (final change in changes) change.path: change}),
+        _parseUnifiedDiff(hunks),
+      );
     }
 
-    final untrackedPaths = await _gitUntrackedFiles(workingDirectory: workingDirectory);
+    final untrackedPaths = await _gitUntrackedFiles(projectDir: repository, worktreePath: worktreePath);
     for (final relativePath in untrackedPaths) {
       _mergeEntry(
         filesByPath,
         DiffFileEntry(
           path: relativePath,
           status: DiffFileStatus.added,
-          additions: _countFileLines(workingDirectory, relativePath),
+          additions: _countFileLines(checkout, relativePath),
           deletions: 0,
           hunks: const [],
         ),
@@ -180,8 +231,57 @@ class DiffGenerator {
     );
   }
 
-  Future<String> _gitDiffNumstat(String revisionRange, {required String workingDirectory}) async {
-    final result = await _git(['diff', '--numstat', '-z', revisionRange], workingDirectory: workingDirectory);
+  /// Reads the branch/worktree union without content or external diff drivers.
+  ///
+  /// Each source retains its own metadata, so an uncommitted deletion cannot
+  /// conceal a symlink still present in the branch that would be merged.
+  /// Without [worktreePath] only the branch is read: [projectDir] then supplies
+  /// the repository for a branch with no checkout, and its unrelated dirty
+  /// files will not be swept. Set [fromMergeBase] false to compare the supplied
+  /// Git trees directly. Git failures and malformed NUL framing throw
+  /// [WorktreeException]; a worktree the host-worktree authority refuses throws
+  /// [TamperedWorktreeException].
+  Future<List<DiffFileChange>> changes({
+    required String baseRef,
+    required String branch,
+    String? projectDir,
+    String? worktreePath,
+    bool fromMergeBase = true,
+  }) async {
+    final repository = _repositoryFor(projectDir);
+    final changes = <DiffFileChange>[];
+    for (final revisionRange in [
+      fromMergeBase ? '$baseRef...$branch' : '$baseRef..$branch',
+      if (worktreePath != null) 'HEAD',
+    ]) {
+      changes.addAll(
+        await _gitDiffChanges(revisionRange, projectDir: repository, worktreePath: worktreePath, automated: true),
+      );
+    }
+    if (worktreePath == null) return changes;
+    for (final path in await _gitUntrackedFiles(projectDir: repository, worktreePath: worktreePath, automated: true)) {
+      final type = FileSystemEntity.typeSync('$worktreePath${Platform.pathSeparator}$path', followLinks: false);
+      if (type == FileSystemEntityType.notFound) throw WorktreeException('Changed file disappeared: $path');
+      changes.add((
+        path: path,
+        oldPath: null,
+        status: DiffFileStatus.added,
+        isSymlink: type == FileSystemEntityType.link,
+      ));
+    }
+    return changes;
+  }
+
+  Future<String> _gitDiffNumstat(
+    String revisionRange, {
+    required String projectDir,
+    required String? worktreePath,
+  }) async {
+    final result = await _git(
+      ['diff', '--numstat', '-z', revisionRange],
+      projectDir: projectDir,
+      worktreePath: worktreePath,
+    );
     if (result.exitCode != 0) {
       throw WorktreeException(
         'git diff --numstat failed',
@@ -192,20 +292,38 @@ class DiffGenerator {
     return result.stdout as String;
   }
 
-  Future<String> _gitDiffNameStatus(String revisionRange, {required String workingDirectory}) async {
-    final result = await _git(['diff', '--name-status', '-z', revisionRange], workingDirectory: workingDirectory);
+  Future<List<DiffFileChange>> _gitDiffChanges(
+    String revisionRange, {
+    required String projectDir,
+    required String? worktreePath,
+    required bool automated,
+  }) async {
+    final result = await _git(
+      ['diff', '--raw', '--no-abbrev', '--no-ext-diff', '--no-textconv', '-z', revisionRange],
+      projectDir: projectDir,
+      worktreePath: worktreePath,
+      automated: automated,
+    );
     if (result.exitCode != 0) {
       throw WorktreeException(
-        'git diff --name-status failed',
+        'git diff --raw failed',
         gitStderr: (result.stderr as String).trim(),
         exitCode: result.exitCode,
       );
     }
-    return result.stdout as String;
+    return _parseRawDiff(result.stdout as String);
   }
 
-  Future<String> _gitDiffUnified(String revisionRange, {required String workingDirectory}) async {
-    final result = await _git(['diff', '-U3', '--no-color', revisionRange], workingDirectory: workingDirectory);
+  Future<String> _gitDiffUnified(
+    String revisionRange, {
+    required String projectDir,
+    required String? worktreePath,
+  }) async {
+    final result = await _git(
+      ['diff', '-U3', '--no-color', revisionRange],
+      projectDir: projectDir,
+      worktreePath: worktreePath,
+    );
     if (result.exitCode != 0) {
       throw WorktreeException(
         'git diff -U3 failed',
@@ -216,8 +334,17 @@ class DiffGenerator {
     return result.stdout as String;
   }
 
-  Future<List<String>> _gitUntrackedFiles({required String workingDirectory}) async {
-    final result = await _git(['ls-files', '--others', '--exclude-standard'], workingDirectory: workingDirectory);
+  Future<List<String>> _gitUntrackedFiles({
+    required String projectDir,
+    required String? worktreePath,
+    bool automated = false,
+  }) async {
+    final result = await _git(
+      ['ls-files', '--others', '--exclude-standard', '-z'],
+      projectDir: projectDir,
+      worktreePath: worktreePath,
+      automated: automated,
+    );
     if (result.exitCode != 0) {
       throw WorktreeException(
         'git ls-files --others failed',
@@ -226,7 +353,7 @@ class DiffGenerator {
       );
     }
 
-    return (result.stdout as String).split('\n').map((line) => line.trim()).where((line) => line.isNotEmpty).toList();
+    return _nulFields(result.stdout as String);
   }
 
   int _countFileLines(String workingDirectory, String relativePath) {
@@ -290,34 +417,33 @@ class DiffGenerator {
     return DiffFileStatus.modified;
   }
 
-  /// Decodes `git diff --name-status -z` into the status and, for a rename or
-  /// copy, the source path git itself recorded, keyed by post-image path.
-  ///
-  /// Deriving this from git is what keeps status honest: additions and
-  /// deletions alone cannot tell a deleted file from one that only lost lines.
-  Map<String, ({DiffFileStatus status, String? oldPath})> _parseNameStatus(String output) {
+  List<DiffFileChange> _parseRawDiff(String output) {
     final fields = _nulFields(output);
-    final byPath = <String, ({DiffFileStatus status, String? oldPath})>{};
+    final changes = <DiffFileChange>[];
     for (var i = 0; i < fields.length; i++) {
-      final code = fields[i];
-      if (code.startsWith('R') || code.startsWith('C')) {
-        if (i + 2 >= fields.length) break;
-        byPath[fields[i + 2]] = (
-          status: code.startsWith('R') ? DiffFileStatus.renamed : DiffFileStatus.added,
-          oldPath: fields[i + 1],
-        );
-        i += 2;
-        continue;
-      }
-      if (i + 1 >= fields.length) break;
-      byPath[fields[i + 1]] = (status: _statusForCode(code), oldPath: null);
-      i += 1;
+      final header = _rawHeader.firstMatch(fields[i]);
+      if (header == null) throw const WorktreeException('Malformed git diff --raw metadata');
+      final code = header.group(3)!;
+      final renamed = code.startsWith('R') || code.startsWith('C');
+      final count = renamed ? 2 : 1;
+      if (i + count >= fields.length) throw const WorktreeException('Truncated git diff --raw paths');
+      final oldPath = renamed ? fields[i + 1] : null;
+      final path = fields[i + count];
+      changes.add((
+        path: path,
+        oldPath: oldPath,
+        status: code.startsWith('R') ? DiffFileStatus.renamed : _statusForCode(code),
+        isSymlink: header.group(2) == '120000',
+      ));
+      i += count;
     }
-    return byPath;
+    return changes;
   }
 
+  static final _rawHeader = RegExp(r'^:([0-7]{6}) ([0-7]{6}) [0-9a-f]+ [0-9a-f]+ ([ACDMRT][0-9]*)$');
+
   static DiffFileStatus _statusForCode(String code) => switch (code[0]) {
-    'A' => DiffFileStatus.added,
+    'A' || 'C' => DiffFileStatus.added,
     'D' => DiffFileStatus.deleted,
     _ => DiffFileStatus.modified,
   };
@@ -327,10 +453,7 @@ class DiffGenerator {
   ///
   /// A rename record carries an empty path field followed by the pre- and
   /// post-image paths, so no `{old => new}` syntax is ever decoded here.
-  List<_NumstatEntry> _parseNumstat(
-    String output,
-    Map<String, ({DiffFileStatus status, String? oldPath})> statusByPath,
-  ) {
+  List<_NumstatEntry> _parseNumstat(String output, Map<String, DiffFileChange> statusByPath) {
     final fields = _nulFields(output);
     final entries = <_NumstatEntry>[];
     for (var i = 0; i < fields.length; i++) {
@@ -364,7 +487,13 @@ class DiffGenerator {
 
   /// The NUL-terminated records in git's `-z` output, without the trailing
   /// empty field the final terminator leaves behind.
-  static List<String> _nulFields(String output) => output.split('\u0000')..removeWhere((field) => field.isEmpty);
+  static List<String> _nulFields(String output) {
+    if (output.isEmpty) return [];
+    if (!output.endsWith('\u0000')) throw const WorktreeException('Truncated NUL-framed git metadata');
+    final fields = output.split('\u0000')..removeLast();
+    if (fields.any((field) => field.isEmpty)) throw const WorktreeException('Empty field in git metadata');
+    return fields;
+  }
 
   static final _hunkHeaderRe = RegExp(r'^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@');
   static final _diffFileRe = RegExp(r'^diff --git a/(.*) b/(.*)$');

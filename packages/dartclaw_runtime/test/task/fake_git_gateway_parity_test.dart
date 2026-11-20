@@ -67,7 +67,7 @@ Future<List<String>> _writeUntracked(WorkflowGitPort port, String worktreePath, 
   } else {
     File('$worktreePath/$path').writeAsStringSync(content);
   }
-  return port.diffNameOnly(worktreePath);
+  return port.diffNameOnly(worktreePath, projectDir: worktreePath);
 }
 
 Future<_CommitObservation> _commitArtifact(WorkflowGitPort port, String worktreePath) async {
@@ -76,37 +76,44 @@ Future<_CommitObservation> _commitArtifact(WorkflowGitPort port, String worktree
   } else {
     File('$worktreePath/plan.md').writeAsStringSync('plan');
   }
-  await port.add(worktreePath, ['plan.md']);
-  final changed = await port.diffNameOnly(worktreePath, cached: true);
+  await port.add(worktreePath, ['plan.md'], projectDir: worktreePath);
+  final changed = await port.diffNameOnly(worktreePath, projectDir: worktreePath, cached: true);
   await port.commit(
     worktreePath,
+    projectDir: worktreePath,
     message: 'chore(workflow): artifacts',
     authorName: 'DartClaw Workflow',
     authorEmail: 'workflow@dartclaw.local',
   );
   return _CommitObservation(
     changed: changed,
-    exists: await port.pathExistsAtRef(worktreePath, ref: 'HEAD', path: 'plan.md'),
-    absent: await port.pathExistsAtRef(worktreePath, ref: 'HEAD', path: 'missing.md'),
+    exists: await port.pathExistsAtRef(worktreePath, projectDir: worktreePath, ref: 'HEAD', path: 'plan.md'),
+    absent: await port.pathExistsAtRef(worktreePath, projectDir: worktreePath, ref: 'HEAD', path: 'missing.md'),
   );
 }
 
 Future<_StashObservation> _stashRoundTrip(WorkflowGitPort port, String worktreePath) async {
-  final didStash = await port.stashPush(worktreePath);
-  final afterPush = (await port.status(worktreePath)).untracked;
-  await port.stashPop(worktreePath);
-  final afterPop = (await port.status(worktreePath)).untracked;
+  final didStash = await port.stashPush(worktreePath, projectDir: worktreePath);
+  final afterPush = (await port.status(worktreePath, projectDir: worktreePath)).untracked;
+  await port.stashPop(worktreePath, projectDir: worktreePath);
+  final afterPop = (await port.status(worktreePath, projectDir: worktreePath)).untracked;
   return _StashObservation(didStash: didStash, afterPushUntracked: afterPush, afterPopUntracked: afterPop);
 }
 
 Future<_MergeObservation> _mergeConflictAndAbort(WorkflowGitPort port, String worktreePath) async {
   await expectLater(
-    () => port.merge(worktreePath, ref: 'feature', strategy: WorkflowGitMergeStrategy.merge, message: 'merge feature'),
+    () => port.merge(
+      worktreePath,
+      projectDir: worktreePath,
+      ref: 'feature',
+      strategy: WorkflowGitMergeStrategy.merge,
+      message: 'merge feature',
+    ),
     throwsA(isA<WorkflowGitException>()),
   );
-  final conflicts = await port.diffNameOnly(worktreePath, diffFilter: 'U');
-  await port.mergeAbort(worktreePath);
-  final cleanAfterAbort = (await port.status(worktreePath)).indexClean;
+  final conflicts = await port.diffNameOnly(worktreePath, projectDir: worktreePath, diffFilter: 'U');
+  await port.mergeAbort(worktreePath, projectDir: worktreePath);
+  final cleanAfterAbort = (await port.status(worktreePath, projectDir: worktreePath)).indexClean;
   return _MergeObservation(conflicts: conflicts, cleanAfterAbort: cleanAfterAbort);
 }
 

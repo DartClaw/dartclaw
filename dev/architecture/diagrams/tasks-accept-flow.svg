@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 714" width="1000" height="714" role="img" aria-labelledby="title desc">
   <title id="title">Accepting a reviewed task</title>
-  <desc id="desc">The accept action takes a per-task lock and picks a delivery path. With no worktree, or a workflow-owned git task, the status only transitions. A local project merges into the server checkout; an external project commits leftovers, pushes and opens a pull request or records the branch. A merge conflict or a push or PR failure returns a result and leaves the task in review.</desc>
+  <desc id="desc">Before Git delivery, an execution-surface change holds automatic acceptance in review. A person can accept. Merge conflicts and delivery failures also leave the task in review.</desc>
   <style>
 
     svg { --bg:#f6f7f9; --card:#ffffff; --ink:#1e2030; --ink2:#4c4f69; --ink3:#6c6f85; --rule:#ccd0da; --edge:#8c8fa1; --hi:#1e66f5; --on:#ffffff; --panel:#1e1e2e; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
@@ -56,6 +56,7 @@
     .step circle { fill: var(--kd); } .step text { fill: var(--on); font-size: 11px; font-weight: 700; text-anchor: middle; }
     /* Interaction, effective only when the SVG is opened directly. */
     .n { cursor: pointer; }
+    a:focus-visible { outline: none; }
     .n:hover .box, a:focus-visible .box { stroke: var(--hi); stroke-width: 2.8; }
     .d { display: none; pointer-events: none; }
     .n:hover .d, a:focus-visible .d { display: inline; }
@@ -74,6 +75,8 @@
     svg:has(#push:hover) .edges :is(.f-push,.t-push) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
     svg:has(#pr:hover) .edges :is(.f-pr,.t-pr) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
     svg:has(#failed:hover) .edges :is(.f-failed,.t-failed) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#surface:hover) .edges :is(.f-surface,.t-surface) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
+    svg:has(#review:hover) .edges :is(.f-review,.t-review) { opacity: 1; --ec: var(--hi); --ew: 2.6px; --em: url(#ah-hi); }
   </style>
   <defs>
     <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0,0 L10,5 L0,10 z"/></marker>
@@ -90,23 +93,24 @@
 
   <text class="kick" x="24" y="32">DECISION FLOW · TaskReviewService._reviewUnlocked</text>
   <text class="title" x="24" y="58">Accepting a reviewed task</text>
-  <text class="lede" x="24" y="80">Git delivery runs before the transition. A failure leaves the task in review, so the operator can retry or push back.</text>
+  <text class="lede" x="24" y="80">An execution-surface hold stops automatic accept before Git delivery. A person can review the paths and accept.</text>
 
   <g class="k-host"><rect class="band" x="482" y="100" width="494" height="120" rx="14"/><text class="kick" x="498" y="122">LOCAL PROJECT · SERVER CHECKOUT</text></g>
   <g class="k-host"><rect class="band" x="232" y="346" width="744" height="222" rx="14"/></g>
   <g class="k-host"><text class="kick" x="830" y="368" text-anchor="end">EXTERNAL PROJECT · PUSH, THEN PR OR BRANCH</text></g>
-  <g class="k-host"><text class="el" x="602" y="252" text-anchor="start">MergeSuccess</text></g>
 
   <g class="edges">
-    <g class="e  f-accept t-decide"><path d="M184,283 H242"/><text class="el" x="213" y="276" text-anchor="middle">locked</text></g>
-    <g class="e main f-decide t-accepted"><path d="M444,283 H738"/><text class="el" x="452" y="276" text-anchor="start">no worktree</text></g>
-    <g class="e  f-decide t-merge"><path d="M344,248 V169 H492"/><text class="el" x="400" y="162" text-anchor="middle">local</text></g>
-    <g class="e  f-decide t-prepare"><path d="M344,318 V378"/><text class="el" x="352" y="340" text-anchor="start">external</text></g>
+    <g class="e f-accept t-surface"><path d="M184,283 H242"/><text class="el" x="213" y="276" text-anchor="middle">locked</text></g>
+    <g class="e f-surface t-decide"><path d="M444,283 H492"/><text class="el" x="468" y="276" text-anchor="middle">proceed</text></g>
+    <g class="e bad f-surface t-review"><path d="M300,318 V341 H104 V378"/><text class="el" x="108" y="334" text-anchor="start">automatic with a match</text></g>
+    <g class="e main f-decide t-accepted"><path d="M684,283 H738"/><text class="el" x="711" y="276" text-anchor="middle">no Git</text></g>
+    <g class="e f-decide t-merge"><path d="M550,248 V206"/><text class="el" x="542" y="233" text-anchor="end">local</text></g>
+    <g class="e f-decide t-prepare"><path d="M589,318 V352 H344 V378"/><text class="el" x="501" y="344" text-anchor="middle">external</text></g>
     <g class="e bad f-merge t-conflict"><path d="M684,169 H738"/><text class="el" x="711" y="162" text-anchor="middle">conflict</text></g>
-    <g class="e main join f-merge t-accepted"><path d="M594,204 V283"/></g>
+    <g class="e main f-merge t-accepted"><path d="M684,195 H711 V251 H738"/><text class="el" x="705" y="228" text-anchor="end">merged</text></g>
     <g class="e  f-prepare t-push"><path d="M444,415 H492"/><text class="el" x="468" y="408" text-anchor="middle">diff ok</text></g>
     <g class="e  f-push t-pr"><path d="M684,415 H738"/><text class="el" x="711" y="408" text-anchor="middle">pushed</text></g>
-    <g class="e main f-pr t-accepted"><path d="M852,378 V325"/><text class="el" x="860" y="340" text-anchor="start">recorded</text></g>
+    <g class="e main f-pr t-accepted"><path d="M852,380 V325"/><text class="el" x="860" y="340" text-anchor="start">recorded</text></g>
     <g class="e bad f-prepare t-failed"><path d="M344,450 V488"/><text class="el" x="352" y="474" text-anchor="start">no diff</text></g>
     <g class="e bad f-push t-failed"><path d="M589,450 V488"/><text class="el" x="597" y="474" text-anchor="start">push failed</text></g>
     <g class="e bad f-pr t-failed"><path d="M852,450 V488"/><text class="el" x="860" y="474" text-anchor="start">PR failed</text></g>
@@ -117,13 +121,27 @@
     <text class="name mono-name" x="36" y="271">accept</text>
     <text class="sub" x="36" y="289">TaskReviewService</text>
     <text class="sub" x="36" y="305">.review, per-task lock</text>
-    <g class="d"><text class="p1" x="36" y="666"><tspan class="b">accept</tspan> · entered from the Web UI and HTTP API (TaskActionService.review), channel review cards, or the task_review tool</text><text class="p2" x="36" y="686">Actions on one task are serialized by a per-task async lock, so two accepts cannot both merge or push.</text></g>
+    <g class="d"><text class="p1" x="36" y="666"><tspan class="b">accept</tspan> · entered from the Web UI and HTTP API (TaskActionService.review), channel review cards, auto_accept or the task_review tool</text><text class="p2" x="36" y="686">Actions on one task are serialized by a per-task async lock, so two accepts cannot both merge or push.</text></g>
+  </g></a>
+  <a href="../task-execution-architecture.md#62-accept-flow"><g class="n tint k-sec" id="surface">
+    <rect class="box" x="244" y="248" width="200" height="70" rx="9"/>
+    <text class="name" x="256" y="271">Execution-surface check</text>
+    <text class="sub" x="256" y="289">automatic worktree accept only</text>
+    <text class="sub" x="256" y="305">person's accept proceeds</text>
+    <g class="d"><text class="p1" x="36" y="666"><tspan class="b">Execution-surface check</tspan> · auto_accept and the agent task_review accept check task worktrees before a sweep or delivery.</text><text class="p2" x="36" y="686">A path match or an added or changed symlink holds the accept. Workflow-owned Git tasks are checked in the workflow path.</text></g>
+  </g></a>
+  <a href="../task-execution-architecture.md#62-accept-flow"><g class="n tint k-sec" id="review">
+    <rect class="box" x="24" y="380" width="160" height="70" rx="9"/>
+    <text class="name mono-name" x="36" y="403">review</text>
+    <text class="sub" x="36" y="421">hold paths recorded</text>
+    <text class="sub" x="36" y="437">waits for a person</text>
+    <g class="d"><text class="p1" x="36" y="666"><tspan class="b">review</tspan> · ReviewExecutionSurfaceHold leaves the task in review and records the matched paths.</text><text class="p2" x="36" y="686">Task detail and API show the paths. Git delivery resumes only when a person accepts the task.</text></g>
   </g></a>
   <a href="../task-execution-architecture.md#62-accept-flow"><g class="n solid k-host" id="decide">
-    <rect class="box" x="244" y="248" width="200" height="70" rx="9"/>
-    <text class="name" x="256" y="271">which delivery?</text>
-    <text class="sub" x="256" y="289">worktree, not workflow-owned?</text>
-    <text class="sub" x="256" y="305">taskTargetsExternalProject?</text>
+    <rect class="box" x="494" y="248" width="190" height="70" rx="9"/>
+    <text class="name" x="506" y="271">which delivery?</text>
+    <text class="sub" x="506" y="289">task-owned worktree?</text>
+    <text class="sub" x="506" y="305">taskTargetsExternalProject?</text>
     <g class="d"><text class="p1" x="36" y="666"><tspan class="b">which delivery?</tspan> · worktreeJson set and not a workflow-owned git task, then taskTargetsExternalProject: project id set and not _local</text><text class="p2" x="36" y="686">Workflow git promotion owns publish and merge for workflow-owned tasks, so those only transition here.</text></g>
   </g></a>
   <a href="../task-execution-architecture.md#54-mergeexecutor-local-projects"><g class="n tint k-host" id="merge">
@@ -151,9 +169,9 @@
   <a href="../task-execution-architecture.md#55-remotepushservice-and-prcreator-external-projects"><g class="n tint k-host" id="prepare">
     <rect class="box" x="244" y="380" width="200" height="70" rx="9"/>
     <text class="name" x="256" y="403">prepare branch</text>
-    <text class="sub" x="256" y="421">commit leftover changes;</text>
+    <text class="sub" x="256" y="421">commit with hooks disabled;</text>
     <text class="sub" x="256" y="437">verify diff against base</text>
-    <g class="d"><text class="p1" x="36" y="666"><tspan class="b">prepare branch</tspan> · git add -A and commit task(&lt;id&gt;): &lt;title&gt; when the worktree is dirty, then git diff --quiet &lt;base&gt;...HEAD</text><text class="p2" x="36" y="686">No committed difference means there is nothing to publish: push-error.txt is written and the action fails.</text></g>
+    <g class="d"><text class="p1" x="36" y="666"><tspan class="b">prepare branch</tspan> · sweep pending changes with Git hooks disabled, then verify a committed difference against the base</text><text class="p2" x="36" y="686">No committed difference means there is nothing to publish: push-error.txt is written and the action fails.</text></g>
   </g></a>
   <a href="../task-execution-architecture.md#55-remotepushservice-and-prcreator-external-projects"><g class="n tint k-host" id="push">
     <rect class="box" x="494" y="380" width="190" height="70" rx="9"/>

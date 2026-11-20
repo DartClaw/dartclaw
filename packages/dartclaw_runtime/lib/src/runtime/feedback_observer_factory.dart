@@ -15,7 +15,7 @@ class FeedbackObserverFactory {
   static final _log = Logger('FeedbackObserverFactory');
 
   /// Builds the [TurnObserver] that drives channel feedback via the unified
-  /// progress stream: Google Chat placeholder edits, and Slack's assistant status
+  /// progress stream: Google Chat placeholder edits, and Slack's agent session status
   /// with the reply streamed into its thread. Returns `null` when neither
   /// channel's feedback is enabled.
   ///

@@ -68,7 +68,7 @@ agent:
   max_turns: 100
   agents:
     search:
-      tools: [WebSearch, WebFetch]
+      tools: [web_search, web_fetch]
       model: haiku                      # cheap + fast for web lookups
 
 # --- Memory ---
@@ -121,8 +121,8 @@ scheduling:
     - id: knowledge-inbox
       prompt: >
         Run your daily knowledge scan. For each topic in SOUL.md under "## Topics to Track":
-        1. Use WebSearch to find recent developments (last 24 hours if possible)
-        2. For the most relevant results, use WebFetch to get full content
+        1. Use web_search to find recent developments (last 24 hours if possible)
+        2. For the most relevant results, use web_fetch to get full content
         3. Use memory_search to evaluate each finding: Is this new? Does it relate to an existing canonical entry?
         4. Record genuinely new and important findings using memory_observe with role='observation'
         5. Skip duplicates or information already in memory

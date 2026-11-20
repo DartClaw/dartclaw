@@ -5,9 +5,12 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
+import 'package:dartclaw_runtime/src/task/host_worktree_git.dart' show TamperedWorktreeException;
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager, TurnRunner;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
+
+import 'host_worktree_tamper_fixture.dart';
 
 void main() {
   late Directory tempDir;
@@ -255,6 +258,62 @@ void main() {
     expect(artifacts, isEmpty);
   });
 
+  group('real host Git diff', () {
+    late HostWorktreeTamperFixture fixture;
+    late ArtifactCollector realDiffCollector;
+
+    setUp(() async {
+      fixture = await HostWorktreeTamperFixture.create();
+      realDiffCollector = ArtifactCollector(
+        tasks: tasks,
+        sessionsDir: sessionsDir,
+        dataDir: tempDir.path,
+        diffGenerator: DiffGenerator(projectDir: fixture.projectDir),
+        baseRef: 'main',
+      );
+    });
+
+    tearDown(() => fixture.dispose());
+
+    Future<Task> worktreeTask(String id, {String? baseRef}) async {
+      final session = await sessions.createSession(type: SessionType.task);
+      final task = await _createTask(
+        tasks,
+        id: id,
+        sessionId: session.id,
+        startedAt: DateTime.parse('2026-03-10T10:00:00Z'),
+        configJson: {'_baseRef': ?baseRef},
+      );
+      return tasks.updateFields(
+        task.id,
+        worktreeJson: {'path': fixture.worktreePath, 'branch': fixture.branch, 'createdAt': '2026-03-10T10:00:00.000Z'},
+      );
+    }
+
+    // A tampered worktree must fail the task, not reach review looking like it changed nothing.
+    test('a tampered worktree throws instead of returning no artifacts', () async {
+      fixture.write('change.txt');
+      await fixture.rewriteGitlinkToAgentGitdir();
+      final task = await worktreeTask('task-tampered');
+
+      await expectLater(
+        realDiffCollector.collect(task, executionDirectory: fixture.worktreePath),
+        throwsA(isA<TamperedWorktreeException>()),
+      );
+      expect(fixture.existingMarkers, isEmpty);
+      expect((await tasks.listArtifacts(task.id)), isEmpty);
+    });
+
+    test('a diff that fails for any other reason still returns no artifacts', () async {
+      fixture.write('change.txt');
+      final task = await worktreeTask('task-unknown-base', baseRef: 'no-such-base-ref');
+
+      final artifacts = await realDiffCollector.collect(task, executionDirectory: fixture.worktreePath);
+
+      expect(artifacts, isEmpty);
+    });
+  });
+
   test('project-backed worktree task diffs against the selected project clone', () async {
     final startedAt = DateTime.parse('2026-03-10T10:00:00Z');
     final session = await sessions.createSession(type: SessionType.task);
@@ -300,7 +359,8 @@ void main() {
     expect(artifacts, hasLength(1));
     expect(mockDiffGen.lastBaseRef, 'origin/develop');
     expect(mockDiffGen.lastBranch, 'dartclaw/task-project-diff');
-    expect(mockDiffGen.lastProjectDir, '/tmp/worktree-project');
+    expect(mockDiffGen.lastProjectDir, '/projects/my-app');
+    expect(mockDiffGen.lastWorktreePath, '/tmp/worktree-project');
   });
 
   test('local workflow-owned worktree task diffs against the local workflow branch', () async {
@@ -349,7 +409,8 @@ void main() {
     expect(artifacts, hasLength(1));
     expect(mockDiffGen.lastBaseRef, 'dartclaw/workflow/run123');
     expect(mockDiffGen.lastBranch, 'dartclaw/workflow/run123');
-    expect(mockDiffGen.lastProjectDir, '/tmp/worktree-project');
+    expect(mockDiffGen.lastProjectDir, '/projects/my-app');
+    expect(mockDiffGen.lastWorktreePath, '/tmp/worktree-project');
   });
 }
 
@@ -379,14 +440,21 @@ class _MockDiffGenerator extends DiffGenerator {
   String? lastBaseRef;
   String? lastBranch;
   String? lastProjectDir;
+  String? lastWorktreePath;
 
   new({this.result, this.shouldThrow = false}) : super(projectDir: '/mock');
 
   @override
-  Future<DiffResult> generate({required String baseRef, required String branch, String? projectDir}) async {
+  Future<DiffResult> generate({
+    required String baseRef,
+    required String branch,
+    String? projectDir,
+    String? worktreePath,
+  }) async {
     lastBaseRef = baseRef;
     lastBranch = branch;
     lastProjectDir = projectDir;
+    lastWorktreePath = worktreePath;
     if (shouldThrow) {
       throw Exception('Mock diff generation failure');
     }

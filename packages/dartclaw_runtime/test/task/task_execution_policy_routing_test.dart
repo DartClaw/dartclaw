@@ -72,6 +72,7 @@ void main() {
     String id, {
     String provider = 'claude',
     String? securityProfile,
+    int maxRetries = 0,
     Map<String, dynamic> configJson = const {},
   }) => harness.tasks.create(
     id: id,
@@ -80,6 +81,7 @@ void main() {
     provider: provider,
     autoStart: true,
     securityProfile: securityProfile,
+    maxRetries: maxRetries,
     configJson: {
       ...configJson,
       if (!configJson.containsKey(WorkflowTaskConfig.needsWorktree)) WorkflowTaskConfig.needsWorktree: false,
@@ -87,6 +89,75 @@ void main() {
   );
 
   ExecutionPolicy policyFor(String taskId) => requests.firstWhere((request) => request.taskId == taskId).policy;
+
+  for (final retryCount in [0, 1]) {
+    test('workspace container prompt carries the toolchain note (retry $retryCount)', () async {
+      worker.responseText = 'Completed.';
+      final executor = harness.buildWorkflowExecutor(
+        policyResolver: ExecutionPolicyResolver.forStandalonePolicy(const ExecutionPolicy.container('workspace')),
+      );
+      addTearDown(executor.stop);
+      await createTask('workspace-prompt', maxRetries: 1);
+      await harness.tasks.updateFields('workspace-prompt', retryCount: retryCount);
+
+      await executor.pollOnce();
+      await executor.drain();
+
+      final task = (await harness.tasks.get('workspace-prompt'))!;
+      expect(task.status, TaskStatus.review, reason: task.configJson.toString());
+      final prompt = (await harness.messages.getMessages(task.sessionId!)).first.content;
+      expect(prompt, contains('### Container Toolchains'));
+      expect(prompt, contains('no direct network access'));
+      expect(prompt, contains('container.image'));
+      expect(prompt, contains('default image provides none'));
+      expect(prompt, contains('report the missing binary by name'));
+      expect(prompt, contains('Stop work that requires the missing toolchain'));
+      expect(prompt, contains('Do not install or download a toolchain'));
+      expect(prompt, contains('docs/guide/security.md#language-toolchains-in-the-agent-image'));
+      expect(prompt.contains('## Retry Context'), retryCount > 0);
+    });
+  }
+
+  test('workspace push-back prompt carries no toolchain note', () async {
+    worker.responseText = 'Completed.';
+    final executor = harness.buildWorkflowExecutor(
+      policyResolver: ExecutionPolicyResolver.forStandalonePolicy(const ExecutionPolicy.container('workspace')),
+    );
+    addTearDown(executor.stop);
+    await createTask('workspace-feedback', configJson: const {'pushBackComment': 'Explain the result.'});
+
+    await executor.pollOnce();
+    await executor.drain();
+
+    final task = (await harness.tasks.get('workspace-feedback'))!;
+    final prompt = (await harness.messages.getMessages(task.sessionId!)).first.content;
+    expect(prompt, contains('## Push-back Feedback'));
+    expect(prompt, isNot(contains('### Container Toolchains')));
+  });
+
+  test('host and restricted prompts carry no toolchain note', () async {
+    worker.responseText = 'Completed.';
+    for (final policy in [const ExecutionPolicy.host(), const ExecutionPolicy.container('restricted')]) {
+      final executor = harness.buildWorkflowExecutor(
+        policyResolver: ExecutionPolicyResolver.forStandalonePolicy(policy),
+      );
+      addTearDown(executor.stop);
+      final id = 'prompt-${policy.containerProfile ?? 'host'}';
+      await createTask(id, securityProfile: policy.containerProfile);
+
+      await executor.pollOnce();
+      await executor.drain();
+
+      final task = (await harness.tasks.get(id))!;
+      expect(task.status, TaskStatus.review, reason: task.configJson.toString());
+      final prompt = (await harness.messages.getMessages(task.sessionId!)).first.content;
+      expect(
+        prompt,
+        '## Task: $id\n\nRouting probe.\n\n### Working Directory\n`${harness.workspaceDir}`\n\n'
+        'Use this directory as the only workspace for this task.',
+      );
+    }
+  });
 
   test('an ordinary task uses the configured host fallback', () async {
     final executor = harness.buildWorkflowExecutor(turnManager: recordingTurns(), policyResolver: tasksOnHost());
@@ -238,6 +309,36 @@ void main() {
     });
 
     tearDown(() => context.tearDown(workerDispose: workflowWorker.dispose));
+
+    test('workspace workflow one-shot carries the toolchain note', () async {
+      workflowWorker
+        ..structuredOutputSupported = true
+        ..structuredOutput = {
+          'outputs': <String, dynamic>{},
+          'step_outcome': {'outcome': 'succeeded', 'reason': 'Completed.'},
+        };
+      final executor = context.buildExecutor(
+        policyResolver: ExecutionPolicyResolver.forStandalonePolicy(const ExecutionPolicy.container('workspace')),
+      );
+      addTearDown(executor.stop);
+      await context.tasks.create(
+        id: 'workflow-toolchain-prompt',
+        title: 'Workflow prompt',
+        description: 'Run the project tests.',
+        autoStart: true,
+        configJson: const {WorkflowTaskConfig.needsWorktree: false},
+      );
+      await context.seedWorkflowExecution('workflow-toolchain-prompt', workflowRunId: 'workflow-prompt-run');
+
+      await executor.pollOnce();
+      await executor.drain();
+
+      final task = (await context.tasks.get('workflow-toolchain-prompt'))!;
+      final prompt = (await context.messages.getMessages(task.sessionId!)).first.content;
+      expect(prompt, contains('### Container Toolchains'));
+      expect(prompt, contains('container.image'));
+      expect(prompt, contains('docs/guide/security.md#language-toolchains-in-the-agent-image'));
+    });
 
     test('a workflow one-shot carries the same host policy as an ordinary task', () async {
       final coordinator = ExecutionCoordinator(

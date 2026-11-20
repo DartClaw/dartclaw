@@ -117,7 +117,7 @@
 - **Provider factories must normalize provider-specific executable defaults.** `HarnessFactoryConfig.executable` can only represent one default; each provider factory must substitute its own binary when not overridden.
 - **Multi-provider UI/view-model code must derive the provider from `config.agent.provider`.** Hardcoded `'claude'` mislabels non-Claude deployments before usage data exists.
 - **Harness capability differences belong on the base `AgentHarness` contract.** Expose via capability getters; consumers branch on flags. Unsupported telemetry → omission/null, never fake zero or provider-name conditionals.
-- **Auto-accept callbacks must translate non-success `ReviewResult`s into thrown errors.** `TaskReviewService.review()` reports merge conflicts as typed results, not exceptions; `Future<void>` callbacks otherwise lose the warning path.
+- **Auto-accept callbacks must handle typed `ReviewResult`s.** `buildAutoAcceptCallback` throws delivery errors so the caller logs a warning. It logs an execution-surface hold at info and leaves the task in review.
 - **Green tests can mask unwired features.** Direct-call tests don't prove a service is registered in DartclawRuntime/ScheduleService – verify wiring via integration test + grep for non-test refs.
 - **`ScheduleService`'s job list is not user-prompt-jobs-only.** CLI wiring back-registers task definitions as `auto-task-<id>` callback jobs, and system jobs are `onExecute`-based too – new consumers must decide explicitly how to treat `onExecute != null` entries.
 - **Resolved step config has multiple consumers.** New inherited step fields must flow through dispatch, follow-up prompts, extraction, and resolved-YAML export.
@@ -157,6 +157,7 @@
 
 ## Workflow Engine
 
+- **A copied Git index can run clean filters during `write-tree`.** Disable external filters for both `add` and `write-tree` when previewing an execution-surface candidate. Check the real sweep against the preview tree before delivery.
 - **Strict task-spawn dependencies need a lifecycle-only construction path.** `WorkflowService`'s default constructor requires task-persistence ports; tests that only exercise pause/resume/cancel/list use the explicit lifecycle-only constructor, not fabricated ports.
 - **Validator file splits must preserve diagnostic ordering.** `workflow validate` output order is observable; rule-group moves need the original call sequence in the composer or golden coverage for ordering.
 - **Multi-flag idempotency persists are crash-windows.** Two booleans persisted in sequence reopen the work if a crash lands between them; use a single atomically-persisted phase-string field.
@@ -239,8 +240,8 @@
 - **`regenerate_fitness_baseline.dart` ratifies all accumulated drift, not just yours.** For a rename, hand-edit the path keys.
 - **A green live run can be resting on host state.** The host `~/.codex`, an untracked fixture overlay, and the enclosing repo's git config all leak in silently; seed the profile credential store and reset the fixture before trusting a green.
 - **A helper writing git config into a directory it did not create must use `git -C <dir>` and check for `.git` there first.** Git otherwise walks up and writes into the enclosing checkout's `.git/config`. Guard: `_requireFixtureRepoRoot` in `workflow_e2e_integration_test.dart`.
-- **`release_check.sh` is not CI.** Its gates run on the local host only; the Linux `Container boundary` job and the Windows release matrix exist solely on a pushed branch or tag – 0.25.0 shipped a tag that failed on Windows after it passed.
-- **Four things this host silently covers that CI does not.** macOS Docker Desktop remaps uids; the system `libsqlite3` masks a skipped build hook; every dev box has `claude` on PATH; no `pwsh` exists, so no `.ps1` is ever parsed. "Passes locally" is zero evidence for container posture, bundled sqlite, provider-CLI absence, and PowerShell syntax.
+- **Host evidence does not prove another OS.** The release check's Lima `linux` gate proves native Linux on the same committed candidate; the Windows release matrix remains a separate proof. 0.25.0 shipped a tag that failed on Windows after passing host checks.
+- **Five things this host silently covers that CI and the Lima VM do not.** macOS Docker Desktop remaps uids; the system `libsqlite3` masks a skipped build hook; every dev box has `claude` on PATH; no `pwsh` exists, so no `.ps1` is ever parsed; a global Git identity lets a test repository commit without one of its own (set `user.name`/`user.email` in the repository, as `initGitRepo` does). "Passes locally" is zero evidence for container posture, bundled sqlite, provider-CLI absence, PowerShell syntax, and identity-free commits. In Lima, run container integration files as a uid-1000 user: as root, the test-created mounts are root-owned and the container's uid-1000 agent cannot write them.
 - **A `.ps1` string interpolating `$name:` needs `${name}`.** PowerShell reads `$exitCode:` as a drive-qualified variable – with no local parser, the first sight of it is a red tag build.
 - **`build_windows_test.ps1` drives the validation helpers against `.bat` stubs, never the real binary.** The FTS5 probe now seeds no corpus at all: `rebuild-index` on an empty workspace is the whole proof, and the canonical dialect stays `dartclaw_core`'s alone.
 - **`arch_check`'s package count reads the filesystem on purpose – a red count on a developer host is real.** `git mv` and deletion leave a directory behind when it still holds ignored build output; delete the skeletons (ADR-056).
@@ -253,6 +254,7 @@
 ## Specs / Documentation
 
 - **A `git grep` Verify over `dev/` or `docs/` matches the bundle's own FIS, PRD and research.** It can never go clean; exclude `':!dev/bundle'` and dry-run it before relying on it.
+- **A quoted glob pathspec without a trailing `**` selects no files.** `git grep … -- 'packages/*/lib'` matches 0 files (the glob must match the whole path, so `lib` never matches `lib/x.dart`), and an emptiness Verify passes vacuously; write `':(glob)packages/*/lib/**'` and dry-run a positive match first.
 - **Multi-restatement spec docs.** When fixing a fact, grep all restatements; verify new claims against code; check the inventory measures the AC's property; diff applied edits vs the finding list.
 - **A checklist item naming a recorder in another story has no owner.** Verify the artifact exists before relying on it; absence is a gate defect.
 - **Cross-story deferral can land a seam nowhere.** Chained "story X owns it" deferrals shipped a type whose only `throw` was a fake – grep the producer before done.
@@ -280,8 +282,9 @@
 - **An ordering test must fail at the step *between* the two writes.** A payload rejected during extraction can't tell "wiki write last" from "wiki write first".
 - **A report category no test asserts on can ship inverted for its whole life.** Wiki `orphan` had zero assertions and read the wrong direction of the link graph.
 - **`dev/fitness` test files fail at 1430 lines, 110% of the 1300-line target; the breach shows in the workspace gate only.** Put a new group in a sibling file with its own `setUp`.
-- **The `fast` tier skips `dev/fitness`.** Its barrel allowlist is line-keyed: one added `show` name in `dartclaw_runtime.dart` shifts 20 entries, red only in CI. Run `dart test dev/fitness` after barrel edits.
+- **The `fast` tier skips `dev/fitness`.** Its barrel allowlist is line-keyed: one added `show` name in `dartclaw_runtime.dart` shifts 20 entries, red only in the local fitness gate. Run `dart test dev/fitness` after barrel edits.
 - **The conversation-loop browser profile is outside CI.** Chat UI changes pass CI while its assertions drift – `q1-e11` had never run. Rerun it after touching chat markup.
+- **A session-route test that builds its own `sessionRoutes(...)` and dispatches a turn must pass `onConversationCreated: (c) => addTearDown(c.beginShutdown)`.** Otherwise its turn-started inbox signal reads `meta.json` after `tearDown` deletes the temp dir; under load it surfaces as `PathNotFoundException … This test failed after it had already completed`, often in another test.
 - **Stage an identity marker outside its fresh destination.** A crash that leaves the temporary file inside an otherwise empty home makes the retry correctly refuse that now-nonempty unmarked directory.
 
 ## Scheduling

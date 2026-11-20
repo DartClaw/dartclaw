@@ -710,6 +710,19 @@ void main() {
   // ──────────────────────────────────────────────────────────────────────────
 
   group('POST /api/workflows/runs/<id>/resume', () {
+    test('forwards the candidate the operator reviewed', () async {
+      workflows.getResult = _makeRun(status: WorkflowRunStatus.awaitingApproval);
+      workflows.resumeResult = _makeRun(status: WorkflowRunStatus.running);
+      final response = await handler(
+        Request(
+          'POST',
+          Uri.parse('http://localhost/api/workflows/runs/run-001/resume?executionSurfaceCandidate=reviewed'),
+        ),
+      );
+      expect(response.statusCode, 200);
+      expect(workflows.lastExecutionSurfaceCandidate, 'reviewed');
+    });
+
     test('resumes paused workflow', () async {
       workflows.getResult = _makeRun(status: WorkflowRunStatus.paused);
       workflows.resumeResult = _makeRun(status: WorkflowRunStatus.running);

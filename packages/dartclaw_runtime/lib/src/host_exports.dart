@@ -10,7 +10,7 @@ export 'restart_service.dart' show RestartService;
 export 'runtime_config.dart' show RuntimeConfig;
 export 'server.dart' show DartclawServer;
 export 'runtime/runtime_exports.dart';
-export 'startup_banner.dart' show startupBanner;
+export 'startup_banner.dart' show startupBanner, startupBannerChannels;
 export 'turn_manager.dart' show TurnContext;
 export 'version.dart' show dartclawVersion;
 export 'workspace/workspace_git_sync.dart' show WorkspaceGitSync;

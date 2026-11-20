@@ -9,6 +9,8 @@ import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_workflow/testing.dart';
+import 'package:dartclaw_workflow/dartclaw_workflow.dart'
+    show WorkflowDefinition, WorkflowGitStrategy, WorkflowStep, WorkflowTaskType, WorkflowVariable, WorkflowRunOrigin;
 import 'package:path/path.dart' as p;
 import 'package:shelf/shelf.dart';
 import 'package:test/test.dart';
@@ -276,6 +278,83 @@ void main() {
     final runtime = await buildRuntime(_schedulingConfig(tempDir), serverFactory: (composed) => server = composed);
     addTearDown(() => _disposeRuntime(runtime, logService));
     expect(worker.startCalled, isTrue);
+  });
+
+  test('local publish holds committed execution files on an unpublished current branch', () async {
+    // The repository sits beside the data directory: a runtime directory inside it resolves to the workspace.
+    final repoDir = Directory(p.join(tempDir.parent.path, '${p.basename(tempDir.path)}-repo'))..createSync();
+    addTearDown(() => repoDir.deleteSync(recursive: true));
+    _runGit(repoDir.path, ['init', '-b', 'main']);
+    _runGit(repoDir.path, ['config', 'user.name', 'Workflow Test']);
+    _runGit(repoDir.path, ['config', 'user.email', 'workflow@test.local']);
+    File(p.join(repoDir.path, 'README.md')).writeAsStringSync('base');
+    _runGit(repoDir.path, ['add', 'README.md']);
+    _runGit(repoDir.path, ['commit', '-m', 'base']);
+    final remote = Directory(p.join(tempDir.parent.path, '${p.basename(tempDir.path)}-remote.git'));
+    _runGit(repoDir.path, ['init', '--bare', remote.path]);
+    addTearDown(() => remote.deleteSync(recursive: true));
+    _runGit(repoDir.path, ['remote', 'add', 'origin', remote.path]);
+    _runGit(repoDir.path, ['push', 'origin', 'main']);
+    _runGit(repoDir.path, ['checkout', '-b', 'feature/unpublished']);
+    File(p.join(repoDir.path, '.envrc')).writeAsStringSync('export FIXTURE=1');
+    _runGit(repoDir.path, ['add', '.envrc']);
+    _runGit(repoDir.path, ['commit', '-m', 'execution file']);
+    final config = _schedulingConfig(tempDir);
+    final staged = await DartclawRuntime.stageHeadless(
+      config,
+      dataDir: tempDir.path,
+      runtimeCwd: repoDir.path,
+      harnessFactory: _harnessFactoryFor(worker),
+      taskBackendFactory: (_) async => openPreparedTaskBackend(),
+      taskBackendIsPrepared: true,
+      taskRepositoryFactory: (_) => InMemoryTaskRepository(),
+      workflowRunRepositoryFactory: (_) => InMemoryWorkflowRunRepository(),
+      agentExecutionRepositoryFactory: (_) => InMemoryAgentExecutionRepository(),
+      workflowStepExecutionRepositoryFactory: (_) => InMemoryWorkflowStepExecutionRepository(),
+      executionRepositoryTransactorFactory: (_) => const InMemoryExecutionRepositoryTransactor(),
+      stderrLine: (_) {},
+      exitFn: _unexpectedExit,
+      resolvedAssets: _resolvedAssetsForConfig(config),
+      runWorkflowSkillsBootstrap: false,
+    );
+    addTearDown(staged.dispose);
+    final runtime = await staged.completeForExecution({});
+    addTearDown(() async {
+      await runtime.workflowService.dispose();
+      await runtime.shutdownExtras();
+      await runtime.taskService.dispose();
+      await runtime.kvService.dispose();
+      await runtime.eventBus.dispose();
+      await runtime.closeStorage();
+      await logService.dispose();
+    });
+    final definition = WorkflowDefinition(
+      name: 'local-publish',
+      description: 'Local publish gate',
+      variables: const {'PROJECT': WorkflowVariable(required: false), 'BRANCH': WorkflowVariable(required: false)},
+      gitStrategy: const WorkflowGitStrategy(publish: true),
+      steps: const [
+        WorkflowStep(id: 'prepare', name: 'Prepare', taskType: WorkflowTaskType.bash, prompts: ['true']),
+      ],
+    );
+    final run = await runtime.workflowService.start(definition, {
+      'PROJECT': '_local',
+      'BRANCH': 'feature/unpublished',
+    }, origin: const WorkflowRunOrigin(surface: 'cli'));
+    for (var i = 0; i < 200; i++) {
+      final current = await runtime.workflowService.get(run.id);
+      if (current?.status != WorkflowRunStatus.running) break;
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
+    final held = (await runtime.workflowService.get(run.id))!;
+    expect(held.status, WorkflowRunStatus.awaitingApproval, reason: held.errorMessage);
+    expect(held.errorMessage, contains('.envrc'));
+    final published = Process.runSync('git', [
+      'ls-remote',
+      'origin',
+      'refs/heads/feature/unpublished',
+    ], workingDirectory: repoDir.path);
+    expect(published.stdout, isEmpty);
   });
 
   test('workflow API bootstraps local-path projects from the current HEAD without origin/', () async {

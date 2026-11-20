@@ -11,8 +11,7 @@ import 'storage_wiring.dart';
 
 /// Builds the auto-accept callback used by [TaskExecutor].
 ///
-/// The callback is best-effort: non-success review results are converted into
-/// thrown errors so [TaskExecutor] can log them and keep the task in `review`.
+/// Review holds remain in review; failures are reported as errors.
 Future<void> Function(String taskId)? buildAutoAcceptCallback({
   required String completionAction,
   required Future<ReviewResult> Function(String taskId) reviewTask,
@@ -25,6 +24,9 @@ Future<void> Function(String taskId)? buildAutoAcceptCallback({
     final result = await reviewTask(taskId);
     switch (result) {
       case ReviewSuccess():
+        return;
+      case ReviewExecutionSurfaceHold(:final message):
+        Logger('TaskWiring').info('Auto-accept held for task $taskId: $message');
         return;
       case ReviewMergeConflict(
         taskId: final conflictTaskId,
@@ -66,6 +68,7 @@ class TaskWiring {
     required this.config,
     required String dataDir,
     required String runtimeCwd,
+    required String? localRepositoryDir,
     String? localFallbackDir,
     RemotePushService? remotePushServiceOverride,
     required EventBus eventBus,
@@ -74,6 +77,7 @@ class TaskWiring {
     bool workflowOnly = false,
   }) : _dataDir = dataDir,
        _runtimeCwd = runtimeCwd,
+       _localRepositoryDir = localRepositoryDir,
        _localFallbackDir = localFallbackDir,
        _remotePushServiceOverride = remotePushServiceOverride,
        _eventBus = eventBus,
@@ -84,8 +88,12 @@ class TaskWiring {
   final DartclawConfig config;
   final String _dataDir;
 
-  /// The repository this composition operates on — the invocation cwd.
+  /// The directory standalone tasks run in.
   final String _runtimeCwd;
+
+  /// The repository a task without a project operates on, `null` when the
+  /// runtime has none (see `DartclawRuntime.localRepositoryDir`).
+  final String? _localRepositoryDir;
 
   /// Non-null in the zero-server lane, which roots its worktrees beside the
   /// repository it was invoked in rather than in the managed workspace.
@@ -108,7 +116,8 @@ class TaskWiring {
   late DiffGenerator _diffGenerator;
   late ArtifactCollector _artifactCollector;
   late RunnerObserver _runnerObserver;
-  late final WorkspaceSkillLinker _workspaceSkillLinker = WorkspaceSkillLinker();
+  // Only the worktree is mounted into a task container; links to the host skill cache would dangle.
+  late final WorkspaceSkillLinker _workspaceSkillLinker = WorkspaceSkillLinker(symlinksEnabled: false);
   late TaskExecutor _taskExecutor;
   late ChannelReviewHandler _reviewHandler;
   bool _postServerWired = false;
@@ -140,13 +149,13 @@ class TaskWiring {
   /// available to Google Chat card handling.
   Future<void> wirePreServer() async {
     _mergeExecutor = MergeExecutor(
-      projectDir: _runtimeCwd,
+      projectDir: _localRepositoryDir,
       defaultStrategy: config.tasks.worktreeMergeStrategy == 'merge' ? MergeStrategy.merge : MergeStrategy.squash,
     );
     _taskFileGuard = TaskFileGuard();
     _worktreeManager = WorktreeManager(
       dataDir: _dataDir,
-      projectDir: _runtimeCwd,
+      projectDir: _localRepositoryDir,
       baseRef: config.tasks.worktreeBaseRef,
       staleTimeoutHours: config.tasks.worktreeStaleTimeoutHours,
       // Worktrees are checkouts of the repository the lane operates on. The
@@ -169,13 +178,7 @@ class TaskWiring {
 
   Future<void> _materializeWorkflowSkillsForWorktree(String worktreePath) async {
     final inventory = WorkspaceSkillInventory.fromDataDir(_dataDir);
-    _workspaceSkillLinker.materialize(
-      dataDir: _dataDir,
-      workspaceDir: worktreePath,
-      skillNames: inventory.skillNames,
-      agentMdNames: inventory.agentMdNames,
-      agentTomlNames: inventory.agentTomlNames,
-    );
+    _workspaceSkillLinker.materialize(dataDir: _dataDir, workspaceDir: worktreePath, skillNames: inventory.skillNames);
   }
 
   /// Wires task services that require a live [TurnManager].
@@ -187,7 +190,7 @@ class TaskWiring {
     required ExecutionCoordinator executions,
     required ExecutionPolicyResolver policyResolver,
   }) async {
-    _diffGenerator = DiffGenerator(projectDir: _runtimeCwd);
+    _diffGenerator = DiffGenerator(projectDir: _localRepositoryDir);
     _artifactCollector = ArtifactCollector(
       tasks: _storage.taskService,
       sessionsDir: _storage.sessions.baseDir,
@@ -220,6 +223,7 @@ class TaskWiring {
         worktreeManager: _worktreeManager,
         taskFileGuard: _taskFileGuard,
         eventRecorder: _storage.taskEventRecorder,
+        traceService: _storage.traceService,
         workflowStepExecutionRepository: _storage.workflowStepExecutionRepository,
         workflowRunRepository: _storage.workflowRunRepository,
         projectService: _project?.projectService,
@@ -242,6 +246,7 @@ class TaskWiring {
       ),
       workspaceRoot: config.workspaceDir,
       currentDirectory: _runtimeCwd,
+      localRepositoryDir: _localRepositoryDir,
       dataDir: _dataDir,
       workflowOnly: _workflowOnly,
     );

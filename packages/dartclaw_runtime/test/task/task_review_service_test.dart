@@ -11,6 +11,8 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 import 'task_review_test_support.dart';
+import 'task_executor_test_support.dart' show initGitRepo;
+import 'host_worktree_tamper_fixture.dart';
 
 void main() {
   late TaskService tasks;
@@ -37,7 +39,7 @@ void main() {
       addTearDown(statusSub.cancel);
       addTearDown(readySub.cancel);
 
-      final result = await service.review('task-1', 'accept');
+      final result = await service.review('task-1', 'accept', trigger: 'user');
       await Future<void>.delayed(Duration.zero);
 
       expect(result, const TypeMatcher<ReviewSuccess>());
@@ -70,7 +72,7 @@ void main() {
       await putTaskInReview(tasks, 'task-1', title: 'Fix login');
       final service = TaskReviewService(tasks: tasks);
 
-      final result = await service.review('task-1', 'reject');
+      final result = await service.review('task-1', 'reject', trigger: 'user');
 
       expect(result, const TypeMatcher<ReviewSuccess>());
       expect((await tasks.get('task-1'))!.status, TaskStatus.rejected);
@@ -80,7 +82,7 @@ void main() {
       await putTaskInReview(tasks, 'task-1', title: 'Fix login');
       final service = TaskReviewService(tasks: tasks);
 
-      final result = await service.review('task-1', 'push_back', comment: 'try again');
+      final result = await service.review('task-1', 'push_back', comment: 'try again', trigger: 'user');
 
       expect(result, const TypeMatcher<ReviewSuccess>());
       final updated = (await tasks.get('task-1'))!;
@@ -93,7 +95,7 @@ void main() {
       await putTaskInReview(tasks, 'task-1', title: 'Fix login');
       final service = TaskReviewService(tasks: tasks);
 
-      final result = await service.review('task-1', 'push_back');
+      final result = await service.review('task-1', 'push_back', trigger: 'user');
 
       expect(result, const TypeMatcher<ReviewInvalidRequest>());
       expect((result as ReviewInvalidRequest).message, 'comment must not be empty for push_back');
@@ -107,7 +109,7 @@ void main() {
       final sub = eventBus.on<TaskStatusChangedEvent>().listen(statusEvents.add);
       addTearDown(sub.cancel);
 
-      await service.review('task-1', 'push_back', comment: 'revise the auth logic');
+      await service.review('task-1', 'push_back', comment: 'revise the auth logic', trigger: 'user');
       await Future<void>.delayed(Duration.zero);
 
       expect(statusEvents, hasLength(1));
@@ -128,7 +130,7 @@ void main() {
         },
       );
 
-      await service.review('task-1', 'push_back', comment: 'revise the auth logic');
+      await service.review('task-1', 'push_back', comment: 'revise the auth logic', trigger: 'user');
       await Future<void>.delayed(Duration.zero);
 
       expect(deliveries, hasLength(1));
@@ -149,7 +151,7 @@ void main() {
       );
 
       // Should not rethrow — delivery is best-effort.
-      final result = await service.review('task-1', 'push_back', comment: 'try again');
+      final result = await service.review('task-1', 'push_back', comment: 'try again', trigger: 'user');
 
       expect(result, const TypeMatcher<ReviewSuccess>());
       expect((await tasks.get('task-1'))!.status, TaskStatus.running);
@@ -174,39 +176,43 @@ void main() {
       expect(capturedComment, 'fix the tests');
     });
 
-    test('runs merge and cleans up worktrees for accepted worktree-backed tasks', () async {
-      await putTaskInReview(
-        tasks,
-        'task-1',
-        title: 'Fix login',
-        worktreeJson: const {
-          'path': '/tmp/worktree',
-          'branch': 'dartclaw/task-task-1',
-          'createdAt': '2026-03-13T10:00:00.000Z',
-        },
-      );
-      final mergeExecutor = RecordingMergeExecutor(
-        result: const MergeSuccess(commitSha: 'abc123', commitMessage: 'task(task-1): Fix login'),
-      );
-      final worktreeManager = RecordingWorktreeManager();
-      final taskFileGuard = RecordingTaskFileGuard()..register('task-1', '/tmp/worktree');
-      final service = TaskReviewService(
-        tasks: tasks,
+    for (final strategy in ['squash', 'merge']) {
+      test('$strategy accept cleans up worktree-backed tasks', () async {
+        await putTaskInReview(
+          tasks,
+          'task-1',
+          title: 'Fix login',
+          worktreeJson: const {
+            'path': '/tmp/worktree',
+            'branch': 'dartclaw/task-task-1',
+            'createdAt': '2026-03-13T10:00:00.000Z',
+          },
+        );
+        final mergeExecutor = RecordingMergeExecutor(
+          result: const MergeSuccess(commitSha: 'abc123', commitMessage: 'task(task-1): Fix login'),
+        );
+        final worktreeManager = RecordingWorktreeManager();
+        final taskFileGuard = RecordingTaskFileGuard()..register('task-1', '/tmp/worktree');
+        final service = TaskReviewService(
+          tasks: tasks,
 
-        mergeExecutor: mergeExecutor,
-        worktreeManager: worktreeManager,
-        taskFileGuard: taskFileGuard,
-      );
+          mergeExecutor: mergeExecutor,
+          mergeStrategy: strategy,
+          worktreeManager: worktreeManager,
+          taskFileGuard: taskFileGuard,
+        );
 
-      final result = await service.review('task-1', 'accept');
+        final result = await service.review('task-1', 'accept', trigger: 'user');
 
-      expect(result, const TypeMatcher<ReviewSuccess>());
-      expect(mergeExecutor.callCount, 1);
-      expect(worktreeManager.cleanedTaskIds, ['task-1']);
-      expect(taskFileGuard.deregisteredTaskIds, ['task-1']);
-      expect(taskFileGuard.hasRegistration('task-1'), isFalse);
-      expect((await tasks.get('task-1'))!.status, TaskStatus.accepted);
-    });
+        expect(result, const TypeMatcher<ReviewSuccess>());
+        expect(mergeExecutor.callCount, 1);
+        expect(worktreeManager.cleanedTaskIds, ['task-1']);
+        expect(worktreeManager.forceDeleteBranches, [strategy == 'squash']);
+        expect(taskFileGuard.deregisteredTaskIds, ['task-1']);
+        expect(taskFileGuard.hasRegistration('task-1'), isFalse);
+        expect((await tasks.get('task-1'))!.status, TaskStatus.accepted);
+      });
+    }
 
     test('rejects accepting worktree-backed tasks when merge support is unavailable', () async {
       await putTaskInReview(
@@ -221,7 +227,7 @@ void main() {
       );
       final service = TaskReviewService(tasks: tasks);
 
-      final result = await service.review('task-1', 'accept');
+      final result = await service.review('task-1', 'accept', trigger: 'user');
 
       expect(result, const TypeMatcher<ReviewActionFailed>());
       expect(
@@ -247,10 +253,10 @@ void main() {
       );
       final service = TaskReviewService(tasks: tasks, mergeExecutor: mergeExecutor);
 
-      final firstReview = service.review('task-1', 'accept');
+      final firstReview = service.review('task-1', 'accept', trigger: 'user');
       await mergeExecutor.started.future;
 
-      final secondReview = service.review('task-1', 'accept');
+      final secondReview = service.review('task-1', 'accept', trigger: 'user');
       await Future<void>.delayed(Duration.zero);
       expect(mergeExecutor.callCount, 1);
 
@@ -265,7 +271,7 @@ void main() {
       expect((await tasks.get('task-1'))!.status, TaskStatus.accepted);
     });
 
-    test('accepting workflow-owned git review tasks skips merge and cleanup', () async {
+    test('execution-surface hold belongs to workflow promotion, so auto-accept skips merge and cleanup', () async {
       await tasks.create(
         id: 'task-workflow-review',
         title: 'Workflow review task',
@@ -294,7 +300,7 @@ void main() {
       final worktreeManager = RecordingWorktreeManager();
       final service = TaskReviewService(tasks: tasks, mergeExecutor: mergeExecutor, worktreeManager: worktreeManager);
 
-      final result = await service.review('task-workflow-review', 'accept');
+      final result = await service.review('task-workflow-review', 'accept', trigger: 'auto_accept');
 
       expect(result, const TypeMatcher<ReviewSuccess>());
       expect((await tasks.get('task-workflow-review'))!.status, TaskStatus.accepted);
@@ -332,7 +338,7 @@ void main() {
         dataDir: tempDir.path,
       );
 
-      final result = await service.review('task-1', 'accept');
+      final result = await service.review('task-1', 'accept', trigger: 'user');
 
       expect(result, const TypeMatcher<ReviewMergeConflict>());
       final conflict = result as ReviewMergeConflict;
@@ -351,7 +357,7 @@ void main() {
     test('returns not found when the task does not exist', () async {
       final service = TaskReviewService(tasks: tasks);
 
-      final result = await service.review('missing', 'accept');
+      final result = await service.review('missing', 'accept', trigger: 'user');
 
       expect(result, const TypeMatcher<ReviewNotFound>());
     });
@@ -366,7 +372,7 @@ void main() {
       );
       final service = TaskReviewService(tasks: tasks);
 
-      final result = await service.review('task-1', 'accept');
+      final result = await service.review('task-1', 'accept', trigger: 'user');
 
       expect(result, const TypeMatcher<ReviewInvalidTransition>());
       expect((result as ReviewInvalidTransition).currentStatus, TaskStatus.draft);
@@ -375,7 +381,7 @@ void main() {
     test('returns invalid request for unknown actions', () async {
       final service = TaskReviewService(tasks: tasks);
 
-      final result = await service.review('task-1', 'ship_it');
+      final result = await service.review('task-1', 'ship_it', trigger: 'user');
 
       expect(result, const TypeMatcher<ReviewInvalidRequest>());
       expect((result as ReviewInvalidRequest).message, 'action must be one of: accept, reject, push_back');
@@ -386,17 +392,17 @@ void main() {
       await putTaskInReview(tasks, 'task-1', title: 'Fix login');
       final service = TaskReviewService(tasks: tasks);
 
-      final empty = await service.review('task-1', '   ');
+      final empty = await service.review('task-1', '   ', trigger: 'user');
       expect(empty, isA<ReviewInvalidRequest>());
       expect((empty as ReviewInvalidRequest).message, 'action must not be empty');
       expect(empty.field, 'action');
 
-      final missingComment = await service.review('task-1', ' push_back ', comment: '   ');
+      final missingComment = await service.review('task-1', ' push_back ', comment: '   ', trigger: 'user');
       expect(missingComment, isA<ReviewInvalidRequest>());
       expect((missingComment as ReviewInvalidRequest).message, 'comment must not be empty for push_back');
       expect(missingComment.field, 'comment');
 
-      final success = await service.review('task-1', ' push_back ', comment: '  revise it  ');
+      final success = await service.review('task-1', ' push_back ', comment: '  revise it  ', trigger: 'user');
       expect(success, isA<ReviewSuccess>());
       expect((success as ReviewSuccess).task.status, TaskStatus.running);
       expect(success.task.configJson['pushBackComment'], 'revise it');
@@ -419,7 +425,7 @@ void main() {
         mergeExecutor: _ThrowingMergeExecutor(Exception('merge exploded')),
       );
 
-      final result = await service.review('task-1', 'accept');
+      final result = await service.review('task-1', 'accept', trigger: 'user');
 
       expect(result, const TypeMatcher<ReviewActionFailed>());
       expect((result as ReviewActionFailed).message, 'Review action failed. Please try again or use the web UI.');
@@ -444,7 +450,7 @@ void main() {
       await putTaskInReview(tasks, 'task-1', title: 'Review task');
       final service = TaskReviewService(tasks: tasks, eventRecorder: recorder);
 
-      await service.review('task-1', 'push_back', comment: 'Please fix the tests');
+      await service.review('task-1', 'push_back', comment: 'Please fix the tests', trigger: 'user');
 
       final events = await eventService.listForTask('task-1');
       expect(events, hasLength(1));
@@ -456,7 +462,7 @@ void main() {
       await putTaskInReview(tasks, 'task-1', title: 'Review task');
       final service = TaskReviewService(tasks: tasks, eventRecorder: recorder);
 
-      await service.review('task-1', 'accept');
+      await service.review('task-1', 'accept', trigger: 'user');
 
       final events = await eventService.listForTask('task-1', kind: TaskEventKind.pushBack);
       expect(events, isEmpty);
@@ -466,87 +472,354 @@ void main() {
       await putTaskInReview(tasks, 'task-2', title: 'Another task');
       final service = TaskReviewService(tasks: tasks);
 
-      final result = await service.review('task-2', 'push_back', comment: 'try again');
+      final result = await service.review('task-2', 'push_back', comment: 'try again', trigger: 'user');
 
       expect(result, isA<ReviewSuccess>());
     });
   });
 
-  group('project-backed accept', () {
-    test('default git runner carries GIT_CONFIG_NOSYSTEM=1 into accept-path commits', () async {
-      // Accept stages and commits inside the task worktree. Without the flag,
-      // system-level git config (hooks, filters, sshCommand) runs in-band for
-      // that child — WorktreeManager sets it, this runner did not.
-      final tempDir = await Directory.systemTemp.createTemp('dartclaw_review_nosystem_');
-      addTearDown(() async {
-        if (await tempDir.exists()) await tempDir.delete(recursive: true);
-      });
-      final repo = Directory(p.join(tempDir.path, 'worktree'))..createSync(recursive: true);
-      Future<ProcessResult> git(List<String> args) => Process.run('git', args, workingDirectory: repo.path);
-      await git(['init', '--initial-branch=main']);
-      await git(['config', 'user.email', 'test@example.com']);
-      await git(['config', 'user.name', 'Test']);
-      File(p.join(repo.path, 'seed.txt')).writeAsStringSync('seed\n');
-      await git(['add', '-A']);
-      await git(['commit', '-m', 'seed']);
+  group('squash accept deletes the task branch', () {
+    late Directory repo;
+    late Directory data;
+    late WorktreeManager worktrees;
 
-      final sentinel = File(p.join(tempDir.path, 'git-config-nosystem.txt'));
-      final hookPath = p.join(repo.path, '.git', 'hooks', 'pre-commit');
-      File(hookPath)
-          .writeAsStringSync('#!/bin/sh\nprintf "%s" "\${GIT_CONFIG_NOSYSTEM:-unset}" > "${sentinel.path}"\n');
-      await Process.run('chmod', ['+x', hookPath]);
+    Future<ProcessResult> git(List<String> args, {String? dir}) async {
+      final result = await runGit(args, workingDirectory: dir ?? repo.path);
+      if (result.exitCode != 0) throw StateError('${args.join(' ')}: ${result.stderr}');
+      return result;
+    }
 
-      // An uncommitted change, so the accept path reaches `git add` + `git commit`.
-      File(p.join(repo.path, 'work.txt')).writeAsStringSync('agent output\n');
-
-      await _putProjectTaskInReview(tasks, 'task-nosystem');
-      await tasks.updateFields(
-        'task-nosystem',
-        worktreeJson: {
-          'path': repo.path,
-          'branch': 'dartclaw/task-task-nosystem',
-          'createdAt': '2026-03-13T10:00:00.000Z',
-        },
-      );
-
-      final service = TaskReviewService(
-        tasks: tasks,
-        remotePushService: FakeRemotePushService(result: const PushSuccess()),
-        prCreator: FakePrCreator(result: const PrCreated('https://github.com/u/r/pull/1')),
-        projectService: _projectService(
-          project: _makeProject(
-            id: 'my-app',
-            pr: const PrConfig(strategy: PrStrategy.githubPr),
-          ),
-        ),
-        worktreeManager: RecordingWorktreeManager(),
-        dataDir: tempDir.path,
-      );
-
-      await service.review('task-nosystem', 'accept');
-
-      expect(sentinel.existsSync(), isTrue, reason: 'pre-commit hook did not run — the accept path never committed');
-      expect(sentinel.readAsStringSync(), '1');
+    setUp(() async {
+      repo = await initGitRepo();
+      data = await Directory.systemTemp.createTemp('review_cleanup_');
+      await git(['config', 'user.email', 'fixture@example.com']);
+      await git(['config', 'user.name', 'Fixture']);
+      worktrees = WorktreeManager(dataDir: data.path, projectDir: repo.path);
+    });
+    tearDown(() async {
+      await data.delete(recursive: true);
+      await repo.delete(recursive: true);
     });
 
+    Future<WorktreeInfo> reviewWorktree({String? attachedBranch}) async {
+      if (attachedBranch != null) await git(['branch', attachedBranch, 'main']);
+      final worktree = await worktrees.create(
+        'cleanup-task',
+        baseRef: attachedBranch,
+        createBranch: attachedBranch == null,
+      );
+      File(p.join(worktree.path, 'README.md')).writeAsStringSync('task change\n');
+      await git(['add', 'README.md'], dir: worktree.path);
+      await git(['commit', '-m', 'task changes'], dir: worktree.path);
+      await putTaskInReview(tasks, 'cleanup-task', title: 'Save the changes', worktreeJson: worktree.toJson());
+      return worktree;
+    }
+
+    TaskReviewService reviewService({String strategy = 'squash'}) => TaskReviewService(
+      tasks: tasks,
+      worktreeManager: worktrees,
+      mergeExecutor: MergeExecutor(projectDir: repo.path),
+      mergeStrategy: strategy,
+      dataDir: data.path,
+    );
+
+    test('lands the squash commit and removes the owned branch', () async {
+      final worktree = await reviewWorktree();
+      final branchTip = (await git(['rev-parse', worktree.branch])).stdout;
+
+      expect(await reviewService().review('cleanup-task', 'accept', trigger: 'user'), isA<ReviewSuccess>());
+
+      expect((await git(['show', 'main:README.md'])).stdout, 'task change\n');
+      expect((await git(['rev-parse', 'main'])).stdout, isNot(branchTip));
+      expect(
+        (await git(['log', '-1', '--format=%s', 'main'])).stdout.toString().trim(),
+        'task(cleanup-task): Save the changes',
+      );
+      expect((await git(['branch', '--list', worktree.branch])).stdout.toString().trim(), isEmpty);
+      expect(Directory(worktree.path).existsSync(), isFalse);
+    });
+
+    test('keeps the branch and review state on conflict', () async {
+      final worktree = await reviewWorktree();
+      File(p.join(repo.path, 'README.md')).writeAsStringSync('base change\n');
+      await git(['add', 'README.md']);
+      await git(['commit', '-m', 'base changes']);
+      final baseTip = (await git(['rev-parse', 'main'])).stdout;
+
+      expect(await reviewService().review('cleanup-task', 'accept', trigger: 'user'), isA<ReviewMergeConflict>());
+
+      expect((await tasks.get('cleanup-task'))!.status, TaskStatus.review);
+      expect((await git(['rev-parse', 'main'])).stdout, baseTip);
+      expect((await git(['branch', '--list', worktree.branch])).stdout.toString().trim(), isNotEmpty);
+      expect(Directory(worktree.path).existsSync(), isTrue);
+    });
+
+    test('keeps an attached branch even when already merged', () async {
+      final worktree = await reviewWorktree(attachedBranch: 'wf/integration');
+      await git(['merge', '--ff-only', worktree.branch]);
+      final branchTip = (await git(['rev-parse', worktree.branch])).stdout;
+
+      expect(await reviewService().review('cleanup-task', 'accept', trigger: 'user'), isA<ReviewSuccess>());
+
+      expect((await git(['rev-parse', worktree.branch])).stdout, branchTip);
+      expect(Directory(worktree.path).existsSync(), isFalse);
+    });
+
+    test('merge strategy retains the non-force deletion path', () async {
+      final worktree = await reviewWorktree();
+      expect(
+        await reviewService(strategy: 'merge').review('cleanup-task', 'accept', trigger: 'user'),
+        isA<ReviewSuccess>(),
+      );
+      expect((await git(['show', 'main:README.md'])).stdout, 'task change\n');
+      expect((await git(['branch', '--list', worktree.branch])).stdout.toString().trim(), isEmpty);
+    });
+  });
+
+  group('execution-surface hold', () {
+    late Directory repo;
+    late Directory data;
+    late WorktreeInfo worktree;
+    late WorktreeManager worktrees;
+
+    Future<ProcessResult> git(List<String> args, {String? dir}) async {
+      final result = await runGit(args, workingDirectory: dir ?? repo.path);
+      if (result.exitCode != 0) throw StateError('${args.join(' ')}: ${result.stderr}');
+      return result;
+    }
+
+    setUp(() async {
+      repo = await initGitRepo();
+      data = await Directory.systemTemp.createTemp('review_surface_');
+      await git(['config', 'user.email', 'fixture@example.com']);
+      await git(['config', 'user.name', 'Fixture']);
+      worktrees = WorktreeManager(dataDir: data.path, projectDir: repo.path);
+      worktree = await worktrees.create('surface-task');
+      await putTaskInReview(tasks, 'surface-task', title: 'Review changes');
+      await tasks.updateFields('surface-task', worktreeJson: worktree.toJson());
+    });
+    tearDown(() async {
+      await data.delete(recursive: true);
+      await repo.delete(recursive: true);
+    });
+
+    void write(String path) {
+      final file = File(p.join(worktree.path, path))..parent.createSync(recursive: true);
+      file.writeAsStringSync('changed\n');
+    }
+
+    for (final trigger in ['auto_accept', 'agent_tool']) {
+      for (final committed in [true, false]) {
+        test('$trigger holds ${committed ? 'committed' : 'uncommitted'} changes before merge', () async {
+          write('.claude/settings.json');
+          write('ordinary.dart');
+          if (committed) {
+            await git(['add', '-A'], dir: worktree.path);
+            await git(['commit', '-m', 'agent changes'], dir: worktree.path);
+          }
+          final before = (await git(['rev-parse', 'main'])).stdout;
+          final service = TaskReviewService(
+            tasks: tasks,
+            mergeExecutor: MergeExecutor(projectDir: repo.path),
+            worktreeManager: worktrees,
+          );
+          final result = await service.review('surface-task', 'accept', trigger: trigger);
+          expect(result, isNot(isA<ReviewSuccess>()));
+          expect((await git(['rev-parse', 'main'])).stdout, before);
+          final held = (await tasks.get('surface-task'))!;
+          expect(held.status, TaskStatus.review);
+          expect(Directory(worktree.path).existsSync(), isTrue);
+          expect((await git(['branch', '--list', worktree.branch])).stdout.toString().trim(), isNotEmpty);
+          expect(held.configJson['_executionSurfaceHold'], {
+            'paths': ['.claude/settings.json'],
+          });
+          if (committed) {
+            expect(await service.review('surface-task', 'accept', trigger: 'user'), isA<ReviewSuccess>());
+            expect((await tasks.get('surface-task'))!.configJson.containsKey('_executionSurfaceHold'), isFalse);
+            expect((await git(['show', 'main:.claude/settings.json'])).stdout, 'changed\n');
+          }
+        });
+      }
+    }
+
+    test('metadata read errors refuse automatic accept before merge', () async {
+      await tasks.updateFields('surface-task', worktreeJson: {...worktree.toJson(), 'path': data.path});
+      final merge = RecordingMergeExecutor(
+        result: const MergeSuccess(commitSha: 'never', commitMessage: 'never'),
+        projectDir: repo.path,
+      );
+      final service = TaskReviewService(tasks: tasks, mergeExecutor: merge);
+      final result = await service.review('surface-task', 'accept', trigger: 'auto_accept');
+      expect(result, isA<ReviewActionFailed>());
+      expect((await tasks.get('surface-task'))!.status, TaskStatus.review);
+      expect(merge.callCount, 0);
+    });
+
+    test('project-backed accept holds before sweep and pushes nothing', () async {
+      write('.mcp.json');
+      final project = _makeProject(id: 'my-app').copyWith(localPath: repo.path);
+      await tasks.updateFields('surface-task', projectId: project.id);
+      final push = FakeRemotePushService(result: const PushSuccess());
+      final service = TaskReviewService(
+        tasks: tasks,
+        projectService: _projectService(project: project),
+        remotePushService: push,
+      );
+      final before = (await git(['rev-parse', worktree.branch])).stdout;
+      expect(await service.review('surface-task', 'accept', trigger: 'auto_accept'), isNot(isA<ReviewSuccess>()));
+      expect(push.callCount, 0);
+      expect((await git(['rev-parse', worktree.branch])).stdout, before);
+      expect((await git(['status', '--porcelain'], dir: worktree.path)).stdout, contains('.mcp.json'));
+    });
+
+    for (final hooksPath in ['.husky', '.githooks']) {
+      test('host commit sweep runs no git hooks from $hooksPath', () async {
+        final marker = await installMarkerGitHook(worktree.path, hooksPath: hooksPath);
+        write('work.txt');
+        final project = _makeProject(
+          id: 'my-app',
+          pr: const PrConfig(strategy: PrStrategy.branchOnly),
+        ).copyWith(localPath: repo.path);
+        await tasks.updateFields('surface-task', projectId: project.id);
+        final service = TaskReviewService(
+          tasks: tasks,
+          projectService: _projectService(project: project),
+          remotePushService: FakeRemotePushService(result: const PushSuccess()),
+        );
+        expect(await service.review('surface-task', 'accept', trigger: 'user'), isA<ReviewSuccess>());
+        expect((await git(['show', 'HEAD:work.txt'], dir: worktree.path)).stdout, 'changed\n');
+        expect(marker.existsSync(), isFalse);
+      });
+    }
+
+    test('a clean automatic accept clears a stale hold and lands instruction edits', () async {
+      write('AGENTS.md');
+      write('CLAUDE.md');
+      write('lib/a.dart');
+      await git(['add', '-A'], dir: worktree.path);
+      await git(['commit', '-m', 'ordinary changes'], dir: worktree.path);
+      await tasks.updateFields(
+        'surface-task',
+        configJson: {
+          '_executionSurfaceHold': {
+            'paths': ['old'],
+          },
+        },
+      );
+      final service = TaskReviewService(
+        tasks: tasks,
+        mergeExecutor: MergeExecutor(projectDir: repo.path),
+      );
+      expect(await service.review('surface-task', 'accept', trigger: 'auto_accept'), isA<ReviewSuccess>());
+      expect((await tasks.get('surface-task'))!.configJson.containsKey('_executionSurfaceHold'), isFalse);
+      expect((await git(['show', 'main:AGENTS.md'])).stdout, 'changed\n');
+    });
+  });
+
+  group('tampered task worktree', () {
+    TaskReviewService personAccept(HostWorktreeTamperFixture fixture, FakeRemotePushService push) => TaskReviewService(
+      tasks: tasks,
+      projectService: _projectService(
+        project: _makeProject(
+          id: 'my-app',
+          localPath: fixture.projectDir,
+          pr: const PrConfig(strategy: PrStrategy.branchOnly),
+        ),
+      ),
+      remotePushService: push,
+    );
+
+    Future<String> branchTip(HostWorktreeTamperFixture fixture) async =>
+        ((await HostWorktreeTamperFixture.git(fixture.projectDir, ['rev-parse', fixture.branch])).stdout as String)
+            .trim();
+
+    final tampers = <String, Future<void> Function(HostWorktreeTamperFixture)>{
+      'gitlink rewritten to an agent gitdir': (fixture) => fixture.rewriteGitlinkToAgentGitdir(),
+      'gitlink replaced by a repository': (fixture) => fixture.replaceGitlinkWithRepository(),
+      'gitlink deleted': (fixture) async => fixture.deleteGitlink(),
+    };
+    for (final tamper in tampers.entries) {
+      test('a person accept refuses a project task whose ${tamper.key}', () async {
+        final fixture = await _putProjectTaskInReview(tasks, 'task-tampered');
+        fixture.write('dirty.txt');
+        final tipBefore = await branchTip(fixture);
+        await tamper.value(fixture);
+        final push = FakeRemotePushService(result: const PushSuccess());
+
+        final result = await personAccept(fixture, push).review('task-tampered', 'accept', trigger: 'user');
+
+        expect(result, isA<ReviewActionFailed>());
+        expect((result as ReviewActionFailed).message, contains('tampered worktree "${fixture.worktreePath}"'));
+        expect((await tasks.get('task-tampered'))!.status, TaskStatus.review);
+        expect(push.callCount, 0);
+        expect(await branchTip(fixture), tipBefore);
+        expect(fixture.existingMarkers, isEmpty);
+      });
+    }
+
+    test('an automatic accept refuses a local task whose gitlink names an agent gitdir', () async {
+      final fixture = await HostWorktreeTamperFixture.create(branch: 'dartclaw/task-auto', worktreeName: 'auto');
+      addTearDown(fixture.dispose);
+      final data = await Directory.systemTemp.createTemp('review_tampered_');
+      addTearDown(() => data.delete(recursive: true));
+      await putTaskInReview(tasks, 'task-auto', title: 'Review changes');
+      await tasks.updateFields(
+        'task-auto',
+        worktreeJson: {'path': fixture.worktreePath, 'branch': fixture.branch, 'createdAt': '2026-03-13T10:00:00.000Z'},
+      );
+      fixture.write('.mcp.json');
+      await fixture.rewriteGitlinkToAgentGitdir();
+      final merge = RecordingMergeExecutor(
+        result: const MergeSuccess(commitSha: 'never', commitMessage: 'never'),
+      );
+      final service = TaskReviewService(
+        tasks: tasks,
+        mergeExecutor: merge,
+        worktreeManager: WorktreeManager(dataDir: data.path, projectDir: fixture.projectDir),
+      );
+
+      for (final trigger in ['auto_accept', 'agent_tool']) {
+        final result = await service.review('task-auto', 'accept', trigger: trigger);
+        expect(result, isA<ReviewActionFailed>());
+        expect((result as ReviewActionFailed).message, contains('tampered worktree'));
+      }
+      expect((await tasks.get('task-auto'))!.status, TaskStatus.review);
+      expect(merge.callCount, 0);
+      expect(fixture.existingMarkers, isEmpty);
+    });
+
+    test('a person accept runs no config of a repository nested in the worktree', () async {
+      final fixture = await _putProjectTaskInReview(tasks, 'task-nested');
+      await fixture.nestRepository();
+
+      await personAccept(
+        fixture,
+        FakeRemotePushService(result: const PushSuccess()),
+      ).review('task-nested', 'accept', trigger: 'user');
+
+      expect(fixture.existingMarkers, isEmpty);
+    });
+  });
+
+  group('project-backed accept', () {
     test('push + PR created → task accepted, PR URL artifact stored', () async {
       final tempDir = await Directory.systemTemp.createTemp('dartclaw_proj_review_');
       addTearDown(() async {
         if (await tempDir.exists()) await tempDir.delete(recursive: true);
       });
 
-      await _putProjectTaskInReview(tasks, 'task-proj');
+      final fixture = await _putProjectTaskInReview(tasks, 'task-proj');
 
       final projectService = _projectService(
         project: _makeProject(
           id: 'my-app',
+          localPath: fixture.projectDir,
           pr: const PrConfig(strategy: PrStrategy.githubPr),
         ),
       );
       final pushService = FakeRemotePushService(result: const PushSuccess());
       final prCreator = FakePrCreator(result: const PrCreated('https://github.com/u/r/pull/42'));
       final worktreeManager = RecordingWorktreeManager();
-      final gitRunner = _cleanBranchDiffGitRunner();
       final service = TaskReviewService(
         tasks: tasks,
         remotePushService: pushService,
@@ -554,10 +827,9 @@ void main() {
         projectService: projectService,
         worktreeManager: worktreeManager,
         dataDir: tempDir.path,
-        processRunner: gitRunner.run,
       );
 
-      final result = await service.review('task-proj', 'accept');
+      final result = await service.review('task-proj', 'accept', trigger: 'user');
 
       expect(result, const TypeMatcher<ReviewSuccess>());
       expect((await tasks.get('task-proj'))!.status, TaskStatus.accepted);
@@ -567,6 +839,7 @@ void main() {
       expect(prArtifact.name, 'Pull Request');
       expect(prArtifact.path, 'https://github.com/u/r/pull/42');
       expect(worktreeManager.cleanedTaskIds, contains('task-proj'));
+      expect(worktreeManager.forceDeleteBranches, [false]);
       expect(worktreeManager.cleanedProjectIds, contains('my-app'));
     });
 
@@ -576,25 +849,24 @@ void main() {
         if (await tempDir.exists()) await tempDir.delete(recursive: true);
       });
 
-      await _putProjectTaskInReview(tasks, 'task-branch');
+      final fixture = await _putProjectTaskInReview(tasks, 'task-branch');
 
       final projectService = _projectService(
         project: _makeProject(
           id: 'my-app',
+          localPath: fixture.projectDir,
           pr: const PrConfig(strategy: PrStrategy.branchOnly),
         ),
       );
       final pushService = FakeRemotePushService(result: const PushSuccess());
-      final gitRunner = _cleanBranchDiffGitRunner();
       final service = TaskReviewService(
         tasks: tasks,
         remotePushService: pushService,
         projectService: projectService,
         dataDir: tempDir.path,
-        processRunner: gitRunner.run,
       );
 
-      final result = await service.review('task-branch', 'accept');
+      final result = await service.review('task-branch', 'accept', trigger: 'user');
 
       expect(result, const TypeMatcher<ReviewSuccess>());
       final artifacts = await tasks.listArtifacts('task-branch');
@@ -609,74 +881,55 @@ void main() {
         if (await tempDir.exists()) await tempDir.delete(recursive: true);
       });
 
-      await _putProjectTaskInReview(tasks, 'task-dirty');
+      final fixture = await _putProjectTaskInReview(tasks, 'task-dirty');
+      fixture.write('notes/spec-publish.md');
 
       final projectService = _projectService(
         project: _makeProject(
           id: 'my-app',
+          localPath: fixture.projectDir,
           pr: const PrConfig(strategy: PrStrategy.branchOnly),
         ),
       );
       final pushService = FakeRemotePushService(result: const PushSuccess());
-      final gitRunner = _gitRunnerWith({
-        'status --porcelain --untracked-files=all': _gitResult('?? notes/spec-publish.md\n'),
-        'add -A': _gitResult(''),
-        'commit -m task(task-dirty): Project task task-dirty': _gitResult('[branch abc123] commit\n'),
-        'rev-parse --verify origin/main': _gitResult('origin/main\n'),
-        'diff --quiet origin/main...HEAD': _gitResult('', exitCode: 1),
-      });
+      final calls = <({List<String> arguments, bool noSystemConfig})>[];
+      Future<ProcessResult> recordingGit(
+        List<String> arguments, {
+        String? workingDirectory,
+        ProcessEnvironmentPlan plan = const EmptyProcessEnvironmentPlan(),
+        bool noSystemConfig = true,
+      }) {
+        calls.add((arguments: arguments, noSystemConfig: noSystemConfig));
+        return runGit(arguments, workingDirectory: workingDirectory, plan: plan, noSystemConfig: noSystemConfig);
+      }
+
       final service = TaskReviewService(
         tasks: tasks,
         remotePushService: pushService,
         projectService: projectService,
         dataDir: tempDir.path,
-        processRunner: gitRunner.run,
+        processRunner: recordingGit,
       );
 
-      final result = await service.review('task-dirty', 'accept');
+      final result = await service.review('task-dirty', 'accept', trigger: 'user');
 
       expect(result, const TypeMatcher<ReviewSuccess>());
       expect(pushService.callCount, 1);
-      expect(gitRunner.recordedArguments.map((a) => a.join(' ')), contains('add -A'));
+      final commit = calls.singleWhere((call) => call.arguments.contains('commit'));
       expect(
-        gitRunner.recordedArguments.map((a) => a.join(' ')),
-        contains('commit -m task(task-dirty): Project task task-dirty'),
+        commit.arguments,
+        containsAll([
+          'core.hooksPath=/dev/null',
+          '--git-dir=${fixture.adminDir}',
+          '--work-tree=${fixture.worktreePath}',
+        ]),
       );
-    });
-
-    test('gh not found → push succeeds, warning artifact, task accepted', () async {
-      final tempDir = await Directory.systemTemp.createTemp('dartclaw_proj_review_');
-      addTearDown(() async {
-        if (await tempDir.exists()) await tempDir.delete(recursive: true);
-      });
-
-      await _putProjectTaskInReview(tasks, 'task-gh');
-
-      final projectService = _projectService(
-        project: _makeProject(
-          id: 'my-app',
-          pr: const PrConfig(strategy: PrStrategy.githubPr),
-        ),
-      );
-      final pushService = FakeRemotePushService(result: const PushSuccess());
-      final prCreator = FakePrCreator(result: const PrGhNotFound('gh not found. Create PR manually.'));
-      final gitRunner = _cleanBranchDiffGitRunner();
-      final service = TaskReviewService(
-        tasks: tasks,
-        remotePushService: pushService,
-        prCreator: prCreator,
-        projectService: projectService,
-        dataDir: tempDir.path,
-        processRunner: gitRunner.run,
-      );
-
-      final result = await service.review('task-gh', 'accept');
-
-      expect(result, const TypeMatcher<ReviewSuccess>());
-      expect((await tasks.get('task-gh'))!.status, TaskStatus.accepted);
-      final artifacts = await tasks.listArtifacts('task-gh');
-      final prArtifact = artifacts.firstWhere((a) => a.kind == ArtifactKind.pr);
-      expect(prArtifact.name, 'PR Instructions');
+      expect(commit.noSystemConfig, isTrue);
+      final committed = await HostWorktreeTamperFixture.git(fixture.worktreePath, [
+        'show',
+        'HEAD:notes/spec-publish.md',
+      ]);
+      expect(committed.stdout, 'changed\n');
     });
 
     test('PR creation failure keeps task in review and preserves the worktree', () async {
@@ -685,11 +938,12 @@ void main() {
         if (await tempDir.exists()) await tempDir.delete(recursive: true);
       });
 
-      await _putProjectTaskInReview(tasks, 'task-pr-failure');
+      final fixture = await _putProjectTaskInReview(tasks, 'task-pr-failure');
 
       final projectService = _projectService(
         project: _makeProject(
           id: 'my-app',
+          localPath: fixture.projectDir,
           pr: const PrConfig(strategy: PrStrategy.githubPr),
         ),
       );
@@ -701,7 +955,6 @@ void main() {
         ),
       );
       final worktreeManager = RecordingWorktreeManager();
-      final gitRunner = _cleanBranchDiffGitRunner();
       final service = TaskReviewService(
         tasks: tasks,
         remotePushService: pushService,
@@ -709,10 +962,9 @@ void main() {
         projectService: projectService,
         worktreeManager: worktreeManager,
         dataDir: tempDir.path,
-        processRunner: gitRunner.run,
       );
 
-      final result = await service.review('task-pr-failure', 'accept');
+      final result = await service.review('task-pr-failure', 'accept', trigger: 'user');
 
       expect(result, isA<ReviewActionFailed>());
       expect((await tasks.get('task-pr-failure'))!.status, TaskStatus.review);
@@ -728,24 +980,24 @@ void main() {
         if (await tempDir.exists()) await tempDir.delete(recursive: true);
       });
 
-      await _putProjectTaskInReview(tasks, 'task-auth');
+      final fixture = await _putProjectTaskInReview(tasks, 'task-auth');
 
-      final projectService = _projectService(project: _makeProject(id: 'my-app'));
+      final projectService = _projectService(
+        project: _makeProject(id: 'my-app', localPath: fixture.projectDir),
+      );
       final pushService = FakeRemotePushService(
         result: const PushAuthFailure('Authentication denied. Check credentials.'),
       );
       final worktreeManager = RecordingWorktreeManager();
-      final gitRunner = _cleanBranchDiffGitRunner();
       final service = TaskReviewService(
         tasks: tasks,
         remotePushService: pushService,
         projectService: projectService,
         worktreeManager: worktreeManager,
         dataDir: tempDir.path,
-        processRunner: gitRunner.run,
       );
 
-      final result = await service.review('task-auth', 'accept');
+      final result = await service.review('task-auth', 'accept', trigger: 'user');
 
       expect(result, const TypeMatcher<ReviewActionFailed>());
       expect((await tasks.get('task-auth'))!.status, TaskStatus.review);
@@ -761,41 +1013,44 @@ void main() {
         if (await tempDir.exists()) await tempDir.delete(recursive: true);
       });
 
-      await _putProjectTaskInReview(tasks, 'task-reject');
+      final fixture = await _putProjectTaskInReview(tasks, 'task-reject');
 
-      final projectService = _projectService(project: _makeProject(id: 'my-app'));
+      final projectService = _projectService(
+        project: _makeProject(id: 'my-app', localPath: fixture.projectDir),
+      );
       final pushService = FakeRemotePushService(result: const PushRejected('non-fast-forward update rejected'));
-      final gitRunner = _cleanBranchDiffGitRunner();
       final service = TaskReviewService(
         tasks: tasks,
         remotePushService: pushService,
         projectService: projectService,
         dataDir: tempDir.path,
-        processRunner: gitRunner.run,
       );
 
-      final result = await service.review('task-reject', 'accept');
+      final result = await service.review('task-reject', 'accept', trigger: 'user');
 
       expect(result, const TypeMatcher<ReviewActionFailed>());
       expect((await tasks.get('task-reject'))!.status, TaskStatus.review);
     });
 
     test('project-backed reject cleans up using the project clone context', () async {
-      await _putProjectTaskInReview(tasks, 'task-reject-cleanup');
+      final fixture = await _putProjectTaskInReview(tasks, 'task-reject-cleanup');
 
       final worktreeManager = RecordingWorktreeManager();
       final service = TaskReviewService(
         tasks: tasks,
 
-        projectService: _projectService(project: _makeProject(id: 'my-app')),
+        projectService: _projectService(
+          project: _makeProject(id: 'my-app', localPath: fixture.projectDir),
+        ),
         worktreeManager: worktreeManager,
       );
 
-      final result = await service.review('task-reject-cleanup', 'reject');
+      final result = await service.review('task-reject-cleanup', 'reject', trigger: 'user');
 
       expect(result, const TypeMatcher<ReviewSuccess>());
       expect((await tasks.get('task-reject-cleanup'))!.status, TaskStatus.rejected);
       expect(worktreeManager.cleanedTaskIds, contains('task-reject-cleanup'));
+      expect(worktreeManager.forceDeleteBranches, [false]);
       expect(worktreeManager.cleanedProjectIds, contains('my-app'));
     });
 
@@ -826,7 +1081,7 @@ void main() {
       final worktreeManager = RecordingWorktreeManager();
       final service = TaskReviewService(tasks: tasks, mergeExecutor: mergeExecutor, worktreeManager: worktreeManager);
 
-      final result = await service.review('task-local', 'accept');
+      final result = await service.review('task-local', 'accept', trigger: 'user');
 
       expect(result, const TypeMatcher<ReviewSuccess>());
       expect(mergeExecutor.callCount, 1);
@@ -853,7 +1108,7 @@ void main() {
         projectService: _projectService(project: _makeProject(id: 'my-app')),
       );
 
-      final result = await service.review('task-no-wt', 'accept');
+      final result = await service.review('task-no-wt', 'accept', trigger: 'user');
 
       expect(result, const TypeMatcher<ReviewSuccess>());
       expect(pushService.callCount, 0);
@@ -868,7 +1123,7 @@ void main() {
         // No remotePushService or projectService
       );
 
-      final result = await service.review('task-no-push', 'accept');
+      final result = await service.review('task-no-push', 'accept', trigger: 'user');
 
       expect(result, const TypeMatcher<ReviewActionFailed>());
       expect((result as ReviewActionFailed).message, contains('not available'));
@@ -923,19 +1178,31 @@ class _ThrowingMergeExecutor extends MergeExecutor {
 
 // ── Project-backed test helpers ──────────────────────────────────────────────
 
-Project _makeProject({required String id, PrConfig pr = const PrConfig.defaults()}) => Project(
+Project _makeProject({
+  required String id,
+  PrConfig pr = const PrConfig.defaults(),
+  String localPath = '/data/projects/my-app',
+}) => Project(
   id: id,
   name: 'My App',
   remoteUrl: 'git@github.com:u/my-app.git',
-  localPath: '/data/projects/my-app',
+  localPath: localPath,
   defaultBranch: 'main',
   status: ProjectStatus.ready,
   createdAt: DateTime.now(),
   pr: pr,
 );
 
-/// Creates a project-backed task in review state with a worktree.
-Future<void> _putProjectTaskInReview(TaskService tasks, String id) async {
+/// Creates a project-backed task in review state whose worktree is a real
+/// linked worktree of a real project, with one commit on the task branch and an
+/// `origin/main` that the branch is ahead of.
+Future<HostWorktreeTamperFixture> _putProjectTaskInReview(TaskService tasks, String id) async {
+  final fixture = await HostWorktreeTamperFixture.create(branch: 'dartclaw/task-$id', worktreeName: id);
+  addTearDown(fixture.dispose);
+  await HostWorktreeTamperFixture.git(fixture.projectDir, ['update-ref', 'refs/remotes/origin/main', 'main']);
+  fixture.write('work.txt');
+  await HostWorktreeTamperFixture.git(fixture.worktreePath, ['add', 'work.txt']);
+  await HostWorktreeTamperFixture.git(fixture.worktreePath, ['commit', '-q', '-m', 'task work']);
   await tasks.create(
     id: id,
     title: 'Project task $id',
@@ -949,12 +1216,9 @@ Future<void> _putProjectTaskInReview(TaskService tasks, String id) async {
   await tasks.transition(id, TaskStatus.review, now: DateTime.parse('2026-03-13T10:10:00Z'));
   await tasks.updateFields(
     id,
-    worktreeJson: {
-      'path': '/data/worktrees/$id',
-      'branch': 'dartclaw/task-$id',
-      'createdAt': '2026-03-13T10:00:00.000Z',
-    },
+    worktreeJson: {'path': fixture.worktreePath, 'branch': fixture.branch, 'createdAt': '2026-03-13T10:00:00.000Z'},
   );
+  return fixture;
 }
 
 FakeProjectService _projectService({required Project? project}) {
@@ -963,17 +1227,4 @@ FakeProjectService _projectService({required Project? project}) {
     includeLocalProjectInGetAll: false,
     defaultProjectId: project?.id,
   );
-}
-
-RecordingGitRunner _gitRunnerWith(Map<String, ProcessResult> responses) =>
-    RecordingGitRunner(responder: (call) => responses[call.arguments.join(' ')]);
-
-RecordingGitRunner _cleanBranchDiffGitRunner() => _gitRunnerWith({
-  'status --porcelain --untracked-files=all': _gitResult(''),
-  'rev-parse --verify origin/main': _gitResult('origin/main\n'),
-  'diff --quiet origin/main...HEAD': _gitResult('', exitCode: 1),
-});
-
-ProcessResult _gitResult(String stdout, {String stderr = '', int exitCode = 0}) {
-  return ProcessResult(0, exitCode, stdout, stderr);
 }

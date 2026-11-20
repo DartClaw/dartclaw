@@ -526,6 +526,39 @@ void main() {
       expect(status.errorMessage, isNull);
     });
 
+    test('a vendor login does not answer for a provider whose resolved placement is a container', () async {
+      // Explicit `container.enabled: true`: Claude has a stored token, Codex only
+      // its CLI login. A container cannot use that login, so the card must not
+      // read the provider as authenticated while serve warns its runs are rejected.
+      final authProbed = <String>[];
+      final service = ProviderStatusService(
+        providers: const ProvidersConfig(
+          entries: {
+            'claude': ProviderEntry(executable: 'claude'),
+            'codex': ProviderEntry(executable: 'codex'),
+          },
+        ),
+        registry: _registry(subscriptions: const {'claude': CredentialEntry.subscription(token: 'claude-token')}),
+        defaultProvider: 'claude',
+        isHostExecution: (_) => false,
+      );
+
+      await service.probe(
+        commandProbe: probeResults({'claude': probeOk('Claude CLI 2.1.0'), 'codex': probeOk('Codex CLI 1.0.0')}),
+        authProbe: (executable, {String? providerId}) async {
+          authProbed.add(providerId!);
+          return true;
+        },
+      );
+
+      final codex = service.all.singleWhere((status) => status.id == 'codex');
+      expect(codex.credentialStatus, 'missing');
+      expect(codex.health, 'degraded');
+      expect(service.binaryAuthenticated('codex'), isFalse);
+      expect(authProbed, isEmpty, reason: 'the login is never consulted where it cannot be used');
+      expect(service.all.singleWhere((status) => status.id == 'claude').credentialStatus, 'present');
+    });
+
     test('normalizes noisy version output to the first non-empty line', () async {
       final service = ProviderStatusService(
         providers: const ProvidersConfig(entries: {'codex': ProviderEntry(executable: 'codex', poolSize: 1)}),

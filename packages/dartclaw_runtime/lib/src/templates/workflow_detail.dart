@@ -2,6 +2,7 @@ import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' show humanizeSpan;
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
     show
+        WorkflowExecutionSurfaceHold,
         WorkflowFollowUpLabel,
         WorkflowRevisionState,
         WorkflowRun,
@@ -22,6 +23,7 @@ import 'topbar.dart';
 typedef WorkflowRunPresentation = ({
   String label,
   String badgeClass,
+  String metricColor,
   bool terminal,
   int? progressOverride,
   String meterFillClass,
@@ -58,6 +60,7 @@ WorkflowRunPresentation workflowRunPresentation(WorkflowRunStatus status) {
   return (
     label: status == WorkflowRunStatus.awaitingApproval ? 'Awaiting approval' : titleCase(status.name),
     badgeClass: 'status-badge-$slug',
+    metricColor: failed ? 'error' : (warning ? 'warning' : 'accent'),
     terminal: completed || failed || status == WorkflowRunStatus.cancelled,
     progressOverride: completed ? 100 : null,
     meterFillClass: failed ? 'meter-fill--error' : (warning ? 'meter-fill--warning' : ''),
@@ -162,6 +165,11 @@ String workflowDetailPageTemplate({
     startedAt: DateTime.now(),
     updatedAt: DateTime.now(),
   );
+  final hold = WorkflowExecutionSurfaceHold.read(workflowRun.contextJson);
+  final resumeUrl = Uri(
+    pathSegments: ['', 'api', 'workflows', 'runs', workflowRun.id, 'resume'],
+    queryParameters: hold == null ? null : {'executionSurfaceCandidate': hold.candidate},
+  );
   final followUp = workflowFollowUp(workflowRun);
   final canPause = statusName == 'running';
   final canResume = workflowCanResume(workflowRun);
@@ -182,6 +190,7 @@ String workflowDetailPageTemplate({
     workflowRun,
     run,
     annotatedSteps,
+    executionHold: hold,
     decisionControls: [if (canApprove) 'Approve', if (canReject) 'Reject', if (canRequestChanges) 'Request changes'],
   );
 
@@ -189,7 +198,7 @@ String workflowDetailPageTemplate({
   final startedAt = run['startedAt'];
   final durationDisplay = _formatDuration(startedAt, run['completedAt']);
   final metricsHtml = [
-    metricCardTemplate(color: 'accent', value: presentation.label, label: 'Status'),
+    metricCardTemplate(color: presentation.metricColor, value: presentation.label, label: 'Status'),
     metricCardTemplate(color: 'info', value: _formatTimeAgo(run['startedAt']), label: 'Started'),
     metricCardTemplate(
       color: 'warning',
@@ -236,6 +245,7 @@ String workflowDetailPageTemplate({
     'hasContext': contextEntries.isNotEmpty,
     'canPause': canPause,
     'canResume': canResume,
+    'resumeUrl': resumeUrl.toString(),
     'canRetry': canRetry,
     'canCancel': canCancel && !canApprove,
     'canApprove': canApprove,
@@ -389,9 +399,13 @@ _PauseBanner? _pauseBanner(
   WorkflowRun workflowRun,
   Map<String, dynamic> run,
   List<Map<String, dynamic>> steps, {
+  required WorkflowExecutionSurfaceHold? executionHold,
   required List<String> decisionControls,
 }) {
   final statusName = workflowRun.status.name;
+  if (executionHold != null && (statusName == 'awaitingApproval' || statusName == 'paused')) {
+    return _PauseBanner(cssClass: 'banner-warning', label: 'Git review', text: executionHold.message);
+  }
   if (statusName == 'awaitingApproval') {
     final pendingStepId = run['pendingApprovalStepId']?.toString();
     if (pendingStepId == null || pendingStepId.isEmpty) return null;

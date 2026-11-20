@@ -207,6 +207,7 @@ Future<({ChannelWiring channels, StorageWiring storage})> wireTestChannels(
     config: config,
     dataDir: config.server.dataDir,
     runtimeCwd: runtimeCwd,
+    localRepositoryDir: runtimeCwd,
     eventBus: eventBus,
     storage: storage,
   );

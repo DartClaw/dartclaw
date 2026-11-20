@@ -125,7 +125,6 @@ void main() {
       mentionGating: mentionGating,
       slashCommandParser: const SlashCommandParser(),
       slashCommandHandler: executor,
-      responseTimeout: const Duration(milliseconds: 50),
     );
   }
 

@@ -91,6 +91,32 @@ void main() {
       expect(gitArgs, ['status --porcelain', 'rev-parse main']);
     });
 
+    test('a checked-out target at a different revision cannot merge', () async {
+      Future<ProcessResult> concurrentCheckout(String executable, List<String> arguments, {String? workingDirectory}) {
+        if (arguments.join(' ') == 'checkout main') responses['rev-parse HEAD'] = pr('other-base\n');
+        return mockRunner(executable, arguments, workingDirectory: workingDirectory);
+      }
+
+      executor = MergeExecutor(projectDir: '/project', gitPort: _ProcessRunnerGitPortForTest(concurrentCheckout));
+      responses['rev-parse main'] = pr('reviewed-base\n');
+      responses['rev-parse HEAD'] = pr('original-head\n');
+      responses['current-branch'] = pr('original\n');
+
+      await expectLater(
+        executor.merge(
+          branch: 'reviewed-source',
+          baseRef: 'main',
+          taskId: 't1',
+          taskTitle: 'Fix bug',
+          expectedBaseSha: 'reviewed-base',
+        ),
+        throwsA(isA<PreMergeInvariantException>().having((error) => error.reason, 'reason', isA<TargetShaMismatch>())),
+      );
+      final gitArgs = calls.map((c) => c.args.join(' ')).toList();
+      expect(gitArgs, contains('checkout original'));
+      expect(gitArgs.any((args) => args.startsWith('merge ')), isFalse);
+    });
+
     test('PreMergeInvariantException reason is switch-exhaustive', () {
       const error = PreMergeInvariantException(
         reason: UncleanIndex(modified: ['lib/main.dart']),
@@ -528,13 +554,13 @@ final class _ProcessRunnerGitPortForTest implements WorkflowGitPort {
   const new(this.processRunner);
 
   @override
-  Future<String> revParse(String worktreePath, String ref) async {
+  Future<String> revParse(String worktreePath, String ref, {required String projectDir}) async {
     final result = await _expect(['rev-parse', ref], worktreePath, 'Failed to resolve ref $ref');
     return _stdout(result).trim();
   }
 
   @override
-  Future<String> currentBranch(String worktreePath) async {
+  Future<String> currentBranch(String worktreePath, {required String projectDir}) async {
     final result = await _expect(['current-branch'], worktreePath, 'Failed to record current branch');
     return _stdout(result).trim();
   }
@@ -542,6 +568,7 @@ final class _ProcessRunnerGitPortForTest implements WorkflowGitPort {
   @override
   Future<List<String>> diffNameOnly(
     String worktreePath, {
+    required String projectDir,
     String? against,
     bool cached = false,
     String? diffFilter,
@@ -560,19 +587,24 @@ final class _ProcessRunnerGitPortForTest implements WorkflowGitPort {
     final result = await _expect(args, worktreePath, 'Failed to list changed paths');
     final paths = _lines(_stdout(result)).toSet();
     if (!cached && (diffFilter == null || diffFilter.trim().isEmpty)) {
-      paths.addAll(await untrackedFiles(worktreePath));
+      paths.addAll(await untrackedFiles(worktreePath, projectDir: projectDir));
     }
     return paths.toList()..sort();
   }
 
   @override
-  Future<bool> pathExistsAtRef(String worktreePath, {required String ref, required String path}) async {
+  Future<bool> pathExistsAtRef(
+    String worktreePath, {
+    required String projectDir,
+    required String ref,
+    required String path,
+  }) async {
     final result = await _git(['cat-file', '-e', '$ref:$path'], worktreePath);
     return result.exitCode == 0;
   }
 
   @override
-  Future<GitStatus> status(String worktreePath) async {
+  Future<GitStatus> status(String worktreePath, {required String projectDir}) async {
     final result = await _expect(['status', '--porcelain'], worktreePath, 'Failed to inspect status');
     final modified = <String>[];
     final untracked = <String>[];
@@ -589,19 +621,19 @@ final class _ProcessRunnerGitPortForTest implements WorkflowGitPort {
   }
 
   @override
-  Future<List<String>> untrackedFiles(String worktreePath) async {
-    return (await status(worktreePath)).untracked;
+  Future<List<String>> untrackedFiles(String worktreePath, {required String projectDir}) async {
+    return (await status(worktreePath, projectDir: projectDir)).untracked;
   }
 
   @override
-  Future<List<String>> stashedPaths(String worktreePath, {int index = 0}) async {
+  Future<List<String>> stashedPaths(String worktreePath, {required String projectDir, int index = 0}) async {
     final result = await _git(['stash', 'show', '--name-only', 'stash@{$index}'], worktreePath);
     if (result.exitCode != 0) return const <String>[];
     return _lines(_stdout(result));
   }
 
   @override
-  Future<void> add(String worktreePath, List<String> paths, {bool all = false}) async {
+  Future<void> add(String worktreePath, List<String> paths, {required String projectDir, bool all = false}) async {
     if (!all && paths.isEmpty) return;
     await _expect(all ? <String>['add', '-A'] : <String>['add', '--', ...paths], worktreePath, 'Failed to stage paths');
   }
@@ -609,6 +641,7 @@ final class _ProcessRunnerGitPortForTest implements WorkflowGitPort {
   @override
   Future<WorkflowGitCommit> commit(
     String worktreePath, {
+    required String projectDir,
     required String message,
     String? authorName,
     String? authorEmail,
@@ -621,34 +654,38 @@ final class _ProcessRunnerGitPortForTest implements WorkflowGitPort {
       message,
     ];
     await _expect(args, worktreePath, 'Failed to commit staged changes');
-    return WorkflowGitCommit(sha: await revParse(worktreePath, 'HEAD'), message: message);
+    return WorkflowGitCommit(
+      sha: await revParse(worktreePath, 'HEAD', projectDir: projectDir),
+      message: message,
+    );
   }
 
   @override
-  Future<void> checkout(String worktreePath, String ref) async {
+  Future<void> checkout(String worktreePath, String ref, {required String projectDir}) async {
     await _expect(['checkout', ref], worktreePath, 'Failed to checkout $ref');
   }
 
   @override
-  Future<bool> stashPush(String worktreePath, {bool includeUntracked = true}) async {
+  Future<bool> stashPush(String worktreePath, {required String projectDir, bool includeUntracked = true}) async {
     final args = <String>['stash', if (includeUntracked) '--include-untracked'];
     final result = await _expect(args, worktreePath, 'Failed to stash local changes');
     return !_stdout(result).contains('No local changes to save');
   }
 
   @override
-  Future<void> stashPop(String worktreePath) async {
+  Future<void> stashPop(String worktreePath, {required String projectDir}) async {
     await _expect(['stash', 'pop'], worktreePath, 'Failed to restore stash');
   }
 
   @override
-  Future<void> stashDrop(String worktreePath, {int index = 0}) async {
+  Future<void> stashDrop(String worktreePath, {required String projectDir, int index = 0}) async {
     await _expect(['stash', 'drop'], worktreePath, 'Failed to drop stash entry');
   }
 
   @override
   Future<void> merge(
     String worktreePath, {
+    required String projectDir,
     required String ref,
     required WorkflowGitMergeStrategy strategy,
     String? message,
@@ -661,12 +698,12 @@ final class _ProcessRunnerGitPortForTest implements WorkflowGitPort {
   }
 
   @override
-  Future<void> mergeAbort(String worktreePath) async {
+  Future<void> mergeAbort(String worktreePath, {required String projectDir}) async {
     await _expect(['merge', '--abort'], worktreePath, 'Failed to abort merge');
   }
 
   @override
-  Future<void> resetHard(String worktreePath, String ref) async {
+  Future<void> resetHard(String worktreePath, String ref, {required String projectDir}) async {
     await _expect(['reset', '--hard', ref], worktreePath, 'Failed to reset');
   }
 

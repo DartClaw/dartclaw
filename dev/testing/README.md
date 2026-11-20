@@ -3,9 +3,10 @@
 This directory hosts everything needed to run DartClaw against pre-configured environments:
 
 - **`profiles/`** — pre-configured DartClaw environments and command runners. Server profiles include seeded data and
-  a `run.sh`; Windows-native profiles use PowerShell. Used by `UI-SMOKE-TEST.md`, by the
-  `dev/tools/release_check.sh` manual gates, and by scenario files.
-- **`scenarios/`** — AI-native acceptance scenarios. Markdown files with YAML frontmatter that describe full-system interactions (browser + API + governance) in natural language. Run via the `test-scenario` skill — see `scenarios/README.md`.
+  a `run.sh`; Windows-native profiles use PowerShell. Used by `UI-SMOKE-TEST.md`, by scenario files, and by two
+  automated gates: the local `linux` release gate in `dev/tools/release_check.dart` runs `container/run.sh --ci`, and
+  `dev/tools/test_workspace.sh` runs `conversation-loop/visual_checks_test.sh`.
+- **`scenarios/`** — AI-native acceptance scenarios. Markdown files with YAML frontmatter that describe full-system interactions (browser + API + governance) in natural language. Run via the `test-scenario` skill — see `scenarios/README.md`. The native-Windows qualification procedures (`windows-*.md`) carry no frontmatter and are run by hand from PowerShell.
 - **`UI-SMOKE-TEST.md`** — the canonical 31-case UI smoke test, run against the `plain` profile.
 
 ## Profile Quick Reference
@@ -17,16 +18,17 @@ receipts retain that meaning. Report scoped functional evidence separately rathe
 
 | Profile | Port | Run command | Purpose |
 |---|---|---|---|
-| `plain` | 3335 | `bash dev/testing/profiles/plain/run.sh` | Minimal seeded data, no channels. Backs `UI-SMOKE-TEST.md` and most `scenarios/session-*` scenarios. |
+| `plain` | 3335 | `bash dev/testing/profiles/plain/run.sh` | Minimal seeded data, no channels. Backs `UI-SMOKE-TEST.md` and `scenarios/session-lifecycle.md`. |
 | `channels` | 3336 | `bash dev/testing/profiles/channels/run.sh` | WhatsApp, Signal, Google Chat and Slack channels (Slack off until the owner enables it). Hardware pairing flow and Slack setup are documented in `dartclaw-private/docs/testing/channel-e2e-manual.md`. |
 | `governance` | 3337 | `bash dev/testing/profiles/governance/run.sh` | Tight governance limits + budget seeding. Backs the governance-enforcement scenario. |
-| `visual` | 3338 | `bash dev/testing/profiles/visual/run.sh` | Desktop visual smoke profile. Feature-visibility flags on so Health/Memory/Tasks/Projects/Workflows all render with seeded content. |
+| `visual` | 3338 | `bash dev/testing/profiles/visual/run.sh` | Desktop visual smoke profile. Seeds PostgreSQL before serve with accepted, failed and review tasks plus completed, failed and awaitingApproval workflow runs with step tasks. |
 | `workflows` | 3333 | `bash dev/testing/profiles/workflows/run.sh` | Codex-first workflow execution against the `DartClaw/workflow-test-todo-app` fixture repo. Publish runs need a GitHub token; `run.sh` takes `GITHUB_TOKEN`, else the fixture askpass file, else `gh auth token`. |
 | `workflow-contract` | n/a | `bash dev/testing/profiles/workflow-contract/run.sh` | Fast deterministic workflow contract checks. Use while iterating on workflow YAML, gates, output contracts, and resolver behavior. |
 | `workflow-live` | n/a | `bash dev/testing/profiles/workflow-live/run.sh --canary <name>` | Explicit live workflow integration canaries and full sweep. Codex requires the installed AndThen plugin; the runner copies and enables it in a hermetic `CODEX_HOME`, then runs fail-fast provider/model preflight (`--skip-preflight` to skip). Captures logs and summarizes warning patterns. |
 | `conversation-loop` | n/a | `bash dev/testing/profiles/conversation-loop/run.sh --case <name>` | Browser and process-boundary conversation journeys. `run.sh --help` lists the cases. `visual_checks.sh`'s `assert_layout_canon` measures the live app against the layout canon (desktop control heights, 40px topbar, composer anchoring, 44px touch targets, overflow, alignment, placeholder leaks); review its retained screenshots against the accepted design reference. |
 | `container` | 3341 | `bash dev/testing/profiles/container/run.sh` | Real container isolation end to end: a turn runs inside a container, the container holds no provider credential, and a task tool is served over the MCP bridge. SIGKILL leaves the turn container running; restart reclaims it and its generated state. Reports a stated skip when no container runtime answers. |
-| `container --ci` | 3342 | `bash dev/testing/profiles/container/run.sh --ci` | What CI runs. Boots a config declaring **no** `container:` section and asserts the posture resolved to container isolation, so an advisory downgrade fails instead of passing. An absent runtime is a failure, not a skip. Injects SIGKILL and three decoys, then proves restart reclaims only the owned labelled decoy. Issues no model turn and needs no credential, so it runs on a fork PR. |
+| `container --ci` | 3342 | `bash dev/testing/profiles/container/run.sh --ci` | Run by the local `linux` release gate in the Lima VM. Boots a config declaring **no** `container:` section and asserts the posture resolved to container isolation, so an advisory downgrade fails instead of passing. An absent runtime is a failure, not a skip. Injects SIGKILL and three decoys, then proves restart reclaims only the owned labelled decoy. Issues no model turn and needs no credential. |
+| `container coding` | 3343 | `bash dev/testing/profiles/container/coding.sh` | Runs `implement-story` against Dart and Node fixtures in workspace containers, building each fixture’s recipe image by default; `DARTCLAW_CODING_IMAGE` selects an already-built image for all fixtures. `--provider claude\|codex` and `--fixture dart\|node` select runs; `--baseline` records install/test failures without accepting placement, credential or cleanup failures. Uses a DartClaw credential store named by `DARTCLAW_CONTAINER_DATA_DIR` or `ANTHROPIC_API_KEY` / `CODEX_API_KEY`. Records task placement, command exit/output, Dart lockfile diffs and Codex rollout observations under `.agent_temp/container-coding/`. |
 | `windows-runtime` | 3340 | `./dev/testing/profiles/windows-runtime/run.ps1 -ArtifactPath <zip> -SkipProviders` | Native Windows x64 release smoke: server, Web UI, PostgreSQL lexical storage/search, and file-watch reload. Claude and Codex turns are optional compatibility layers. Writes the layered report to `.agent_temp/windows-runtime-smoke.md`. |
 
 ## Evidence and milestone records
@@ -83,9 +85,22 @@ reaching a release-ready verdict.
 Scoop qualification is defined separately in `scenarios/windows-scoop.md`. Keep install/update/uninstall audits separate
 from the deterministic tag workflow; local reports belong under `.agent_temp/`.
 
+### Container coding qualification
+
+`container/coding.sh` qualifies workspace placement and coding mechanics through fixture `implement-story` runs.
+The runner copies `fixtures/project-instructions.md` into each disposable project's `AGENTS.md` and `CLAUDE.md`
+before the first commit. The instructions direct review and ship to the FIS before tool selection. A phase that reruns
+acceptance installs into its own container and records install and test in separate tool results.
+
+An auth-clean container can lack provider-native AndThen skills and access to linked-worktree Git metadata.
+The fixture records these limitations and uses visible source and actual test results for the phase's required
+artifacts and structured outcome. Production built-ins require the operator-installed
+[AndThen plugin](../../docs/guide/andthen-skills.md).
+
 ## Scenarios
 
-Scenarios live under `scenarios/` and reference profiles by name and port in their YAML frontmatter. The `test-scenario` skill (at `.claude/skills/test-scenario/`) parses the frontmatter, verifies or starts the required profile, drives browser + API steps, and produces a structured pass/fail report.
+Scenarios live under `scenarios/`; runner scenarios reference profiles by name and port in their YAML frontmatter, while
+the native-Windows procedures (`windows-*.md`) are run by hand from PowerShell. The `test-scenario` skill (at `.claude/skills/test-scenario/`) parses the frontmatter, verifies or starts the required profile, drives browser + API steps, and produces a structured pass/fail report.
 
 Run a scenario by name (resolved under `dev/testing/scenarios/`) or by path:
 

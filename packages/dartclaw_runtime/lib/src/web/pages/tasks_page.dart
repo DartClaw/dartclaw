@@ -1,3 +1,5 @@
+import '../../task/execution_surface.dart';
+
 import 'dart:convert';
 import 'dart:io';
 
@@ -243,7 +245,7 @@ class TasksPage extends DashboardPage {
             'value': project.id,
             'label': project.name,
             'status': project.status.name,
-            'isDefault': (project.id == defaultProject.id).toString(),
+            'isDefault': (project.id == defaultProject?.id).toString(),
           },
       ],
     );
@@ -543,6 +545,7 @@ class TasksPage extends DashboardPage {
     return {
       ..._taskToMap(task, goalTitle: goalTitle, defaultProvider: defaultProvider),
       'acceptanceCriteria': task.acceptanceCriteria,
+      'executionSurfacePaths': executionSurfaceHeldPaths(task.configJson),
       'completedAt': task.completedAt?.toIso8601String(),
       'pushBackCount': (task.configJson['pushBackCount'] as num?)?.toInt() ?? 0,
     };

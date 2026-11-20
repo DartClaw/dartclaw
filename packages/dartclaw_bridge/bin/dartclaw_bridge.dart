@@ -5,11 +5,11 @@ import 'package:dartclaw_bridge/dartclaw_bridge.dart';
 /// In-container loopback bridge for one host-owned surface.
 ///
 /// Started by the host through `docker exec -i`; stdin/stdout are the pipe.
-/// Usage: `dartclaw_bridge --surface=<provider|mcp> --port=<port>`
+/// Usage: `dartclaw_bridge --surface=<provider|mcp|registry> --port=<port>`
 Future<void> main(List<String> arguments) async {
   final options = _parse(arguments);
   if (options == null) {
-    stderr.writeln('usage: dartclaw_bridge --surface=<provider|mcp> --port=<port>');
+    stderr.writeln('usage: dartclaw_bridge --surface=<provider|mcp|registry> --port=<port>');
     exitCode = 64;
     return;
   }

@@ -74,6 +74,43 @@ void main() {
     });
   });
 
+  group('UsageTracker.dailyKeyFor', () {
+    String keyIn(String timezone, DateTime at) =>
+        UsageTracker(dataDir: tempDir.path, timezone: timezone).dailyKeyFor(at);
+
+    test('UTC and GMT key by the UTC date', () {
+      expect(keyIn('UTC', DateTime.utc(2026, 3, 15, 23, 30)), 'usage_daily:2026-03-15');
+      expect(keyIn('GMT', DateTime.utc(2026, 3, 15, 23, 30)), 'usage_daily:2026-03-15');
+    });
+
+    test('a fixed offset moves the day boundary', () {
+      expect(keyIn('UTC+12', DateTime.utc(2026, 3, 15, 13)), 'usage_daily:2026-03-16');
+      expect(keyIn('UTC-3', DateTime.utc(2026, 3, 15, 2)), 'usage_daily:2026-03-14');
+    });
+
+    test('an IANA zone applies its DST offset', () {
+      // Stockholm is UTC+2 after DST starts on 2026-03-29 and UTC+1 in January.
+      expect(keyIn('Europe/Stockholm', DateTime.utc(2026, 3, 29, 22, 30)), 'usage_daily:2026-03-30');
+      expect(keyIn('Europe/Stockholm', DateTime.utc(2026, 1, 15, 22, 30)), 'usage_daily:2026-01-15');
+    });
+
+    test('pads month and day', () {
+      expect(keyIn('UTC', DateTime.utc(2026, 1, 5, 12)), 'usage_daily:2026-01-05');
+    });
+
+    test('an unknown zone keys by UTC and warns once, naming the value', () {
+      final logs = <LogRecord>[];
+      final sub = Logger.root.onRecord.listen(logs.add);
+      addTearDown(sub.cancel);
+      final tracker = UsageTracker(dataDir: tempDir.path, timezone: 'Not/AReal_Zone');
+
+      expect(tracker.dailyKeyFor(DateTime.utc(2026, 3, 15, 23, 30)), 'usage_daily:2026-03-15');
+      tracker.dailyKeyFor(DateTime.utc(2026, 3, 16, 1));
+
+      expect(logs.where((r) => r.message.contains('Unrecognized timezone "Not/AReal_Zone"')), hasLength(1));
+    });
+  });
+
   group('UsageTracker', () {
     test('record appends NDJSON line to usage.jsonl', () async {
       final tracker = UsageTracker(dataDir: tempDir.path, kv: kvService);

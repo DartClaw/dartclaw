@@ -108,6 +108,12 @@ final class TaskActionService {
       final result = await reviewService.review(taskId, action, comment: comment, trigger: 'user');
       return switch (result) {
         ReviewSuccess(:final task) => TaskActionSuccess(task),
+        ReviewExecutionSurfaceHold(:final paths, :final message) => TaskActionRefused(
+          statusCode: 409,
+          code: 'EXECUTION_SURFACE_REVIEW_REQUIRED',
+          message: message,
+          details: {'paths': paths},
+        ),
         ReviewMergeConflict(:final conflictingFiles, :final details) => TaskActionRefused(
           statusCode: 409,
           code: 'MERGE_CONFLICT',

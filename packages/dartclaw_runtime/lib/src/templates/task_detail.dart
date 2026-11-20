@@ -76,6 +76,7 @@ String taskDetailPageTemplate({
         },
       )
       .toList(growable: false);
+  final executionSurfacePaths = (task['executionSurfacePaths'] as List?)?.cast<String>() ?? const <String>[];
   final conflictingFiles =
       (conflictData?['conflictingFiles'] as List?)?.map((entry) => entry.toString()).toList(growable: false) ??
       const <String>[];
@@ -207,6 +208,8 @@ String taskDetailPageTemplate({
     'noSessionText': noSessionText,
     'hasArtifacts': artifactItems.isNotEmpty,
     'artifacts': artifactItems,
+    'hasExecutionSurfaceHold': executionSurfacePaths.isNotEmpty,
+    'executionSurfacePaths': executionSurfacePaths,
     'hasConflict': conflictingFiles.isNotEmpty,
     'conflictingFiles': conflictingFiles,
     'conflictDetails': conflictDetails,

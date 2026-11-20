@@ -74,6 +74,16 @@
               "type": "null"
             }
           ]
+        },
+        "pullRequest": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string"
+            }
+          ]
         }
       },
       "type": "object"

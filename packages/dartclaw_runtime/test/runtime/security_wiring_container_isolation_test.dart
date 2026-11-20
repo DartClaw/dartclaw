@@ -37,14 +37,22 @@ void main() {
     }
   });
 
-  SecurityWiring buildWiring({required ContainerConfig container, required String operatingSystem}) {
+  SecurityWiring buildWiring({
+    required ContainerConfig container,
+    required String operatingSystem,
+    DartclawConfig? config,
+    Map<String, String>? environment,
+    Map<String, CredentialEntry> subscriptions = const {},
+  }) {
     return SecurityWiring(
-      config: DartclawConfig(container: container),
+      config: (config ?? DartclawConfig()).copyWith(container: container),
       dataDir: tempDir.path,
-      runtimeCwd: tempDir.path,
+      localRepositoryDir: tempDir.path,
       eventBus: eventBus,
       exitFn: _throwExit,
       platformCapabilities: PlatformCapabilities(operatingSystem: operatingSystem),
+      environment: environment,
+      subscriptionCredentials: () => subscriptions,
       auditLogger: GuardAuditLogger(dataDir: tempDir.path),
     );
   }
@@ -86,6 +94,39 @@ void main() {
     );
   });
 
+  test('refuses a registry record that sets a variable DartClaw sets', () async {
+    for (final key in ['ANTHROPIC_BASE_URL', 'codex_home']) {
+      final registries = [
+        ...builtInRegistryRecords,
+        RegistryRecord(
+          name: 'shadow',
+          upstreams: const [RegistryUpstream(route: 'shadow', origin: 'https://shadow.example')],
+          env: {key: '{mirror}/shadow'},
+        ),
+      ];
+      for (final (posture, container) in [
+        ('explicit', ContainerConfig(enabled: true, registries: registries)),
+        ('inferred', ContainerConfig(registries: registries).resolved(enabled: true)),
+      ]) {
+        records.clear();
+        final wiring = buildWiring(container: container, operatingSystem: 'linux');
+
+        await expectLater(
+          wiring.wire(agentDefs: []),
+          throwsA(isA<_ExitCalled>().having((error) => error.code, 'code', 1)),
+          reason: '$key, $posture',
+        );
+        final refusal = records.singleWhere((record) => record.level == Level.SEVERE);
+        expect(
+          refusal.message,
+          allOf(contains('container.registries.shadow.env.$key'), contains('DartClaw sets')),
+          reason: '$key, $posture',
+        );
+        expect(wiring.gateway, isNull);
+      }
+    }
+  });
+
   test('the advisory warning names only boundaries that are real', () async {
     final wiring = buildWiring(container: const ContainerConfig.disabled(), operatingSystem: 'linux');
 
@@ -124,6 +165,10 @@ void main() {
     final wiring = buildWiring(
       container: const ContainerConfig().resolved(enabled: true, runtimeBinary: 'dartclaw-absent-runtime'),
       operatingSystem: 'linux',
+      // A stored credential keeps the default provider off the credential
+      // downgrade, so this host's own environment cannot decide the reason.
+      environment: const {},
+      subscriptions: const {'claude': CredentialEntry.subscription(token: 'claude-setup-token')},
     );
 
     await wiring.wire(agentDefs: []);
@@ -148,6 +193,144 @@ void main() {
       records.where((record) => record.level >= Level.SEVERE).map((record) => record.message),
       contains(contains('dartclaw-absent-runtime is required')),
     );
+  });
+
+  group('a default provider without a container credential', () {
+    // The runtime named here is absent on every host, so reaching the runtime
+    // refusal is the marker that wiring got past the credential check.
+    final inferred = const ContainerConfig().resolved(enabled: true, runtimeBinary: 'dartclaw-absent-runtime');
+    const noEnvironment = <String, String>{};
+    const storedToken = {'claude': CredentialEntry.subscription(token: 'claude-setup-token')};
+    const credentialAdvisory = 'has no credential a container can use';
+
+    Iterable<String> warnings() =>
+        records.where((record) => record.level == Level.WARNING).map((record) => record.message);
+
+    test('S01: an inferred posture downgrades, naming the credential and the three ways to settle it', () async {
+      final wiring = buildWiring(container: inferred, operatingSystem: 'linux', environment: noEnvironment);
+
+      await wiring.wire(agentDefs: []);
+
+      expect(wiring.containersEnabled, isFalse);
+      final advisory = records.singleWhere(
+        (record) => record.level == Level.WARNING && record.message.contains('Container isolation disabled'),
+      );
+      expect(
+        advisory.message,
+        allOf(
+          contains('advisory mode because provider claude has no credential a container can use'),
+          contains('claude setup-token'),
+          contains('dartclaw auth claude'),
+          contains('ANTHROPIC_API_KEY'),
+          contains('container.enabled: false'),
+          isNot(contains('dartclaw-absent-runtime')),
+        ),
+      );
+      expect(warnings(), isNot(contains(contains('No host-held Claude credential'))));
+    });
+
+    test('the credential downgrade still reclaims containers an earlier serve left behind', () async {
+      // A stand-in container CLI that answers the version probe, lists one owned
+      // orphan and records every verb it is asked to run.
+      final calls = File(p.join(tempDir.path, 'runtime-calls.log'));
+      final runtime = File(p.join(tempDir.path, 'fake-runtime'))
+        ..writeAsStringSync(
+          '#!/bin/sh\necho "\$@" >> "${calls.path}"\ncase "\$1" in\n  ps) echo dartclaw-orphan ;;\nesac\nexit 0\n',
+        );
+      Process.runSync('chmod', ['+x', runtime.path]);
+      final wiring = buildWiring(
+        container: const ContainerConfig().resolved(enabled: true, runtimeBinary: runtime.path),
+        operatingSystem: 'linux',
+        environment: noEnvironment,
+      );
+
+      await wiring.wire(agentDefs: []);
+
+      expect(wiring.containersEnabled, isFalse);
+      expect(warnings(), contains(contains(credentialAdvisory)));
+      expect(calls.readAsLinesSync(), contains('rm -f -v dartclaw-orphan'));
+    });
+
+    test('an absent runtime on the credential downgrade attempts no sweep', () async {
+      final wiring = buildWiring(container: inferred, operatingSystem: 'linux', environment: noEnvironment);
+
+      await wiring.wire(agentDefs: []);
+
+      expect(warnings(), isNot(contains(contains('Failed to sweep owned containers'))));
+    });
+
+    test('S02: a stored setup-token keeps containers on the path to the runtime probe', () async {
+      final wiring = buildWiring(
+        container: inferred,
+        operatingSystem: 'linux',
+        environment: noEnvironment,
+        subscriptions: storedToken,
+      );
+
+      await wiring.wire(agentDefs: []);
+
+      expect(
+        records.singleWhere((r) => r.level == Level.WARNING && r.message.contains('Container isolation disabled')),
+        isA<LogRecord>().having((r) => r.message, 'message', contains('because dartclaw-absent-runtime is required')),
+      );
+      expect(warnings(), isNot(contains(contains(credentialAdvisory))));
+    });
+
+    test('S03: an explicit request is not downgraded for the credential', () async {
+      final wiring = buildWiring(
+        container: const ContainerConfig(enabled: true)
+            .resolved(enabled: true, runtimeBinary: 'dartclaw-absent-runtime'),
+        operatingSystem: 'linux',
+        environment: noEnvironment,
+      );
+
+      await expectLater(
+        wiring.wire(agentDefs: []),
+        throwsA(isA<_ExitCalled>().having((error) => error.code, 'code', 1)),
+      );
+
+      expect(
+        records.where((record) => record.level >= Level.SEVERE).map((record) => record.message),
+        contains(contains('dartclaw-absent-runtime is required')),
+      );
+      expect(warnings(), isNot(contains(contains(credentialAdvisory))));
+    });
+
+    test('S04: a secondary provider without a credential does not downgrade the deployment', () async {
+      final wiring = buildWiring(
+        container: inferred,
+        operatingSystem: 'linux',
+        environment: noEnvironment,
+        subscriptions: storedToken,
+        config: DartclawConfig(
+          providers: ProvidersConfig(
+            entries: {
+              'claude': const ProviderEntry(executable: 'claude'),
+              'codex': const ProviderEntry(executable: 'codex'),
+            },
+          ),
+        ),
+      );
+
+      await wiring.wire(agentDefs: []);
+
+      expect(warnings(), contains(contains('because dartclaw-absent-runtime is required')));
+      expect(warnings(), isNot(contains(contains(credentialAdvisory))));
+    });
+
+    test('S05: a primary pinned to the host needs no container credential', () async {
+      final wiring = buildWiring(
+        container: inferred,
+        operatingSystem: 'linux',
+        environment: noEnvironment,
+        config: DartclawConfig(agent: const AgentConfig(execution: ExecutionMode.host)),
+      );
+
+      await wiring.wire(agentDefs: []);
+
+      expect(warnings(), contains(contains('because dartclaw-absent-runtime is required')));
+      expect(warnings(), isNot(contains(contains(credentialAdvisory))));
+    });
   });
 
   test('unavailable but disabled isolation wires normally with actionable host-access warning', () async {

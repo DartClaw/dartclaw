@@ -8,7 +8,9 @@ import 'package:logging/logging.dart';
 import 'package:meta/meta.dart';
 import 'package:path/path.dart' as p;
 
+import '../container/data_dir_mount_rule.dart';
 import 'container_authority_cleanup_owner.dart';
+import 'provider_resolution.dart' show isProviderReservedEnvironmentKey;
 
 /// Constructs and exposes security-layer services.
 ///
@@ -18,7 +20,7 @@ import 'container_authority_cleanup_owner.dart';
 ///
 /// **Security reload seam** — two participants are registered with [ConfigNotifier]:
 ///
-/// 1. This class implements [Reconfigurable] for `guards.*` — on reconfigure,
+/// 1. This class implements [Reconfigurable] for `security.*` — on reconfigure,
 ///    rebuilds all guard instances from the updated [SecurityConfig] and atomically
 ///    swaps the guard list in the existing [GuardChain] (fail-safe: invalid configs
 ///    preserve the current live chain).
@@ -31,11 +33,12 @@ class SecurityWiring implements Reconfigurable {
   new({
     required this.config,
     required String dataDir,
-    required String runtimeCwd,
+    required String? localRepositoryDir,
     String? sourceCheckoutDir,
     required EventBus eventBus,
     required ExitFn exitFn,
     PlatformCapabilities? platformCapabilities,
+    Map<String, String>? environment,
     ConfigNotifier? configNotifier,
     MessageRedactor? messageRedactor,
     McpProtocolHandler Function()? mcpHandlerRef,
@@ -43,7 +46,7 @@ class SecurityWiring implements Reconfigurable {
     CodexRefreshAuthority? codexRefresh,
     required GuardAuditLogger auditLogger,
   }) : _dataDir = dataDir,
-       _runtimeCwd = runtimeCwd,
+       _localRepositoryDir = localRepositoryDir,
        _sourceCheckoutDir = sourceCheckoutDir ?? Directory.current.path,
        _auditLogger = auditLogger,
        _codexRefresh = codexRefresh,
@@ -52,14 +55,16 @@ class SecurityWiring implements Reconfigurable {
        _eventBus = eventBus,
        _exitFn = exitFn,
        _platformCapabilities = platformCapabilities ?? PlatformCapabilities(),
+       _environment = environment ?? Platform.environment,
        _configNotifier = configNotifier,
        _messageRedactorForRegistration = messageRedactor;
 
   final DartclawConfig config;
   final String _dataDir;
 
-  /// The repository mounted at `/project` for container executions.
-  final String _runtimeCwd;
+  /// The runtime's local repository, mounted at `/project` unless it lies
+  /// inside the data directory; `null` when the runtime has none, so nothing is.
+  final String? _localRepositoryDir;
 
   /// DartClaw's own checkout, which holds the container image build context and `build/bridge`.
   /// This is not the repository the runtime operates on.
@@ -67,6 +72,10 @@ class SecurityWiring implements Reconfigurable {
   final EventBus _eventBus;
   final ExitFn _exitFn;
   final PlatformCapabilities _platformCapabilities;
+
+  /// The environment credentials resolve against: the one [HarnessWiring] admits
+  /// the primary on, so a container refusal and a harness refusal read one state.
+  final Map<String, String> _environment;
   final ConfigNotifier? _configNotifier;
   final MessageRedactor? _messageRedactorForRegistration;
 
@@ -182,6 +191,7 @@ class SecurityWiring implements Reconfigurable {
       containerName,
       generatedStateDir: p.join(_dataDir, 'containers', containerName),
       hasMcpBridge: allowedMcpTools.isNotEmpty,
+      registryClientEnvironment: gateway.registryClientEnvironment(principal),
       artifactsDir: artifactsDir,
       workspaceDir: workspaceDir,
       executionDir: executionDir,
@@ -235,6 +245,11 @@ class SecurityWiring implements Reconfigurable {
   static const _bridgeReadyTimeout = Duration(seconds: 30);
 
   Future<void> wire({required List<AgentDefinition> agentDefs}) async {
+    // A config error, not a probe result, so it never downgrades to advisory.
+    if (_registryShadowingDartclaw() case final message?) {
+      _log.severe(message);
+      _exitFn(1);
+    }
     if (config.container.enabled) {
       if (!_platformCapabilities.containerIsolationAvailable) {
         const error = UnsupportedCapabilityError(
@@ -275,14 +290,14 @@ class SecurityWiring implements Reconfigurable {
         final redactor = _messageRedactorForRegistration;
         _configNotifier.register(_MessageRedactorAdapter(redactor));
       }
-      // Register self for guards.* hot-reload. Successful rebuilds swap the
+      // Register self for security.* hot-reload. Successful rebuilds swap the
       // entire guard list atomically.
       _configNotifier.register(this);
     }
   }
 
   // ---------------------------------------------------------------------------
-  // Reconfigurable — security.* hot-reload (guards.* changes)
+  // Reconfigurable — security.* hot-reload
   // ---------------------------------------------------------------------------
 
   @override
@@ -291,7 +306,7 @@ class SecurityWiring implements Reconfigurable {
   @override
   void reconfigure(ConfigDelta delta) {
     if (_guardChain == null) {
-      _log.info('SecurityWiring: guards.* changed but guard chain is not active — skipping rebuild');
+      _log.info('SecurityWiring: security.* changed but guard chain is not active — skipping rebuild');
       return;
     }
 
@@ -321,6 +336,20 @@ class SecurityWiring implements Reconfigurable {
     }
   }
 
+  /// Why an enabled registry record may not load: it sets a variable DartClaw
+  /// sets in the container, whose value would silently be ignored.
+  String? _registryShadowingDartclaw() {
+    for (final record in config.container.registries.where((record) => record.enabled)) {
+      for (final key in record.env.keys) {
+        if (isProviderReservedEnvironmentKey(key)) {
+          return 'container.registries.${record.name}.env.$key: DartClaw sets $key in the container itself, so a '
+              'registry record cannot set it. Remove the variable from the record.';
+        }
+      }
+    }
+    return null;
+  }
+
   /// The advisory-mode warning. [reason] names why this host has no OS
   /// boundary when one was inferred rather than declined outright.
   void _warnHostAccess(String? reason) {
@@ -336,33 +365,18 @@ class SecurityWiring implements Reconfigurable {
   /// Wires container isolation, answering the refusal that stopped it or
   /// `null` once every profile is registered.
   ///
-  /// The requested-vs-inferred asymmetry lives here and nowhere else: an
-  /// operator who declared `container.enabled: true` gets every refusal
-  /// fail-closed, while an inferred posture logs the same diagnosis and hands
-  /// it back for advisory mode.
+  /// Two sites decide requested-vs-inferred, each keyed on what the operator
+  /// declared. `refuse` covers every probe-time refusal: an explicit
+  /// `container.enabled: true` logs it and exits non-zero, an inferred posture
+  /// logs the same diagnosis and hands it back for advisory mode. The default
+  /// provider's missing container credential is decided before it, by
+  /// `inferredPostureCredentialGap`, which answers only for an inferred posture
+  /// and so never reaches `refuse`.
   Future<String?> _wireContainers() async {
-    // Containerized Claude is mediated by the host adapter, which presents
-    // either a stored subscription credential or a host-held API key — never
-    // anything the container holds. This is a warning, not a startup failure: a
-    // deployment may legitimately run only Codex or only host Claude. The
-    // rejection itself happens at authority registration.
-    if (!_resolveCredential(ProviderIdentity.claude).isPresent) {
-      _log.warning(
-        'No host-held Claude credential is configured – containerized Claude executions will be rejected. '
-        'Run "claude setup-token" and store it with "dartclaw auth claude", set ANTHROPIC_API_KEY, '
-        'or select execution: host for Claude agents.',
-      );
-    }
-
     final profiles = [
-      SecurityProfile.workspace(
-        workspaceDir: config.workspaceDir,
-        projectDir: _runtimeCwd,
-        projectsClonesDir: config.projectsClonesDir,
-      ),
+      SecurityProfile.workspace(workspaceDir: config.workspaceDir, projectsClonesDir: config.projectsClonesDir),
       SecurityProfile.restricted,
     ];
-    final localPathProjectMounts = _localPathProjectMounts();
     // A profile is a filesystem/capability template, not a running container:
     // each live container authority is built from it and owns its own
     // container, bridge processes, and generated state.
@@ -372,40 +386,36 @@ class SecurityWiring implements Reconfigurable {
       required String generatedStateDir,
       String? artifactsDir,
       bool hasMcpBridge = false,
+      Map<String, String> registryClientEnvironment = const {},
       String? workspaceDir,
       String? executionDir,
       bool useOwnerWorkspace = true,
       bool volatileGeneratedState = false,
-    }) => ContainerManager(
-      config: config.container,
-      containerName: containerName,
-      ownerLabel: ContainerManager.ownerLabel(_dataDir),
-      profileId: profile.id,
-      workspaceMounts: profile.id == 'workspace'
-          ? workspaceDir != null && !useOwnerWorkspace
-                ? SecurityProfile.workspace(workspaceDir: workspaceDir, projectDir: executionDir).workspaceMounts
-                : [
-                    ...SecurityProfile.workspace(
-                      workspaceDir: useOwnerWorkspace ? config.workspaceDir : null,
-                      projectDir: _runtimeCwd,
-                      projectsClonesDir: config.projectsClonesDir,
-                    ).workspaceMounts,
-                    ...localPathProjectMounts,
-                  ]
-          : profile.workspaceMounts,
-      generatedStateDir: generatedStateDir,
-      volatileGeneratedState: volatileGeneratedState,
-      artifactsDir: artifactsDir,
-      hasMcpBridge: hasMcpBridge,
-      localPathAllowlist: config.projects.localPathAllowlist,
-      bridgeBinaryPath: _bridgeBinaryPath,
-      buildContextDir: _sourceCheckoutDir,
-      workingDir: profile.id == SecurityProfile.restricted.id
-          ? '/tmp'
-          : workspaceDir != null && !useOwnerWorkspace && executionDir == null
-          ? '/workspace'
-          : '/project',
-    );
+    }) {
+      final plan = profile.id == 'workspace'
+          ? workspaceMountPlan(
+              workspaceDir: workspaceDir,
+              executionDir: executionDir,
+              useOwnerWorkspace: useOwnerWorkspace,
+            )
+          : (mounts: profile.workspaceMounts, workingDir: '/tmp');
+      return ContainerManager(
+        config: config.container,
+        containerName: containerName,
+        ownerLabel: ContainerManager.ownerLabel(_dataDir),
+        profileId: profile.id,
+        workspaceMounts: plan.mounts,
+        generatedStateDir: generatedStateDir,
+        volatileGeneratedState: volatileGeneratedState,
+        artifactsDir: artifactsDir,
+        hasMcpBridge: hasMcpBridge,
+        registryClientEnvironment: registryClientEnvironment,
+        localPathAllowlist: config.projects.localPathAllowlist,
+        bridgeBinaryPath: _bridgeBinaryPath,
+        buildContextDir: _sourceCheckoutDir,
+        workingDir: plan.workingDir,
+      );
+    }
 
     final probe = buildManager(
       SecurityProfile.restricted,
@@ -418,6 +428,35 @@ class SecurityWiring implements Reconfigurable {
       if (remediation != null) _log.severe(remediation);
       if (config.container.declaredEnabled == true) _exitFn(1);
       return reason;
+    }
+
+    // A default provider with no credential a container can use downgrades here,
+    // before the image build, so a deployment that will downgrade never builds
+    // one. `inferredPostureCredentialGap` answers only for an inferred posture,
+    // so an explicit `true` falls through to the refusal HarnessWiring raises at
+    // primary admission; and it is decided there, not in `refuse`, so it logs no
+    // severe record. The sweep still runs when a runtime answers: labelled
+    // orphans of an earlier serve are this data dir's to reclaim either way.
+    final gap = await inferredPostureCredentialGap(config, registry: _credentialRegistry());
+    if (gap != null) {
+      if (await probe.isRuntimeAvailable()) {
+        await ContainerManager.reclaimOwnedContainers(_dataDir, runtimeBinary: runtime);
+      }
+      return 'provider ${gap.providerId} has no credential a container can use. ${gap.remediation} '
+          'Or set container.enabled: false to run on the host without isolation';
+    }
+
+    // Containerized Claude is mediated by the host adapter, which presents
+    // either a stored subscription credential or a host-held API key — never
+    // anything the container holds. This is a warning, not a startup failure: a
+    // deployment may legitimately run only Codex or only host Claude. The
+    // rejection itself happens at authority registration.
+    if (!_resolveCredential(ProviderIdentity.claude).isPresent) {
+      _log.warning(
+        'No host-held Claude credential is configured – containerized Claude executions will be rejected. '
+        'Run "claude setup-token" and store it with "dartclaw auth claude", set ANTHROPIC_API_KEY, '
+        'or select execution: host for Claude agents.',
+      );
     }
 
     if (!await probe.isRuntimeAvailable()) {
@@ -450,6 +489,7 @@ class SecurityWiring implements Reconfigurable {
             containerName, {
             required generatedStateDir,
             required hasMcpBridge,
+            required registryClientEnvironment,
             required artifactsDir,
             required workspaceDir,
             required executionDir,
@@ -461,6 +501,7 @@ class SecurityWiring implements Reconfigurable {
             generatedStateDir: generatedStateDir,
             artifactsDir: artifactsDir,
             hasMcpBridge: hasMcpBridge,
+            registryClientEnvironment: registryClientEnvironment,
             workspaceDir: workspaceDir,
             executionDir: executionDir,
             useOwnerWorkspace: useOwnerWorkspace,
@@ -470,6 +511,20 @@ class SecurityWiring implements Reconfigurable {
     _containerHealthMonitor = ContainerHealthMonitor(eventBus: _eventBus)..start();
     _gateway = HostGateway(
       providerAdapters: buildProviderAdapters(),
+      registries: config.container.registries,
+      onRegistryRequest: (authority, ecosystem, path, status, served) => _auditLogger.writeEntry(
+        AuditEntry(
+          timestamp: DateTime.now(),
+          guard: 'host-gateway',
+          hook: 'bridge',
+          verdict: served ? 'pass' : 'block',
+          principal: authority,
+          server: ecosystem,
+          tool: path,
+          decision: served ? 'allow' : 'deny',
+          reason: 'status=$status',
+        ),
+      ),
       mcpHandler: _mcpHandlerRef,
       onDenied: _auditGatewayDenial,
       onCredentialRefused: _reportCredentialRefusal,
@@ -598,12 +653,17 @@ class SecurityWiring implements Reconfigurable {
   ///
   /// [family] is the provider's resolved credential family, so an alias reads
   /// its own `auth` first and inherits the family's only when it sets none.
-  CredentialResolution _resolveCredential(String providerId, {String? family}) => CredentialRegistry(
+  CredentialResolution _resolveCredential(String providerId, {String? family}) =>
+      _credentialRegistry().resolve(providerId, family: family);
+
+  /// A registry over the current credential state, rebuilt per use so a stored
+  /// token re-issued since wiring is seen.
+  CredentialRegistry _credentialRegistry() => CredentialRegistry(
     credentials: config.credentials,
-    env: Platform.environment,
+    env: _environment,
     providers: config.providers,
     subscriptions: _subscriptionCredentials(),
-  ).resolve(providerId, family: family);
+  );
 
   /// Announces a credential the host cannot present, at the point of refusal.
   ///
@@ -661,7 +721,59 @@ class SecurityWiring implements Reconfigurable {
     );
   }
 
-  List<String> _localPathProjectMounts() {
+  /// The `workspace` profile's `-v` specs and working directory for one authority.
+  ///
+  /// Exposed because the composition must be provable without a container
+  /// runtime, which [wire] needs before any profile template exists.
+  @visibleForTesting
+  ({List<String> mounts, String workingDir}) workspaceMountPlan({
+    String? workspaceDir,
+    String? executionDir,
+    bool useOwnerWorkspace = true,
+  }) {
+    final agentWorkspace = workspaceDir != null && !useOwnerWorkspace;
+    final mountedWorkspace = agentWorkspace ? workspaceDir : (useOwnerWorkspace ? config.workspaceDir : null);
+    final projectMounts = agentWorkspace
+        ? [if (executionDir != null) ..._operatorMount(executionDir, '/project', ownedRoot: workspaceDir)]
+        : _ownerProjectMounts;
+    return (
+      mounts: [
+        ...SecurityProfile.workspace(
+          workspaceDir: mountedWorkspace,
+          projectsClonesDir: agentWorkspace ? null : config.projectsClonesDir,
+        ).workspaceMounts,
+        ...projectMounts,
+        if (!agentWorkspace) ..._localPathProjectMounts,
+      ],
+      // `docker exec -w` fails on a directory the container does not have.
+      workingDir: projectMounts.isNotEmpty
+          ? '/project'
+          : mountedWorkspace != null
+          ? '/workspace'
+          : '/tmp',
+    );
+  }
+
+  late final List<String> _ownerProjectMounts = switch (_localRepositoryDir) {
+    final repository? => _operatorMount(repository, '/project'),
+    null => const [],
+  };
+  late final List<String> _localPathProjectMounts = _composeLocalPathProjectMounts();
+
+  /// Maps an operator-chosen directory into the container without exposing the
+  /// data directory, announcing every skip or mask at INFO.
+  List<String> _operatorMount(String source, String target, {String? ownedRoot}) {
+    final mount = operatorMount(
+      source: source,
+      target: target,
+      dataDir: _dataDir,
+      ownedRoots: [config.workspaceDir, config.projectsClonesDir, ?ownedRoot],
+    );
+    if (mount.reason case final reason?) _log.info(reason);
+    return mount.specs;
+  }
+
+  List<String> _composeLocalPathProjectMounts() {
     final clonesDir = p.normalize(p.absolute(config.projectsClonesDir));
     final mounts = <String>[];
     for (final definition in config.projects.definitions.values) {
@@ -673,7 +785,7 @@ class SecurityWiring implements Reconfigurable {
       if (p.equals(normalizedLocalPath, clonesDir) || p.isWithin(clonesDir, normalizedLocalPath)) {
         continue;
       }
-      mounts.add('$normalizedLocalPath:${p.posix.join('/projects', definition.id)}:ro');
+      mounts.addAll(_operatorMount(normalizedLocalPath, p.posix.join('/projects', definition.id)));
     }
     return mounts;
   }
@@ -863,6 +975,7 @@ typedef _ContainerTemplate = ContainerManager Function(
   required String generatedStateDir,
   required String? artifactsDir,
   required bool hasMcpBridge,
+  required Map<String, String> registryClientEnvironment,
   required String? workspaceDir,
   required String? executionDir,
   required bool useOwnerWorkspace,

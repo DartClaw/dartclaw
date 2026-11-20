@@ -3,7 +3,7 @@ import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
-import 'package:dartclaw_runtime/dartclaw_runtime.dart' show MergeConflict, MergeExecutor;
+import 'package:dartclaw_runtime/dartclaw_runtime.dart' show MergeConflict, MergeExecutor, MergeSuccess;
 import 'package:dartclaw_runtime/src/mcp/mcp_server.dart';
 import 'package:dartclaw_runtime/src/mcp/task_tools.dart';
 import 'package:dartclaw_runtime/src/task/task_review_service.dart';
@@ -14,6 +14,7 @@ import 'package:test/test.dart';
 
 import '../guard_audit_test_support.dart';
 import '../task/task_review_test_support.dart';
+import '../task/task_executor_test_support.dart' show initGitRepo;
 import 'mcp_test_support.dart';
 
 /// The six tools this suite covers, in registration order.
@@ -344,6 +345,38 @@ void main() {
     });
   });
 
+  test('execution-surface hold names paths and the human web UI or API route', () async {
+    final gitRepo = await initGitRepo();
+    addTearDown(() => gitRepo.delete(recursive: true));
+    await runGit(['checkout', '-b', 'feature'], workingDirectory: gitRepo.path);
+    File('${gitRepo.path}/.mcp.json').writeAsStringSync('{}');
+    await repo.insert(
+      _task(
+        id: 'surface',
+        status: TaskStatus.review,
+        worktreeJson: {'branch': 'feature', 'path': gitRepo.path, 'createdAt': '2026-01-01T00:00:00Z'},
+      ),
+    );
+    final merge = RecordingMergeExecutor(
+      result: const MergeSuccess(commitSha: 'unused', commitMessage: 'unused'),
+      projectDir: gitRepo.path,
+    );
+    final result = toolResult(
+      await callTool(
+        passingHandler(mergeExecutor: merge),
+        'task_review',
+        arguments: {'task_id': 'surface', 'action': 'accept'},
+      ),
+    );
+    expect(result['isError'], isTrue);
+    final payload = resultPayload(result);
+    expect(payload['reason'], 'review_required');
+    expect(payload['paths'], ['.mcp.json']);
+    expect(payload['message'], allOf(contains('person'), contains('web UI'), contains('API')));
+    expect((await tasks.get('surface'))!.status, TaskStatus.review);
+    expect(merge.callCount, 0);
+  });
+
   group('S05 task_review push-back transitions the task and reports only what it can observe', () {
     test('push_back transitions to running without claiming delivery', () async {
       await repo.insert(_task(id: 'pb-1', status: TaskStatus.review));
@@ -400,21 +433,21 @@ void main() {
 
   group('S06 every ReviewResult failure variant reaches the model as a distinguishable error', () {
     test('unknown ID, non-review status and a merge conflict are distinct and non-destructive', () async {
+      final gitRepo = await initGitRepo();
+      addTearDown(() => gitRepo.delete(recursive: true));
+      await runGit(['branch', 'task/conflict-1'], workingDirectory: gitRepo.path);
       await repo.insert(_task(id: 'draft-1', status: TaskStatus.draft));
       await repo.insert(
         _task(
           id: 'conflict-1',
           status: TaskStatus.review,
-          worktreeJson: {
-            'branch': 'task/conflict-1',
-            'path': '${tempDir.path}/wt',
-            'createdAt': '2026-01-01T00:00:00Z',
-          },
+          worktreeJson: {'branch': 'task/conflict-1', 'path': gitRepo.path, 'createdAt': '2026-01-01T00:00:00Z'},
         ),
       );
       final conflicted = passingHandler(
         mergeExecutor: RecordingMergeExecutor(
           result: const MergeConflict(conflictingFiles: ['lib/a.dart', 'lib/b.dart'], details: 'merge conflict'),
+          projectDir: gitRepo.path,
         ),
       );
 

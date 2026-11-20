@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:dartclaw_core/dartclaw_core.dart' show chmodOwnerOnlyDirSync, secureWriteFileSync;
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
@@ -30,6 +31,11 @@ List<String> buildRemoteOverrideArgs(String originalRemoteUrl, String resolvedRe
   }
   return ['-c', 'remote.origin.url=$resolvedRemoteUrl', ...gitArgs];
 }
+
+GitHubRepositoryRef? gitHubRepositoryForToken(String remoteUrl, CredentialEntry? credential) =>
+    credential != null && credential.isPresent && credential.isGitHubToken
+    ? GitHubRepositoryRef.tryParse(remoteUrl)
+    : null;
 
 /// Resolves git transport and environment variables for credential injection.
 GitCredentialPlan resolveGitCredentialPlan(
@@ -63,17 +69,15 @@ GitCredentialPlan resolveGitCredentialPlan(
     return GitCredentialPlan(remoteUrl: remoteUrl, environment: environment);
   }
 
-  if (entry.isGitHubToken) {
-    final gitHubRepo = GitHubRepositoryRef.tryParse(remoteUrl);
-    if (gitHubRepo != null) {
-      return GitCredentialPlan(
-        remoteUrl: gitHubRepo.canonicalHttpsUrl,
-        environment: {
-          ...environment,
-          ..._buildGitHubTokenEnv(credentialsRef, entry.token, dataDir: dataDir, tempFiles: tempFiles),
-        },
-      );
-    }
+  final gitHubRepo = gitHubRepositoryForToken(remoteUrl, entry);
+  if (gitHubRepo != null) {
+    return GitCredentialPlan(
+      remoteUrl: gitHubRepo.canonicalHttpsUrl,
+      environment: {
+        ...environment,
+        ..._buildGitHubTokenEnv(credentialsRef, entry.token, dataDir: dataDir, tempFiles: tempFiles),
+      },
+    );
   }
 
   if (isSsh) {
@@ -101,13 +105,12 @@ Map<String, String> _buildLegacyAskPassEnv(
   required String dataDir,
   required List<String> tempFiles,
 }) {
-  final keyFilePath = p.join(dataDir, 'projects', '.git-askpass-$credRef.key');
-  final scriptPath = p.join(dataDir, 'projects', '.git-askpass-$credRef');
+  final keyFilePath = p.join(_askpassDir(dataDir), '.git-askpass-$credRef.key');
+  final scriptPath = p.join(_askpassDir(dataDir), '.git-askpass-$credRef');
   try {
-    Directory(p.dirname(scriptPath)).createSync(recursive: true);
-    File(keyFilePath).writeAsStringSync(apiKey);
-    File(scriptPath).writeAsStringSync('#!/bin/sh\ncat \'$keyFilePath\'\n');
-    Process.runSync('chmod', ['+x', scriptPath]);
+    _createAskpassDir(dataDir);
+    secureWriteFileSync(File(keyFilePath), apiKey);
+    _writeOwnerOnlyScript(scriptPath, '#!/bin/sh\ncat \'$keyFilePath\'\n');
     for (final path in [scriptPath, keyFilePath]) {
       if (!tempFiles.contains(path)) tempFiles.add(path);
     }
@@ -124,22 +127,27 @@ Map<String, String> _buildGitHubTokenEnv(
   required String dataDir,
   required List<String> tempFiles,
 }) {
-  final tokenFilePath = p.join(dataDir, 'projects', '.git-askpass-$credRef.token');
-  final scriptPath = p.join(dataDir, 'projects', '.git-askpass-$credRef');
+  final tokenFilePath = p.join(_askpassDir(dataDir), '.git-askpass-$credRef.token');
+  final scriptPath = p.join(_askpassDir(dataDir), '.git-askpass-$credRef');
   try {
-    Directory(p.dirname(scriptPath)).createSync(recursive: true);
-    File(tokenFilePath).writeAsStringSync(token);
-    File(scriptPath).writeAsStringSync(
+    _createAskpassDir(dataDir);
+    secureWriteFileSync(File(tokenFilePath), token);
+    // Matching git's whole prompt prefix ("Username for '<url>': ") answers
+    // only the canonical github.com host, so a repo-configured push URL on
+    // another host, even one embedding a github.com URL in its path, never
+    // receives the token.
+    _writeOwnerOnlyScript(
+      scriptPath,
       [
         '#!/bin/sh',
         'case "\$1" in',
-        "  *Username*) printf '%s\\n' 'x-access-token' ;;",
-        "  *) cat '$tokenFilePath' ;;",
+        "  \"Password for 'https://x-access-token@github.com\"[/\\']*) cat '$tokenFilePath' ;;",
+        "  \"Username for 'https://github.com\"[/\\']*) printf '%s\\n' 'x-access-token' ;;",
+        '  *) exit 1 ;;',
         'esac',
         '',
       ].join('\n'),
     );
-    Process.runSync('chmod', ['+x', scriptPath]);
     for (final path in [scriptPath, tokenFilePath]) {
       if (!tempFiles.contains(path)) tempFiles.add(path);
     }
@@ -148,4 +156,18 @@ Map<String, String> _buildGitHubTokenEnv(
     _log.warning('Failed to create GitHub askpass script: $e — using default git auth');
     return const {};
   }
+}
+
+// No container profile mounts this directory, so a credential written for a
+// host-side fetch or push is never visible inside a container.
+String _askpassDir(String dataDir) => p.join(dataDir, 'git-askpass');
+
+void _createAskpassDir(String dataDir) {
+  final directory = Directory(_askpassDir(dataDir))..createSync(recursive: true);
+  chmodOwnerOnlyDirSync(directory.path);
+}
+
+void _writeOwnerOnlyScript(String path, String contents) {
+  secureWriteFileSync(File(path), contents);
+  Process.runSync('chmod', ['u+x', path]);
 }

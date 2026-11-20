@@ -5,6 +5,7 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart' show Task;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
+import 'package:dartclaw_workflow/dartclaw_workflow.dart' show WorkflowPullRequest;
 import 'package:test/test.dart';
 
 import '../helpers/factories.dart';
@@ -106,6 +107,43 @@ void main() {
       final payload = jsonDecode(calls.single.body!) as Map<String, dynamic>;
       expect(payload['body'], contains('### Unresolved items'));
       expect(payload['body'], contains('S03'));
+    });
+
+    test('an authored pull request replaces the task title and body and its body ends the PR', () async {
+      final calls = <_ApiCall>[];
+      final creator = PrCreator(
+        credentials: const CredentialsConfig(
+          entries: {'github-main': CredentialEntry.githubToken(token: 'ghp_test', repository: 'u/my-app')},
+        ),
+        apiRunner: _recordingRunner(
+          calls,
+          responses: [(statusCode: 201, body: '{"html_url":"https://github.com/u/my-app/pull/10","number":10}')],
+        ),
+      );
+      const shipSummary = '## Ship summary\n\nPRD: docs/prd.md\n\nUndo: revert the merge';
+
+      await creator.create(
+        project: makeProject(remoteUrl: 'git@github.com:u/my-app.git', credentialsRef: 'github-main'),
+        task: _makeTask(),
+        branch: 'dartclaw/workflow/run-1',
+        notes: "Foreach step 'story-pipeline': 1 item(s) blocked (recoverable): S03",
+        pullRequest: const WorkflowPullRequest(
+          title: 'Add\n feature X\u001B[31m',
+          body: '\u001B[31mIntent\u0007 and outcomes.\r\n\n| a | b |\n\t\n$shipSummary\n',
+        ),
+      );
+
+      final payload = jsonDecode(calls.single.body!) as Map<String, dynamic>;
+      final body = payload['body'] as String;
+      expect(payload['title'], 'Add feature X');
+      expect(body, isNot(contains('Build it well.')), reason: 'the task prompt is not the PR body');
+      expect(body, startsWith('_Created by DartClaw task task-1_'));
+      expect(body.indexOf('### Unresolved items'), lessThan(body.indexOf('Intent')));
+      expect(body, contains('Intent and outcomes.\n\n| a | b |\n\t\n'));
+      expect(body, endsWith(shipSummary));
+      expect(body, isNot(contains('\u001B')));
+      expect(body, isNot(contains('\u0007')));
+      expect(body, isNot(contains('\r')));
     });
 
     test('omits the Unresolved items section when notes is null or blank', () async {
@@ -310,7 +348,6 @@ void main() {
       PrCreationResult result = const PrCreated('https://example.com');
       final _ = switch (result) {
         PrCreated(:final url) => 'created: $url',
-        PrGhNotFound(:final instructions) => 'manual: $instructions',
         PrCreationFailed(:final error, :final details) => 'failed: $error ($details)',
       };
     });

@@ -41,6 +41,12 @@ utilities used across package boundaries. Barrel: `lib/dartclaw_kernel.dart`, wi
   against it. `runtimeBinary` rides the same object as resolution output, not as a YAML key. Parsing therefore
   **defers** `validateExecutionPolicySelections` while `declaredEnabled` is null — resolution re-runs it, and
   `execution: container` under a resolved-disabled posture is still startup-fatal ([ADR-055](../../dev/adrs/055-container-by-default-posture.md)).
+- **`container.registries` is data with one validator.** `container_registries.dart` holds the record type and the
+  built-in records, the only place a registry origin or client variable is written down. `parseRegistryRecords`
+  (called from `ContainerConfig.fromYaml`) overlays instance entries by name – an entry carrying only `enabled`
+  toggles a built-in, any other field replaces the record whole – and throws `FormatException` naming the path for an
+  invalid enabled record; disabled records get type checks only. `RegistryRecord` itself validates nothing, so tests
+  build loopback records directly. The field is `readonly` because records set egress pins ([ADR-062](../../dev/adrs/062-read-only-package-registry-egress-for-containers.md)).
 - All YAML mutations use `ConfigWriter`; it owns queued, backed-up, atomic writes. `ConfigWriter.applyEdit` is the one
   path-edit seam (null removes, missing parents are created, collections are handed to `YamlEditor` as plain Dart
   values — a `YamlNode` read back through `readSchedulingJobs` re-emits in its source style at the wrong indentation and
@@ -48,7 +54,7 @@ utilities used across package boundaries. Barrel: `lib/dartclaw_kernel.dart`, wi
   and leaves no `.bak`. Edits are surgical only outside the written paths: a subtree written whole loses its comments.
 - `HarnessConfig.sections` retains raw harness sections. The adapter package owns parsing its section.
 - Credential selection stays in `CredentialRegistry`; subscription credential files remain core-owned and are injected
-  as a snapshot. Remediation text comes only from `credentialRemediationFor` / `credentialRenewalFor`.
+  as a snapshot. Remediation text comes only from `credentialRemediationFor` / `credentialRenewalFor`. Admission, including the binary-login rescue, is one rule, `ProviderValidator.credentialRefusalFor` (host or container placement); `validate`, `dartclaw_runtime`'s `ProviderStatusService` and `inferredPostureCredentialGap`, and `dartclaw_cli`'s `SetupChecks` all ask it, and none probes the binary's login itself. The spawn-time host gates (`HarnessWiring._credentialRefusalFor`, `prepareCodexSubscriptionHome`) only decline to refuse `noneConfigured` on the host.
 - Named credentials stored on disk reach `credentials:` through `DartclawConfig.registerStoredCredentialProvider(Map<String, CredentialEntry> Function(String credentialsDir))`,
   mirroring `registerExtensionParser` (test-only `clearStoredCredentialProvider` clears it). `load` invokes the closure on
   **every** call unless `resolveStoredCredentials: false` requests the declared view, passing `credentialsDirFor(server.dataDir)`, and `_parseCredentials` merges the result with the **store

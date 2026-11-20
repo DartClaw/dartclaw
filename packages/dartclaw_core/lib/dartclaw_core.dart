@@ -365,7 +365,6 @@ export 'src/events/dartclaw_event.dart'
         SessionLifecycleEvent,
         SessionCreatedEvent,
         SessionEndedEvent,
-        SessionErrorEvent,
         AgentExecutionEvent,
         AgentExecutionStatusChangedEvent,
         TaskLifecycleEvent,

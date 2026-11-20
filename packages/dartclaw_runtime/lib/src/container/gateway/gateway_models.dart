@@ -13,10 +13,14 @@ const int providerBridgePort = 8080;
 /// Loopback port the MCP bridge listens on inside its container.
 const int mcpBridgePort = 8081;
 
+/// Loopback port the registry bridge listens on inside its container.
+const int registryBridgePort = 8082;
+
 /// The loopback port [surface]'s bridge listens on inside the container.
 int bridgePortFor(BridgeSurface surface) => switch (surface) {
   BridgeSurface.provider => providerBridgePort,
   BridgeSurface.mcp => mcpBridgePort,
+  BridgeSurface.registry => registryBridgePort,
 };
 
 /// The execution identity one container authority's pipes are bound to.
@@ -89,8 +93,8 @@ final class GatewayRequest {
 
   /// Collects the body into a string, refusing anything beyond [maxBytes].
   ///
-  /// Decoded as UTF-8, the wire encoding both bridge surfaces use: a byte-wise
-  /// decode would silently mangle every non-ASCII argument into text that still
+  /// Decoded as UTF-8: a byte-wise decode would silently mangle every
+  /// non-ASCII argument into text that still
   /// parses as JSON.
   Future<String> readBody({required int maxBytes}) async {
     final builder = <int>[];

@@ -97,7 +97,20 @@ void main() {
 
     test('idle HTTP subscription flushes immediately and remains available for broadcasts', () async {
       final sse = SseBroadcast();
-      final server = await shelf_io.serve((_) => sseResponse(sse.subscribe().stream), InternetAddress.loopbackIPv4, 0);
+      final disconnected = Completer<void>();
+      final server = await shelf_io.serve(
+        (_) {
+          final controller = sse.subscribe();
+          final onCancel = controller.onCancel;
+          controller.onCancel = () async {
+            await onCancel?.call();
+            disconnected.complete();
+          };
+          return sseResponse(controller.stream);
+        },
+        InternetAddress.loopbackIPv4,
+        0,
+      );
       final client = HttpClient();
       addTearDown(() async {
         client.close(force: true);
@@ -122,9 +135,7 @@ void main() {
       await iterator.cancel();
       client.close(force: true);
       sse.broadcast('disconnect_probe', const {});
-      for (var attempt = 0; attempt < 10 && sse.clientCount != 0; attempt++) {
-        await pumpEventQueue();
-      }
+      await disconnected.future.timeout(const Duration(seconds: 5));
       expect(sse.clientCount, 0);
     });
   });

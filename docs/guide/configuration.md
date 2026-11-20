@@ -66,7 +66,9 @@ dartclaw init --non-interactive --provider claude --auth-claude oauth --model-cl
 ```
 
 Container isolation is POSIX-only. On native Windows, `--container` fails closed and points to POSIX/WSL; see the
-[Windows capability matrix](windows.md#capability-matrix).
+[Windows capability matrix](windows.md#capability-matrix). Workspace containers install dependencies through the
+host's package-registry mirror; `container.registries` toggles, replaces or adds its ecosystems, which are pub, npm,
+pypi, crates and go (go ships disabled). See [Package Registries](security.md#package-registries).
 
 #### Deferred steps after server start
 
@@ -122,7 +124,8 @@ Standalone workflow commands add one scoped discovery step before the default in
 
 > **Note on CWD discovery:** Prior to 0.16.2, `./dartclaw.yaml` in the current directory was also searched. That file is now ignored by default and only emits a deprecation warning. Use `--config ./dartclaw.yaml` for explicit project-level configs.
 
-Values support `${ENV_VAR}` substitution. CLI flags override config file values.
+String values support `${ENV_VAR}` substitution; bare `$ENV_VAR` is left as written, and an undefined variable resolves
+to an empty string with a warning. CLI flags override config file values. See [Resolution Order](#resolution-order).
 
 The path may be a symlink, for example to a copy kept under version control. Every write DartClaw makes – `dartclaw
 config set`, `PATCH /api/config`, the Settings UI, the scheduling tool and API – resolves the link and writes through to
@@ -248,8 +251,8 @@ These are the settings most operators need first. The exhaustive reference below
 | `sessions.group_scope` | string | one of "per-member", "shared" | How group messages map onto sessions: one shared per group, or one per member. (live) |
 | `logging.level` | string | one of "FINE", "INFO", "SEVERE", "WARNING" | Lowest severity written out. FINE includes per-turn detail and is noisy in production. (restart required) |
 | `logging.format` | string | one of "human", "json" | human is readable in a terminal; json emits line-delimited records for a log shipper. (restart required) |
-| `workspace.git_sync.enabled` | boolean |  | Commit workspace changes to the local repository on the git-sync schedule. Off by default. (live) |
-| `workspace.git_sync.push_enabled` | boolean |  | Also push those commits to the configured remote. Ignored while git sync itself is off. (live) |
+| `workspace.git_sync.enabled` | boolean |  | Commit workspace changes to the local repository on the git-sync schedule. On by default; not available under container isolation, where agents can write the workspace repository. (live) |
+| `workspace.git_sync.push_enabled` | boolean |  | Also push those commits to the workspace origin remote, when one exists. On by default; ignored while git sync itself is off. (live) |
 | `context.reserve_tokens` | integer | minimum 1 | Tokens held back from the window so a compaction flush always fits. (reload) |
 | `context.max_result_bytes` | integer | minimum 1 | Outer cap in bytes on every successful tool result the MCP endpoint returns. An oversized one arrives as head and tail around a truncation marker. (reload) |
 
@@ -371,6 +374,10 @@ This table is generated from `schemas/dartclaw.schema.json`. Named map entries u
 | **container** |  |  |  |
 | `container.enabled` | boolean |  | Run agent work inside container isolation. Left unset, DartClaw isolates wherever a container runtime is detected and starts in advisory mode where none is; an explicit true instead fails startup when the host cannot isolate. POSIX only; off means guards are the whole boundary. Read-only: placement is a deterministic keep, and clearing it through the API would either strand an explicit container selection at the next boot or move neutral-profile work onto the host. (file-only, not settable via API or CLI) |
 | `container.image` | string |  | Container image agent work is executed in. Default dartclaw-agent:latest. (restart required) |
+| `container.registries.<name>.enabled` | boolean |  | Whether the mirror serves this record. Defaults to true for a replacing or added record. (file-only, not settable via API or CLI) |
+| `container.registries.<name>.env` | object |  | Client variables set in workspace containers; {mirror} expands to the mirror base. Names compare case-insensitively and must not repeat another enabled record or a variable DartClaw sets. (file-only, not settable via API or CLI) |
+| `container.registries.<name>.rewrite_json` | array |  | JSON responses whose URLs on this record's pins are rewritten onto the mirror. (file-only, not settable via API or CLI) |
+| `container.registries.<name>.upstreams` | array |  | Pinned origins, each under its own mirror route. Redirects are followed only within these. (file-only, not settable via API or CLI) |
 | **context** |  |  |  |
 | `context.compact_instructions` | null or string |  | Extra guidance handed to the model when it compacts a conversation. Null uses the built-in wording. (restart required) |
 | `context.identifier_instructions` | null or string |  | The custom wording used when identifier preservation is set to custom. (restart required) |
@@ -408,7 +415,7 @@ This table is generated from `schemas/dartclaw.schema.json`. Named map entries u
 | `github.webhook_path` | string |  | HTTP path the webhook endpoint is mounted at. (restart required) |
 | `github.webhook_secret` | null or string |  | HMAC-SHA256 key deliveries are signed with. Required once the handler is on; an unsigned delivery is refused. (restart required) |
 | **governance** |  |  |  |
-| `governance.admin_senders` | array or null |  | Sender IDs exempt from rate limits and budget blocks; may write shared knowledge, resolve workflow run approvals and accept or reject tasks from a Google Chat review card. An empty list makes every sender an admin, so in a group channel every member. (restart required) |
+| `governance.admin_senders` | array or null |  | Sender IDs exempt from per-sender rate limits and queue caps (not the token budget); may write shared knowledge, resolve workflow run approvals and accept or reject tasks from a Google Chat review card. An empty list makes every sender an admin, so in a group channel every member. (restart required) |
 | `governance.budget.action` | string | one of "block", "warn" | What happens once the allowance is spent: refuse new turns, or only warn. (restart required) |
 | `governance.budget.daily_tokens` | integer | minimum 0 | Token allowance per day across the instance. 0 means unlimited. (restart required) |
 | `governance.budget.timezone` | string |  | Zone whose midnight resets the allowance. Accepts UTC, UTC±N, and DST-aware IANA names. (restart required) |
@@ -507,7 +514,7 @@ This table is generated from `schemas/dartclaw.schema.json`. Named map entries u
 | `projects.<name>.clone.strategy` | string | one of "full", "shallow", "sparse" | How much history is fetched. shallow is cheapest; full is needed for history-dependent work. (restart required) |
 | `projects.<name>.credentials` | null or string |  | Names a github-token credentials entry used for pushes and pull requests. (restart required) |
 | `projects.<name>.default` | boolean |  | Pick this project when a new task names none. (restart required) |
-| `projects.<name>.localPath` | null or string |  | Existing checkout used directly. Must be absolute, free of traversal, and inside the allowlist. (restart required) |
+| `projects.<name>.localPath` | null or string |  | Existing checkout used directly. Must be absolute, free of traversal, inside the allowlist, and outside `<data_dir>/workspace/` and every `<data_dir>/agents/<id>/workspace/`, which agents can write (a path there is skipped with a warning). (restart required) |
 | `projects.<name>.name` | null or string |  | Optional display name. Surfaces fall back to the project ID when absent. (restart required) |
 | `projects.<name>.pr.draft` | boolean |  | Open the pull request as a draft so review is opt-in. (restart required) |
 | `projects.<name>.pr.labels` | array |  | Labels applied to every pull request this project opens. (restart required) |
@@ -571,7 +578,7 @@ This table is generated from `schemas/dartclaw.schema.json`. Named map entries u
 | `tasks.execution` | string | one of "container", "host" | Execution mode for background tasks. container demands container isolation be on; task security profiles are declared separately through the authenticated task API. (file-only, not settable via API or CLI) |
 | `tasks.worktree.base_ref` | string |  | Git ref a task worktree branches from. (restart required) |
 | `tasks.worktree.merge_strategy` | string | one of "merge", "squash" | How an accepted task lands: squash collapses its commits into one, merge keeps them. (restart required) |
-| `tasks.worktree.stale_timeout_hours` | integer | 1–168 | Hours an idle task worktree survives before cleanup removes it. (restart required) |
+| `tasks.worktree.stale_timeout_hours` | integer | 1–168 | Age in hours past which startup removes a task worktree whose task is missing or finished. Worktrees of active tasks are kept. (restart required) |
 | **templates_dir** |  |  |  |
 | `templates_dir` | null or string |  | Directory the Trellis page templates load from. Null resolves under the checkout root, then the embedded copies. (restart required) |
 | **usage** |  |  |  |
@@ -599,9 +606,9 @@ This table is generated from `schemas/dartclaw.schema.json`. Named map entries u
 | `workflow.runtime_artifacts_retention.prune_after_days` | integer | minimum 0 | Age in days past which run artifacts are pruned. 0 keeps them indefinitely. (restart required) |
 | `workflow.workspace_dir` | null or string |  | Operator-owned checkout the workflow steps run in. Null lets DartClaw manage one under the instance directory and refresh its AGENTS.md on upgrade. (restart required) |
 | **workspace** |  |  |  |
-| `workspace.git_sync.enabled` | boolean |  | Commit workspace changes to the local repository on the git-sync schedule. Off by default. (live) |
+| `workspace.git_sync.enabled` | boolean |  | Commit workspace changes to the local repository on the git-sync schedule. On by default; not available under container isolation, where agents can write the workspace repository. (live) |
 | `workspace.git_sync.interval_minutes` | integer | 1–1440 | Minutes between workspace git-sync runs. The job owns this schedule; it no longer rides the heartbeat cycle. (restart required) |
-| `workspace.git_sync.push_enabled` | boolean |  | Also push those commits to the configured remote. Ignored while git sync itself is off. (live) |
+| `workspace.git_sync.push_enabled` | boolean |  | Also push those commits to the workspace origin remote, when one exists. On by default; ignored while git sync itself is off. (live) |
 <!-- END GENERATED CONFIG REFERENCE -->
 
 With guards enabled, DartClaw's own MCP `web_fetch` is canonicalized before guard evaluation and is therefore subject to NetworkGuard's built-in allowlist plus `guards.network.extra_allowed_domains`. Existing MCP deployments must add every required non-default fetch domain. Per-agent additions under `guards.network.agent_overrides.<agent-id>.extra_domains` apply to that logical agent's turns.
@@ -823,7 +830,7 @@ projects:
 | `OPENAI_API_KEY` | -- | Legacy fallback env var accepted by the Codex provider |
 | `DARTCLAW_HOME` | `~/.dartclaw` | Instance directory (points to directory, not config file) |
 | `DARTCLAW_CONFIG` | -- | Explicit config file path (overrides `DARTCLAW_HOME`) |
-| `DARTCLAW_TOKEN` | auto-generated | Gateway auth token |
+| `DARTCLAW_TOKEN` | -- | Not read by the server. A conventional name for the gateway token in client scripts and the SDK examples; set `gateway.token: ${DARTCLAW_TOKEN}` to have the server use it |
 
 ## CLI Flags
 
@@ -890,9 +897,14 @@ it would authenticate a bearer header carrying no token at all and sign session 
 ## Resolution Order
 
 Highest priority wins:
-1. CLI flags (`--port 8080`)
-2. Config file (resolved via: `--config` flag > `DARTCLAW_CONFIG` env var > `DARTCLAW_HOME` env var > `~/.dartclaw/dartclaw.yaml`)
-3. Defaults
+1. CLI flags (`--port 8080`), for the keys that have one
+2. Config file (resolved via: `--config` flag > `DARTCLAW_CONFIG` env var > `DARTCLAW_HOME` env var > `~/.dartclaw/dartclaw.yaml`),
+   with `${VAR}` references expanded from the environment
+3. Defaults (`DARTCLAW_HOME`, when set, is the default `data_dir`)
+
+Environment variables never override a YAML key directly: they locate the file, supply the default `data_dir`, and fill
+`${VAR}` references. A `--config`, `DARTCLAW_CONFIG` or `DARTCLAW_HOME` that points at no file logs a warning and loads
+defaults.
 
 ## Behavior Files
 

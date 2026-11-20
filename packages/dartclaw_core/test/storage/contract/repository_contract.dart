@@ -332,6 +332,30 @@ void repositoryContractGroups(ContractBackend Function() current) {
       expect(row['started_at'], _instant.toIso8601String());
       await service.dispose();
     });
+
+    test('query summarizes the full filtered set, durations included', () async {
+      final service = TurnTraceService(current().backend);
+      for (final (id, seconds) in [('trace-a', 2), ('trace-b', 3), ('trace-other', 7)]) {
+        await service.insert(
+          TurnTrace(
+            id: id,
+            sessionId: id == 'trace-other' ? 'session-2' : 'session-1',
+            startedAt: _instant,
+            endedAt: _instant.add(Duration(seconds: seconds, milliseconds: 250)),
+            inputTokens: 10,
+            outputTokens: 5,
+          ),
+        );
+      }
+
+      final result = await service.query(sessionId: 'session-1', limit: 1);
+
+      expect(result.traces, hasLength(1));
+      expect(result.summary.traceCount, 2);
+      expect(result.summary.totalInputTokens, 20);
+      expect(result.summary.totalDurationMs, 5500);
+      await service.dispose();
+    });
   });
 
   group('[contract:repository.kg_fact] production service', () {

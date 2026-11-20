@@ -46,11 +46,17 @@ void main() {
     test('S10 $artifact formula preserves its layout and verifies runtime version', () {
       expect(formula, contains('version "$dartclawVersion"'));
       expect(formula, isNot(contains('REPLACE_WITH')));
-      expect(RegExp(r'sha256 "[0-9a-f]{64}"').allMatches(formula), hasLength(4));
+      expect(RegExp(r'sha256 "[0-9a-f]{64}"').allMatches(formula), hasLength(3));
 
-      for (final target in ['macos-arm64', 'macos-x64', 'linux-x64', 'linux-arm64']) {
+      for (final target in ['macos-arm64', 'linux-x64', 'linux-arm64']) {
         expect(formula, contains('$artifact-v#{version}-$target.tar.gz'));
       }
+      expect(formula, isNot(contains('macos-x64')), reason: 'no Intel Mac archive is released');
+      expect(
+        RegExp(r'on_macos do\s*\n\s*depends_on arch: :arm64').hasMatch(formula),
+        isTrue,
+        reason: 'an Intel Mac gets a named refusal, not a missing download',
+      );
 
       if (artifact == 'dartclaw') {
         expect(formula, contains('bin.install "bin/dartclaw"'));
@@ -75,13 +81,8 @@ void main() {
       }
     });
 
-    test('S10 $artifact renderer selects its own four platform digests', () {
-      final digests = {
-        'macos-arm64': '1a' * 32,
-        'macos-x64': '2b' * 32,
-        'linux-x64': '3c' * 32,
-        'linux-arm64': '4d' * 32,
-      };
+    test('S10 $artifact renderer selects its own three platform digests', () {
+      final digests = {'macos-arm64': '1a' * 32, 'linux-x64': '3c' * 32, 'linux-arm64': '4d' * 32};
 
       final tempDir = Directory.systemTemp.createTempSync('dc-formula-render');
       addTearDown(() => tempDir.deleteSync(recursive: true));
@@ -111,7 +112,7 @@ void main() {
       final rendered = File(outPath).readAsStringSync();
       expect(rendered, contains('version "$dartclawVersion"'));
       // No placeholder digests survive, and each target maps to its own digest.
-      for (final placeholder in ['1', '2', '3', '4']) {
+      for (final placeholder in ['1', '2', '3']) {
         expect(rendered, isNot(contains('sha256 "${placeholder * 64}"')));
       }
       for (final entry in digests.entries) {

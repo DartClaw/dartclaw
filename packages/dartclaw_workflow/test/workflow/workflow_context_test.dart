@@ -1,5 +1,6 @@
 import 'package:dartclaw_workflow/dartclaw_workflow.dart';
 import 'package:dartclaw_workflow/src/workflow/workflow_context_resolver.dart';
+import 'package:dartclaw_workflow/src/workflow/workflow_output_contract.dart' show workflowApprovedCandidateKey;
 import 'package:test/test.dart';
 
 void main() {
@@ -53,10 +54,94 @@ void main() {
       expect(ctx['c'], '3');
     });
 
+    for (final key in [workflowExecutionSurfaceHoldKey, workflowApprovedCandidateKey]) {
+      test('step merge refuses host marker $key atomically', () {
+        final ctx = WorkflowContext(data: {'ordinary': 'before'});
+        expect(
+          () => ctx.merge({
+            'ordinary': 'after',
+            key: ['forged'],
+          }),
+          throwsA(anything),
+        );
+        expect(ctx.data, {'ordinary': 'before'});
+      });
+      test('variable $key cannot shadow host data', () {
+        final ctx = WorkflowContext(variables: {key: 'forged'});
+        expect(ctx[key], isNull);
+      });
+    }
+    test('ordinary private outputs remain supported', () {
+      final ctx = WorkflowContext();
+      ctx.merge({'_ordinary': 'value'});
+      expect(ctx['_ordinary'], 'value');
+    });
+
     test('merge overwrites existing keys', () {
       final ctx = WorkflowContext(data: {'key': 'old'});
       ctx.merge({'key': 'new'});
       expect(ctx['key'], 'new');
+    });
+
+    test('approval reads only the host candidate from the run snapshot', () {
+      expect(
+        workflowApprovedCandidate({
+          'variables': {workflowApprovedCandidateKey: 'reviewed-candidate'},
+          'data': {
+            '_workflow.git.approved_branches': ['story'],
+            workflowApprovedCandidateKey: 'reviewed-candidate',
+          },
+        }),
+        isNull,
+      );
+      final context = WorkflowContext(data: {workflowApprovedCandidateKey: 'ordinary-output'});
+      expect(
+        workflowApprovedCandidate({...context.toJson(), workflowApprovedCandidateKey: 'reviewed-candidate'}),
+        'reviewed-candidate',
+      );
+      expect(workflowApprovedCandidate({workflowApprovedCandidateKey: ''}), isNull);
+      expect(
+        workflowApprovedCandidate({
+          workflowApprovedCandidateKey: ['reviewed-candidate'],
+        }),
+        isNull,
+      );
+    });
+
+    test('legacy workflow data cannot create a pending host hold', () {
+      expect(
+        WorkflowExecutionSurfaceHold.read({
+          'data': {
+            workflowExecutionSurfaceHoldKey: {
+              'branch': 'story',
+              'paths': ['.mcp.json'],
+              'publish': false,
+              'candidate': 'reviewed-candidate',
+            },
+          },
+        }),
+        isNull,
+      );
+    });
+
+    test('a promotion hold preserves both worktree locations for review', () {
+      final hold = WorkflowExecutionSurfaceHold.fromPromotion(
+        'story',
+        const WorkflowGitPromotionHeld(
+          ['.mcp.json'],
+          candidate: 'candidate',
+          destination: 'integration',
+          worktreePath: '/repo/story',
+          destinationWorktreePath: '/repo/integration',
+        ),
+      );
+      final restored = WorkflowExecutionSurfaceHold.read({workflowExecutionSurfaceHoldKey: hold.toJson()})!;
+
+      expect(restored.worktreePath, '/repo/story');
+      expect(restored.destinationWorktreePath, '/repo/integration');
+      expect(restored.message, contains('Source worktree /repo/story.'));
+      expect(restored.message, contains('Destination worktree /repo/integration.'));
+      expect(restored.message, contains('.mcp.json'));
     });
 
     test('loop iteration tracking', () {

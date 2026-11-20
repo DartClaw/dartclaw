@@ -112,7 +112,7 @@
     <text class="sub" x="62" y="187">provider needs a host</text>
     <text class="sub" x="62" y="203">adapter and credential</text>
     <g class="chip k-sec"><rect x="62" y="210" width="101" height="16" rx="8"/><text x="69" y="222">→ no container</text></g>
-    <g class="d"><text class="p1" x="36" y="532"><tspan class="b">register</tspan> · refused before any container exists when the provider has no host mediation adapter or its credential is unusable</text><text class="p2" x="36" y="552">GatewayAuthority holds principal, required surfaces (provider, plus mcp with host tools) and allowed MCP tools. host_gateway.dart.</text></g>
+    <g class="d"><text class="p1" x="36" y="532"><tspan class="b">register</tspan> · refused before any container exists when the provider has no host mediation adapter or its credential is unusable</text><text class="p2" x="36" y="552">GatewayAuthority holds the principal and surfaces: provider, mcp with host tools, and registry for workspace only.</text></g>
   </g></a>
   <a href="../security-architecture.md#host-owned-provider-mediation"><g class="n tint k-host" id="start">
     <rect class="box" x="278" y="130" width="190" height="104" rx="9"/>

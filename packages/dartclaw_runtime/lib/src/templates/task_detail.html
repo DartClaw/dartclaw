@@ -66,6 +66,14 @@
         </div>
       </div>
 
+      <section tl:if="${hasExecutionSurfaceHold}" class="card panel-warning msg-content">
+        <h2>Execution surface review required</h2>
+        <p>Review these changes, then use Accept to proceed. A person must approve this task.</p>
+        <ul>
+          <li tl:each="path : ${executionSurfacePaths}"><code tl:text="${path}">path</code></li>
+        </ul>
+      </section>
+
       <div tl:if="${hasTokenSummary}" class="metrics-grid task-token-summary"
            tl:utext="${tokenMetricCardsHtml}">token metrics</div>
 

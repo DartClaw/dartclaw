@@ -8,13 +8,20 @@ DartClaw's task system is for reviewable background work. A task carries a title
 
 ```text
 draft -> queued -> running -> review -> accepted
-                 |         |
-                 |         -> rejected
-                 |-> failed -> queued
-                 -> interrupted -> queued
+                     |          |-> rejected
+                     |          |-> running    (push back)
+                     |          |-> queued     (start again)
+                     |          `-> failed
+                     |-> accepted              (reviewMode: auto-accept)
+                     `-> failed -> queued      (retry or manual restart)
+
+draft, queued, running -> cancelled
+queued -> failed                               (project setup refused before dispatch)
 ```
 
-Push-back sends a review task back to `running` with operator feedback attached.
+`accepted`, `rejected` and `cancelled` are final. The API also lists an `interrupted` status, but nothing sets it
+today. Push-back moves a review task to `running` with operator feedback
+attached (see [Review Workflow](#review-workflow)).
 
 Starting a failed task — from the task page or `POST /api/tasks/<id>/start` — re-queues it as a fresh attempt: the
 retry counter resets to zero and the previous run's recorded error and error summary are cleared, so the restarted run
@@ -90,7 +97,7 @@ When creating a task (via API or web UI), you can set per-task overrides in `con
 | Key | Type | Default | Purpose |
 |-----|------|---------|---------|
 | `model` | `string` | global `agent.model` | Model override for this specific task |
-| `tokenBudget` | `int` | unlimited | Maximum total token spend; task auto-fails if exceeded (`budget` is a deprecated alias). Per-task budgets are independent of the server-wide [daily token budget](governance.md#daily-token-budget) |
+| `tokenBudget` | `int` | goal budget, else `tasks.budget.default_max_tokens` (unbudgeted by default) | Maximum total token spend; task auto-fails if exceeded (`budget` is a deprecated alias). Per-task budgets are independent of the server-wide [daily token budget](governance.md#daily-token-budget) |
 | `needsWorktree` | `bool` | `false` | Whether the task runs in an isolated git worktree |
 | `artifactExtensions` | `list<string>` | all modified files | Extensions to retain when collecting files from a non-worktree task, for example `['.md']` |
 | `reviewMode` | `string` | `mandatory` | `auto-accept`, `mandatory`, or `worktree-only` |
@@ -133,12 +140,20 @@ behavior but cannot activate these container profiles; enabling containers fails
 
 | Declaration | Profile | Mounts |
 |-------------|---------|--------|
-| Omitted or `workspace` | `workspace` | `/workspace:rw`, `/project:ro` |
-| `restricted` | `restricted` | No workspace mount |
+| Omitted or `workspace` | `workspace` | `/workspace:rw`, `/project:ro`, `/projects:ro` |
+| `restricted` | `restricted` | No workspace, project or clone mount; runs in `/tmp` |
+
+A task worktree lives under the workspace (`/workspace/.dartclaw/worktrees/<taskId>/` in the container), so it is the
+writable checkout. See [Projects & Git § Container Integration](projects-and-git.md#container-integration) for what
+each mount holds.
 
 The task executor requests a worker for the task's exact provider and effective execution policy. A declared
 `restricted` task will only run on a `restricted`-profile runner. Workers start lazily; each task container is
 dedicated to that task execution and destroyed when its turn ends.
+
+`GET /api/tasks/<id>` reports the execution's resolved container profile under
+`agentExecution.containerJson`, for example `{"profile":"workspace"}`. That field is absent for host execution.
+Workflow work and finalizer turns also retain their tool arguments and results in `GET /api/traces?taskId=<id>`.
 
 A container task can only run on a provider whose container execution DartClaw mediates – `claude` and `codex`.
 An ACP provider runs on the host only: set the scalar `tasks.execution: host`, or the task lane is refused before it
@@ -155,10 +170,12 @@ Set `configJson.needsWorktree` to `true` to run a task inside an isolated git wo
 Set it to `false` to run in the workflow or project workspace. The web form always sends this declaration. Legacy
 `coding` input is refused with this declaration named so an upgrade cannot silently drop isolation.
 
-- **External projects**: worktree branches from the project clone (auto-fetched). On accept, the branch is pushed to the remote (and a PR created if configured).
-- **`_local` project**: worktree branches from the local base ref. On accept, `MergeExecutor` squash-merges locally.
+- **External projects**: worktree branches from `origin/<branch>` in the project clone (fetched first). On accept, the branch is pushed to the remote (and a PR created if configured).
+- **`_local` project**: worktree branches from the local base ref. On accept, `MergeExecutor` merges locally (squash by default).
+- Worktrees live at `<data_dir>/workspace/.dartclaw/worktrees/<taskId>/`
 - `tasks.worktree.base_ref` chooses the base branch (`_local` tasks only; external projects use their configured `branch`)
-- `tasks.worktree.stale_timeout_hours` controls when abandoned worktrees are considered stale
+- `tasks.worktree.stale_timeout_hours` (default 24) is the age at which startup removes the worktree of a missing or
+  terminal task; a failed task's worktree stays for inspection until then
 - `tasks.worktree.merge_strategy` chooses `squash` or `merge` for accepted `_local` work
 
 The agent runs with the worktree as its working directory; no guard currently restricts file access to that checkout (the global `FileGuard` still blocks sensitive paths). See [Projects & Git](projects-and-git.md) for the full worktree lifecycle and accept flow.
@@ -167,9 +184,30 @@ The agent runs with the worktree as its working directory; no guard currently re
 
 When execution finishes, the task enters `review` with artifacts attached:
 
-- **Accept**: finalizes the task and, when it has a standalone worktree, merges that worktree back into the base ref
-- **Reject**: closes the task without re-queueing it
-- **Push Back**: requires a comment and returns the task to `running`
+- **Accept**: finalizes the task and, when it has a standalone worktree, merges it into the base ref (`_local`) or
+  pushes its branch and opens a PR if configured (external project), then removes the worktree
+- **Reject**: closes the task without re-queueing it and removes its worktree
+- **Push Back**: requires a comment, moves the task to `running`, and keeps its worktree
+
+Push-back does not re-run the task: the executor only dispatches `queued` tasks. When the task was created from a channel
+conversation, the feedback is started as a new turn in that conversation's session; a task created from the web UI or
+API gets no delivery. The comment is added to the task's prompt if it is dispatched again.
+
+`tasks.completion_action: accept` automatically accepts a task that reaches `review`, except when its worktree
+changes an execution surface. The check includes committed branch changes, tracked edits and untracked files,
+case-insensitively, at the repository root:
+
+- `.claude/`, `.codex/`, `.husky/`, `.githooks/`, `.github/workflows/`
+- `.mcp.json`, `.envrc`, `.vscode/tasks.json`, `.vscode/settings.json`, `mise.toml`
+- any added or changed symlink, at any depth
+
+Deletions and both ends of a rename count for the listed paths. `CLAUDE.md` and `AGENTS.md` alone do not hold a task.
+A held task stays in `review`; its detail page names the paths and the API includes them in
+`configJson._executionSurfaceHold.paths`. Review the diff, then use **Accept** in the web UI, the review API, or a
+channel review button. An agent's `task_review` accept is automatic for this rule and cannot release the hold, even
+in your admin chat. Slack has no task review buttons, so a person must open the task page or use the API instead of
+asking the agent to accept its own execution-surface changes. A merge conflict or push failure also leaves the task
+in `review`.
 
 The task detail page combines:
 
@@ -301,6 +339,10 @@ See [Scheduling](scheduling.md) for the broader scheduler model.
 These task-specific runtime keys come from `DartclawConfig`:
 
 - `providers.<id>.pool_size`
+- `tasks.execution` (`host` or `container`)
+- `tasks.completion_action` (`review` or `accept`)
+- `tasks.budget.default_max_tokens`, `tasks.budget.warning_threshold`
+- `tasks.artifact_retention_days`
 - `tasks.worktree.base_ref`
 - `tasks.worktree.stale_timeout_hours`
 - `tasks.worktree.merge_strategy`

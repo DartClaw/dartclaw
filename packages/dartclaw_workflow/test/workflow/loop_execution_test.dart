@@ -141,6 +141,47 @@ void main() {
     expect(finalRun?.status, equals(WorkflowRunStatus.completed));
   });
 
+  test('a failed exit gate keeps the run-level private context keys', () async {
+    final definition = WorkflowDefinition(
+      name: 'test',
+      description: 'Test',
+      steps: [
+        const WorkflowStep(id: 'ls1', name: 'LS1', prompts: ['Do ls1']),
+      ],
+      loops: [
+        const WorkflowLoop(id: 'loop1', steps: ['ls1'], maxIterations: 3, exitGate: 'loop.loop1.iteration == 2'),
+      ],
+    );
+    final interaction = {'stepId': 'gate', 'nonce': 'a' * 32, 'issuedAt': '2026-11-18T10:00:00.000'};
+    final context = WorkflowContext();
+    final run = h
+        .makeRun(definition)
+        .copyWith(
+          contextJson: {
+            '_approval.interaction': interaction,
+            '_workflow.git.approved_candidate': 'candidate-1',
+            ...context.toJson(),
+          },
+        );
+    await h.repository.insert(run);
+
+    final sub = h.eventBus.on<TaskStatusChangedEvent>().where((e) => e.newStatus == TaskStatus.queued).listen((
+      e,
+    ) async {
+      await Future<void>.delayed(Duration.zero);
+      await h.completeTask(e.taskId);
+    });
+
+    await h.executor.execute(run, definition, context);
+    await sub.cancel();
+
+    final finalRun = (await h.repository.getById('run-1'))!;
+    expect(finalRun.status, WorkflowRunStatus.completed);
+    expect(context['loop.loop1.iteration'], 2);
+    expect(finalRun.contextJson['_approval.interaction'], interaction);
+    expect(finalRun.contextJson['_workflow.git.approved_candidate'], 'candidate-1');
+  });
+
   test('maxIterations circuit breaker: pauses when gate never passes', () async {
     final definition = WorkflowDefinition(
       name: 'test',

@@ -36,7 +36,7 @@ void main() {
         sessions,
         messages,
         turns,
-        worker,
+
         ownerWorkspaceDir: sessions.baseDir,
         onConversationCreated: (created) => conversation = created,
       ).call,

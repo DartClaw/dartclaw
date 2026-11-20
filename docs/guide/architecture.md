@@ -1,6 +1,6 @@
 # Architecture
 
-> Current through: **0.27**
+> Current through: **0.28.1**
 
 DartClaw is a 2-layer agent runtime where each layer has a distinct role and trust level. The Dart host owns all state, security, and orchestration. Agent CLI binaries handle reasoning and tool execution. This document explains how they fit together, why they are separated, and how the major subsystems interact.
 
@@ -128,7 +128,8 @@ packages/
 
   dartclaw_google_chat/  Google Chat integration and config registration.
 
-  dartclaw_slack/        Slack integration over Socket Mode and config registration.
+  dartclaw_slack/        Slack integration over Socket Mode or the Events API
+                         and config registration.
 
   dartclaw_workflow/     Unified workflow parsing, validation, registry, and
                          execution support for DartClaw.
@@ -210,8 +211,11 @@ DartClaw rebuilds it from canonical Markdown; inconsistent canonical content fai
 
 PostgreSQL 14+ uses native full-text search for the default lexical mode. Hybrid retrieval is explicit and adds an
 administrator-installed pgvector extension plus an embedding provider. Startup validates the connection and schema;
-`doctor --fix` may bootstrap only an empty current application schema. See [PostgreSQL](postgresql.md) for native
-setup, backup/restore, and the bounded v0.26.1 cutover.
+`doctor --fix` may bootstrap only an empty current application schema; `serve` upgrades a store at the released 0.27
+schema in place, and refuses any other incompatible store untouched. See [PostgreSQL](postgresql.md) for native
+setup, backup/restore, and the bounded v0.26.1 cutover. Standalone workflow runs (`dartclaw workflow run
+--standalone`) need no database: they keep their execution records in a locked JSON checkpoint under
+`<data_dir>/standalone/`.
 
 ### Crash Recovery
 
@@ -275,6 +279,7 @@ DartClaw receives messages from multiple sources through a unified channel abstr
 | **WhatsApp** | Webhook (GOWA binary) | Yes — Go binary, outpost pattern |
 | **Signal** | JSON-RPC + SSE (signal-cli) | Yes — managed external binary |
 | **Google Chat** | Webhook + REST API | None — pure REST, GCP service account auth |
+| **Slack** | Socket Mode or signed Events API webhook in, Web API out | None |
 
 All channels flow through the same `ChannelManager`, which handles session key routing, DM access control, group mention gating, and message queuing. Session keys are deterministic — the same contact on the same channel always maps to the same session, configurable via scoping rules (per-contact, per-channel, shared).
 
@@ -288,7 +293,7 @@ to the task instead of falling back to the shared room session. Review decisions
 the agent's `task_review` tool. Workflow runs post their started, awaiting-approval and finished or failed messages the
 same way, into the thread that started the run or into one thread per run in the `workflow.chat_notifications` channel.
 
-Google Chat also carries reply metadata through the shared queue. Inbound `messageName` and `messageCreateTime` survive queued delivery, so enabling `channels.google_chat.quote_reply: true` lets outbound replies render as native quoted replies for both webhook-originated messages and Space Events messages. Optional `channels.google_chat.feedback.*` settings let long-running turns update a placeholder message or emoji reaction while work is in progress; defaults remain off, so existing deployments keep the old behavior until the feature is enabled.
+Google Chat also carries reply metadata through the shared queue. Inbound `messageName` and `messageCreateTime` survive queued delivery, so `channels.google_chat.quote_reply` works for both webhook-originated messages and Space Events messages: `sender` (or `true`) prefixes a text attribution line to replies outside DMs, and `native` quotes the inbound `messageName` as a native quoted reply in spaces, which needs user-level auth and falls back to the attribution line when the API refuses it. Optional `channels.google_chat.feedback.*` settings let long-running turns edit a placeholder message with progress while work is in progress; defaults remain off, so existing deployments keep the old behavior until the feature is enabled.
 
 Runtime governance also applies at the channel boundary. Per-sender rate limits, deployment-wide token budgets, and facilitator-only emergency controls (`/stop`, `/pause`, `/resume`) are enforced before normal inbound processing continues.
 
@@ -313,7 +318,7 @@ Key components:
 
 - **TaskService** — CRUD + state machine transitions, PostgreSQL persistence, now owned by `dartclaw_runtime`
 - **TaskExecutor** — polls for queued tasks, acquires a provider worker lease, executes the task, collects artifacts
-- **WorktreeManager** — for tasks declaring `configJson.needsWorktree: true`, creates git worktrees scoped to the task's assigned project. On accept, changes are pushed to the remote as a branch or PR (if configured). On reject, the worktree is cleaned up
+- **WorktreeManager** — for tasks declaring `configJson.needsWorktree: true`, creates git worktrees scoped to the task's assigned project. On accept, changes are merged locally (`_local`) or pushed to the remote as a branch or PR (if configured). On reject, the worktree is cleaned up
 - **DiffGenerator** — produces structured diffs (files changed, additions, deletions, hunks) stored as artifacts
 - **RunnerObserver** — derives runtime runner state and capacity metrics from coordinator lease events and snapshots
 - **TaskEventRecorder** — records structured task events (status changes, tool calls, artifacts, token usage) to the task timeline, visible on the task detail page
@@ -331,7 +336,7 @@ Added in 0.14. DartClaw can manage multiple git repositories, routing tasks to t
 `configJson.needsWorktree: true` can push their isolated result back on accept.
 
 **How it works**:
-1. Register an external git repository via the web UI (`/tasks`) or the config API. Provide the remote URL and optionally a credential reference (SSH key or token name stored in the credential store).
+1. Register an external git repository via the web UI (`/projects`), `dartclaw.yaml`, or the REST API (`/api/projects`). Provide the remote URL and optionally a credential reference (SSH key or token name stored in the credential store).
 2. DartClaw clones the repository into `<dataDir>/projects/<projectId>/` and keeps it fresh with periodic auto-fetch.
 3. When a task targeting that project declares `configJson.needsWorktree: true`, `WorktreeManager` creates an isolated git worktree for the task's working branch — the agent operates in this worktree, isolated from other concurrent tasks.
 4. On task accept, the result is pushed to the remote as a branch (or as a pull request, if `pr.strategy: github-pr` is configured).
@@ -345,12 +350,12 @@ When Docker is enabled, DartClaw runs agent processes inside containers with ker
 
 | Profile | Mounts | Network | Used By |
 |---------|--------|---------|---------|
-| `workspace` | `/workspace:rw`, `/project:ro` | `none` | Main chat, default tasks, cron, channels |
+| `workspace` | `/workspace:rw`, `/project:ro`, `/projects:ro` | `none` | Main chat, default tasks, cron, channels |
 | `restricted` | No workspace | `none` | Search agent, explicitly declared tasks |
 
 A profile is a filesystem/capability template. Each container execution owns its container; a logical-agent session may retain its container between turns until discard, eviction, or shutdown. `providers.<id>.pool_size` bounds concurrent worker leases for that provider, with a default of two. The primary lane has separate capacity, so a containerized primary can run alongside those two workers. The coordinator also bounds retained workers against provider capacity.
 
-Container hardening: `--cap-drop=ALL`, `--security-opt=no-new-privileges`, non-root user, read-only root filesystem, `--network none`. Containerized Claude and Codex reach their provider through the host gateway over framed `docker exec` pipes, so no provider key exists inside a container environment.
+Container hardening: `--cap-drop=ALL`, `--security-opt=no-new-privileges`, non-root user, read-only root filesystem, `--network none`. The Host Gateway opens framed `docker exec` pipes for `provider` calls, granted `mcp` tools, and read-only package registry access through `registry` for `workspace` containers. Provider credentials stay on the host.
 
 Container names include a hash of the data directory, preventing collisions when running multiple DartClaw instances on the same Docker daemon.
 
@@ -403,7 +408,7 @@ Events use Dart 3 sealed classes, so the compiler catches missing handlers when 
 - **GuardBlockEvent** — a guard blocked or warned on input
 - **ConfigChangedEvent** — configuration values changed via the API
 - **CompactionStartingEvent / CompactionCompletedEvent** — provider compaction lifecycle markers
-- **SessionLifecycleEvent** — session created, ended, or errored
+- **SessionLifecycleEvent** — session created or ended
 - **TaskLifecycleEvent** — task status changed, review ready
 - **ScheduledJobFailedEvent** — a scheduled job exhausted retries
 - **ToolPermissionDeniedEvent** — Claude denied a tool at its own native permission layer
@@ -444,10 +449,10 @@ The web UI avoids JavaScript build toolchains entirely:
 When you send a message:
 
 1. HTMX POSTs the form to `/api/sessions/:id/send`
-2. Server starts the turn and returns an HTML fragment with `hx-ext="sse"` attributes pointing to the SSE endpoint
-3. The HTMX SSE extension opens an EventSource and handles reconnection
+2. Server starts the turn and returns an HTML fragment whose `hx-sse:connect` attribute points to the SSE endpoint
+3. The htmx SSE extension opens an EventSource and handles reconnection
 4. Server pushes HTML fragment events: `delta` (text chunks), `tool_use` (tool indicators), `tool_result` (OOB swap updates), `done` (triggers close)
-5. HTMX swaps each fragment into the DOM declaratively
+5. The chat controller swaps each fragment into the DOM with `htmx.swap`
 
 ### Dashboard Pages
 

@@ -419,7 +419,7 @@ void main() {
           'merge_resolve',
           'mergeResolve',
         },
-        'gitPublish': {'enabled'},
+        'gitPublish': {'enabled', 'pullRequest'},
         'gitCleanup': {'enabled'},
         'gitArtifacts': {'commit', 'commitMessage', 'commit_message', 'project'},
         'gitWorktree': {'mode'},

@@ -13,7 +13,14 @@ import 'package:dartclaw_runtime/src/runtime/standalone_execution_lease.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' show HarnessFactory, WorkflowRunStatusChangedEvent;
 import 'package:dartclaw_testing/dartclaw_testing.dart';
 import 'package:dartclaw_workflow/dartclaw_workflow.dart'
-    show WorkflowDefinition, WorkflowRun, WorkflowRunOrigin, WorkflowStep, WorkflowTaskType, skillProvisionerMarkerFile;
+    show
+        WorkflowDefinition,
+        WorkflowExecutionSurfaceHold,
+        WorkflowRun,
+        WorkflowRunOrigin,
+        WorkflowStep,
+        WorkflowTaskType,
+        skillProvisionerMarkerFile;
 import 'package:dartclaw_workflow/testing.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -294,6 +301,57 @@ void main() {
       expect(output.every((line) => !line.contains('Start `dartclaw serve`')), isTrue, reason: '$output');
     });
 
+    test('standalone status and refused resume explain how to recover an execution-surface hold', () async {
+      final hold = WorkflowExecutionSurfaceHold(
+        branch: 'dartclaw/workflow/ready',
+        paths: ['.github/workflows/check.yml'],
+        candidate: 'review-candidate',
+        publish: true,
+        destination: 'origin/dartclaw/workflow/ready',
+      );
+      final seed = await seedRun(
+        config,
+        WorkflowRunStatus.awaitingApproval,
+        definition: singleAgentDefinition(),
+        extraContext: {'_approval.pending.stepId': 'agent', '_workflow.git.execution_surface_hold': hold.toJson()},
+      );
+      final output = <String>[];
+      final preflight = FakeProviderAuthPreflight(unauthenticated: {'claude'});
+      final runner = CommandRunner<void>('dartclaw', 'test')
+        ..addCommand(resumeCommand(config, output, preflight: preflight))
+        ..addCommand(
+          WorkflowStatusCommand(
+            config: config,
+            taskBackendFactory: (_) => openPreparedTaskBackend(),
+            taskBackendIsPrepared: true,
+            taskRepositoryFactory: (_) => _store(config).tasks,
+            workflowRunRepositoryFactory: (_) => _store(config).runs,
+            writeLine: output.add,
+            exitFn: fakeExit,
+          ),
+        );
+
+      await runner.run(['status', seed.runId, '--standalone']);
+      final status = output.join('\n');
+      expect(status, contains('publish branch dartclaw/workflow/ready'));
+      expect(status, contains('.github/workflows/check.yml'));
+      expect(status, contains('save your work before cancelling'));
+      expect(status, isNot(contains('resume ${seed.runId} --standalone')));
+
+      output.clear();
+      await expectLater(
+        () => runner.run(['resume', seed.runId, '--standalone', '--force']),
+        throwsA(isA<FakeExit>().having((error) => error.code, 'code', 1)),
+      );
+      final refusal = output.join('\n');
+      expect(refusal, contains('Standalone resume cannot approve execution-surface changes.'));
+      expect(refusal, contains('git worktree list'));
+      expect(refusal, contains('start a fresh run in connected mode'));
+      expect(refusal, contains('The server cannot resume this standalone run.'));
+      expect(preflight.probed, isEmpty);
+      expect(await statusOf(config, seed.runId), WorkflowRunStatus.awaitingApproval);
+    });
+
     test('--force without --standalone is a usage error', () async {
       final command = resumeCommand(config, <String>[]);
       final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
@@ -526,7 +584,11 @@ class _ThrowOnStartHarness extends FakeAgentHarness {
   }
 }
 
-WorkflowResumeCommand resumeCommand(DartclawConfig config, List<String> output) {
+WorkflowResumeCommand resumeCommand(
+  DartclawConfig config,
+  List<String> output, {
+  FakeProviderAuthPreflight? preflight,
+}) {
   return WorkflowResumeCommand(
     config: config,
     reachabilityProbe: (_) async => false,
@@ -539,7 +601,7 @@ WorkflowResumeCommand resumeCommand(DartclawConfig config, List<String> output) 
     workflowStepExecutionRepositoryFactory: (_) => _store(config).stepExecutions,
     executionRepositoryTransactorFactory: (_) => _store(config).transactor,
     runWorkflowSkillsBootstrap: false,
-    providerAuthPreflight: FakeProviderAuthPreflight(),
+    providerAuthPreflight: preflight ?? FakeProviderAuthPreflight(),
     skillIntrospector: FakeSkillIntrospector(const {}),
     interrupts: noInterrupts,
     writeLine: output.add,
@@ -594,6 +656,7 @@ Future<({String runId})> seedRun(
   DartclawConfig config,
   WorkflowRunStatus status, {
   WorkflowDefinition? definition,
+  Map<String, dynamic> extraContext = const {},
 }) async {
   final now = DateTime.now();
   final effectiveDefinition = definition ?? singleBashDefinition();
@@ -604,7 +667,7 @@ Future<({String runId})> seedRun(
     startedAt: now,
     updatedAt: now,
     definitionJson: effectiveDefinition.toJson(),
-    contextJson: const {'data': <String, dynamic>{}, 'variables': <String, dynamic>{}},
+    contextJson: {'data': <String, dynamic>{}, 'variables': <String, dynamic>{}, ...extraContext},
   );
   await _store(config).runs.insert(run);
   return (runId: run.id);

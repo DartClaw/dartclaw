@@ -6,6 +6,9 @@ import 'package:dartclaw_core/dartclaw_core.dart' show containerGeneratedStatePa
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_runtime/src/container/bridge_binary.dart' show BridgeBinaryProvisioner;
 import 'package:dartclaw_runtime/src/container/container_manager.dart';
+import 'package:dartclaw_runtime/src/container/gateway/gateway_models.dart';
+import 'package:dartclaw_runtime/src/container/gateway/host_gateway.dart';
+import 'package:dartclaw_runtime/src/container/security_profile.dart';
 import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeProcess;
 import 'package:fake_async/fake_async.dart';
 import 'package:logging/logging.dart';
@@ -60,7 +63,7 @@ void main() {
           '--format',
           '{{.Names}}',
         ],
-        for (final name in names) ['docker', 'rm', '-f', name],
+        for (final name in names) ['docker', 'rm', '-f', '-v', name],
       ]);
       expect(states.map((dir) => dir.existsSync()), [false, false, true]);
       expect(logs.where((log) => log.level == Level.WARNING).map((log) => log.message), [
@@ -180,6 +183,160 @@ void main() {
   });
 
   group('ContainerManager', () {
+    test('registry variables precede the variables DartClaw sets', () async {
+      final creations = <List<String>>[];
+      final state = _tempStateDir();
+      for (final environment in [
+        <String, String>{},
+        {'PUB_HOSTED_URL': 'http://127.0.0.1:8082/pub', 'npm_config_audit': 'false'},
+      ]) {
+        await _manager(
+          generatedStateDir: state,
+          registryClientEnvironment: environment,
+          run: (_, arguments) async {
+            if (arguments.first == 'create') creations.add(arguments);
+            return ProcessResult(1, arguments.first == 'inspect' ? 1 : 0, '', '');
+          },
+        ).start();
+      }
+      final granted = creations.last.toList();
+      final dartclaw = granted.indexOf('ANTHROPIC_BASE_URL=http://127.0.0.1:8080');
+      for (final value in ['PUB_HOSTED_URL=http://127.0.0.1:8082/pub', 'npm_config_audit=false']) {
+        final index = granted.indexOf(value);
+        expect(index, allOf(greaterThan(0), lessThan(dartclaw)), reason: value);
+        expect(granted[index - 1], '-e');
+      }
+      granted.removeRange(granted.indexOf('PUB_HOSTED_URL=http://127.0.0.1:8082/pub') - 1, dartclaw - 1);
+      expect(granted, creations.first);
+    });
+
+    test('built-in registry records give a workspace container their client variables', () async {
+      final gateway = HostGateway(providerAdapters: const {}, registries: const ContainerConfig().registries);
+      addTearDown(gateway.dispose);
+      final creations = <String, List<String>>{};
+      final state = _tempStateDir();
+      for (final profile in ['restricted', 'workspace']) {
+        final principal = GatewayPrincipal(
+          sessionId: 'registry-test',
+          providerId: 'claude',
+          policy: ExecutionPolicy.container(profile),
+        );
+        await _manager(
+          profileId: profile,
+          generatedStateDir: state,
+          workspaceMounts: profile == 'workspace'
+              ? [
+                  ...SecurityProfile.workspace(workspaceDir: '/tmp/workspace').workspaceMounts,
+                  '/tmp/project:/project:ro',
+                ]
+              : const ['/tmp/workspace:/workspace:rw', '/tmp/project:/project:ro'],
+          registryClientEnvironment: gateway.registryClientEnvironment(principal),
+          run: (_, arguments) async {
+            if (arguments.first == 'create') creations[profile] = arguments;
+            return ProcessResult(1, arguments.first == 'inspect' ? 1 : 0, '', '');
+          },
+        ).start();
+      }
+
+      final (restricted, workspace) = (creations['restricted']!, creations['workspace']!.toList());
+      List<String> environment(List<String> args) => [
+        for (var i = 0; i < args.length - 1; i++)
+          if (args[i] == '-e') args[i + 1],
+      ];
+      expect(environment(workspace), [
+        'PUB_HOSTED_URL=http://127.0.0.1:8082/pub',
+        'npm_config_registry=http://127.0.0.1:8082/npm/',
+        'npm_config_audit=false',
+        'PIP_INDEX_URL=http://127.0.0.1:8082/pypi/simple/',
+        'UV_DEFAULT_INDEX=http://127.0.0.1:8082/pypi/simple',
+        'ANTHROPIC_BASE_URL=http://127.0.0.1:8080',
+      ]);
+      expect(environment(restricted), ['ANTHROPIC_BASE_URL=http://127.0.0.1:8080']);
+      // Apart from the registry variables and the package-cache volume, the two boundaries are identical.
+      final volume = workspace.indexOf(SecurityProfile.packageCachePath);
+      expect(workspace[volume - 1], '-v');
+      workspace.removeRange(volume - 1, volume + 1);
+      workspace.removeRange(
+        workspace.indexOf('PUB_HOSTED_URL=http://127.0.0.1:8082/pub') - 1,
+        workspace.indexOf('ANTHROPIC_BASE_URL=http://127.0.0.1:8080') - 1,
+      );
+      expect(workspace, restricted);
+      expect(restricted[restricted.indexOf('--network') + 1], 'none');
+    });
+
+    test('workspace containers get an anonymous package cache that every removal deletes', () async {
+      expect(SecurityProfile.workspace(workspaceDir: '/w').workspaceMounts, contains(SecurityProfile.packageCachePath));
+      expect(SecurityProfile.restricted.workspaceMounts, isNot(contains(SecurityProfile.packageCachePath)));
+      final workspaceMounts = [
+        ...SecurityProfile.workspace(workspaceDir: '/tmp/w').workspaceMounts,
+        '/tmp/p:/project:ro',
+      ];
+      final calls = <List<String>>[];
+      final starts = <List<String>>[];
+      for (final (profile, mounts) in [
+        ('workspace', workspaceMounts),
+        ('restricted', SecurityProfile.restricted.workspaceMounts),
+      ]) {
+        Future<ProcessResult> run(String _, List<String> arguments) async {
+          calls.add([profile, ...arguments]);
+          return ProcessResult(1, arguments.first == 'inspect' ? 1 : 0, '', 'No such container');
+        }
+
+        final manager = _manager(profileId: profile, workspaceMounts: mounts, run: run);
+        await manager.start();
+        await manager.stop();
+        final volatile = ContainerManager(
+          ownerLabel: 'dartclaw.data-dir=/home/user/.dartclaw',
+          config: const ContainerConfig(enabled: true),
+          containerName: 'dartclaw-test1234-$profile-volatile',
+          profileId: profile,
+          workspaceMounts: mounts,
+          generatedStateDir: _tempStateDir(),
+          volatileGeneratedState: true,
+          bridgeBinaryPath: '/tmp/dartclaw-bridge',
+          buildContextDir: '/tmp/project',
+          runCommand: run,
+          startCommand:
+              (executable, arguments, {workingDirectory, environment, includeParentEnvironment = true}) async {
+                starts.add([profile, ...arguments]);
+                throw StateError('started');
+              },
+        );
+        await expectLater(volatile.start(), throwsStateError);
+      }
+      bool mountsCache(List<String> args) {
+        final index = args.indexOf(SecurityProfile.packageCachePath);
+        return index > 0 && args[index - 1] == '-v';
+      }
+
+      for (final (profile, expected) in [('workspace', true), ('restricted', false)]) {
+        final create = calls.singleWhere((call) => call[0] == profile && call[1] == 'create');
+        expect(mountsCache(create), expected, reason: '$profile create');
+        final run = starts.singleWhere((call) => call[0] == profile);
+        expect(run.take(3), [profile, 'run', '--rm'], reason: '$profile run --rm');
+        expect(mountsCache(run), expected, reason: '$profile run --rm');
+      }
+      final removals = calls.where((call) => call[1] == 'rm').toList();
+      // The stale-name removal before each create, and each stop.
+      expect(removals, hasLength(6));
+      for (final removal in removals) {
+        expect(removal.sublist(1, 4), ['rm', '-f', '-v'], reason: removal.join(' '));
+      }
+
+      final dataDir = Directory.systemTemp.createTempSync('reclaim-volumes-');
+      addTearDown(() => dataDir.delete(recursive: true));
+      final reclaims = <List<String>>[];
+      await ContainerManager.reclaimOwnedContainers(
+        dataDir.path,
+        runtimeBinary: 'docker',
+        runCommand: (_, arguments) async {
+          reclaims.add(arguments);
+          return ProcessResult(1, 0, arguments.first == 'ps' ? 'orphan\n' : '', '');
+        },
+      );
+      expect(reclaims.last, ['rm', '-f', '-v', 'orphan']);
+    });
+
     test('isRuntimeAvailable returns true on zero exit code', () async {
       final manager = _manager(run: (executable, arguments) async => ProcessResult(1, 0, '', ''));
 
@@ -234,6 +391,37 @@ void main() {
         ['docker', 'image', 'inspect', 'dartclaw-agent:latest'],
         ['docker', 'build', '-t', 'dartclaw-agent:latest', '/tmp/project/docker'],
       ]);
+    });
+
+    test('ensureImage fails for a missing custom image', () async {
+      for (final binary in ['docker', 'podman']) {
+        final calls = <List<String>>[];
+        final manager = _manager(
+          config: ContainerConfig(image: 'my-dart-agent:1', runtimeBinary: binary),
+          run: (executable, arguments) async {
+            calls.add([executable, ...arguments]);
+            return ProcessResult(1, arguments.first == 'image' ? 1 : 0, '', 'missing');
+          },
+        );
+
+        await expectLater(
+          manager.ensureImage(),
+          throwsA(
+            isA<StateError>().having(
+              (error) => error.message,
+              'remediation',
+              allOf(
+                contains('$binary build -t my-dart-agent:1 <context>'),
+                contains('docs/guide/security.md'),
+                contains('Language Toolchains in the Agent Image'),
+              ),
+            ),
+          ),
+        );
+        expect(calls, [
+          [binary, 'image', 'inspect', 'my-dart-agent:1'],
+        ]);
+      }
     });
 
     test('ensureImage throws when build fails', () async {
@@ -867,7 +1055,7 @@ void main() {
 
       expect(calls, [
         ['docker', 'stop', '-t', '5', workspaceContainerName],
-        ['docker', 'rm', '-f', workspaceContainerName],
+        ['docker', 'rm', '-f', '-v', workspaceContainerName],
       ]);
     });
 
@@ -942,6 +1130,7 @@ ContainerManager _manager({
   String? generatedStateDir,
   String? artifactsDir,
   bool hasMcpBridge = false,
+  Map<String, String> registryClientEnvironment = const {},
 }) {
   return ContainerManager(
     ownerLabel: 'dartclaw.data-dir=/home/user/.dartclaw',
@@ -952,6 +1141,7 @@ ContainerManager _manager({
     generatedStateDir: generatedStateDir ?? _tempStateDir(),
     artifactsDir: artifactsDir,
     hasMcpBridge: hasMcpBridge,
+    registryClientEnvironment: registryClientEnvironment,
     localPathAllowlist: localPathAllowlist,
     bridgeBinaryPath: '/tmp/dartclaw-bridge',
     buildContextDir: buildContextDir,

@@ -50,10 +50,13 @@ Object _parseChannelConfig(DartclawConfig config, ChannelType channelType) {
 }
 
 /// Whether any channel section resolves to `enabled: true`.
+bool anyChannelEnabled(DartclawConfig config) => enabledChannelTypes(config).isNotEmpty;
+
+/// The channel types whose section resolves to `enabled: true`, in [ChannelType] order.
 ///
 /// The `switch` is exhaustive over [ChannelType] so a new channel cannot be
 /// silently folded in as "not enabled".
-bool anyChannelEnabled(DartclawConfig config) => channelConfigTypes.any(
+Iterable<ChannelType> enabledChannelTypes(DartclawConfig config) => channelConfigTypes.where(
   (channelType) => switch (channelType) {
     ChannelType.googlechat => resolveChannelConfig<GoogleChatConfig>(config, channelType).enabled,
     ChannelType.signal => resolveChannelConfig<SignalConfig>(config, channelType).enabled,

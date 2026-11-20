@@ -23,7 +23,7 @@ void main() {
     expect(Directory(fixture.workspaceDir).existsSync(), isTrue);
     expect(Directory(fixture.workflowWorkspaceDir).existsSync(), isTrue);
     expect(Directory(fixture.runtimeCwd).existsSync(), isTrue);
-    expect(p.isWithin(fixture.dataDir, fixture.runtimeCwd), isTrue);
+    expect(p.isWithin(fixture.dataDir, fixture.runtimeCwd), isFalse);
     expect(p.isWithin(fixture.projectDir, fixture.runtimeCwd), isFalse);
     expect(p.isWithin(_publicRepoRoot(), fixture.runtimeCwd), isFalse);
     expect(Directory(fixture.projectDir).existsSync(), isTrue);

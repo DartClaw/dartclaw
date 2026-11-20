@@ -32,13 +32,7 @@ void main() {
       );
       final inventory = WorkspaceSkillInventory.fromDataDir(dataDir);
 
-      linker.materialize(
-        dataDir: dataDir,
-        workspaceDir: workspaceDir,
-        skillNames: inventory.skillNames,
-        agentMdNames: inventory.agentMdNames,
-        agentTomlNames: inventory.agentTomlNames,
-      );
+      linker.materialize(dataDir: dataDir, workspaceDir: workspaceDir, skillNames: inventory.skillNames);
 
       expect(
         Link(p.join(workspaceDir, '.claude', 'skills', 'dartclaw-discover-andthen-spec')).targetSync(),
@@ -54,15 +48,25 @@ void main() {
       );
 
       final writesAfterFirstRun = linkWrites;
-      linker.materialize(
-        dataDir: dataDir,
-        workspaceDir: workspaceDir,
-        skillNames: inventory.skillNames,
-        agentMdNames: inventory.agentMdNames,
-        agentTomlNames: inventory.agentTomlNames,
-      );
+      linker.materialize(dataDir: dataDir, workspaceDir: workspaceDir, skillNames: inventory.skillNames);
 
       expect(linkWrites, writesAfterFirstRun);
+    });
+
+    test('disabling symlinks replaces existing links with self-contained skill copies', () {
+      const names = ['dartclaw-discover-andthen-spec'];
+      WorkspaceSkillLinker().materialize(dataDir: dataDir, workspaceDir: workspaceDir, skillNames: names);
+      final expected = File(p.join(dataDir, '.claude', 'skills', names.single, 'SKILL.md')).readAsStringSync();
+
+      WorkspaceSkillLinker(symlinksEnabled: false)
+          .materialize(dataDir: dataDir, workspaceDir: workspaceDir, skillNames: names);
+      Directory(dataDir).renameSync('$dataDir-hidden');
+
+      for (final root in ['.claude', '.agents']) {
+        final directory = p.join(workspaceDir, root, 'skills', names.single);
+        expect(FileSystemEntity.typeSync(directory, followLinks: false), FileSystemEntityType.directory);
+        expect(File(p.join(directory, 'SKILL.md')).readAsStringSync(), expected);
+      }
     });
 
     test('git exclude patterns are written once and non-git workspaces are ignored', () {
@@ -72,23 +76,11 @@ void main() {
       );
       final inventory = WorkspaceSkillInventory.fromDataDir(dataDir);
 
-      linker.materialize(
-        dataDir: dataDir,
-        workspaceDir: workspaceDir,
-        skillNames: inventory.skillNames,
-        agentMdNames: inventory.agentMdNames,
-        agentTomlNames: inventory.agentTomlNames,
-      );
+      linker.materialize(dataDir: dataDir, workspaceDir: workspaceDir, skillNames: inventory.skillNames);
       final exclude = File(p.join(gitDir.path, 'info', 'exclude'));
       final firstContents = exclude.readAsStringSync();
 
-      linker.materialize(
-        dataDir: dataDir,
-        workspaceDir: workspaceDir,
-        skillNames: inventory.skillNames,
-        agentMdNames: inventory.agentMdNames,
-        agentTomlNames: inventory.agentTomlNames,
-      );
+      linker.materialize(dataDir: dataDir, workspaceDir: workspaceDir, skillNames: inventory.skillNames);
 
       expect(exclude.readAsStringSync(), firstContents);
       for (final pattern in WorkspaceSkillLinker.managedExcludePatterns) {
@@ -96,13 +88,7 @@ void main() {
       }
 
       final noGit = Directory(p.join(tempDir.path, 'no-git'))..createSync();
-      linker.materialize(
-        dataDir: dataDir,
-        workspaceDir: noGit.path,
-        skillNames: inventory.skillNames,
-        agentMdNames: inventory.agentMdNames,
-        agentTomlNames: inventory.agentTomlNames,
-      );
+      linker.materialize(dataDir: dataDir, workspaceDir: noGit.path, skillNames: inventory.skillNames);
       expect(Directory(p.join(noGit.path, '.git')).existsSync(), isFalse);
     });
 
@@ -113,13 +99,7 @@ void main() {
       final linker = WorkspaceSkillLinker(gitDirResolver: (_) => effectiveGitDir.path);
       final inventory = WorkspaceSkillInventory.fromDataDir(dataDir);
 
-      linker.materialize(
-        dataDir: dataDir,
-        workspaceDir: workspaceDir,
-        skillNames: inventory.skillNames,
-        agentMdNames: inventory.agentMdNames,
-        agentTomlNames: inventory.agentTomlNames,
-      );
+      linker.materialize(dataDir: dataDir, workspaceDir: workspaceDir, skillNames: inventory.skillNames);
 
       final exclude = File(p.join(effectiveGitDir.path, 'info', 'exclude')).readAsStringSync();
       expect(exclude, contains('/.claude/skills/dartclaw-*'));
@@ -132,13 +112,7 @@ void main() {
       final linker = WorkspaceSkillLinker();
       final inventory = WorkspaceSkillInventory.fromDataDir(dataDir);
 
-      linker.materialize(
-        dataDir: dataDir,
-        workspaceDir: workspaceDir,
-        skillNames: inventory.skillNames,
-        agentMdNames: inventory.agentMdNames,
-        agentTomlNames: inventory.agentTomlNames,
-      );
+      linker.materialize(dataDir: dataDir, workspaceDir: workspaceDir, skillNames: inventory.skillNames);
 
       expect(File(p.join(outsideGit.path, 'info', 'exclude')).existsSync(), isFalse);
     });
@@ -160,13 +134,7 @@ void main() {
 
       final linker = WorkspaceSkillLinker();
       final inventory = WorkspaceSkillInventory.fromDataDir(dataDir);
-      linker.materialize(
-        dataDir: dataDir,
-        workspaceDir: worktreeDir,
-        skillNames: inventory.skillNames,
-        agentMdNames: inventory.agentMdNames,
-        agentTomlNames: inventory.agentTomlNames,
-      );
+      linker.materialize(dataDir: dataDir, workspaceDir: worktreeDir, skillNames: inventory.skillNames);
 
       final status = _runGit(worktreeDir, ['status', '--porcelain', '--untracked-files=all']);
       expect(status.stdout, isEmpty);
@@ -182,8 +150,6 @@ void main() {
         dataDir: dataDir,
         workspaceDir: workspaceDir,
         skillNames: const ['dartclaw-discover-andthen-spec'],
-        agentMdNames: const [],
-        agentTomlNames: const [],
       );
 
       expect(staleLink.targetSync(), p.join(dataDir, '.claude', 'skills', 'dartclaw-discover-andthen-spec'));
@@ -203,8 +169,6 @@ void main() {
         dataDir: dataDir,
         workspaceDir: workspaceDir,
         skillNames: const ['dartclaw-discover-andthen-spec'],
-        agentMdNames: const [],
-        agentTomlNames: const [],
       );
 
       expect(
@@ -238,8 +202,6 @@ void main() {
         dataDir: dataDir,
         workspaceDir: workspaceDir,
         skillNames: const ['dartclaw-discover-andthen-spec'],
-        agentMdNames: const [],
-        agentTomlNames: const [],
       );
       expect(
         File(p.join(workspaceDir, '.claude', 'skills', 'dartclaw-discover-andthen-spec', '.dartclaw-managed'))
@@ -257,8 +219,6 @@ void main() {
         dataDir: dataDir,
         workspaceDir: workspaceDir,
         skillNames: const ['dartclaw-discover-andthen-spec'],
-        agentMdNames: const [],
-        agentTomlNames: const [],
       );
       expect(copyWrites, 4);
 
@@ -268,45 +228,31 @@ void main() {
         dataDir: dataDir,
         workspaceDir: workspaceDir,
         skillNames: const ['dartclaw-discover-andthen-spec'],
-        agentMdNames: const [],
-        agentTomlNames: const [],
       );
       expect(copyWrites, 6);
     });
 
-    test('managed file marker is removed when a copied agent becomes a symlink', () {
-      final source = File(p.join(dataDir, '.claude', 'agents', 'dartclaw-reviewer.md'))
-        ..createSync(recursive: true)
-        ..writeAsStringSync('# Reviewer\n');
-      final destination = p.join(workspaceDir, '.claude', 'agents', 'dartclaw-reviewer.md');
-      final marker = File('$destination.${WorkspaceSkillLinker.managedMarkerName}');
-      final fallbackLinker = WorkspaceSkillLinker(
-        linkFactory: ({required targetPath, required linkPath}) {
-          throw const FileSystemException('symlinks unavailable');
-        },
-      );
+    test('clean removes managed agent copies left by earlier releases and keeps operator agents', () {
+      final legacyAgents = [
+        p.join(workspaceDir, '.claude', 'agents', 'dartclaw-reviewer.md'),
+        p.join(workspaceDir, '.codex', 'agents', 'dartclaw-reviewer.toml'),
+      ];
+      for (final path in legacyAgents) {
+        File(path)
+          ..createSync(recursive: true)
+          ..writeAsStringSync('legacy\n');
+        File('$path.${WorkspaceSkillLinker.managedMarkerName}').writeAsStringSync('source: old\n');
+      }
+      final operatorAgent = File(p.join(workspaceDir, '.claude', 'agents', 'my-agent.md'))
+        ..writeAsStringSync('operator\n');
 
-      fallbackLinker.materialize(
-        dataDir: dataDir,
-        workspaceDir: workspaceDir,
-        skillNames: const [],
-        agentMdNames: const ['dartclaw-reviewer'],
-        agentTomlNames: const [],
-      );
+      WorkspaceSkillLinker(gitDirResolver: (_) => null).clean(workspaceDir: workspaceDir);
 
-      expect(File(destination).readAsStringSync(), source.readAsStringSync());
-      expect(marker.existsSync(), isTrue);
-
-      WorkspaceSkillLinker().materialize(
-        dataDir: dataDir,
-        workspaceDir: workspaceDir,
-        skillNames: const [],
-        agentMdNames: const ['dartclaw-reviewer'],
-        agentTomlNames: const [],
-      );
-
-      expect(FileSystemEntity.typeSync(destination, followLinks: false), FileSystemEntityType.link);
-      expect(marker.existsSync(), isFalse);
+      for (final path in legacyAgents) {
+        expect(File(path).existsSync(), isFalse, reason: path);
+        expect(File('$path.${WorkspaceSkillLinker.managedMarkerName}').existsSync(), isFalse, reason: path);
+      }
+      expect(operatorAgent.readAsStringSync(), 'operator\n');
     });
 
     test('clean removes only managed artifacts and exact exclude lines', () {
@@ -325,8 +271,6 @@ void main() {
         dataDir: dataDir,
         workspaceDir: workspaceDir,
         skillNames: const ['dartclaw-discover-andthen-spec'],
-        agentMdNames: const [],
-        agentTomlNames: const [],
       );
       linker.clean(workspaceDir: workspaceDir);
 
@@ -397,8 +341,6 @@ void main() {
 
       expect(inventory.skillNames, ['help', 'review']);
       expect(inventory.skillDescriptions, {'help': 'Workspace help', 'review': 'Review the current change'});
-      expect(inventory.agentMdNames, isEmpty);
-      expect(inventory.agentTomlNames, isEmpty);
     });
 
     test('ignores unsafe directory names and falls back to the skill name for invalid metadata', () {

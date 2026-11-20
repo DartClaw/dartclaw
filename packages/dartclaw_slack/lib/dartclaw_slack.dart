@@ -21,6 +21,7 @@ export 'src/slack_web_api_client.dart'
     show
         SlackApiException,
         SlackAuthInfo,
+        SlackSessionStatus,
         SlackWebApiClient,
         slackApiBase,
         slackFileScopeMissing,

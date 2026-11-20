@@ -34,6 +34,8 @@ export 'src/output_schema.dart'
 export 'src/channel_config.dart' show ChannelConfig, GroupAccessMode, RetryPolicy;
 export 'src/channel_type.dart' show ChannelType;
 export 'src/container_config.dart' show ContainerConfig;
+export 'src/container_registries.dart'
+    show RegistryJsonRewrite, RegistryRecord, RegistryUpstream, builtInRegistryRecords, parseRegistryRecords;
 export 'src/execution_policy.dart' show ExecutionMode, ExecutionPolicy;
 export 'src/session_key.dart' show SessionKey;
 export 'src/session_scope_config.dart' show SessionScopeConfig, ChannelScopeConfig, DmScope, GroupScope;
@@ -155,7 +157,13 @@ export 'src/onboarding_config.dart' show OnboardingConfig;
 export 'src/platform_capabilities.dart'
     show BashShellPolicy, PlatformCapabilities, ProcessTerminationSemantics, UnsupportedCapabilityError;
 export 'src/project_config.dart'
-    show LocalProjectPathValidation, ProjectConfig, ProjectDefinition, parseProjectConfig, validateProjectLocalPath;
+    show
+        LocalProjectPathValidation,
+        ProjectConfig,
+        ProjectDefinition,
+        isWithinAgentWorkspace,
+        parseProjectConfig,
+        validateProjectLocalPath;
 export 'src/provider_identity.dart' show ProviderIdentity;
 export 'src/provider_validator.dart' show ProviderValidator, processOutputToText, extractVersionLine;
 export 'src/providers_config.dart' show ProviderAuth, ProviderEntry, ProvidersConfig;
@@ -213,6 +221,7 @@ export 'src/sliding_window_rate_limiter.dart' show SlidingWindowRateLimiter;
 export 'src/prompt_scope.dart' show PromptScope;
 export 'src/turn_origin.dart' show TurnOrigin;
 export 'src/path_canonicalization.dart' show canonicalizePathWithExistingAncestors;
+export 'src/agent_text_scrub.dart' show scrubAgentReportedBlock, scrubAgentReportedText;
 export 'src/constant_time.dart' show constantTimeEquals;
 export 'src/string_util.dart' show truncate;
 export 'src/http_request.dart' show HttpClientFactory, httpRequest;

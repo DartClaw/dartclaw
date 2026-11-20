@@ -21,7 +21,7 @@ void main() {
     final worker = FakeAgentHarness();
     final turns = FakeTurnManager(messages, worker);
     final handler = localAdminMiddleware()(
-      sessionRoutes(sessions, messages, turns, worker, ownerWorkspaceDir: sessions.baseDir).call,
+      sessionRoutes(sessions, messages, turns, ownerWorkspaceDir: sessions.baseDir).call,
     );
     addTearDown(() async {
       await messages.dispose();

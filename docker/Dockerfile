@@ -22,6 +22,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN groupadd -g 1000 dartclaw && \
     useradd -m -u 1000 -g dartclaw dartclaw
 
+# A workspace container mounts its package-cache volume here. A new volume
+# copies this directory's ownership, so without it the cache is root-owned.
+RUN mkdir -p /var/cache/dartclaw && chown 1000:1000 /var/cache/dartclaw
+
 USER dartclaw
 RUN curl -fsSL https://claude.ai/install.sh | bash -s -- "${CLAUDE_VERSION}"
 RUN set -eux; \

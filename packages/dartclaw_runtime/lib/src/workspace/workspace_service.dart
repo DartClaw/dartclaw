@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart' show secureWriteFileSync;
-import 'package:dartclaw_kernel/dartclaw_kernel.dart' show AgentWorkspace;
+import 'package:dartclaw_kernel/dartclaw_kernel.dart' show AgentWorkspace, DartclawConfig;
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
@@ -16,18 +16,18 @@ class WorkspaceService {
 
   new({required this.dataDir});
 
-  String get workspaceDir => p.join(dataDir, 'workspace');
+  String get workspaceDir => DartclawConfig.workspaceDirFor(dataDir);
   String get logsDir => p.join(dataDir, 'logs');
   String get sessionsDir => p.join(dataDir, 'sessions');
 
   /// Validates every managed agent home without changing the filesystem.
   void validateManagedAgents(Iterable<AgentWorkspace> workspaces) {
     _refuseLink(p.normalize(p.absolute(dataDir)), subject: 'Instance data directory');
-    final expectedRoot = p.normalize(p.absolute(p.join(dataDir, 'agents')));
+    final expectedRoot = AgentWorkspace.managedRootFor(dataDir);
     final ownerTargets = _ownerWorkspaceTargets();
     _refuseLink(expectedRoot, subject: 'Managed agents root');
     for (final workspace in workspaces) {
-      final expectedDirectory = p.join(expectedRoot, workspace.agentId, 'workspace');
+      final expectedDirectory = AgentWorkspace.managedDirectoryFor(dataDir, workspace.agentId);
       if (!p.equals(workspace.directory, expectedDirectory)) {
         throw StateError(
           'Agent "${workspace.agentId}" workspace ${workspace.directory} is outside its managed destination '

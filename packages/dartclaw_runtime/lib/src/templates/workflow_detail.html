@@ -38,7 +38,7 @@
           Pause
         </button>
         <button tl:if="${canResume}" type="button" class="btn btn-primary"
-                tl:attr="hx-post='/api/workflows/runs/' + ${runId} + '/resume'"
+                tl:attr="hx-post=${resumeUrl}"
                 hx-swap="none">
           Resume
         </button>
@@ -55,7 +55,7 @@
         </button>
         <!-- Approval controls: shown for awaitingApproval holds -->
         <button tl:if="${canApprove}" type="button" class="btn btn-primary"
-                tl:attr="hx-post='/api/workflows/runs/' + ${runId} + '/resume'"
+                tl:attr="hx-post=${resumeUrl}"
                 hx-swap="none">
           Approve
         </button>
@@ -87,11 +87,12 @@
 
       <!-- Shared context viewer -->
       <div tl:if="${hasContext}" class="workflow-context-viewer card">
-        <div class="workflow-context-header" data-context-toggle="">
+        <button type="button" class="workflow-context-header" data-context-toggle=""
+                aria-expanded="false" aria-controls="workflow-context">
           <span>Shared Context</span>
           <span class="icon icon-chevron-down" aria-hidden="true"></span>
-        </div>
-        <div class="workflow-context-body" hidden>
+        </button>
+        <div id="workflow-context" class="workflow-context-body" hidden>
           <div tl:each="entry : ${contextEntries}" class="workflow-context-entry">
             <span class="workflow-context-key" tl:text="${entry.key}">key</span>
             <span tl:classappend="${entry.isLong} ? 'workflow-context-value-long' : ''"

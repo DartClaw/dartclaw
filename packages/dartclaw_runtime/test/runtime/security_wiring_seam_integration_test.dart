@@ -20,7 +20,7 @@ SecurityWiring _buildRegisteredWiring({
   return SecurityWiring(
     config: _baseConfig,
     dataDir: dataDir,
-    runtimeCwd: dataDir,
+    localRepositoryDir: dataDir,
     eventBus: eventBus,
     exitFn: (code) => throw Exception('exitFn called with $code'),
     configNotifier: configNotifier,

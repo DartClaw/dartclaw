@@ -6,12 +6,13 @@ const _usage = '''Usage: bash dev/tools/release_check.sh --version <version> [op
   --resume      Reuse intact passes for this exact commit and environment.
   --status      Show recorded results without executing gates.
   --gate <id>   Run or inspect one gate; prerequisites run when needed.
-  --quick, -q   Omit workspace tests; always reports incomplete coverage.
+  --omit <ids>  Omit comma-separated gates (the Linux guest omits linux,ci).
+  --quick, -q   Skip workspace tests and the Linux gate. Reports incomplete coverage.
 Exit codes: 0 = selected gates passed, 1 = failure, 2 = usage, 3 = incomplete.
 Automated success is not release approval. See dev/guidelines/RELEASE_PREPARATION.md.
 ''';
 
-const _ciJobs = ['Check', 'Container boundary', 'PowerShell scripts', 'PostgreSQL contract'];
+const _ciJobs = ['Check', 'PowerShell scripts'];
 const _gates = <String, List<List<String>>>{
   'cleanup': [],
   'versions': [
@@ -40,7 +41,7 @@ const _gates = <String, List<List<String>>>{
     ['dart', 'analyze', '--fatal-infos'],
   ],
   'tests': [
-    ['bash', 'dev/tools/test_workspace.sh'],
+    ['bash', 'dev/tools/test_workspace.sh', '--separate-fitness'],
   ],
   'postgres': [
     ['bash', 'dev/tools/postgres_contract.sh'],
@@ -57,11 +58,12 @@ const _gates = <String, List<List<String>>>{
   'whitespace': [
     ['git', 'show', '--format=', '--check', 'HEAD'],
   ],
+  'linux': [],
   'ci': [],
 };
 
 // These gates depend on ignored files, external services or generated outputs.
-const _alwaysRun = {'cleanup', 'dependencies', 'assets', 'postgres', 'build', 'ci'};
+const _alwaysRun = {'cleanup', 'dependencies', 'assets', 'postgres', 'build', 'linux', 'ci'};
 const _needsAssets = {'format', 'analyze', 'tests', 'postgres', 'architecture', 'fitness', 'build'};
 
 Future<void> main(List<String> args) async {
@@ -84,14 +86,17 @@ Future<int> _run(List<String> args) async {
   var resume = false;
   var statusOnly = false;
   var quick = false;
+  final omitted = <String>{};
   for (var i = 0; i < args.length; i++) {
     switch (args[i]) {
-      case '--version' || '--gate':
+      case '--version' || '--gate' || '--omit':
         if (i + 1 == args.length) throw FormatException('${args[i]} requires a value');
         if (args[i] == '--version') {
           version = args[++i];
-        } else {
+        } else if (args[i] == '--gate') {
           gate = args[++i];
+        } else {
+          omitted.addAll(args[++i].split(','));
         }
       case '--local':
         local = true;
@@ -112,7 +117,11 @@ Future<int> _run(List<String> args) async {
   if (version == null || !RegExp(r'^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$').hasMatch(version)) {
     throw const FormatException('--version requires a release version such as 0.27.0');
   }
-  if ((gate != null && !_gates.containsKey(gate)) || (local && gate == 'ci') || (quick && gate != null)) {
+  if ((gate != null && !_gates.containsKey(gate)) ||
+      (local && gate == 'ci') ||
+      (quick && gate != null) ||
+      (gate != null && omitted.isNotEmpty) ||
+      omitted.any((id) => !_gates.containsKey(id))) {
     throw const FormatException('Unknown gate or conflicting --gate/--local/--quick options');
   }
 
@@ -124,7 +133,9 @@ Future<int> _run(List<String> args) async {
     return 1;
   }
   final environment = await check.environment();
-  final selected = gate == null ? _gates.keys.where((id) => !local || id != 'ci').toList() : [gate];
+  final selected = gate == null
+      ? _gates.keys.where((id) => (!local || id != 'ci') && !omitted.contains(id)).toList()
+      : [gate];
   if (!statusOnly && gate != null && _needsAssets.contains(gate)) {
     selected.insertAll(0, ['dependencies', 'assets']);
   } else if (!statusOnly && gate == 'assets') {
@@ -141,7 +152,7 @@ Future<int> _run(List<String> args) async {
     var failed = false;
     var incomplete = quick;
     for (final id in selected) {
-      if (quick && id == 'tests') {
+      if (quick && (id == 'tests' || id == 'linux')) {
         stdout.writeln('$id: skipped (--quick)');
         continue;
       }
@@ -177,7 +188,7 @@ Future<int> _run(List<String> args) async {
       return 3;
     }
     stdout.writeln(
-      '${gate != null
+      '${gate != null || omitted.isNotEmpty
           ? 'Selected'
           : local
           ? 'Local automated'
@@ -325,6 +336,7 @@ class _ReleaseCheck {
     final sink = log.openWrite();
     try {
       if (id == 'cleanup') _cleanup();
+      if (id == 'linux') await _linux(sink, candidate, attempt);
       if (id == 'ci') _ci(receipt, sink, candidate['head']! as String);
       for (final argv in commands(id)) {
         sink.writeln('> ${argv.join(' ')}');
@@ -364,6 +376,101 @@ class _ReleaseCheck {
       }
     }
     return code == 0;
+  }
+
+  Future<void> _linux(IOSink log, Map<String, Object> candidate, Directory attempt) async {
+    const vm = 'dartclaw-release-linux';
+    const template = 'dev/tools/lima/linux.yaml';
+    Future<String> lima(List<String> args) async {
+      log.writeln('> limactl ${args.join(' ')}');
+      final process = await Process.start('limactl', args, workingDirectory: root);
+      final output = StringBuffer();
+      await Future.wait([
+        process.stdout.transform(utf8.decoder).forEach((chunk) {
+          output.write(chunk);
+          log.write(chunk);
+        }),
+        process.stderr.forEach(log.add),
+      ]);
+      final code = await process.exitCode;
+      if (code != 0) throw StateError('limactl ${args.first} failed (exit $code).');
+      return output.toString().trim();
+    }
+
+    String names;
+    try {
+      names = await lima(['list', '--format', '{{.Name}}']);
+    } on ProcessException {
+      throw StateError('Linux gate needs Lima. Install it with: brew install lima');
+    }
+    try {
+      if (!names.split('\n').contains(vm)) {
+        await lima(['create', '--tty=false', '--name=$vm', template]);
+      }
+      await lima(['start', '--tty=false', vm]);
+      await lima(['shell', vm, 'true']);
+    } on StateError catch (error) {
+      throw StateError(
+        '$error VM $vm could not be started or reached. Recreate it with: '
+        'limactl delete $vm; limactl create --name=$vm $template',
+      );
+    }
+    // Ubuntu's /tmp cannot hold the suite's generated kernels and release outputs.
+    final guest = await lima([
+      'shell',
+      vm,
+      'bash',
+      '-lc',
+      r'mkdir -p "$HOME/.agent_temp" && mktemp -d "$HOME/.agent_temp/dartclaw-release.XXXXXXXX"',
+    ]);
+    final bundle = File('${attempt.path}/candidate.bundle');
+    try {
+      // The guest's doc-cuts gate compares the candidate against local main.
+      command(['git', 'bundle', 'create', bundle.path, 'HEAD', 'refs/heads/main']);
+      await lima(['copy', bundle.path, '$vm:$guest/candidate.bundle']);
+      final head = candidate['head']! as String;
+      final tree = candidate['tree']! as String;
+      final checkout = _shellQuote('$guest/repo');
+      // Outside the checkout: suites assert their temporary repositories and runtime directories are not inside it.
+      final temporary =
+          'export TMPDIR=${_shellQuote('$guest/tmp')}\n'
+          'mkdir -p "\$TMPDIR"\n';
+      await lima([
+        'shell',
+        vm,
+        'bash',
+        '-lc',
+        'set -eu\n'
+            'git clone --quiet --origin origin ${_shellQuote('$guest/candidate.bundle')} $checkout\n'
+            'cd $checkout\n'
+            'git checkout --quiet --detach $head\n'
+            'git branch --force main refs/remotes/origin/main\n'
+            'test "\$(git rev-parse HEAD)" = $head\n'
+            'test "\$(git rev-parse HEAD^{tree})" = $tree\n'
+            'echo Linux candidate: $head tree $tree',
+      ]);
+      await lima([
+        'shell',
+        vm,
+        'bash',
+        '-lc',
+        'set -eu\ncd $checkout\n$temporary'
+            'DARTCLAW_NATIVE_ALLOW_DOWNLOAD=1 '
+            'bash dev/tools/release_check.sh --version ${_shellQuote(version)} --local --omit linux,ci',
+      ]);
+      log.writeln('> Container posture profile');
+      await lima([
+        'shell',
+        vm,
+        'bash',
+        '-lc',
+        'set -eu\ncd $checkout\n$temporary'
+            'sudo -E env "PATH=\$PATH" bash dev/testing/profiles/container/run.sh --ci',
+      ]);
+    } finally {
+      if (bundle.existsSync()) bundle.deleteSync();
+      await lima(['shell', vm, 'sudo', 'rm', '-rf', '--', guest]);
+    }
   }
 
   void _cleanup() {
@@ -443,3 +550,5 @@ class _ReleaseCheck {
     }
   }
 }
+
+String _shellQuote(String value) => "'${value.replaceAll("'", "'\\''")}'";

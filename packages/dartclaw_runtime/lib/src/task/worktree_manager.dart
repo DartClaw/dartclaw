@@ -44,6 +44,17 @@ class WorktreeException implements Exception {
   }
 }
 
+/// Thrown when a worktree operation needs the runtime's local repository and
+/// the runtime has none: it was started from its data directory, whose
+/// workspace agents can write and which is never a project repository.
+class NoLocalRepositoryException extends WorktreeException {
+  const new()
+    : super(
+        'This runtime has no local repository (it was started from its data directory); '
+        'assign the task a registered project',
+      );
+}
+
 /// Thrown when git is not available on the system.
 class GitNotFoundException implements Exception {
   @override
@@ -73,12 +84,13 @@ typedef WorktreeSkillMaterializer = Future<void> Function(String worktreePath);
 ///
 /// When a [Project] is passed to [create], the worktree is created from the
 /// project's clone directory using `origin/<defaultBranch>` as the start point.
-/// When no project is provided, the constructor-supplied [projectDir] and
-/// [baseRef] are used (backward-compatible default behavior).
+/// When no project is provided, the constructor-supplied local repository
+/// (`projectDir`) and [baseRef] are used; a manager without one refuses that
+/// case with [NoLocalRepositoryException].
 class WorktreeManager {
   static final _log = Logger('WorktreeManager');
 
-  final String _projectDir;
+  final String? _projectDir;
   final String _baseRef;
   final int _staleTimeoutHours;
   final String _worktreesDir;
@@ -94,7 +106,7 @@ class WorktreeManager {
 
   new({
     required String dataDir,
-    required String projectDir,
+    required String? projectDir,
     String baseRef = 'main',
     int staleTimeoutHours = 24,
     String? worktreesDir,
@@ -113,6 +125,15 @@ class WorktreeManager {
 
   static Future<void> _noopSkillMaterializer(String worktreePath) async {}
 
+  /// The repository whose worktrees this manager creates for [project]: its
+  /// clone, or the constructor's local repository when [project] is null.
+  ///
+  /// Throws [NoLocalRepositoryException] when [project] is null and this
+  /// manager has no local repository.
+  String projectDirFor(Project? project) => project?.localPath ?? _localRepository;
+
+  String get _localRepository => _projectDir ?? (throw const NoLocalRepositoryException());
+
   /// Creates a new git worktree for the given task.
   ///
   /// When [project] is provided, the worktree is created from the project's
@@ -122,6 +143,8 @@ class WorktreeManager {
   /// When [project] is null, falls back to the constructor-provided defaults:
   /// two-step `git branch` + `git worktree add` from the local base ref.
   ///
+  /// Throws [NoLocalRepositoryException] before any Git runs when [project] is
+  /// null and this manager has no local repository.
   /// Throws [GitNotFoundException] if git is not available.
   /// Throws [WorktreeException] on git failure (with stderr output).
   Future<WorktreeInfo> create(
@@ -131,9 +154,9 @@ class WorktreeManager {
     bool createBranch = true,
     Map<String, dynamic>? existingWorktreeJson,
   }) async {
+    final effectiveProjectDir = projectDirFor(project);
     await _ensureGitAvailable();
 
-    final effectiveProjectDir = project?.localPath ?? _projectDir;
     final worktreePath = p.join(_worktreesDir, taskId);
     final persistedInfo = _parseWorktreeInfo(existingWorktreeJson);
 
@@ -316,20 +339,23 @@ class WorktreeManager {
     return result.exitCode == 0;
   }
 
-  /// Removes worktree directory and deletes the branch.
+  /// Removes the worktree and attempts branch deletion.
+  ///
+  /// [forceDeleteBranch] discards only the exact task-owned branch after its
+  /// commits have been integrated; attached branches are preserved in that mode.
   ///
   /// When [project] is provided, uses the project's [localPath] as the git
   /// working directory for removal. Falls back to the constructor-provided
   /// [projectDir] when [project] is null.
   ///
-  /// Logs warnings on failure but does not throw — cleanup is best-effort.
-  Future<void> cleanup(String taskId, {Project? project}) async {
+  /// Logs warnings on Git failure but does not throw — cleanup is best-effort —
+  /// except [NoLocalRepositoryException], thrown before any Git runs.
+  Future<void> cleanup(String taskId, {Project? project, bool forceDeleteBranch = false}) async {
+    final effectiveProjectDir = projectDirFor(project);
     final info = _worktrees[taskId];
     final worktreePath = info?.path ?? p.join(_worktreesDir, taskId);
     final branch = normalizeGitRefOperand(info?.branch ?? 'dartclaw/task-$taskId', label: 'worktree branch');
-    final effectiveProjectDir = project?.localPath ?? _projectDir;
 
-    // Remove worktree
     final removeResult = await _runGit(['worktree', 'remove', worktreePath], workingDirectory: effectiveProjectDir);
     if (removeResult.exitCode != 0) {
       _log.warning(
@@ -338,21 +364,26 @@ class WorktreeManager {
       );
     }
 
-    // Delete branch
-    final branchResult = await _runGit(['branch', '--delete', branch], workingDirectory: effectiveProjectDir);
-    if (branchResult.exitCode != 0) {
-      _log.warning(
-        'Failed to delete branch $branch for task $taskId: '
-        '${(branchResult.stderr as String).trim()}',
-      );
+    if (!forceDeleteBranch || branch == 'dartclaw/task-$taskId') {
+      final branchResult = await _runGit([
+        'branch',
+        forceDeleteBranch ? '-D' : '--delete',
+        branch,
+      ], workingDirectory: effectiveProjectDir);
+      if (branchResult.exitCode != 0) {
+        _log.warning(
+          'Failed to delete branch $branch for task $taskId: '
+          '${(branchResult.stderr as String).trim()}',
+        );
+      }
     }
 
     _worktrees.remove(taskId);
     _log.info('Cleaned up worktree for task $taskId');
   }
 
-  /// Checks all worktrees in `<dataDir>/worktrees/` and logs warnings
-  /// for any older than [_staleTimeoutHours].
+  /// Reaps worktrees older than [_staleTimeoutHours] whose task is missing or
+  /// terminal; one whose task is still active is left with a warning.
   Future<void> detectStaleWorktrees() async {
     final dir = Directory(_worktreesDir);
     if (!dir.existsSync()) return;
@@ -583,26 +614,27 @@ class WorktreeManager {
   ///
   /// Limitation: when the task row is missing (true orphan), the owning
   /// project cannot be recovered because worktree paths are UUID-keyed and do
-  /// not encode `projectId`. The fallback to `_projectDir` may leave a
+  /// not encode `projectId`. The fallback to the local repository may leave a
   /// dangling worktree registration in the real owning repo; disk cleanup
   /// still succeeds. Encoding `projectId` in the worktree path would close
-  /// this residual gap but is out of scope here.
+  /// this residual gap but is out of scope here. Without a local repository
+  /// that fallback throws [NoLocalRepositoryException] and the worktree stays.
   Future<String> _resolveReapWorkingDirectory(Task? task) async {
     final projectLookup = _projectLookup;
     final projectId = task?.projectId;
     if (projectLookup == null || projectId == null || projectId.isEmpty || projectId == '_local') {
-      return _projectDir;
+      return _localRepository;
     }
     try {
       final project = await projectLookup(projectId);
       final localPath = project?.localPath;
       if (localPath == null || localPath.isEmpty) {
-        return _projectDir;
+        return _localRepository;
       }
       return localPath;
     } catch (error) {
       _log.warning('Failed to resolve project $projectId for stale reap; using default repo: $error');
-      return _projectDir;
+      return _localRepository;
     }
   }
 

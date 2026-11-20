@@ -2,7 +2,7 @@
 
 How DartClaw contains an agent that can run shell commands: container isolation, the guard chain, credential mediation, access control, audit, content classification, and runtime governance (rate limits, token budgets, loop detection, emergency controls). It is the authority for those concerns. Harness protocols and turn lifecycle live in [control-protocol.md](control-protocol.md), package wiring in [system-architecture.md](system-architecture.md), stores in [data-model.md](data-model.md), and log/metric mechanics in [observability-operations-architecture.md](observability-operations-architecture.md).
 
-**Current through**: 0.28.0
+**Current through**: 0.28.1
 
 ---
 
@@ -14,11 +14,12 @@ DartClaw spawns provider CLI binaries (`claude`, `codex`) and ACP agent binaries
 |--------|-----------------|
 | **Prompt injection** via channels, web pages, search results, MCP results | `ContentScan`/`ContentGuard` on logical-agent results, search results, `web_fetch` bodies and `public` outbound MCP results. The guard chain and container bound what an injected instruction can do. Inbound channel text is not classified on arrival |
 | **Command injection** (`rm -rf /`, fork bombs, shell escapes) | `CommandGuard` (best-effort regex), container isolation |
-| **Data exfiltration** (curl POST, base64 pipes) | `NetworkGuard`, container `--network none`, `EgressGuard` for outbound MCP |
+| **Data exfiltration** (curl POST, base64 pipes) | `NetworkGuard`, container `--network none`, `EgressGuard` for outbound MCP. Registry egress accepts GET/HEAD only to the exact origins the enabled `container.registries` records pin (built-ins: pub.dev, registry.npmjs.org, pypi.org and files.pythonhosted.org, index.crates.io and static.crates.io; go's proxy.golang.org ships disabled because it fetches any module path). An operator-added pin is GET egress the container controls |
 | **Credential theft** | Host-owned provider mediation (no credential in the container), `FileGuard`, mount scoping, `SafeProcess` env sanitization, `MessageRedactor` |
 | **SSRF** from `web_fetch` or MCP | DNS-pinned address checks in `WebFetchTool`, `network_class: public` transport policy |
 | **Unauthorized access** | `authMiddleware`, `/mcp` bearer resolution, channel DM/group gates, webhook signatures |
-| **Supply chain** | No Node.js/npm in the host chain, minimal dependencies, pinned Codex binary with sha256 in the image |
+| **Supply chain** | The host chain uses minimal dependencies and needs no Node.js or npm. The image pins the Codex binary by SHA-256. Public dependencies of the enabled `container.registries` ecosystems enter workspace containers through the read-only registry surface. Dependency code can change the worktree. |
+| **Agent-written files reaching a host checkout or remote** | Automatic task accept, workflow promotion and publish hold execution-surface changes for a person before delivery. Host Git in agent worktrees uses the gitdir the project recorded and refuses a tampered gitlink, with hooks and fsmonitor disabled. See [Task Security](#task-security). |
 | **Container escape** | `--cap-drop ALL`, read-only rootfs, `no-new-privileges`, non-root user |
 | **Cross-agent contamination** | One container per execution authority, per-profile mounts |
 | **Cost overrun, rate abuse, runaway loops** | Runtime governance: token budget, rate limits, loop detection ([Runtime Governance](#runtime-governance)) |
@@ -98,7 +99,7 @@ Provider branching is confined to protocol adapters and composition. Security, s
 
 `SecurityWiring` implements `Reconfigurable` (`watchKeys: security.*`, which covers the `guards:` YAML section). A reload rebuilds the base list from `delta.current.security` and swaps it atomically with `replaceGuards`. A failed rebuild logs and keeps the existing chain; a failed build at startup exits. `guards.enabled` turning false needs a restart. `MessageRedactor` reloads through a small `logging.*` adapter.
 
-Caveat: `replaceGuards` replaces the whole base list, so guards added by `registerGuard` do not survive a reload.
+`replaceGuards` replaces only the config-built guards; guards added by `registerGuard` (`GuardChain.addGuard`) are kept and still run after them.
 
 **Source**: `packages/dartclaw_runtime/lib/src/security/guard_builder.dart`, `packages/dartclaw_runtime/lib/src/runtime/harness_wiring_guards.dart`, `packages/dartclaw_runtime/lib/src/server_composition.dart`
 
@@ -206,6 +207,8 @@ Evaluates `shell` (exfil patterns, then every `http(s)://`, `git@`, and `docker 
 
 Default allowlist: `github.com`, `*.github.com`, `api.anthropic.com`, `pypi.org`, `*.pypi.org`, `npmjs.com`, `*.npmjs.com`, `registry.npmjs.org`, `pub.dev`, `*.pub.dev`, `*.googleapis.com`, `dart.dev`, `*.dart.dev`, `crates.io`, `rubygems.org`, `stackoverflow.com`. Default exfil patterns: `curl ... | sh|bash|zsh|dash`, `wget -O - | sh|bash`, `curl` with `-d/--data*/-F/--form`, and `| base64`. `guards.network.extra_allowed_domains` and `extra_exfil_patterns` extend them; `guards.network.agent_overrides.<agent>.extra_domains` grants domains only when `GuardContext.agentId` matches.
 
+An allowlist block names `guards.network.agent_overrides.<agent>.extra_domains` for an agent-scoped call, or `guards.network.extra_allowed_domains` for a global call. NetworkGuard applies these settings to tool calls. The container registry surface uses the pins of its `container.registries` records.
+
 **Source**: `packages/dartclaw_kernel/lib/src/network_guard.dart`
 
 ### ToolPolicyGuard
@@ -224,7 +227,7 @@ The main agent has no identity, so only layer 1 binds it. Provider-native names 
 
 Per-execution tool allowlist and read-only mode, rebound each turn by the lease. `null` allowlist is unrestricted; an empty list is closed only under `denyEmptyAllowlist`; session-local overrides win over the runner-wide list. Claude's `Skill`, `ToolSearch`, and (with an active output schema) `StructuredOutput` helpers pass.
 
-Read-only mode blocks `file_write`, `file_edit`, `memory_apply`, `memory_observe`, and every shell command not proven read-only: shell admission is an allowlist (`readOnlyShellCommands` and read-only git subcommands in `command_vocabulary.dart`), and a redirect, command substitution, env-assignment prefix, `sudo`, or unreadable command blocks. Workflow agent steps use `configJson.readOnly = true` plus a post-turn `git status` check against the task worktree (`TaskReadOnlyGuard`); ordinary restricted tasks need an authenticated operator declaration.
+Read-only mode blocks `file_write`, `file_edit`, `memory_apply`, `memory_observe`, and every shell command not proven read-only: shell admission is an allowlist (`readOnlyShellCommands` and read-only git subcommands in `command_vocabulary.dart`), and a redirect, command substitution, env-assignment prefix, `sudo`, or unreadable command blocks. Workflow agent steps use `configJson.readOnly = true` plus a post-turn `git status` check against the task worktree or project checkout (`TaskReadOnlyGuard`), never against an agent-writable workspace; ordinary restricted tasks need an authenticated operator declaration.
 
 **Source**: `packages/dartclaw_kernel/lib/src/task_tool_filter_guard.dart`, `packages/dartclaw_runtime/lib/src/task/task_read_only_guard.dart`
 
@@ -272,13 +275,19 @@ docker create --name dartclaw-<fnv1a8(dataDir)>-<profile>-<epoch><n> \
   --network none --cap-drop ALL --read-only \
   --tmpfs /tmp:rw,noexec,nosuid,size=100m --security-opt no-new-privileges \
   -v <workspace>:/workspace:rw          # workspace profile
-  -v <project>:/project:ro  -v <clones dir>:/projects:ro   # workspace profile; local-path projects mount /projects/<id>:ro
+  -v <clones dir>:/projects:ro          # workspace profile
+  -v /var/cache/dartclaw                # workspace profile: anonymous package-cache volume (ADR-062)
+  -v <project>:/project:ro              # workspace profile; local-path projects mount /projects/<id>:ro
+  -v /project/<relative data dir>       # only when <project> contains the data dir: anonymous volume masking it
   -v <bridge binary>:/opt/dartclaw/dartclaw-bridge:ro
   -v <data dir>/containers/<name>:/home/dartclaw/.dartclaw:rw   # per-authority generated state
   -v <artifacts dir>:/artifacts:rw      # only with an artifacts contract
   -e ANTHROPIC_BASE_URL=http://127.0.0.1:<provider bridge port>
+  -e PUB_HOSTED_URL=http://127.0.0.1:8082/pub  # workspace only
   dartclaw-agent:latest sleep infinity
 ```
+
+The data directory as a whole, with its credentials, logs, sessions and gateway token, is never mounted; only DartClaw-owned subdirectories are (`workspace/` rw, the clones dir, per-authority generated state, artifacts, the bridge binary). `DartclawRuntime` resolves a runtime directory that is or lies inside the data directory to `<data dir>/workspace` and logs one INFO line, so a `serve` started from its data directory (the `service install` layout) works in the workspace. `<project>`, a local-path project and a named agent's execution directory go through one rule (`container/data_dir_mount_rule.dart`): a source equal to or inside the data directory is skipped; a source containing it is bound with the mask volume above, which shows the data directory empty. `ProjectMutationService` asks the same rule, so an API-created local-path project it would skip is refused with `LOCAL_PATH_NOT_MOUNTABLE`. Sources inside DartClaw's own container-visible roots (`<data dir>/workspace`, the clones dir, an agent's own workspace) mount unchanged. `serve` logs one INFO line per skipped or masked source, and `containerPathForHostPath` refuses a host path that would translate into a mask.
 
 `start()` is single-use: a lost container is not recreated (its bridges died with it), the execution must acquire a new authority (`ContainerAuthorityLostException`).
 
@@ -292,7 +301,7 @@ A profile ([ADR-012](../adrs/012-per-type-container-isolation.md)) is a template
 
 | Profile | Mounts | Used by |
 |---------|--------|---------|
-| `workspace` | `/workspace:rw`, `/project:ro`, `/projects:ro` (configured named agents: their workspace and the admitted directory at `/project:ro` only) | Owner and named-agent chats, default tasks, cron |
+| `workspace` | `/workspace:rw`, `/project:ro` (the runtime's local repository; none when `serve` starts at or inside the data directory; data directory masked when it contains it), `/projects:ro`, the package-cache volume (configured named agents: their workspace and the admitted directory at `/project:ro` only, under the same skip and mask) | Owner and named-agent chats, default tasks, cron |
 | `restricted` | none, working dir `/tmp` | Search agent, explicitly declared tasks |
 
 Lifetimes: a logical-agent container spans that owner's turns; an ordinary task container spans its turn; a workflow worker holds one authority for the whole step. A container authority is granted only to a provider whose container execution DartClaw mediates, which excludes every ACP registration. Task dispatch defaults to `workspace`; the authenticated HTTP task API may declare `workspace` or `restricted`; channel and model-facing task creation cannot declare a profile, and the `research` category is refused so the restricted boundary cannot be widened silently.
@@ -317,7 +326,7 @@ When Docker is the boundary, Codex app-server uses `danger-full-access` (enforce
 
 ### Managed Workspaces and Temporary Conversations
 
-A named agent's managed workspace is `data_dir/agents/<id>/workspace`; the host validates the exact id-only `identity.json` in its parent home before wiring storage or execution. Workspace-profile containers mount only the workspace child at `/workspace` (the parent home and marker are absent) plus the admitted execution directory at `/project`, with no checkout, clones-root, or unrelated project mounts. Cached workers must match that directory, and the same directory supplies Claude's additional-directory skill root and Codex's `.agents/skills` root. Required container confinement refuses execution when the profile is unavailable. On unrestricted host execution, declared writable roots and tool grants are not OS isolation: the same-user provider process may reach neighboring host paths.
+A named agent's managed workspace is `data_dir/agents/<id>/workspace`; the host validates the exact id-only `identity.json` in its parent home before wiring storage or execution. Workspace-profile containers mount only the workspace child at `/workspace` (the parent home and marker are absent) plus the admitted execution directory at `/project` (never the data directory: a directory that is or lies inside it is not mounted, one that contains it shows it empty), with no checkout, clones-root, or unrelated project mounts. Cached workers must match that directory, and the same directory supplies Claude's additional-directory skill root and Codex's `.agents/skills` root. Required container confinement refuses execution when the profile is unavailable. On unrestricted host execution, declared writable roots and tool grants are not OS isolation: the same-user provider process may reach neighboring host paths.
 
 A process-retained temporary conversation gets a dedicated temporary authority only when the capability inventory matches the mediated container provider and workspace policy. Its session, messages, attachments, usage context, generated provider home, browser draft, and replay state stay out of durable stores; projection observers exclude it from lexical and vector indexes; contextual memory, wiki, and KG write tools refuse it; daily-log capture and knowledge-inbox intake omit it; audit and process logs keep only opaque metadata. Ending marks the session ending, confirms turn and root-process termination, destroys the container, clears process state, then revokes the link; failed confirmation leaves an auditable retryable state. Provider-side processing and authorized external tool effects are outside this guarantee.
 
@@ -337,13 +346,29 @@ Research source scope is authenticated independently of placement: owner calls (
 
 ### Host-Owned Provider Mediation
 
-The agent needs provider API access but must never hold the credential. The host runs a `HostGateway`; every live container authority registers with it and receives one bridge pipe per surface (`provider`, plus `mcp` when it was granted host MCP tools). The pipe, not any frame the container sends, determines principal, upstream, credential, and tool policy.
+The agent needs provider API access but must never hold the credential. The host runs a `HostGateway`; every live container authority registers with it and receives one bridge pipe per surface (`provider`, `mcp` when granted host MCP tools, and `registry` for `workspace` only). The pipe, not any frame the container sends, determines principal, upstream, credential, and tool policy.
 
 [![Security: host-owned credential mediation](diagrams/security-host-gateway.svg)](diagrams/security-host-gateway.svg)
 
 - The only host objects mediation adds are the read-only bridge binary, the per-authority generated-state directory (the container home), and a host-owned `/artifacts` for executions with an artifacts contract. There is no socket mount, published port, or network attachment.
+- The `registry` surface listens at `http://127.0.0.1:8082`. Its ecosystems are `container.registries` records,
+  overlaid on the built-ins (`pub`, `npm`, `pypi`, `crates`, and `go`, which ships disabled) and validated once by
+  `ContainerConfig.fromYaml`; `container_registries.dart` is the one home of their origins and client variables.
+  Each record pins exact HTTPS origins under its own routes (`pypi` pins `https://pypi.org` and
+  `https://files.pythonhosted.org`, `crates` pins `index.crates.io` and `static.crates.io` as `crates-dl`).
+  At container creation, only `workspace` gets the pipe and the enabled records' `env`, emitted before DartClaw's own
+  variables; startup refuses a record that sets one of those. The surface accepts GET/HEAD, strips credential headers
+  in both directions, follows at most five redirects inside the answering record's pins and streams archives
+  unchanged. It rewrites JSON download URLs on a record's own pins to loopback where that record's `rewrite_json`
+  rule matches the answering pin, path prefix and media type (pub metadata, PyPI's simple JSON, the crates index
+  `config.json`). npm handles registry-host replacement, so its packuments are untouched. Routed audit records carry
+  authority, ecosystem, path with its query and status. Policy refusals name the ecosystem and rule in the block
+  event, never the query.
+  Shared framing, capacity and late streamed-cap failures keep their transport-level reasons. An advertised response
+  above 64 MiB is refused with the cap, and an unadvertised overrun aborts the connection.
 - Provider credentials never exist in the container's environment, filesystem, arguments, or generated configuration. The Claude container env carries only a placeholder key.
 - Each adapter pins its upstream origin and request paths (`/v1/messages`, `/v1/messages/count_tokens`; `/v1/responses`), and there is no knob to retarget a credentialed adapter.
+- The host HTTP client negotiates gzip response compression itself rather than forwarding the container's `Accept-Encoding`. It decodes the response before forwarding bytes without encoding headers, including provider refusals.
 - Authority is execution-scoped. Release revokes the pipes, deletes generated state, and destroys the container; revocation is permanent, so a captured pipe cannot be revived. Release order: unwatch, revoke while the container still exists, destroy.
 - Host-side refusals fire a `GuardBlockEvent` (`guard: host-gateway`, `hook: bridge`) into the normal audit trail. A container execution whose adapter has no host credential is refused at registration, before any container exists; a credential that turns unusable mid-turn tears the authority down.
 - Provider-side network tools (web search/fetch, remote MCP connectors) are refused host-side for every containerized execution, because they run at the provider where `network:none` cannot contain them. Each adapter counts them in its protocol shape; an undecodable request body is refused ([ADR-052](../adrs/052-native-provider-web-tools-denied-all-container-profiles.md)).
@@ -401,10 +426,10 @@ Use two PostgreSQL roles: an administrator provisions the database, runtime role
 | Transport | Injected |
 |-----------|----------|
 | SSH | `GIT_SSH_COMMAND=ssh -i <key> -o BatchMode=yes -o StrictHostKeyChecking=accept-new` |
-| HTTPS (GitHub token) | Remote rewritten to canonical HTTPS; `GIT_ASKPASS` script answers `x-access-token` and the token |
+| HTTPS (GitHub token) | Remote rewritten to canonical HTTPS; `GIT_ASKPASS` script answers `x-access-token` and the token only to prompts for `https://github.com` and refuses every other host, so a `remote.origin.pushurl` elsewhere receives no credential and the push fails as `PushAuthFailure` |
 | HTTPS (other) | `GIT_ASKPASS` script that prints the secret |
 
-Known limitation: the askpass scripts read the secret from a helper file in `<data_dir>/projects/` (`.git-askpass-<ref>.key|.token`) written with the process's default permissions. The project service and push service delete these files at `dispose()` (shutdown), the workflow git port after each operation. Protect the data directory accordingly.
+The askpass scripts read the secret from a helper file in `<data_dir>/git-askpass/` (`.git-askpass-<ref>.key|.token`); the directory is 0700, the file is written mode 0600 and the script 0700 (`secureWriteFileSync`). No container profile mounts that directory, and the data directory as a whole is never mounted, so no container sees these files. The project service and push service delete them at `dispose()` (shutdown), the workflow git port after each operation.
 
 **Source**: `packages/dartclaw_runtime/lib/src/task/git_credential_env.dart`, `project/project_service_impl.dart`, `task/remote_push_service.dart`
 
@@ -436,6 +461,7 @@ The pipeline is built in `Server._buildPipeline`. `auth_mode: none` installs `lo
 - **Startup banner**: when stderr is a terminal, `serve` prints `http://<host>:<port>/?token=<token>`, so the token lands in terminal scrollback and any captured session. Rotate it after sharing one.
 - **Session cookie**: `base64url({"iat": unix_ms}).base64url(HMAC-SHA256(payload, gateway token))`, 30-day TTL, `dart_session; HttpOnly; SameSite=Strict; Path=/; Max-Age=2592000` plus `Secure` when `auth.cookie_secure`. No server-side state.
 - **Failed auth**: `recordFailedAuth` fires `FailedAuthEvent` and counts on `AuthRateLimiter` (5 failures per minute per remote key by default; `auth.trusted_proxies` governs which `X-Forwarded-For` is honored). Success resets the window.
+- **Request log**: `logRequests` writes the full URI, so its logger (`_sanitizedLogger`, `server_deps.dart`) rewrites the `token` (gateway bootstrap), `t` (signed source link) and `secret` (WhatsApp webhook) query values to `REDACTED`.
 - **`auth_mode: none`** grants every request local-admin context; `originHostGuardMiddleware` then requires loopback `server.host` and `Host` for writes.
 
 **Source**: `packages/dartclaw_runtime/lib/src/auth/` (`auth_middleware.dart`, `session_token.dart`, `token_service.dart`, `auth_rate_limiter.dart`, `request_auth_context.dart`)
@@ -539,7 +565,9 @@ Webhook routes sit outside the gateway middleware (exact public paths plus the `
 
 ## Task Security
 
-`TaskFileGuard` (`task/task_file_guard.dart`) is a per-task registry, not a `Guard`: `TaskExecutor` registers the canonical worktree path when a declared worktree is created and cleanup (accept, reject, cancel) deregisters it. Its `isAllowed(taskId, path)` check (`canonicalize` plus `isWithin`, deny when unregistered) has no production caller today, so the registry enforces nothing by itself. Effective containment of a task comes from its execution directory being the worktree, provider-native writable roots where the provider honors them, container mounts, `FileGuard` for sensitive paths, and `TaskToolFilterGuard` for tool surface and read-only mode. Legacy owner profiles still mount `/projects:ro`, giving OS-level read access to every project clone; managed-workspace agents see only their workspace and admitted directory. That application-layer gap is acceptable within DartClaw's single-admin product scope, where Docker remains the primary boundary. Wiring the registry into an enforcement point, or removing it, needs an owner decision.
+Automatic accept (`auto_accept` and an agent's `task_review` accept) keeps an affected task in `review` with the paths recorded. A person's accept proceeds. The same [execution-surface classifier](../../docs/guide/tasks.md#review-workflow) checks workflow promotion and publish, including added or changed symlinks. A person can approve the held workflow candidate for its specific operation and destination through a trusted connected surface. The host rechecks the candidate and delivers the verified Git revisions. Automatic approval policies and agent tools cannot release the hold. All three checks precede their commit sweep and delivery. Host Git in an agent worktree runs through one authority (`host_worktree_git.dart`): it passes `--git-dir` and `--work-tree` from the project's `worktrees/<id>` record, so the agent-writable `.git` gitlink never chooses the config, attributes or hooks Git reads. A worktree directory replaced by a symlink, or whose gitlink was rewritten, replaced or removed, is refused before any Git runs against it. A worktree whose index records a gitlink holding a nested repository is refused before the requested Git command runs. Either way the operation fails with an error naming the worktree. Every such call also sets `core.hooksPath=/dev/null` and `core.fsmonitor=false`. Filters and diff drivers the operator configured in the project's own config, selected by a worktree `.gitattributes`, still run: they are operator trust. The checks run before each Git command, not during it: every owner-workspace container mounts all of `<workspaceDir>` read-write and a task's container stays up until after its artifact collection and accept, so a process still running in any of them can swap a worktree for a symlink or plant a nested repository between check and command. Closing that window needs a mount layout in which an agent cannot write the worktree root or its own gitlink (TD-151). No agent-writable workspace is a project repository, because an agent can write its `.git/`. A runtime started at or inside its data directory works in the workspace but has no local repository and no `_local` project, so a worktree task, merge, diff or workflow with no registered project, or one naming `_local`, fails before any Git runs. A worktree task with no project that is created from the default registered project records it as its project, so its diff and accept use that repository. The read-only mutation check never runs Git in a workflow agent's workspace or in a runtime directory that is no local repository. A local-path project at or inside the owner workspace or any `<data_dir>/agents/<id>/workspace` is refused by the API, skipped at config load, and skipped when loaded from `projects.json` (the entry is kept); one kernel predicate, `isWithinAgentWorkspace`, decides all three. Workspace git sync runs plain Git in `<workspaceDir>`, so it is not registered while container isolation is on. See [Task accept](task-execution-architecture.md#62-accept-flow) and [Workflow Git](workflow-architecture.md#10-workflow-owned-git).
+
+`TaskFileGuard` (`task/task_file_guard.dart`) is a per-task registry, not a `Guard`: `TaskExecutor` registers the canonical worktree path when a declared worktree is created and cleanup (accept, reject, cancel) deregisters it. Its `isAllowed(taskId, path)` check (`canonicalize` plus `isWithin`, deny when unregistered) has no production caller today, so the registry enforces nothing by itself. Effective containment of a task comes from its execution directory being the worktree, provider-native writable roots where the provider honors them, container mounts, `FileGuard` for sensitive paths, and `TaskToolFilterGuard` for tool surface and read-only mode. Legacy owner profiles still mount `/projects:ro`, giving OS-level read access to every project clone; managed-workspace agents see only their workspace and admitted directory. That application-layer gap is acceptable within DartClaw's single-admin product scope, where Docker remains the primary boundary. Wiring the registry into an enforcement point, or removing it, needs an owner decision (TD-148).
 
 ---
 

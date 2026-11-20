@@ -40,13 +40,7 @@ Future<void> bootstrapWorkflowSkills({
       if (p.normalize(p.absolute(workspaceDir)) == p.normalize(p.absolute(dataDir))) {
         continue;
       }
-      linker.materialize(
-        dataDir: dataDir,
-        workspaceDir: workspaceDir,
-        skillNames: inventory.skillNames,
-        agentMdNames: inventory.agentMdNames,
-        agentTomlNames: inventory.agentTomlNames,
-      );
+      linker.materialize(dataDir: dataDir, workspaceDir: workspaceDir, skillNames: inventory.skillNames);
     }
   } on SkillProvisionConfigException catch (e) {
     // Config errors keep their original message — they are not provisioning

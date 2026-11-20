@@ -6,9 +6,10 @@
 
 ## Core Philosophy
 
-**Pragmatic, efficient, lean, lightweight, adaptable, and approachable.** They guide features, architecture, dependencies, and user experience.
+**Pragmatic, efficient, lean, lightweight, adaptable, and approachable.** They guide features, architecture, dependencies, user experience, and how DartClaw itself is developed.
 
 - **Solve the real problem simply.** Choose the smallest solution that meets the need. Avoid over-engineering, speculative features, and unnecessary layers or configuration knobs. Cut scope before adding complexity; fix root causes instead of adding workarounds.
+- **Good enough for real use, not complete.** Build for the use cases actually run, first of all the maintainer's own. No feature has to cover every use case or every edge case. Development follows the same bar: short iterations, and process only where it has earned its place. The Completeness bar under Proportionality makes this decidable.
 - **Keep it lean and efficient.** Use few, justified dependencies. Minimize runtime overhead and unnecessary model calls; bound concurrency and model spending. Measure before adding performance machinery.
 - **Make setup and daily use straightforward.** Require little initial configuration, provide sensible defaults and actionable errors, and make permissions and operating state understandable.
 - **Build security into the system.** Prefer OS-enforced isolation where supported, least privilege, scoped credentials, and auditable actions. Guards add enforcement where the provider permits. Make weaker execution modes explicit, since coverage depends on provider, environment, and configuration.
@@ -17,6 +18,17 @@
 - **Keep one authority per concern.** Extend the existing owner of a concern instead of adding competing parsers, validators, schemas, or policies. Keep ownership explicit and the codebase small enough to inspect.
 
 [ADR-054](../adrs/054-model-first-delegation-and-one-authority-per-concern.md) defines the model/host boundary and validation exemption. Dependency checks, prompt-surface tracking and per-package size ceilings ([ADR-033](../adrs/033-architectural-governance-via-fitness-functions.md)) keep the architecture auditable.
+
+## Deciding
+
+An agent asked to decide in line with this document applies the rules below in order, stops at the first that settles the question, and names that rule in its answer.
+
+1. **Already answered.** A Non-Goal below or an accepted decision in [DECISIONS.md](DECISIONS.md) settles it; follow it.
+2. **Security, data, and bounds are not traded.** An option that weakens a security boundary, risks losing data, or removes a cost or concurrency bound loses to one that does not, whatever it saves.
+3. **Cut to real use.** Drop what the Completeness bar or a standing technical non-goal under Proportionality rules out.
+4. **Then prefer, in this order:** the option that deletes code or extends an existing owner; the one with fewer concepts, config keys, and dependencies; the one that serves the maintainer's own daily use before a wider audience; the one that is cheaper to undo.
+
+**The owner decides** a change to Vision or Product Scope, the reversal of a Non-Goal or an accepted decision, the order or scope of a milestone (the roadmap), and anything that cannot be undone, such as a migration that drops data. An agent brings those with a recommendation from the rules above. A new idea outside the active milestone is proposed for the roadmap, not built. Everything else an agent decides without asking, and it records a choice later work will rely on in DECISIONS.md.
 
 ## Product Scope
 
@@ -48,4 +60,5 @@ An AOT-compiled Dart host owns state, APIs, security enforcement, and execution 
 
 - **Stage:** prototype. Experimental, soft-published; breaking changes are acceptable, because correctness, security, and simple design come before backward compatibility.
 - **Scale:** one administrator per instance, used alone or by a small team; a handful of instances in use (personal deployments plus development); one process on one host; server PostgreSQL or standalone execution files with data in the megabytes; one maintainer.
-- **Standing technical non-goals:** multi-tenant or multi-user administration; horizontal scaling or a distributed runtime; isolates or worker pools without a profiled bottleneck; an ORM or a second storage authority beside the existing backends; a plugin or extension system beyond harness providers, skills and workflow definitions; backward-compatibility layers; full accessibility conformance — keyboard reach, focus order, labels and touch targets are held, but a gate is not blocked on an audit finding no measurement reproduces.
+- **Completeness bar:** the maintainer is the main user, so a change is done when it works on the paths in actual use. Handle an edge case only when it has occurred in use or risks a security boundary, data loss, or unbounded cost; any other unsupported case fails with a clear error. A review finding about a hypothetical case outside those is dropped, not fixed or backlogged. Add a gate, check, or process step only after a failure it would have caught.
+- **Standing technical non-goals:** multi-tenant or multi-user administration; horizontal scaling or a distributed runtime; isolates or worker pools without a profiled bottleneck; an ORM or a second storage authority beside the existing backends; a plugin or extension system beyond harness providers, skills and workflow definitions; backward-compatibility layers; handling or exhaustive tests for a case the Completeness bar leaves out; full accessibility conformance — keyboard reach, focus order, labels and touch targets are held, but a gate is not blocked on an audit finding no measurement reproduces.

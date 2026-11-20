@@ -112,7 +112,7 @@
     <g class="e  f-files t-turn"><path d="M262,356 H324"/><text class="el" x="293" y="348" text-anchor="middle">every turn</text></g>
     <g class="e bi f-turn t-memory"><path d="M324,410 H290 V470 H262"/><text class="el" x="298" y="452" text-anchor="start">memory tools</text></g>
     <g class="e  f-turn t-search"><path d="M652,342 H726"/><text class="el" x="689" y="334" text-anchor="middle">web lookups</text></g>
-    <g class="e  f-search t-web"><path d="M852,384 V408"/><text class="el" x="860" y="401" text-anchor="start">WebSearch, WebFetch</text></g>
+    <g class="e  f-search t-web"><path d="M852,384 V408"/><text class="el" x="844" y="401" text-anchor="end">web_search, web_fetch</text></g>
     <g class="e main f-heartbeat t-turn"><path d="M420,480 V434"/><text class="el" x="428" y="462" text-anchor="start">every 60 min</text></g>
     <g class="e dash f-turn t-announce"><path d="M600,432 V516 H726"/><text class="el" x="614" y="509" text-anchor="start">delivery: announce</text></g>
     <g class="e  f-gitsync t-memory"><path d="M142,588 V554"/><text class="el" x="150" y="576" text-anchor="start">commit</text></g>
@@ -196,9 +196,9 @@
   <a href="../00-personal-assistant.md#configuration"><g class="n tint k-host" id="search">
     <rect class="box" x="728" y="300" width="248" height="84" rx="9"/>
     <text class="name mono-name" x="740" y="323">search agent</text>
-    <text class="sub" x="740" y="341">model: haiku, tools: WebSearch,</text>
-    <text class="sub" x="740" y="357">WebFetch; result content-guarded</text>
-    <g class="d"><text class="p1" x="36" y="752"><tspan class="b">search agent</tspan> · the agents.search entry in the config: a cheap model with only WebSearch and WebFetch</text><text class="p2" x="36" y="772">Its result passes content-guard before it returns to the turn, so large pages may arrive truncated.</text></g>
+    <text class="sub" x="740" y="341">model: haiku, tools: web_search,</text>
+    <text class="sub" x="740" y="357">web_fetch; result content-guarded</text>
+    <g class="d"><text class="p1" x="36" y="752"><tspan class="b">search agent</tspan> · the agents.search entry in the config: a cheap model with only web_search and web_fetch</text><text class="p2" x="36" y="772">Its result passes content-guard before it returns to the turn, so large pages may arrive truncated.</text></g>
   </g></a>
   <g class="n line k-ext" id="web">
     <rect class="box" x="728" y="410" width="248" height="52" rx="9"/>

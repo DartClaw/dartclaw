@@ -96,7 +96,7 @@ void main() {
       'docs/plans/p/plan.md',
     ]);
     for (final path in result.committedPaths) {
-      expect(await repo.git.pathExistsAtRef(repo.repoDir, ref: 'HEAD', path: path), isTrue);
+      expect(await repo.git.pathExistsAtRef(repo.repoDir, projectDir: repo.repoDir, ref: 'HEAD', path: path), isTrue);
     }
   });
 }

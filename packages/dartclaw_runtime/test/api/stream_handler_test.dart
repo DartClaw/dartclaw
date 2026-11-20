@@ -3,19 +3,25 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
-import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager;
-import 'package:dartclaw_runtime/dartclaw_runtime.dart' hide TurnManager;
+import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
+import 'package:dartclaw_runtime/dartclaw_runtime.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_runtime/src/turn_manager.dart' show TurnManager;
-import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager;
+import 'package:dartclaw_runtime/src/turn_runner.dart' show TurnRunner;
+import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager, TurnRunner;
 import 'package:test/test.dart';
+
+import '../execution_coordinator_test_support.dart' show turnManagerForRunners;
+import '../turn_manager_test_support.dart' show FakeWorkerService;
 
 class ControllableTurnManager extends TurnManager {
   final String activeTurnIdValue;
+  final AgentHarness _worker;
   final Completer<TurnOutcome> _completer = Completer();
   TurnOutcome? _cachedOutcome;
 
   new(MessageService messages, AgentHarness worker, this.activeTurnIdValue)
-    : super(
+    : _worker = worker,
+      super(
         turnLimits: const TurnLimitsConfig.defaults(),
         messages: messages,
         worker: worker,
@@ -24,6 +30,9 @@ class ControllableTurnManager extends TurnManager {
 
   @override
   bool isActiveTurn(String sessionId, String turnId) => _cachedOutcome == null && turnId == activeTurnIdValue;
+
+  @override
+  AgentHarness? harnessForTurn(String sessionId, String turnId) => isActiveTurn(sessionId, turnId) ? _worker : null;
 
   @override
   TurnOutcome? recentOutcome(String sessionId, String turnId) => _cachedOutcome;
@@ -78,7 +87,7 @@ Future<List<String>> _streamFrames(
   void Function()? emit,
   TurnOutcome? outcome,
 }) {
-  final response = sseStreamResponse(worker, turns, sessionId, turnId);
+  final response = sseStreamResponse(turns, sessionId, turnId);
   return _collectFrames(() async {
     await pumpEventQueue();
     emit?.call();
@@ -116,7 +125,7 @@ void main() {
   // -------------------------------------------------------------------------
   group('sseStreamResponse — status', () {
     test('returns 200 with text/event-stream header for active turn', () {
-      final res = sseStreamResponse(worker, turns, sessionId, turnId);
+      final res = sseStreamResponse(turns, sessionId, turnId);
       expect(res.statusCode, equals(200));
       expect(res.headers['content-type'], contains('text/event-stream'));
 
@@ -133,7 +142,7 @@ void main() {
         completedAt: DateTime.now(),
       );
       turns.setCachedOutcome(cached);
-      final res = sseStreamResponse(worker, turns, sessionId, turnId);
+      final res = sseStreamResponse(turns, sessionId, turnId);
       expect(res.statusCode, equals(200));
       expect(res.headers['content-type'], contains('text/event-stream'));
       expect(await res.readAsString(), contains('event: done'));
@@ -148,7 +157,7 @@ void main() {
         completedAt: DateTime.now(),
       );
       turns.setCachedOutcome(cached);
-      final res = sseStreamResponse(worker, turns, sessionId, turnId);
+      final res = sseStreamResponse(turns, sessionId, turnId);
       expect(res.statusCode, equals(200));
       expect(res.headers['content-type'], contains('text/event-stream'));
       final body = await res.readAsString();
@@ -166,7 +175,7 @@ void main() {
         completedAt: DateTime.now(),
       );
       turns.setCachedOutcome(cached);
-      final body = await sseStreamResponse(worker, turns, sessionId, turnId).readAsString();
+      final body = await sseStreamResponse(turns, sessionId, turnId).readAsString();
       expect(body, contains('event: turn_cancelled'));
       expect(body, contains('event: done'));
       expect(body.indexOf('event: turn_cancelled'), lessThan(body.indexOf('event: done')));
@@ -175,8 +184,49 @@ void main() {
 
     test('returns 404 for unknown turn (not active, no cached outcome)', () {
       final unknownTurns = ControllableTurnManager(MessageService(baseDir: tempDir.path), worker, 'other-turn-id');
-      final res = sseStreamResponse(worker, unknownTurns, sessionId, turnId);
+      final res = sseStreamResponse(unknownTurns, sessionId, turnId);
       expect(res.statusCode, equals(404));
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  group('sseStreamResponse — worker lane', () {
+    test('streams the harness running the turn, not the primary harness', () async {
+      final sessions = SessionService(baseDir: tempDir.path);
+      final messages = MessageService(baseDir: tempDir.path);
+      final behavior = BehaviorFileService(workspaceDir: '/tmp/nonexistent-dartclaw-test');
+      final session = await sessions.createSession(type: SessionType.logicalAgent, provider: 'codex');
+      final primaryWorker = FakeWorkerService();
+      final codexWorker = FakeWorkerService();
+      TurnRunner runner(AgentHarness harness, String providerId) => TurnRunner(
+        turnLimits: const TurnLimitsConfig.defaults(),
+        harness: harness,
+        messages: messages,
+        behavior: behavior,
+        sessions: sessions,
+        providerId: providerId,
+      );
+      final pooled = turnManagerForRunners([
+        runner(primaryWorker, 'claude'),
+        runner(codexWorker, 'codex'),
+      ], sessions: sessions);
+      addTearDown(pooled.executions.dispose);
+      final turnId = await pooled.startTurn(session.id, []);
+      await codexWorker.turnInvoked;
+
+      final response = sseStreamResponse(pooled, session.id, turnId);
+      final frames = await _collectFrames(() async {
+        await pumpEventQueue();
+        primaryWorker.emit(DeltaEvent('another session on the primary lane'));
+        codexWorker.emit(DeltaEvent('worker lane reply'));
+        await pumpEventQueue();
+        codexWorker.completeSuccess();
+      }, response.read());
+
+      final deltas = frames.where((frame) => frame.contains('event: delta')).join('\n');
+      expect(deltas, contains('worker lane reply'));
+      expect(deltas, isNot(contains('another session on the primary lane')));
+      expect(frames.last, contains('event: done'));
     });
   });
 
@@ -354,7 +404,7 @@ void main() {
     });
 
     test('includes X-Accel-Buffering header', () {
-      final res = sseStreamResponse(worker, turns, sessionId, turnId);
+      final res = sseStreamResponse(turns, sessionId, turnId);
       expect(res.headers['x-accel-buffering'], equals('no'));
 
       turns.complete(

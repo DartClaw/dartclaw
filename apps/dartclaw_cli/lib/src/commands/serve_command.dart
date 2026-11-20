@@ -328,11 +328,7 @@ class ServeCommand extends Command<void> {
             authEnabled: runtime.authEnabled,
             guardsEnabled: config.security.guards.enabled,
             containerEnabled: runtime.containerIsolationActive,
-            channels: [
-              if (config.channels.channelConfigs['whatsapp']?['enabled'] == true) 'WhatsApp',
-              if (config.channels.channelConfigs['signal']?['enabled'] == true) 'Signal',
-              if (config.channels.channelConfigs['google_chat']?['enabled'] == true) 'Google Chat',
-            ],
+            channels: startupBannerChannels(config),
             provider: providerName,
             model: modelName,
             colorize: true,

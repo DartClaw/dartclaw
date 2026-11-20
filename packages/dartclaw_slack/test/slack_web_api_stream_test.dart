@@ -149,21 +149,21 @@ void main() {
       },
     );
 
-    test('chat.update and assistant.threads.setStatus carry their identifiers', () async {
+    test('chat.update and agents.sessions.setStatus carry their identifiers', () async {
       final harness = _Harness.api({'ok': true});
 
       await harness.client.updateMessage(channel: 'C1', ts: '1.2', text: 'final');
-      await harness.client.setThreadStatus(channel: 'C1', threadTs: '1.1', status: 'is working...');
-      await harness.client.setThreadStatus(channel: 'C1', threadTs: '1.1', status: '');
+      await harness.client.setSessionStatus(channel: 'C1', threadTs: '1.1', status: SlackSessionStatus.processing);
+      await harness.client.setSessionStatus(channel: 'C1', threadTs: '1.1', status: SlackSessionStatus.active);
 
       expect(harness.requests.map((request) => request.url.path), [
         '/api/chat.update',
-        '/api/assistant.threads.setStatus',
-        '/api/assistant.threads.setStatus',
+        '/api/agents.sessions.setStatus',
+        '/api/agents.sessions.setStatus',
       ]);
       expect(harness.bodyOf(0), {'channel': 'C1', 'ts': '1.2', 'text': 'final'});
-      expect(harness.bodyOf(1), {'channel_id': 'C1', 'thread_ts': '1.1', 'status': 'is working...'});
-      expect(harness.bodyOf(2)['status'], isEmpty, reason: 'an empty status is how Slack clears it');
+      expect(harness.bodyOf(1), {'channel_id': 'C1', 'thread_ts': '1.1', 'status': 'processing'});
+      expect(harness.bodyOf(2), {'channel_id': 'C1', 'thread_ts': '1.1', 'status': 'active'});
     });
 
     test('a rate-limited append is retried once after Retry-After, and a second 429 surfaces', () async {
@@ -192,7 +192,7 @@ void main() {
       await harness.client.startStream(channel: 'C1', threadTs: '1.1');
       harness.clock = harness.clock.add(const Duration(milliseconds: 400));
       await harness.client.appendStream(channel: 'C1', ts: '1.2', markdownText: 'x');
-      await harness.client.setThreadStatus(channel: 'C1', threadTs: '1.1', status: '');
+      await harness.client.setSessionStatus(channel: 'C1', threadTs: '1.1', status: SlackSessionStatus.active);
 
       expect(harness.sleeps, [const Duration(milliseconds: 600)], reason: 'a status is not a post and never waits');
     });

@@ -159,53 +159,61 @@ void main() {
     );
   });
 
-  test('infrastructure refusal retains declared external fixture provenance', () async {
-    final root = Directory.systemTemp.createTempSync('retrieval_external_provenance_');
-    addTearDown(() => root.deleteSync(recursive: true));
-    final fixture = File(p.join(root.path, 'fixture.json'));
-    fixture.writeAsBytesSync(File(p.join(repositoryRoot, 'dev/testing/retrieval/retrieval-v2.json')).readAsBytesSync());
-    final fixtureHash = sha256.convert(fixture.readAsBytesSync()).toString();
-    final environment = Map<String, String>.of(Platform.environment)..remove('DARTCLAW_TEST_POSTGRES_URL');
-
-    for (final status in const ['exposed-regression', 'independent-evaluation']) {
-      final output = p.join(root.path, status);
-      final result = await Process.run(
-        Platform.resolvedExecutable,
-        [
-          'run',
-          'apps/dartclaw_cli/tool/retrieval_evaluation.dart',
-          '--model-path',
-          p.join(root.path, 'missing-model.gguf'),
-          '--output-dir',
-          output,
-          '--fixture-path',
-          fixture.path,
-          '--fixture-sha256',
-          fixtureHash,
-          '--fixture-status',
-          status,
-        ],
-        workingDirectory: repositoryRoot,
-        environment: environment,
-        includeParentEnvironment: false,
+  test(
+    'infrastructure refusal retains declared external fixture provenance',
+    () async {
+      final root = Directory.systemTemp.createTempSync('retrieval_external_provenance_');
+      addTearDown(() => root.deleteSync(recursive: true));
+      final fixture = File(p.join(root.path, 'fixture.json'));
+      fixture.writeAsBytesSync(
+        File(p.join(repositoryRoot, 'dev/testing/retrieval/retrieval-v2.json')).readAsBytesSync(),
       );
+      final fixtureHash = sha256.convert(fixture.readAsBytesSync()).toString();
+      final environment = Map<String, String>.of(Platform.environment)..remove('DARTCLAW_TEST_POSTGRES_URL');
 
-      expect(result.exitCode, 1);
-      final report = jsonDecode(File(p.join(output, 'report.json')).readAsStringSync()) as Map<String, dynamic>;
-      final protocol = report['protocol'] as Map<String, dynamic>;
-      expect(report['violations'], ['postgresql-unavailable']);
-      expect(report['noMatchRows'], isEmpty);
-      expect(protocol['protocolVersion'], 3);
-      expect(protocol['semanticNoMatchPolicy'], 'diagnostic');
-      expect(protocol['fixtureStatus'], status);
-      expect(protocol['fixtureSha256'], fixtureHash);
-      expect((protocol['artifactSha256'] as Map<String, dynamic>)['external/retrieval-fixture.json'], fixtureHash);
-      expect(
-        File(p.join(output, 'artifact-sha256.txt')).readAsStringSync(),
-        contains('$fixtureHash  external/retrieval-fixture.json'),
-      );
-    }
-  });
+      for (final status in const ['exposed-regression', 'independent-evaluation']) {
+        final output = p.join(root.path, status);
+        final result = await Process.run(
+          Platform.resolvedExecutable,
+          [
+            'run',
+            'apps/dartclaw_cli/tool/retrieval_evaluation.dart',
+            '--model-path',
+            p.join(root.path, 'missing-model.gguf'),
+            '--output-dir',
+            output,
+            '--fixture-path',
+            fixture.path,
+            '--fixture-sha256',
+            fixtureHash,
+            '--fixture-status',
+            status,
+          ],
+          workingDirectory: repositoryRoot,
+          environment: environment,
+          includeParentEnvironment: false,
+        );
+
+        expect(result.exitCode, 1);
+        final report = jsonDecode(File(p.join(output, 'report.json')).readAsStringSync()) as Map<String, dynamic>;
+        final protocol = report['protocol'] as Map<String, dynamic>;
+        expect(report['violations'], ['postgresql-unavailable']);
+        expect(report['noMatchRows'], isEmpty);
+        expect(protocol['protocolVersion'], 3);
+        expect(protocol['semanticNoMatchPolicy'], 'diagnostic');
+        expect(protocol['fixtureStatus'], status);
+        expect(protocol['fixtureSha256'], fixtureHash);
+        expect((protocol['artifactSha256'] as Map<String, dynamic>)['external/retrieval-fixture.json'], fixtureHash);
+        expect(
+          File(p.join(output, 'artifact-sha256.txt')).readAsStringSync(),
+          contains('$fixtureHash  external/retrieval-fixture.json'),
+        );
+      }
+    },
+    tags: 'slow',
+    // Two cold `dart run` compiles of the tool: about 13 s on an idle host, past 30 s under a parallel suite.
+    timeout: const Timeout(Duration(minutes: 2)),
+  );
 
   test('artifact hashes retain historical inputs and bind the version 2 fixture', () async {
     final hashes = await collectEvaluationArtifactHashes(

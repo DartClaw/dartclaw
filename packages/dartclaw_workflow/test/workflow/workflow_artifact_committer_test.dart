@@ -163,7 +163,7 @@ void main() {
 
       expect(result.committedPaths, ['plan.md']);
       expect(result.failed, isFalse);
-      expect(await git.pathExistsAtRef(repoDir.path, ref: 'HEAD', path: 'plan.md'), isTrue);
+      expect(await git.pathExistsAtRef(repoDir.path, projectDir: repoDir.path, ref: 'HEAD', path: 'plan.md'), isTrue);
     });
 
     test('skips runtime review findings during artifact commit resolution', () async {
@@ -276,7 +276,7 @@ void main() {
       expect(result.failed, isFalse);
       expect(result.committedPaths, isEmpty);
       for (final path in paths) {
-        expect(await git.pathExistsAtRef(repoDir.path, ref: 'HEAD', path: path), isFalse);
+        expect(await git.pathExistsAtRef(repoDir.path, projectDir: repoDir.path, ref: 'HEAD', path: path), isFalse);
       }
     });
 
@@ -355,7 +355,7 @@ void main() {
         'docs/plans/p/plan.md',
       ]);
       for (final path in paths) {
-        expect(await git.pathExistsAtRef(repoDir.path, ref: 'HEAD', path: path), isTrue);
+        expect(await git.pathExistsAtRef(repoDir.path, projectDir: repoDir.path, ref: 'HEAD', path: path), isTrue);
       }
     });
 
@@ -535,6 +535,59 @@ void main() {
         expect(result.committedPaths, isEmpty); // already at HEAD – skipped
       });
 
+      test('a task worktree whose .git is missing stays the target instead of the project checkout', () async {
+        final repoDir = Directory(p.join(tempDir.path, 'projects', 'proj'))..createSync(recursive: true);
+        final worktreeDir = Directory(p.join(tempDir.path, 'worktrees', 'task-1'))..createSync(recursive: true);
+        File(p.join(repoDir.path, 'plan.md')).writeAsStringSync('plan');
+        File(p.join(worktreeDir.path, 'plan.md')).writeAsStringSync('plan');
+        // Only the project checkout is a repository the port knows; the
+        // worktree lost its gitlink.
+        final git = FakeGitGateway()..initWorktree(repoDir.path);
+        git.addUntracked(repoDir.path, 'plan.md', content: 'plan');
+        final task = Task(
+          id: 'task-1',
+          title: 'Task',
+          description: 'Task',
+          createdAt: DateTime(2026, 1, 1),
+          worktreeJson: {'path': worktreeDir.path, 'branch': 'story', 'createdAt': '2026-01-01T00:00:00.000'},
+        );
+
+        final result = await maybeCommitStepArtifacts(makePolicy(repoDir: repoDir, port: git, task: task));
+
+        expect(result.failed, isTrue);
+        expect(result.failureReason, contains(worktreeDir.path));
+        expect(git.events, isNot(contains('commit')));
+        expect(
+          await git.pathExistsAtRef(repoDir.path, projectDir: repoDir.path, ref: 'HEAD', path: 'plan.md'),
+          isFalse,
+        );
+      });
+
+      test('a task worktree whose directory is gone fails instead of committing in the project checkout', () async {
+        final repoDir = Directory(p.join(tempDir.path, 'projects', 'proj'))..createSync(recursive: true);
+        final worktreePath = p.join(tempDir.path, 'worktrees', 'task-1');
+        File(p.join(repoDir.path, 'plan.md')).writeAsStringSync('plan');
+        final git = FakeGitGateway()..initWorktree(repoDir.path);
+        git.addUntracked(repoDir.path, 'plan.md', content: 'plan');
+        final task = Task(
+          id: 'task-1',
+          title: 'Task',
+          description: 'Task',
+          createdAt: DateTime(2026, 1, 1),
+          worktreeJson: {'path': worktreePath, 'branch': 'story', 'createdAt': '2026-01-01T00:00:00.000'},
+        );
+
+        final result = await maybeCommitStepArtifacts(makePolicy(repoDir: repoDir, port: git, task: task));
+
+        expect(result.failed, isTrue);
+        expect(result.failureReason, contains(worktreePath));
+        expect(git.events, isNot(contains('commit')));
+        expect(
+          await git.pathExistsAtRef(repoDir.path, projectDir: repoDir.path, ref: 'HEAD', path: 'plan.md'),
+          isFalse,
+        );
+      });
+
       test('post-commit missing artifact returns the same failed result contract', () async {
         final repoDir = Directory(p.join(tempDir.path, 'projects', 'proj'))..createSync(recursive: true);
         File(p.join(repoDir.path, 'plan.md')).writeAsStringSync('plan');
@@ -561,18 +614,20 @@ final class _PostCommitMissingGit implements WorkflowGitPort {
   new(this._delegate);
 
   @override
-  Future<void> add(String worktreePath, List<String> paths, {bool all = false}) =>
-      _delegate.add(worktreePath, paths, all: all);
+  Future<void> add(String worktreePath, List<String> paths, {required String projectDir, bool all = false}) =>
+      _delegate.add(worktreePath, paths, projectDir: projectDir, all: all);
 
   @override
   Future<WorkflowGitCommit> commit(
     String worktreePath, {
+    required String projectDir,
     required String message,
     String? authorName,
     String? authorEmail,
   }) async {
     final result = await _delegate.commit(
       worktreePath,
+      projectDir: projectDir,
       message: message,
       authorName: authorName,
       authorEmail: authorEmail,
@@ -582,11 +637,27 @@ final class _PostCommitMissingGit implements WorkflowGitPort {
   }
 
   @override
-  Future<List<String>> diffNameOnly(String worktreePath, {String? against, bool cached = false, String? diffFilter}) =>
-      _delegate.diffNameOnly(worktreePath, against: against, cached: cached, diffFilter: diffFilter);
+  Future<List<String>> diffNameOnly(
+    String worktreePath, {
+    required String projectDir,
+    String? against,
+    bool cached = false,
+    String? diffFilter,
+  }) => _delegate.diffNameOnly(
+    worktreePath,
+    projectDir: projectDir,
+    against: against,
+    cached: cached,
+    diffFilter: diffFilter,
+  );
 
   @override
-  Future<bool> pathExistsAtRef(String worktreePath, {required String ref, required String path}) async => !committed;
+  Future<bool> pathExistsAtRef(
+    String worktreePath, {
+    required String projectDir,
+    required String ref,
+    required String path,
+  }) async => !committed;
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);

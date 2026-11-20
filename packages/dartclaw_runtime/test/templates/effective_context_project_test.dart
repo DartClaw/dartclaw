@@ -24,7 +24,7 @@ void main() {
     await service.initialize();
     addTearDown(service.dispose);
 
-    expect((await service.defaultProject).id, 'named-id');
+    expect((await service.defaultProject)?.id, 'named-id');
     expect((await service.get('named-id'))?.name, 'Human Name');
     expect((await service.get('fallback-id'))?.name, 'fallback-id');
   });

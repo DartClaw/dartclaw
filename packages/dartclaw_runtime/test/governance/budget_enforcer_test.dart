@@ -5,6 +5,7 @@ import 'dart:io';
 
 import 'package:dartclaw_core/dartclaw_core.dart' hide GoogleJwtVerifier, TurnManager, TurnRunner;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart';
+import 'package:dartclaw_runtime/src/observability/usage_tracker.dart' show UsageEvent;
 import 'package:logging/logging.dart';
 import 'package:test/test.dart';
 
@@ -30,7 +31,7 @@ void main() {
     BudgetAction action = BudgetAction.block,
     String timezone = 'UTC',
   }) {
-    final tracker = UsageTracker(dataDir: tempDir.path, kv: kvService);
+    final tracker = UsageTracker(dataDir: tempDir.path, kv: kvService, timezone: timezone);
     return BudgetEnforcer(
       usageTracker: tracker,
       config: BudgetConfig(dailyTokens: dailyTokens, action: action, timezone: timezone),
@@ -43,61 +44,27 @@ void main() {
     await kvService.set(dateKey, jsonEncode(aggregate));
   }
 
-  // ---------------------------------------------------------------------------
-  // Static helpers (Layer 1 — unit)
-  // ---------------------------------------------------------------------------
+  group('BudgetEnforcer reads the day usage was recorded in', () {
+    test('a turn recorded across the server-local and budget-zone midnight counts against the budget day', () async {
+      // 13:00 UTC is already the next day in UTC+12, but not on a server in any zone west of UTC+11.
+      final at = DateTime.utc(2026, 3, 15, 13);
+      final enforcer = buildEnforcer(dailyTokens: 1000, action: BudgetAction.block, timezone: 'UTC+12');
+      final tracker = UsageTracker(dataDir: tempDir.path, kv: kvService, timezone: 'UTC+12');
+      await tracker.record(
+        UsageEvent(
+          timestamp: at.toLocal(),
+          sessionId: 's1',
+          agentName: 'main',
+          inputTokens: 600,
+          outputTokens: 400,
+          durationMs: 1,
+        ),
+      );
 
-  group('BudgetEnforcer.resolveTimezoneOffset', () {
-    test('UTC → zero offset', () {
-      expect(BudgetEnforcer.resolveTimezoneOffset('UTC'), Duration.zero);
-    });
+      final result = await enforcer.check(now: at);
 
-    test('GMT → zero offset', () {
-      expect(BudgetEnforcer.resolveTimezoneOffset('GMT'), Duration.zero);
-    });
-
-    test('UTC+5 → +5 hours', () {
-      expect(BudgetEnforcer.resolveTimezoneOffset('UTC+5'), const Duration(hours: 5));
-    });
-
-    test('UTC-3 → -3 hours', () {
-      expect(BudgetEnforcer.resolveTimezoneOffset('UTC-3'), const Duration(hours: -3));
-    });
-
-    test('UTC+12 → +12 hours', () {
-      expect(BudgetEnforcer.resolveTimezoneOffset('UTC+12'), const Duration(hours: 12));
-    });
-
-    test('Europe/Stockholm resolves DST offset in summer', () {
-      final offset = BudgetEnforcer.resolveTimezoneOffset('Europe/Stockholm', at: DateTime.utc(2026, 5, 18, 12));
-      expect(offset, const Duration(hours: 2));
-    });
-
-    test('Europe/Stockholm resolves standard-time offset in winter', () {
-      final offset = BudgetEnforcer.resolveTimezoneOffset('Europe/Stockholm', at: DateTime.utc(2026, 1, 15, 12));
-      expect(offset, const Duration(hours: 1));
-    });
-
-    test('unknown timezone resolves to UTC with warning naming offending value', () {
-      final logs = <LogRecord>[];
-      final sub = Logger.root.onRecord.listen(logs.add);
-      addTearDown(sub.cancel);
-
-      final offset = BudgetEnforcer.resolveTimezoneOffset('Not/AReal_Zone');
-      expect(offset, Duration.zero);
-      expect(logs.any((r) => r.message.contains('Unrecognized timezone "Not/AReal_Zone"')), isTrue);
-    });
-  });
-
-  group('BudgetEnforcer.dateKeyForTime', () {
-    test('produces usage_daily:YYYY-MM-DD format', () {
-      final t = DateTime(2026, 3, 15);
-      expect(BudgetEnforcer.dateKeyForTime(t), 'usage_daily:2026-03-15');
-    });
-
-    test('pads month and day with leading zeros', () {
-      final t = DateTime(2026, 1, 5);
-      expect(BudgetEnforcer.dateKeyForTime(t), 'usage_daily:2026-01-05');
+      expect(result.tokensUsed, 1000);
+      expect(result.outcome, BudgetOutcome.exceeded);
     });
   });
 
@@ -297,7 +264,7 @@ void main() {
       final sub = Logger.root.onRecord.listen(logs.add);
       addTearDown(sub.cancel);
 
-      final tracker = _ThrowingUsageTracker(dataDir: tempDir.path, kv: kvService);
+      final tracker = _ThrowingUsageTracker(dataDir: tempDir.path, kv: kvService, timezone: 'Not/AReal_Zone');
       final enforcer = BudgetEnforcer(
         usageTracker: tracker,
         config: const BudgetConfig(timezone: 'Not/AReal_Zone'), // dailyTokens: 0
@@ -354,7 +321,7 @@ void main() {
 /// A [UsageTracker] whose daily read always fails, standing in for a broken
 /// or unreadable KV store.
 class _ThrowingUsageTracker extends UsageTracker {
-  new({required super.dataDir, required KvService super.kv});
+  new({required super.dataDir, required KvService super.kv, super.timezone});
 
   @override
   Future<Map<String, dynamic>?> dailySummaryForDate(String dateKey) async {

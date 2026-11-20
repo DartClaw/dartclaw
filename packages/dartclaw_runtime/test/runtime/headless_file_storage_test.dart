@@ -89,8 +89,10 @@ void main() {
 
   test('standalone workflow execution reloads its completed run from the file store', () async {
     final dataDir = Directory.systemTemp.createTempSync('dartclaw_headless_file_workflow_');
+    final runtimeDir = Directory.systemTemp.createTempSync('dartclaw_headless_file_workflow_cwd_');
     addTearDown(() {
       if (dataDir.existsSync()) dataDir.deleteSync(recursive: true);
+      if (runtimeDir.existsSync()) runtimeDir.deleteSync(recursive: true);
     });
     final config = DartclawConfig(
       agent: const AgentConfig(provider: 'claude'),
@@ -109,7 +111,7 @@ void main() {
       stderrLine: (_) {},
       exitFn: (code) => throw StateError('Unexpected exit($code)'),
       runWorkflowSkillsBootstrap: false,
-      runtimeCwd: dataDir.path,
+      runtimeCwd: runtimeDir.path,
       environment: {'HOME': p.join(dataDir.path, 'home')},
       providerAuthPreflight: FakeProviderAuthPreflight(),
     );
@@ -148,6 +150,12 @@ void main() {
     }
     expect((await first.workflowService.get(run.id))?.status, WorkflowRunStatus.completed);
     await first.shutdown();
+
+    final checkpoint = await FileExecutionStore.open(config.standaloneExecutionPath);
+    final persistedTraces = await TurnTraceService.file(checkpoint).query();
+    await checkpoint.close();
+    expect(persistedTraces.traces, hasLength(1));
+    expect(persistedTraces.traces.single.provider, 'claude');
 
     final second = await (await stage()).completeForLifecycle();
     addTearDown(second.shutdown);

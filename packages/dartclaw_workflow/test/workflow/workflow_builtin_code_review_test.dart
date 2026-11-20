@@ -89,7 +89,7 @@ void main() {
       },
     );
 
-    expect(trace.finalRun?.status, WorkflowRunStatus.completed);
+    expect(trace.finalRun?.status, WorkflowRunStatus.completed, reason: trace.finalRun?.errorMessage);
     expect(trace.count('remediate'), 2);
     expect(trace.count('re-review'), 2);
     expect(trace.queuedStepOrder.where((step) => step == 'remediate' || step == 're-review'), [

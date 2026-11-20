@@ -12,7 +12,9 @@ Workflow-specific scenario files use the `workflows` testing profile. Scope them
 
 ## YAML Frontmatter
 
-Every scenario file begins with a YAML frontmatter block:
+Every scenario file the `/test-scenario` runner executes begins with a YAML frontmatter block. The native-Windows
+qualification procedures (`windows-*.md`) are run by hand from PowerShell against their own launchers (for example
+`profiles/windows-runtime/run.ps1`), so they carry no frontmatter:
 
 ```yaml
 ---
@@ -28,7 +30,7 @@ auth_token: devtoken0   # Token used for Bearer API auth and initial browser tok
 | `profile` | yes | Testing profile to use. Must match a directory under `dev/testing/profiles/`. |
 | `viewport` | yes | Browser viewport size for the run. Use `desktop` unless testing responsive behavior. |
 | `port` | yes | Port number. Must match the profile's `run.sh` default or the `--port` override. |
-| `auth_token` | yes | Auth token for API calls and initial browser bootstrap via `/?token=...`. All current `dev/testing/profiles/` profiles use `devtoken0`. |
+| `auth_token` | yes | Auth token for API calls and initial browser bootstrap via `/?token=...`. Every token-auth profile (`plain`, `channels`, `governance`, `visual`, `workflows`) uses `devtoken0`; `container` runs with `auth_mode: none`. |
 
 
 ## Document Structure
@@ -66,13 +68,13 @@ Sub-scenarios use `## S{N}: Title` headings where `N` is a sequential integer st
 
 Steps are numbered imperative sentences. Each step describes a single action:
 - Navigation: `Navigate to http://localhost:<port>/?token=devtoken...`
-- Interaction: `Click the "New Session" button (@e3 if ref is known)`
+- Interaction: `Click the "New chat" button (@e3 if ref is known)`
 - Input: `Fill the message input with "Hello, DartClaw"`
 - API call: `Send POST to /api/sessions/<id>/send with body {"message": "Hello"} and Bearer token`
 - Wait/observe: `Wait for the streaming response to complete (SSE stream closes)`
 
 Optional setup steps may use local shell commands when deterministic profile preparation is needed:
-- Shell setup: `Overwrite dev/testing/profiles/governance/data/kv.json with the current UTC date key seeded to 8000 tokens used`
+- Shell setup: `Overwrite the running governance profile's kv.json (in its data dir, not the tracked seed) with the current UTC date key seeded to 8000 tokens used`
 - Timing check: `Measure how long the 6th request takes before the server responds`
 
 Use `@ref` notation (e.g., `@e1`, `@e5`) when a prior snapshot has identified interactive elements by reference. This makes steps more robust — the runner can use the ref directly without re-discovering the element.

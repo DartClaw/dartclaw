@@ -15,13 +15,6 @@
       "size": 4345201,
       "sha256": "970e20ef367c6d4534243944bff43de8aa5c5770eea83b98eb473389e1932ec1"
     },
-    "macos-x64": {
-      "bundle": "macos-x86_64",
-      "archive": "llamadart-native-macos-x86_64-v0.3.0.tar.gz",
-      "url": "https://github.com/leehack/llamadart-native/releases/download/v0.3.0/llamadart-native-macos-x86_64-v0.3.0.tar.gz",
-      "size": 4710033,
-      "sha256": "837d76b30eacc396e103699a9bdb1a971abe1ee76664ff7ab5970f98c361a99c"
-    },
     "linux-arm64": {
       "bundle": "linux-arm64",
       "archive": "llamadart-native-linux-arm64-v0.3.0.tar.gz",

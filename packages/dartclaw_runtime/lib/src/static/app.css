@@ -6,6 +6,9 @@
    density tier; nothing here sets a height. */
 .tb-title-wrap { display: flex; align-items: baseline; gap: var(--sp-2); min-width: 0; flex: 1 1 auto; }
 .tb-title-wrap > :is(.session-title, .session-title-static) { min-width: 0; }
+/* The archived conversation's read-only title is a span, which wraps where the
+   editable input it stands in for cannot. */
+.tb-title-wrap > :is(.session-title-static, span.session-title) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .crumb {
   display: inline-flex; align-items: center; gap: 5px; flex: 0 0 auto;
   font-size: var(--text-xs); color: var(--fg-overlay); white-space: nowrap;
@@ -699,6 +702,14 @@
   color: var(--fg-sub1);
 }
 
+/* Stands where the composer would on a read-only conversation. */
+.archive-notice {
+  padding: var(--sp-3) var(--sp-4);
+  border: var(--border); border-radius: var(--radius-lg);
+  background: var(--bg-mantle);
+  color: var(--fg-sub0); font-size: var(--text-sm); text-align: center;
+}
+
 /* === SESSION INFO === */
 /* Three token cards. The count is fixed, so the track steps 3 -> 1 rather than
    passing through two columns, which would leave the third card alone. */
@@ -709,6 +720,10 @@
   padding: var(--sp-2) 0; border-bottom: 1px solid color-mix(in srgb, var(--bg-surface0) 50%, transparent);
 }
 .meta-row:last-child { border-bottom: none; }
+/* A row's mark sits against its value. As a third flex child under
+   space-between it floated alone in the middle of the row. */
+.meta-row > .identicon { margin-left: auto; width: 14px; height: 14px; font-size: 8px; border-radius: 3px; }
+.token-grid + .meta-row { margin-top: var(--sp-2); }
 .meta-label { font-size: var(--text-base); color: var(--fg-sub0); flex-shrink: 0; }
 .meta-value { font-size: var(--text-base); color: var(--fg); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .meta-value-mono { font-family: var(--font-mono); font-size: var(--text-xs); }
@@ -970,6 +985,10 @@ mark.find-hit--active { background: color-mix(in srgb, var(--accent) 40%, transp
   margin-bottom: var(--sp-4);
 }
 .pagehead-actions { display: flex; align-items: center; gap: var(--sp-2); }
+/* Project cards are one list, so they take the column's gap between them. */
+.project-list { display: flex; flex-direction: column; gap: var(--sp-4); }
+.project-title { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); min-width: 0; }
+.project-list .banner { margin-top: var(--sp-3); border-width: 1px; border-style: solid; border-radius: var(--radius); }
 .page-title {
   margin: 0;
   font-size: var(--text-xl);
@@ -996,6 +1015,11 @@ mark.find-hit--active { background: color-mix(in srgb, var(--accent) 40%, transp
   50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--success) 0%, transparent); }
 }
 .section-header { font-size: var(--text-lg); font-weight: var(--weight-bold); color: var(--fg); }
+/* A status dot or kind badge and the text it marks are one unit; a narrow
+   column must not break between them and leave the mark on its own line. */
+.data-table td:has(> .status-dot),
+.data-table td:has(> :is(.system-badge, .kind-badge)),
+.cron-expr { white-space: nowrap; }
 /* Canon's card treatment, applied by hand: `.table-wrap` is a scroll container,
    so it cannot take `.card` itself without inheriting the hover lift. Fill,
    top-edge highlight and shadow are what put the table on a surface instead of
@@ -1139,6 +1163,11 @@ mark.find-hit--active { background: color-mix(in srgb, var(--accent) 40%, transp
 .toggle-inline { margin-left: auto; }
 
 .settings-form { display: flex; flex-direction: column; gap: var(--sp-3); }
+/* A group is a stack of whole fields, not of a field's own label, control and
+   hint: .form-field's 4px gap between fields ran every group together into one
+   undivided column. The group name leads it at label weight, above the caps. */
+.settings-form > .well { gap: var(--sp-4); padding: var(--sp-4); }
+.settings-group-label { color: var(--fg); }
 .settings-form .form-actions {
   display: flex; gap: var(--sp-2); padding-top: var(--sp-2);
   border-top: 1px solid color-mix(in srgb, var(--bg-surface0) 50%, transparent);
@@ -1181,7 +1210,14 @@ mark.find-hit--active { background: color-mix(in srgb, var(--accent) 40%, transp
 .memory-dashboard-section > .metrics-grid { margin-bottom: 0; }
 
 .memory-dashboard-section .list-toolbar > .form-field { flex: 1 1 16rem; min-width: 0; }
-.memory-dashboard-section .list-toolbar > .form-field > .form-input--search { flex: none; width: 100%; }
+/* The corpus card stacks a picker row, status lines, a search row and the
+   entry list; each is a direct child, so one gap gives them a rhythm. Both
+   rows end on a button, which sits on the field's baseline, not its label's. */
+.memory-admin-card, .memory-admin-browse { display: flex; flex-direction: column; gap: var(--sp-3); }
+.memory-admin-card :is(.form-row, .list-toolbar) { align-items: flex-end; margin-bottom: 0; }
+/* Running sentences, not a label/value row: .card-detail's flex would break
+   each inline fragment onto its own line when the sentence wraps. */
+.memory-admin-card > p.card-detail { display: block; }
 
 /* Every tile takes the row's three tracks – numeral, label, meter – so the two
    tiles with no bounded ratio still align their numeral and label with the
@@ -1261,6 +1297,18 @@ mark.find-hit--active { background: color-mix(in srgb, var(--accent) 40%, transp
 /* Section toolbar: header + action button */
 .section-toolbar { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); margin-bottom: var(--sp-4); }
 .section-toolbar--spaced { margin-top: var(--sp-6); }
+
+/* Stack rhythm. A page column spaces its blocks with one flex gap, so a block
+   carrying its own bottom margin as well lands 40px or 48px from the next one
+   while its neighbours sit at 24px. The gap is the only spacing between
+   blocks; a section heading then closes up on the block it labels and opens
+   up from the one above, so it reads as belonging to what follows. */
+:is(.content-inner, .page-inner) > *,
+#health-live > * { margin-block: 0; }
+:is(.content-inner, .page-inner) > :is(.section-title, .section-toolbar),
+#health-live > .section-title { margin-bottom: calc(var(--sp-3) - var(--sp-6)); }
+:is(.content-inner, .page-inner) > :is(.section-title, .section-toolbar):not(:first-child),
+#health-live > .section-title:not(:first-child) { margin-top: var(--sp-2); }
 
 /* Scheduling form internals inside canonical well-content. The controls are
    canon's `.form-input` / `.form-textarea` / `.form-select`; only the section
@@ -1390,11 +1438,14 @@ mark.find-hit--active { background: color-mix(in srgb, var(--accent) 40%, transp
 /* Claims the free space so the identicon-title pair stays left-aligned and the
    status badge is the only right-aligned item — without it, space-between
    centres the title and its x-position shifts with the channel name. */
+/* The basis is a fixed 12rem, not the content: with `auto` the subtitle's own
+   width was the basis, so on a phone the title wrapped under the identicon
+   and left the mark alone on its line. Only the badge may wrap. */
 .channel-detail-hero-title {
   display: flex;
   flex-direction: column;
   gap: var(--sp-1);
-  flex: 1 1 auto;
+  flex: 1 1 12rem;
   min-width: 0;
 }
 /* Tier comes from canon .t-display; only the reset stays local. */
@@ -1800,14 +1851,14 @@ select.form-select.channel-mode-select-hidden {
     display: none;
   }
 
-  /* Four columns and three 44px action buttons only fit a 375px viewport
-     with sp-2 cell padding and the actions free to wrap, so the desktop
-     min-width is released rather than lowered. */
+  /* Four columns and three 44px action buttons do not fit a 375px viewport:
+     wrapping the actions to fit stacked them three deep and made every row
+     165px tall. The table keeps the actions on one line and scrolls sideways
+     under the edge fade instead (UI-SMOKE-TEST TC-10). The pending table is a
+     grid of its own below and has no minimum. */
   .scheduling-jobs-table,
-  .scheduling-tasks-table,
-  .scheduling-pending-table {
-    min-width: 0;
-  }
+  .scheduling-tasks-table { min-width: 500px; }
+  .scheduling-pending-table { min-width: 0; }
 
   .scheduling-jobs-table th,
   .scheduling-jobs-table td,
@@ -1819,10 +1870,9 @@ select.form-select.channel-mode-select-hidden {
     padding-inline: var(--sp-2);
   }
 
-  .scheduling-action-btns {
-    flex-wrap: wrap;
-    justify-content: flex-end;
-  }
+  .scheduling-jobs-table .scheduling-action-btns,
+  .scheduling-tasks-table .scheduling-action-btns { flex-wrap: nowrap; }
+  .scheduling-pending-table .scheduling-action-btns { justify-content: flex-end; }
 
   .scheduling-pending-table thead { display: none; }
   .scheduling-pending-table tbody { display: block; }
@@ -2656,13 +2706,24 @@ select.form-select.channel-mode-select-hidden {
 }
 
 .workflow-context-header {
+  appearance: none;
   display: flex;
   justify-content: space-between;
   align-items: center;
+  width: 100%;
   padding: var(--sp-3);
+  border: 0;
+  background: transparent;
+  color: inherit;
   cursor: pointer;
   user-select: none;
+  font: inherit;
   font-weight: var(--weight-medium);
+}
+
+.workflow-context-header:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 .workflow-context-header:hover {
@@ -2702,6 +2763,19 @@ select.form-select.channel-mode-select-hidden {
 .workflow-context-value-long {
   max-height: 100px;
   overflow-y: auto;
+}
+
+@media (max-width: 768px) {
+  .workflow-context-entry {
+    flex-direction: column;
+    gap: var(--sp-1);
+  }
+
+  .workflow-context-key {
+    min-width: 0;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
 }
 
 /* === Workflow Management Page === */
@@ -3750,28 +3824,34 @@ input.form-input--search::-webkit-search-cancel-button {
 
 .row-check { display: none; }
 
-/* Line 1 — identicon, project (or provider · model when grouped by project) and
-   a fixed 48px right cell, so the time and the two 24px hover actions share one
-   right edge and swapping them shifts nothing. The right cell is a sibling of
-   the link rather than a descendant: a button inside an <a> is not interactive
-   content the parser or a screen reader can reach. */
+/* Line 1 — provider · model, or identicon and project name, clear of the fixed 48px
+   right cell, so the time and the two 24px hover actions share one right edge
+   and swapping them shifts nothing. The right cell is a sibling of the link
+   rather than a descendant: a button inside an <a> is not interactive content
+   the parser or a screen reader can reach. */
 .row-l1 {
-  display: grid; grid-template-columns: 14px minmax(0, 1fr) 48px;
-  align-items: center; gap: 6px;
+  display: flex; align-items: center; gap: 6px;
+  min-width: 0; padding-right: 54px;
   font-size: var(--text-xs); line-height: var(--leading-tight); color: var(--fg-overlay);
 }
-.row-ident { width: 14px; height: 14px; font-size: 8px; border-radius: 3px; margin-right: 0; }
-/* A conversation with no project keeps line 1's shape — a neutral square and a
-   muted "No project" — rather than leaving the cell blank beside a coloured
-   identicon hashed from nothing. Same rule in the crumb and the group headers. */
+.row-ident { flex: 0 0 auto; width: 14px; height: 14px; font-size: 8px; border-radius: 3px; margin-right: 0; }
+/* A conversation with no project draws a neutral square in the crumb and the
+   group headers, where a "No project" label sits beside it. */
 /* The mark is drawn in CSS, not written as text: applyIdenticons (shared.js)
    overwrites the text of every identicon it touches, and its fallback for a
    value with no letter or digit is "?", which reads as an error rather than as
    "no project yet". font-size: 0 hides whatever it wrote. */
 .identicon--none { background: var(--bg-surface1); color: var(--fg-overlay); font-size: 0; }
 .identicon--none::after { content: '\00B7'; font-size: 12px; line-height: 1; }
+/* The identicon belongs to the project name beside it. A row whose name is not
+   shown (the project is its section or group header, which carries the mark)
+   drops the identicon too: alone on line 1 it sat above the title like a
+   broken avatar with a line break after it. */
+.row-ident.identicon--none,
+.row-l1:has(> .row-project[hidden]) > .row-ident,
+[data-inbox-grouped="project"] .row-ident { display: none; }
 .row-project--none { color: var(--fg-overlay); font-style: italic; }
-.row-project, .row-model { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row-project, .row-model { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row-model { display: none; }
 .row-l1 > .provider-badge { justify-self: start; margin-left: 0; }
 .row-right {
@@ -3837,7 +3917,6 @@ input.form-input--search::-webkit-search-cancel-button {
 .rail-group-count { font-variant-numeric: tabular-nums; }
 .rail-group[aria-expanded="false"] .icon-slot { transform: rotate(-90deg); }
 [data-inbox-grouped="project"] .row-project { display: none; }
-[data-inbox-grouped="project"] .row-model { display: block; }
 
 /* --- settled tail --- */
 .rail-settled {
@@ -3959,6 +4038,10 @@ body:has(.sidebar-resize-handle[data-dragging]) { cursor: col-resize; user-selec
   .crumb { display: none; }
   body:has(.shell--chat) { --topbar-h: 60px; }
   .shell--chat .topbar { align-items: flex-start; padding-top: 2px; }
+  /* The title and its state dot sit on the 44px control row's centre line;
+     top-aligned they rode 9px above the icons beside them. */
+  .shell--chat .tb-title-wrap { align-self: flex-start; align-items: center; min-height: 44px; }
+  .shell--chat .tb-dot { align-self: flex-start; margin-top: 18px; }
   .shell--chat .crumb {
     display: inline-flex; position: absolute; left: 56px; right: 12px; bottom: 4px;
     min-width: 0; overflow: hidden;
@@ -3967,6 +4050,12 @@ body:has(.sidebar-resize-handle[data-dragging]) { cursor: col-resize; user-selec
   .shell--chat .crumb [data-crumb-tail] { display: none; }
   .topbar-actions .btn-icon.tb-newchat { display: inline-flex; }
   .topbar :is(.session-title, .session-title-static) { font-size: var(--text-sm); }
+  /* The back link keeps its arrow and its accessible name; the visible label
+     would leave the page title a single letter at this width. */
+  .topbar-back > span:not(.icon) {
+    position: absolute; width: 1px; height: 1px; overflow: hidden;
+    clip-path: inset(50%); white-space: nowrap;
+  }
   .topbar-actions { gap: 0; }
   .pop-attention, .pop-menu { right: var(--sp-2); width: min(92vw, 340px); }
 
@@ -3998,11 +4087,30 @@ body:has(.sidebar-resize-handle[data-dragging]) { cursor: col-resize; user-selec
 
 [data-project-controls][hidden], [data-sidebar-projects][hidden], [data-sidebar-project][hidden] { display: none !important; }
 [data-has-projects="false"] .row-project { display: none; }
+/* Once the shell controller has resolved projects, a row never carries its
+   project name: with projects they are the rail's sections, without them there
+   is none to name. Line 1 carries the conversation's provider and model. */
+[data-has-projects] .row-model { display: block; }
 .sidebar-project-section { padding-top: var(--sp-3); }
-.sidebar-project { margin-top: var(--sp-2); }
-.sidebar-project > summary { min-height: 32px; display: flex; align-items: center; cursor: pointer; font-weight: 600; }
-.sidebar-project > .rail-rows { padding-left: var(--sp-2); }
-.sidebar-project-create { margin: var(--sp-2) 0 var(--sp-2) var(--sp-2); }
+.sidebar-project { margin-top: var(--sp-1); }
+/* Same 10px inset as a rail row, so the project name, its rows and its
+   new-chat command share one left edge under the section label. */
+.sidebar-project > summary {
+  min-height: 30px; padding: 0 10px; border-radius: 6px;
+  display: flex; align-items: center; cursor: pointer;
+  font-size: var(--text-sm); font-weight: var(--weight-bold); color: var(--fg-sub1);
+  list-style: none;
+}
+.sidebar-project > summary::-webkit-details-marker { display: none; }
+.sidebar-project > summary:hover { background: color-mix(in srgb, var(--bg-surface0) 50%, transparent); }
+.sidebar-project > summary > .identicon { width: 14px; height: 14px; font-size: 8px; border-radius: 3px; margin-right: 6px; }
+.sidebar-project-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sidebar-project > summary[data-icon]::before { margin-right: 6px; color: var(--fg-overlay); transition: rotate var(--transition); }
+.sidebar-project:not([open]) > summary[data-icon]::before { rotate: -90deg; }
+.sidebar-project-create {
+  justify-content: flex-start; margin: 0 0 var(--sp-2); padding: 0 10px;
+  border-color: transparent; box-shadow: none; color: var(--fg-sub0);
+}
 .conversation-context-marker { display: flex; align-items: center; gap: var(--sp-2); margin: var(--sp-5) auto; padding: var(--sp-2) var(--sp-3); width: fit-content; max-width: 100%; border: 1px solid var(--border); border-radius: var(--radius-md); color: var(--fg-muted); font-size: var(--text-sm); }
 
 /* === STANDALONE SOURCE PAGE ===

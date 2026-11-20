@@ -387,6 +387,7 @@ extension WorkflowExecutorMergeResolveCoordinator on WorkflowExecutor {
               strategy: promotionStrategy,
               storyId: storyId,
             );
+            if (retryResult is WorkflowGitPromotionHeld) return _ResolverExit(retryResult);
             if (retryResult is WorkflowGitPromotionSuccess) {
               // Clear persisted merge-resolve state for this iteration.
               context.remove('$statePrefix.pre_attempt_sha');

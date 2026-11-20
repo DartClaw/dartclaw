@@ -1,11 +1,18 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_core/dartclaw_core.dart' show HarnessFactory;
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' show DartclawRuntime, PrCreator;
 import 'package:dartclaw_testing/dartclaw_testing.dart' show openPreparedTaskBackend;
-import 'package:dartclaw_workflow/dartclaw_workflow.dart' show SkillProvisioner;
+import 'package:dartclaw_workflow/dartclaw_workflow.dart'
+    show
+        SkillProvisioner,
+        WorkflowMaterializer,
+        WorkflowDefinitionParser,
+        WorkflowDefinition,
+        WorkflowDefinitionResolver;
 import 'package:path/path.dart' as p;
 
 import '../workflow/_support/workflow_test_paths.dart';
@@ -317,7 +324,7 @@ final class E2EFixture {
     final dataDir = p.join(runtimeDir.path, 'data');
     final workspaceDir = p.join(dataDir, 'workspace');
     final workflowWorkspaceDir = p.join(dataDir, 'workflow-workspace');
-    final runtimeCwd = p.join(dataDir, 'runtime-cwd');
+    final runtimeCwd = p.join(runtimeDir.path, 'runtime-cwd');
     final projectDir = p.join(dataDir, 'projects', projectId);
 
     _copyDirectorySync(Directory(p.join(profileDir, 'workspace')), Directory(workspaceDir));
@@ -510,6 +517,42 @@ final class E2EFixture {
         .replaceAll('__PLANNER_EFFORT__\n', plannerEffortLine)
         .replaceAll('__EXECUTOR_MODEL__', '$provider/$executorModel')
         .replaceAll('__REVIEWER_MODEL__', '$provider/$reviewerModel');
+  }
+
+  /// Retains a disposable workflow's worktree for collection, proving its remaining definition is unchanged.
+  Future<Map<String, dynamic>> retainWorkflowForInspection(String dataDir, String workflowName) async {
+    final sourceDir = WorkflowMaterializer.resolveBuiltInWorkflowSourceDir();
+    if (sourceDir == null) throw StateError('No shipped workflow source tree found');
+    final canonicalFile = File('$sourceDir/$workflowName.yaml');
+    final parser = WorkflowDefinitionParser();
+    final canonical = parser.parse(canonicalFile.readAsStringSync());
+    await WorkflowMaterializer.materialize(dataDir: dataDir, sourceDir: sourceDir);
+    final workflowFile = File('${WorkflowMaterializer.builtInDir(dataDir)}/$workflowName.yaml');
+    final retainedJson = canonical.toJson();
+    (retainedJson['gitStrategy'] as Map<String, dynamic>)['cleanup'] = {'enabled': false};
+    final retained = WorkflowDefinition.fromJson(retainedJson);
+    final yaml = const WorkflowDefinitionResolver().emitYaml(retained);
+    final observed = parser.parse(yaml);
+    final restoredJson = observed.toJson();
+    final restoredStrategy = restoredJson['gitStrategy'] as Map<String, dynamic>;
+    final canonicalStrategy = canonical.toJson()['gitStrategy'] as Map<String, dynamic>;
+    if (canonicalStrategy.containsKey('cleanup')) {
+      restoredStrategy['cleanup'] = canonicalStrategy['cleanup'];
+    } else {
+      restoredStrategy.remove('cleanup');
+    }
+    if (observed.gitStrategy?.cleanup != false || jsonEncode(restoredJson) != jsonEncode(canonical.toJson())) {
+      throw StateError('Disposable workflow changed beyond gitStrategy.cleanup.enabled');
+    }
+    workflowFile.writeAsStringSync(yaml);
+    return {
+      'workflow': canonical.name,
+      'canonicalFieldsUnchanged': true,
+      'changedField': 'gitStrategy.cleanup.enabled',
+      'value': false,
+      'stepCount': canonical.steps.length,
+      'stepDefaults': canonical.stepDefaults?.map((value) => value.toJson()).toList(),
+    };
   }
 
   String _renderProvidersBlock() {

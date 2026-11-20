@@ -1,6 +1,6 @@
 # Projects and Git
 
-> Current through: **0.27**
+> Current through: **0.28.1**
 
 DartClaw manages git repositories as **projects** -- first-class entities that tasks can target. Tasks that explicitly set
 `configJson.needsWorktree: true` branch from a project, work in isolation, and push results back on acceptance. A single
@@ -9,7 +9,7 @@ DartClaw instance can manage multiple projects simultaneously.
 ## What Is a Project?
 
 A project is a registered git repository that DartClaw clones, keeps fresh, and can use as the base for declared task
-worktrees. Projects have a lifecycle (`cloning` -> `ready` -> optionally `error` or `stale`) and are managed through the
+worktrees. Projects have a lifecycle (`cloning` -> `ready`, or `error` when the clone fails) and are managed through the
 web UI or REST API.
 
 There are two kinds of projects:
@@ -46,6 +46,9 @@ The `_local` project:
 - Uses local merge semantics (squash-merge into the base ref) -- no remote push
 - Is the task/workflow **default project** when no external projects exist
 - Requires a `.git/` directory and a local base ref
+- Does not exist when `dartclaw serve` starts in or inside its data directory, as under
+  `dartclaw service install`: DartClaw then works in the workspace directory, which agents can write and is never a
+  project repository, so worktree tasks and workflows need a registered project
 
 When you register external projects, `_local` remains available for task/workflow project selection but is not offered as
 an owner chat destination. The first external project (or whichever is marked `default: true`) becomes the task/workflow
@@ -108,7 +111,8 @@ Content-Type: application/json
 }
 ```
 
-The web UI also provides a project management interface on the `/tasks` page with a project selector.
+In the web UI, the **Projects** page (`/projects`, opened from **System**) adds, edits, fetches and removes projects;
+the task form on `/tasks` has a project selector.
 
 ### Project Lifecycle
 
@@ -117,31 +121,39 @@ Register (config or API)
   |
   v
 cloning  ──(clone completes)──>  ready
-  |                                |
-  (clone fails)                    (fetch fails repeatedly)
-  |                                |
-  v                                v
-error                            stale
+  |
+  (clone fails)
+  |
+  v
+error
 ```
 
-- **cloning**: Initial clone running in a background isolate. Tasks cannot target this project yet.
-- **ready**: Clone complete. Auto-fetch keeps it current.
-- **error**: Clone failed. Check logs for auth or network issues. Re-register or fix credentials.
-- **stale**: Previously `ready` but fetch failures have accumulated. Tasks still run against local state.
+- **cloning**: Initial clone running in a background isolate. A queued task that targets the project waits until the
+  clone finishes.
+- **ready**: Clone complete. Auto-fetch keeps it current. A failed fetch logs a warning and leaves the project `ready`.
+- **error**: Clone failed. Queued tasks that target the project fail. Check logs for auth or network issues, then
+  re-register or fix credentials.
+
+The status enum also defines `stale` (shown as a warning badge), but nothing sets it today.
 
 ## Auto-Fetch
 
-External projects are automatically fetched before worktree creation, so tasks that declare `needsWorktree: true` branch
-from recent code.
+External projects are fetched before a task runs against them, so tasks that declare `needsWorktree: true` branch from
+recent code.
 
 **How it works**:
 
-1. When a task declaring `needsWorktree: true` starts, `WorktreeManager` calls `ProjectService.ensureFresh(project)`.
-2. If the project was fetched within the cooldown window (default: 5 minutes), the fetch is skipped.
-3. If a fetch is already in-flight for this project, the second caller waits for it to complete (no duplicate fetches).
-4. Otherwise, `git fetch origin` runs in an isolate to avoid blocking the event loop.
+1. Before a task bound to an external project runs (with or without a worktree), `TaskExecutor` calls
+   `ProjectService.ensureFresh` with the task's base branch.
+2. If a fetch of the same project and branch is already in flight, the second caller waits for it (no duplicate fetches).
+3. Otherwise `git fetch origin +refs/heads/<branch>:refs/remotes/origin/<branch>` runs in an isolate to avoid blocking
+   the event loop. The explicit refspec writes `origin/<branch>` even in a single-branch `shallow` clone.
 
-**On network failure**: The fetch is logged as a warning and the task proceeds with potentially stale local state. `lastFetchAt` is not updated, so the next task will retry.
+`projects.fetchCooldownMinutes` (default 5) skips a fetch that names no branch when the project was fetched within the
+window. A task fetch always names its base branch, so it bypasses the cooldown.
+
+**On network failure**: The fetch is logged as a warning and the task proceeds with potentially stale local state.
+`lastFetchAt` is not updated. Workflow-orchestrated tasks validate strictly instead: a failed fetch fails the task.
 
 **Configuration**:
 
@@ -180,13 +192,12 @@ Task queued (needsWorktree: true, projectId: my-app)
 TaskExecutor picks up task
   |
   v
-ProjectService.ensureFresh(project)
-  --> auto-fetch if outside cooldown window
+ProjectService.ensureFresh(project, branch)
+  --> git fetch origin +refs/heads/<branch>:refs/remotes/origin/<branch>
   |
   v
 WorktreeManager.create(taskId, project)
-  --> git branch dartclaw/task-<taskId> <branch>
-  --> git worktree add <worktreesDir>/<taskId> dartclaw/task-<taskId>
+  --> git worktree add <worktreesDir>/<taskId> -b dartclaw/task-<taskId> origin/<branch>
   |
   v
 Agent harness spawned with cwd = worktree path
@@ -196,29 +207,39 @@ Task completes --> enters review state
   |
   +-- Accept --> push branch + create PR (if configured) --> cleanup
   +-- Reject --> cleanup (no push)
-  +-- Push back --> task returns to running with feedback (worktree preserved)
-  +-- Failure --> worktree preserved for inspection
+  +-- Push back --> task moves to running with feedback (worktree preserved)
+  +-- Failure --> worktree preserved for inspection (until the startup reap below)
 ```
 
-For **`_local` tasks**, the flow is the same except: no auto-fetch, and accept performs a local merge (via `MergeExecutor`) instead of pushing to a remote.
+For **`_local` tasks**, the flow is the same except: no auto-fetch, the worktree branches from `tasks.worktree.base_ref`
+(`git branch` then `git worktree add`), and accept performs a local merge (via `MergeExecutor`) instead of pushing to a
+remote. After a successful local squash accept, cleanup force-deletes the task's own `dartclaw/task-<taskId>` branch.
 
 ### Where Worktrees Live
 
 ```
-~/.dartclaw/
-  worktrees/
-    <taskId>/           # isolated checkout for each task that declares it
+<data_dir>/                # ~/.dartclaw by default
+  workspace/
+    .dartclaw/
+      worktrees/
+        <taskId>/          # isolated checkout for each task that declares it
 ```
 
-The exact path is `<dataDir>/worktrees/`.
+The exact path is `<data_dir>/workspace/.dartclaw/worktrees/<taskId>/`, keyed by the task ID. A standalone workflow run
+(`dartclaw workflow run --standalone`) places them under `<repository>/.dartclaw/worktrees/` instead.
 
 ### Branch Naming
 
 Each task with a worktree gets a branch named `dartclaw/task-<taskId>`. If that name is taken (e.g., from a previous failed cleanup), DartClaw appends a suffix: `dartclaw/task-<taskId>-2`, `-3`, etc., up to 100 attempts.
 
-### Stale Worktree Detection
+Cancelling or cleaning up a task leaves unmerged commits on its task branch and uncommitted changes in its worktree directory. Save any uncommitted changes you need before [startup reaping](#stale-worktree-reaping) removes the worktree.
 
-On startup, `WorktreeManager.detectStaleWorktrees()` scans the worktrees directory and logs warnings for any older than the configured timeout (default: 24 hours). Stale worktrees are **not auto-deleted** -- they require manual cleanup or task resolution.
+### Stale Worktree Reaping
+
+On startup, `WorktreeManager.detectStaleWorktrees()` scans the worktrees directory for entries older than
+`tasks.worktree.stale_timeout_hours` (default 24). A stale worktree whose task is missing or terminal (`accepted`,
+`rejected`, `cancelled`, `failed`) is removed, including any uncommitted changes. Its `dartclaw/task-*` branch stays. A
+worktree whose task is still active stays in place with a warning.
 
 ## What Happens on Task Accept
 
@@ -252,6 +273,9 @@ tasks:
 | `squash` | `git merge --squash <branch>` + `git commit` | Single commit: `task(<taskId>): <title>` |
 | `merge` | `git merge --no-ff <branch>` | Merge commit preserving branch history |
 
+**Pre-merge check**: The merge refuses to start unless the index is clean and no untracked file would collide with the
+stashed changes.
+
 **Conflict handling**: If the merge hits conflicts, DartClaw aborts the merge, preserves a `conflict.json` artifact, and keeps the task in review. The operator must resolve conflicts manually in the worktree.
 
 **State restoration**: MergeExecutor always restores the repository to its pre-merge state (original branch + stashed changes) regardless of success or failure.
@@ -266,10 +290,13 @@ For project-backed workflows:
 - Mapped story branches can be promoted into that integration branch through runtime-controlled merge operations.
 - Dependency-aware map execution blocks dependent stories until prerequisite promotion succeeds.
 - Publish pushes the workflow branch and optionally creates a PR (`pr.strategy: github-pr`), writing machine-readable workflow outputs:
-  - `publish.status` (`success`, `manual`, `failed`)
+  - `publish.status` (`success`, `manual`, `held`, `failed`)
   - `publish.branch`
   - `publish.remote`
   - `publish.pr_url`
+
+- Promotion and publish stop at `awaitingApproval` when the changes touch an execution surface, until a person
+  approves them; see [Workflows § Workflow-owned Git lifecycle](workflows.md#workflow-owned-git-lifecycle).
 
 Publish failures leave inspectable git state and surface structured failure details in workflow context.
 
@@ -290,14 +317,19 @@ projects:
     credentials: github-main   # references a github-token credential entry
 ```
 
-At clone, fetch, and push time, the credential is resolved from the credential store and injected into the git subprocess environment:
+At clone, fetch, and push time, the credential is resolved by name and injected into the git subprocess environment.
+Every git subprocess gets `GIT_TERMINAL_PROMPT=0` and an empty credential helper, so a missing credential fails instead
+of prompting.
 
-| Credential Type | Environment Variable |
-|-----------------|---------------------|
-| SSH key | `GIT_SSH_COMMAND=/usr/bin/ssh -i /path/to/key` |
-| GitHub token | `GIT_ASKPASS` helper script + `GIT_TERMINAL_PROMPT=0` |
+| Credential | Environment |
+|------------|-------------|
+| `github-token` entry, GitHub remote | Remote rewritten to its canonical HTTPS URL; `GIT_ASKPASS` helper script that reads the token from a file under `<data_dir>/projects/` and answers only prompts for `https://github.com`, so a `remote.origin.pushurl` on another host gets no credential and the push fails as an authentication failure |
+| `api-key` entry, SSH remote | `GIT_SSH_COMMAND=ssh -i <entry value> -o BatchMode=yes -o StrictHostKeyChecking=accept-new` (the entry's value is the private-key path) |
+| `api-key` entry, HTTPS remote | `GIT_ASKPASS` helper script that prints the entry's value from a file under `<data_dir>/projects/` |
+| None, SSH remote | `GIT_SSH_COMMAND=ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new` |
 
-Credential paths are redacted in logs by `MessageRedactor`. See [Security](security.md) for the broader credential isolation model.
+The askpass helper and its credential file are readable by the owner only (file 0600, script 0700) and deleted at
+shutdown. See [Security](security.md) for the broader credential isolation model.
 
 ## Project REST API
 
@@ -307,35 +339,49 @@ Credential paths are redacted in logs by `MessageRedactor`. See [Security](secur
 | `GET` | `/api/projects` | List all projects (config + runtime + `_local`) |
 | `GET` | `/api/projects/<id>` | Get project details |
 | `PATCH` | `/api/projects/<id>` | Update project (runtime-created only; 403 for config-defined) |
-| `DELETE` | `/api/projects/<id>` | Delete project (runtime-created only). Cancels running tasks, cleans worktrees, removes clone |
+| `DELETE` | `/api/projects/<id>` | Delete project (runtime-created only). Cancels its active tasks, cleans their worktrees, deletes the project directory |
 | `POST` | `/api/projects/<id>/fetch` | Force-fetch from remote (bypasses cooldown) |
 | `GET` | `/api/projects/<id>/status` | Clone health check (status, last fetch, errors) |
 
+> **Warning:** for a cloned project the project directory is its clone under `<data_dir>/projects/`. For an
+> API-registered local-path project it is the `localPath` checkout itself, and `DELETE` removes that directory
+> recursively. Do not delete such a project through the API while its checkout holds work you want to keep.
+
 ## Container Integration
 
-In containerized mode, project clones are mounted read-only:
+In containerized mode, a task container (the default `workspace` profile) gets these mounts:
 
 | Mount | Source | Access | Purpose |
 |-------|--------|--------|---------|
-| `/project` | `<dataDir>/projects/` | Read-only | All project clones accessible to the agent |
-| `/workspace` | `<dataDir>/workspace/` | Read-write | Behavior files (SOUL.md, etc.) |
+| `/workspace` | `<data_dir>/workspace/` | Read-write | Behavior files, and task worktrees under `.dartclaw/worktrees/` |
+| `/project` | The directory `dartclaw serve` was started in (the `_local` repository; not mounted when `serve` starts in its data directory) | Read-only | `_local` checkout |
+| `/projects` | `<data_dir>/projects/` | Read-only | All cloned projects |
+| `/projects/<id>` | A config-defined `localPath` project outside `<data_dir>/projects/` (one inside `<data_dir>/workspace/` or an agent workspace is skipped at config load with a warning) | Read-only | Local-path project checkout |
 
-There is no per-task file scoping inside that mount: a task targeting `my-app` can read the `docs-site` clone. Tasks explicitly declared with the `restricted` profile have no workspace mount at all.
+There is no per-task file scoping inside those mounts: a task targeting `my-app` can read the `docs-site` clone. A task
+without a worktree that targets a cloned project runs in its read-only `/projects/<id>` view, so declare
+`needsWorktree: true` for tasks that write. Tasks explicitly declared with the `restricted` profile have no workspace,
+project, or clone mounts and run in `/tmp`. Configured named agents mount only their own workspace and the directory
+they are admitted to; see [Security](security.md).
 
 ### Path Translation
 
-When the agent harness needs to work in a worktree inside a container, host paths are translated:
+When the agent harness works in a worktree inside a container, host paths are translated through the mount that
+covers them (the longest matching mount wins):
 
 ```
-Host:      ~/.dartclaw/worktrees/task-42/
-Container: /workspace/worktrees/task-42/
+Host:      ~/.dartclaw/workspace/.dartclaw/worktrees/<taskId>/
+Container: /workspace/.dartclaw/worktrees/<taskId>/
 ```
 
-`ContainerManager.containerPathForHostPath()` handles translation. The worktree path must be within a mounted volume.
+`ContainerManager.containerPathForHostPath()` handles translation. A path outside every mount has no container path,
+and the harness falls back to the container's working directory.
 
 ## Behavior Files Per Project
 
-External project repositories can include their own `CLAUDE.md` and `AGENTS.md` files. `BehaviorFileService` reads from both the workspace directory and the project root, enabling per-project agent instructions without modifying global behavior files.
+The agent runs with the project checkout (or its task worktree) as its working directory, so the harness reads the
+repository's own `CLAUDE.md` or `AGENTS.md` natively. DartClaw composes its system prompt from the workspace behavior
+files only; a project-level `SOUL.md` is not read and logs a deprecation warning.
 
 ## Security Layers
 
@@ -343,9 +389,10 @@ File operations within worktrees are protected by multiple layers:
 
 1. **FileGuard** (global) -- blocks access to sensitive paths (`.ssh`, `.aws`, credentials). It does not confine a task to its own worktree.
 
-2. **CommandGuard** -- blocks destructive git operations (`git push --force`, `git reset --hard`, `git clean -f`) across all contexts.
+2. **CommandGuard** -- blocks destructive git operations (`git push --force` / `-f`, `git reset --hard`, `git clean -f`) across all contexts.
 
-3. **Container isolation** -- kernel-level namespace separation with `network:none` and `--cap-drop ALL`.
+3. **Container isolation** -- kernel-level namespace separation with `--network none`, `--cap-drop ALL`, a read-only
+   root filesystem, and `no-new-privileges`.
 
 ## Worktree Preservation on Failure
 
@@ -353,24 +400,25 @@ When a task **fails**, its worktree is intentionally preserved. This allows insp
 
 ```bash
 # Inspect a failed task's work
-cd ~/.dartclaw/worktrees/<taskId>
+cd ~/.dartclaw/workspace/.dartclaw/worktrees/<taskId>
 
 git log --oneline          # what did the agent commit?
 git diff                   # uncommitted changes?
 git stash list             # anything stashed?
 ```
 
-Worktrees are only cleaned up on:
+Worktrees are cleaned up on:
 - Task accepted (after merge or push)
 - Task rejected
 - Task cancelled
-
-The `stale_timeout_hours` setting (default: 24h) flags old worktrees with log warnings but does not auto-delete them.
+- Project deleted through the API (for its active tasks)
+- Startup, once older than `stale_timeout_hours` (default 24h) when the task is missing or terminal, which includes
+  `failed` (see [Stale Worktree Reaping](#stale-worktree-reaping))
 
 ## Configuration Reference
 
 ```yaml
-# --- Projects (0.14) ---
+# --- Projects ---
 projects:
   fetchCooldownMinutes: 5              # auto-fetch cooldown (default: 5 min)
 
@@ -396,7 +444,7 @@ tasks:
   artifact_retention_days: 0           # 0 = unlimited
   worktree:
     base_ref: main                     # branch to branch from / merge into (_local only)
-    stale_timeout_hours: 24            # warn threshold for abandoned worktrees
+    stale_timeout_hours: 24            # startup reap age for worktrees of finished tasks
     merge_strategy: squash             # squash | merge (_local only)
 ```
 

@@ -104,7 +104,7 @@ void main() {
     expect(retainedStatus.turnId, turnId);
     expect(retainedStatus.state, TurnWaitState.completed);
     expect(retainedStatus.provider, 'claude');
-    final retainedStream = sseStreamResponse(primaryWorker, turns, session.id, turnId);
+    final retainedStream = sseStreamResponse(turns, session.id, turnId);
     expect(retainedStream.statusCode, 200);
     expect(await retainedStream.readAsString(), contains('event: done'));
     final cancel = await turns.cancelTurnById(session.id, turnId, TurnCancelReason.operatorCancel);
@@ -125,7 +125,7 @@ void main() {
       turns.cancelTurnById(session.id, turnId, TurnCancelReason.operatorCancel),
       throwsA(isA<TurnCancelException>().having((error) => error.code, 'code', 'TURN_NOT_FOUND')),
     );
-    expect(sseStreamResponse(primaryWorker, turns, session.id, turnId).statusCode, 404);
+    expect(sseStreamResponse(turns, session.id, turnId).statusCode, 404);
   }
 
   test('retains terminal outcome after incompatible-profile replacement disposes its worker', () async {

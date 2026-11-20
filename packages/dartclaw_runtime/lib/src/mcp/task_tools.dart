@@ -187,6 +187,10 @@ class TaskReviewTool extends ContextualMcpTool {
         'action': action,
         'status': task.status.name,
       }),
+      ReviewExecutionSurfaceHold(:final taskId, :final paths, :final message) => toolError('review_required', message, {
+        'task_id': taskId,
+        'paths': paths,
+      }),
       ReviewMergeConflict(:final taskId, :final taskTitle, :final conflictingFiles, :final details) => toolError(
         'merge_conflict',
         details,

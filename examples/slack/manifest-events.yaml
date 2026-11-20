@@ -14,8 +14,8 @@ features:
   bot_user:
     display_name: dartclaw
     always_online: true
-  assistant_view:
-    assistant_description: Ask DartClaw to work on tasks, answer questions and report progress.
+  agent_view:
+    agent_description: Ask DartClaw to work on tasks, answer questions and report progress.
   slash_commands:
     - command: /stop
       description: Stop all running agent work

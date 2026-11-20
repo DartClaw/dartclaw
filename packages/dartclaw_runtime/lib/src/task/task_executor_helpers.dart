@@ -134,17 +134,31 @@ extension _TaskExecutorHelpers on TaskExecutor {
     );
   }
 
-  Future<String?> _composePendingMessage(Task task, String sessionId, {String? workingDirectory}) async {
+  Future<String> _composePendingMessage(
+    Task task, {
+    required ExecutionPolicy? runnerPolicy,
+    String? workingDirectory,
+  }) async {
     final goalContext = await _goalContextFor(task);
     final pushBackComment = TaskConfigView(task, log: TaskExecutor._log).pushBackComment;
     if (pushBackComment != null) {
       return _pushBackPrompt(pushBackComment, goalContext: goalContext, workingDirectory: workingDirectory);
     }
 
-    return _initialPrompt(task, goalContext: goalContext, workingDirectory: workingDirectory);
+    return _initialPrompt(
+      task,
+      runnerPolicy: runnerPolicy,
+      goalContext: goalContext,
+      workingDirectory: workingDirectory,
+    );
   }
 
-  String _initialPrompt(Task task, {String? goalContext, String? workingDirectory}) {
+  String _initialPrompt(
+    Task task, {
+    required ExecutionPolicy? runnerPolicy,
+    String? goalContext,
+    String? workingDirectory,
+  }) {
     final buffer = StringBuffer();
     if (task.retryCount > 0) {
       final lastError = TaskConfigView(task, log: TaskExecutor._log).lastError;
@@ -169,6 +183,23 @@ extension _TaskExecutorHelpers on TaskExecutor {
         ..writeln('`$workingDirectory`')
         ..writeln()
         ..writeln('Use this directory as the only workspace for this task.');
+    }
+
+    if (runnerPolicy?.containerProfile == 'workspace') {
+      buffer
+        ..writeln()
+        ..writeln('### Container Toolchains')
+        ..writeln(
+          'This workspace container has no direct network access. Language toolchains exist only when the '
+          'configured `container.image` provides them; DartClaw\'s default image provides none.',
+        )
+        ..writeln(
+          'If a build or test command\'s binary is missing, report the missing binary by name in your final reply '
+          'and point the operator to `docs/guide/security.md#language-toolchains-in-the-agent-image` '
+          '(Language Toolchains in the Agent Image) and `container.image`. '
+          'Stop work that requires the missing toolchain. Do not install or download a toolchain, '
+          'replace it with another runtime, or run the commands on the host.',
+        );
     }
 
     if (goalContext != null && goalContext.isNotEmpty) {
@@ -280,10 +311,37 @@ extension _TaskExecutorHelpers on TaskExecutor {
 
   bool _isWorkflowOwnedLocalRef(String? ref) => ref != null && ref.startsWith('dartclaw/workflow/');
 
-  Future<GitStatusSnapshot?> _captureReadOnlyProjectStatus(Task task, String executionDirectory) async {
+  /// [projectDir] is set when [executionDirectory] is a task worktree of it;
+  /// [site] is which kind of directory [executionDirectory] is.
+  Future<GitStatusSnapshot?> _captureReadOnlyProjectStatus(
+    Task task,
+    String executionDirectory, {
+    required String? projectDir,
+    required TaskExecutionSite site,
+  }) async {
     if (!_isReadOnlyTask(task)) return null;
+    // An agent-writable workspace is never a project repository: agents can
+    // write its `.git/`, so host Git there would run their config and hooks.
+    // The runtime directory is that workspace when there is no local repository.
+    final agentWritable = switch (site) {
+      TaskExecutionSite.agentWorkspace => true,
+      TaskExecutionSite.runtimeDirectory => _localRepositoryDir == null,
+      TaskExecutionSite.worktree || TaskExecutionSite.project => false,
+    };
+    if (agentWritable) {
+      TaskExecutor._log.fine(
+        'Task ${task.id}: skipping read-only mutation baseline in agent-writable "$executionDirectory"',
+      );
+      return null;
+    }
     try {
-      return await TaskReadOnlyGuard(worktreePath: executionDirectory, log: TaskExecutor._log).baseline();
+      return await TaskReadOnlyGuard(
+        worktreePath: executionDirectory,
+        projectDir: projectDir,
+        log: TaskExecutor._log,
+      ).baseline();
+    } on TamperedWorktreeException {
+      rethrow;
     } catch (error) {
       TaskExecutor._log.fine(
         'Task ${task.id}: skipping read-only mutation baseline for "$executionDirectory" '
@@ -293,9 +351,18 @@ extension _TaskExecutorHelpers on TaskExecutor {
     }
   }
 
-  Future<String?> _readOnlyMutationSummary(Task task, String executionDirectory, GitStatusSnapshot? baseline) async {
+  Future<String?> _readOnlyMutationSummary(
+    Task task,
+    String executionDirectory,
+    GitStatusSnapshot? baseline, {
+    required String? projectDir,
+  }) async {
     if (!_isReadOnlyTask(task) || baseline == null) return null;
-    return TaskReadOnlyGuard(worktreePath: executionDirectory, log: TaskExecutor._log).mutationSummary(baseline);
+    return TaskReadOnlyGuard(
+      worktreePath: executionDirectory,
+      projectDir: projectDir,
+      log: TaskExecutor._log,
+    ).mutationSummary(baseline);
   }
 
   String _defaultTurnFailureSummary(TurnStatus status) =>

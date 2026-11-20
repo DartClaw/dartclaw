@@ -87,9 +87,17 @@ StubResponse implementStoryCommonStub(
         findingsCount: 0,
       ),
     ),
+    'ship' => shipStub,
     _ => throw StateError('Unexpected step: ${queued.stepKey}'),
   };
 }
+
+/// The closing `ship` step's pull request, as `andthen:ship --auto` returns it.
+const shipStub = StubResponse(
+  outputs: {
+    'pull_request': {'title': 'Ship the feature', 'body': 'Intent.\n\n## Ship summary\n\nPRD: -\n\nUndo: revert'},
+  },
+);
 
 StubResponse implementPrdCommonStub(
   QueuedStep queued, {
@@ -131,6 +139,7 @@ StubResponse implementPrdCommonStub(
       },
     ),
     'update-state' => StubResponse(outputs: {'state_update_summary': 'done'}),
+    'ship' => shipStub,
     _ => throw StateError('Unexpected step: ${queued.stepKey}'),
   };
 }
@@ -265,12 +274,13 @@ final class BuiltInWorkflowDriver {
         required strategy,
         String? storyId,
       }) async => const WorkflowGitPromotionSuccess(commitSha: 'abc123'),
-      publishWorkflowBranch: ({required runId, required projectId, required branch}) async => WorkflowGitPublishResult(
-        status: WorkflowPublishStatus.success,
-        branch: branch,
-        remote: 'origin',
-        prUrl: 'https://example.test/pr/$runId',
-      ),
+      publishWorkflowBranch: ({required runId, required projectId, required branch, pullRequest}) async =>
+          WorkflowGitPublishResult(
+            status: WorkflowPublishStatus.success,
+            branch: branch,
+            remote: 'origin',
+            prUrl: 'https://example.test/pr/$runId',
+          ),
     );
   }
 

@@ -31,10 +31,12 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowStepCompletedEvent,
         WorkflowTaskType,
         WorkflowWorktreeBinding,
-        WorkflowVariable;
+        WorkflowVariable,
+        workflowExecutionSurfaceHoldKey;
 import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeProjectService;
 import 'package:dartclaw_workflow/src/workflow/execution_envelope_schema.dart'
     show buildExecutionEnvelopeSchema, buildFinalizerPrompt;
+import 'package:dartclaw_workflow/src/workflow/workflow_output_contract.dart' show workflowApprovedCandidateKey;
 import 'package:dartclaw_workflow/testing.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -112,6 +114,46 @@ void main() {
       await h.taskService.updateFields(e.taskId, sessionId: session.id);
       await h.seedDeclaredOutputs(e.taskId, outputs);
       await h.completeTask(e.taskId);
+    });
+  }
+
+  for (final key in [workflowExecutionSurfaceHoldKey, workflowApprovedCandidateKey]) {
+    test('forged host output $key settles the run without partial merge', () async {
+      final definition = h.makeDefinition(
+        steps: [
+          WorkflowStep(
+            id: 'forge',
+            name: 'Forge',
+            prompts: const ['p'],
+            outputs: {'ordinary': const OutputConfig(), key: const OutputConfig()},
+          ),
+        ],
+      );
+      final context = WorkflowContext(data: {'ordinary': 'before'});
+      final run = h.makeRun(definition);
+      await h.repository.insert(run);
+      final sub = h.eventBus
+          .on<TaskStatusChangedEvent>()
+          .where((event) => event.newStatus == TaskStatus.queued)
+          .listen(
+            (event) async => h.completeTaskWithOutcome(
+              event.taskId,
+              outcome: 'succeeded',
+              outputs: {'ordinary': 'after', key: 'forged'},
+              reason: 'done',
+            ),
+          );
+      addTearDown(sub.cancel);
+      await h.executor.execute(run, definition, context);
+      final failed = (await h.repository.getById(run.id))!;
+      expect(failed.status, WorkflowRunStatus.failed);
+      expect(failed.errorMessage, contains('reserved by the host'));
+      expect(
+        context['ordinary'],
+        'before',
+        reason: 'the incoming write set must be checked before ordinary outputs are merged',
+      );
+      expect(context[key], isNull);
     });
   }
 
@@ -639,7 +681,7 @@ void main() {
   test('deterministic publish writes publish.* outputs when enabled', () async {
     final publishExecutor = h.makeExecutor(
       turnAdapter: standardTurnAdapter(
-        publishWorkflowBranch: ({required runId, required projectId, required branch}) async =>
+        publishWorkflowBranch: ({required runId, required projectId, required branch, pullRequest}) async =>
             WorkflowGitPublishResult(
               status: WorkflowPublishStatus.success,
               branch: branch,

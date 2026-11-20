@@ -1,14 +1,14 @@
 # UI Smoke Test — DartClaw Web UI
 
 Concrete test cases for the DartClaw web UI. Each test has explicit steps and pass/fail criteria.
-Run using the `andthen:visual-validation` skill with chrome-devtools MCP.
-See `dev/guidelines/VISUAL-VALIDATION-WORKFLOW.md` for tooling conventions and screenshot/reporting format.
+Run using the `andthen:visual-validation` skill. `dev/guidelines/VISUAL-VALIDATION-WORKFLOW.md` is the authority for
+which browser tool drives each check (§ Tools) and for the screenshot/reporting format.
 
 **Scope**: smoke-only — happy path + known failure modes for every shipped page. **Not exhaustive**:
 deeper visual/UX validation lives in feature-specific test plans. Channel pairing flows are out of
 scope (separate channel-E2E test suite).
 
-**Last refreshed for**: DartClaw 0.27
+**Last refreshed for**: DartClaw 0.28.1
 
 ---
 
@@ -25,7 +25,7 @@ bash dev/testing/profiles/plain/run.sh
 | URL | `http://localhost:3335` (profile sets `port: 3335`) |
 | Token | `devtoken0` (`dev/testing/profiles/plain/data/gateway_token`) |
 | Auto-auth URL | `http://localhost:3335/?token=devtoken0` |
-| Pre-seeded | 1 pinned main session (Agent), 2 scheduled jobs, workspace memory files, guards on |
+| Pre-seeded | 1 pinned main session (Agent), 2 scheduled jobs (`daily-summary`, `test-job`), 1 scheduled task (`smoke-test-scheduled-task`), workspace behavior files (`AGENTS.md`, `SOUL.md`, `TOOLS.md`, `USER.md`), guards on |
 | Not seeded | tasks, workflow runs, projects — empty-state versions of those pages are testable; deeper TCs note when seeding is required |
 | Channels | all disabled |
 
@@ -35,8 +35,10 @@ bash dev/testing/profiles/plain/run.sh
 dart run dartclaw_cli:dartclaw serve --port 3333
 ```
 
-Default port 3333. Token is logged on startup. Use only when you need a clean install for a TC the
-seeded profile can't represent (e.g., truly empty initial state — see TC-04 note).
+Default port 3333. The resolved config needs `database.url` (or `database.credential`) pointing at PostgreSQL 14+, or
+`serve` refuses to start. The startup banner prints the `?token=` URL only when stderr is a terminal; otherwise run
+`dart run dartclaw_cli:dartclaw token show`. Use only when you need a clean install for a TC the seeded profile can't
+represent (e.g., truly empty initial state — see TC-04 note).
 
 ### Cross-cutting setup
 
@@ -195,10 +197,10 @@ selection; unavailable approvals stay actionable; recovery duplicates work; cont
 1. Navigate to `/health-dashboard`
 
 **Pass:**
-- Status hero: status icon + uptime + version
+- Hero: `System health` eyebrow with a status headline (`All systems luminous`, `Running degraded`, or `Attention needed`)
 - KPI row: UPTIME, SESSIONS, TASK ARTIFACTS
-- Status panel includes Worker state; the Storage service card reports Database and Sessions storage, with optional Pub/Sub status when configured
-- Audit table renders (rows or "no events"); expandable rows for entries with detail
+- Status card: health badge with `Version` and `Worker` rows; the Storage service card reports Database and Sessions storage, with optional Pub/Sub status when configured
+- Guard Activity table renders (rows or `No guard events recorded yet`); expandable rows for entries with detail
 - SYSTEM nav: **Health (active)** highlighted
 - No console errors
 
@@ -230,7 +232,8 @@ selection; unavailable approvals stay actionable; recovery duplicates work; cont
 **Pass:**
 - Heartbeat card: pulse icon (animated green when active; static grey when disabled)
 - Status badge: "Active" or "Disabled"
-- Jobs table populated (plain profile seeds 2 jobs) or empty-state row
+- Scheduled Jobs table lists the plain profile's 2 seeded jobs beside `SYSTEM`-badged built-in rows (always at least
+  credential health); Scheduled Tasks lists the seeded `Smoke-test fixture (does not run)`
 - Mobile: a **visible fade gradient** appears at the right edge of the scroll container — verify
   in browser, not just in CSS source (see VISUAL-VALIDATION-WORKFLOW.md "CSS presence ≠ correct rendering")
 - SYSTEM nav: **Scheduling (active)**
@@ -246,7 +249,7 @@ selection; unavailable approvals stay actionable; recovery duplicates work; cont
 **Pass:**
 - Lands on `/sessions/<id>/info`
 - Title and UUID shown; UUID truncated with ellipsis when long
-- Token grid: Input / Output / Total (or "—" for sessions with no completed turns)
+- Token grid: Input / Output / Total (or "–" for sessions with no completed turns); Codex sessions label the first card `Input (fresh)`
 - Session details show the owner, context, execution directory, provider and next-turn settings
 - "← Back to Chat" link in topbar
 - No console errors
@@ -356,9 +359,11 @@ Timeline is nested under Knowledge: Knowledge → `/knowledge`, then its Timelin
 It does not render as a separate SYSTEM nav item.
 
 Conditional items appear when:
-- Memory — a workspace and an operational feature are configured
+- Memory — an operational feature is configured: an enabled WhatsApp, Signal or Google Chat channel, Google Chat
+  Pub/Sub, or any Tasks trigger below
 - Scheduling — heartbeat, a job, or a scheduled task is configured
-- Tasks — a container, scheduled task, or channel task trigger is configured
+- Tasks — container isolation is enabled, a scheduled task is configured, or a WhatsApp, Signal or Google Chat channel
+  is enabled (Slack does not count)
 - Projects — `projectService` is configured (any number of projects)
 - Workflows — `workflowService` is configured
 
@@ -377,8 +382,8 @@ layout-width jump appears during navigation; dashboard content no longer scrolls
 
 ### TC-18: Guard Block Message
 **Prerequisite:** A session message rendered as a guard block (content begins `[Blocked by guard: …]`).
-**Creating test data:** Trigger a blocked shell command, or insert an assistant message with that
-content directly (NDJSON file or PostgreSQL).
+**Creating test data:** Trigger a blocked shell command, or append an assistant message with that
+content to the session's `<data-dir>/sessions/<id>/messages.ndjson` (messages are not stored in PostgreSQL).
 
 **Steps:**
 1. Open the session
@@ -386,7 +391,7 @@ content directly (NDJSON file or PostgreSQL).
 **Pass:**
 - Message renders as `.msg-guard-block` (not plain assistant text)
 - 🛡 icon, "GUARD BLOCKED" label in red uppercase, reason text below
-- Red left-border, amber-tinted background
+- Red left-border, red-tinted background
 
 **Fail:** Renders as plain assistant text
 
@@ -428,14 +433,15 @@ content directly (NDJSON file or PostgreSQL).
 
 ### TC-21: Task Detail Progression *(requires a task to start)*
 **Steps:**
-1. Plain profile: create a draft task with **Needs worktree** off at `/tasks/<id>`; tasks requesting worktrees require a
-   registered, ready Git project, while tasks declared with the `restricted` profile have no workspace mount
+1. Plain profile: create a draft task with **Run in an isolated git worktree** (under **Advanced** in the New Task
+   dialog) off, then open it at `/tasks/<id>`; tasks requesting worktrees require a registered, ready Git project, while
+   tasks declared with the `restricted` profile have no workspace mount
 2. Click **Start Task** (or equivalent transition); do not manually reload afterwards
 
 **Pass:**
 - Draft state shows the start action; queued/running state takes over without reload
 - Once a session is attached, the embedded task session shows at least the initial user prompt
-- For tasks with `needsWorktree: true`: timeline / diff sections render after the first events
+- For tasks created with **Run in an isolated git worktree** on (`needsWorktree: true`): timeline / diff sections render after the first events
 - No console errors
 
 **Fail:** Page stale after start; manual reload required to see new state
@@ -480,7 +486,9 @@ immediately after success (not on the next 30s poll)
 - Edit pre-populates fields; name field disabled in edit mode
 - Delete uses an inline confirmation row
 - Job names containing `"` `'` `<` `&` render safely in the confirmation
-- A newly written valid job is loaded by the running scheduler immediately; it does not show `Restart to run`
+- **Run now** on a newly saved valid job succeeds: a success toast `Job '<name>' started` and a refreshed jobs table,
+  never the error toast `Job "<name>" is not present in the running scheduler…` (the write reaches the running
+  scheduler before the response; the row itself is built from config and reads `active` either way)
 - Successful job mutations update the table without a reload or a restart banner
 
 **Fail:** Form doesn't open; cron preview missing; raw HTML in confirmation; layout breaks on special chars
@@ -493,7 +501,7 @@ immediately after success (not on the next 30s poll)
 2. Observe the banner; click Dismiss; reload
 
 **Pass:**
-- Yellow banner lists changed fields with Restart + Dismiss buttons
+- Yellow banner (`Pending changes require restart:`) lists changed fields with **Restart Now** + **Dismiss** buttons
 - Dismiss hides banner for the current page session only
 - Banner reappears after reload while restart is still pending
 
@@ -508,10 +516,10 @@ immediately after success (not on the next 30s poll)
 1. Navigate to `/workflows`
 
 **Pass:**
-- Status filter chips at top of the run list
-- Run list: rows with progress bar and step counter, OR empty state "No workflow runs found." when none
-- Workflow definition browser: per-card launch form with Run button + variable inputs (validation
-  shown inline when a required variable is empty)
+- Status filter tabs at top of the run list
+- Run list: rows with progress bar and step counter, OR empty state "No workflow runs found" when none
+- Workflow definition browser: per-card **Run** disclosure opening a launch form with variable inputs and a **Launch**
+  button (validation shown inline when a required variable is empty)
 - SYSTEM nav: **Workflows (active)**
 
 **Fail:** Definition browser missing; launch form has no validation; nav not active
@@ -524,7 +532,7 @@ immediately after success (not on the next 30s poll)
 2. Open `/workflows/<runId>`
 
 **Pass:**
-- Metadata card (run id, definition name, started-at, status)
+- Identity card (Definition, Run ID) and metric cards including Status and Started
 - Top-level progress bar
 - Action buttons reflect run state (Pause/Resume/Cancel; Approve/Reject during an approval hold)
 - Vertical step pipeline with connectors; clicking a step lazily loads
@@ -540,7 +548,8 @@ immediately after success (not on the next 30s poll)
 1. Launch a workflow that hits an approval step; observe the run detail page
 
 **Pass:**
-- Approval step row shows "Approval request:" message + optional feedback
+- Pause banner reads "Approval request: Step "<name>" needs a decision…"; the expanded approval step shows "Waiting
+  for approval" with the approval message
 - Approve and Reject buttons render; Reject prompts a confirm via `hx-confirm`
 - After Approve, run resumes; after Reject, run cancels — both update without a full reload
 
@@ -553,10 +562,11 @@ immediately after success (not on the next 30s poll)
 1. Navigate to `/projects`
 
 **Pass:**
-- Projects list with rows showing display name, URL, status badge — OR empty state
-  "No projects registered" / "Add a project to run tasks against external repositories."
-- Add-project form available
-- Per-row actions visible for ready projects
+- Projects list always includes the implicit local project (`Local` badge, status badge, no URL); registered projects
+  add rows showing display name, URL, status badge. The "No projects registered" empty state cannot appear under
+  `serve`, because the local project is always listed
+- **Add Project** opens the add-project dialog
+- **Fetch** on every row; **Edit** and **Remove** on runtime-registered projects
 - SYSTEM nav: **Projects (active)**
 
 **Fail:** Empty state shows raw HTML or unstyled; nav not active
@@ -571,16 +581,22 @@ immediately after success (not on the next 30s poll)
 
 ### TC-31: Channel Detail (Unpaired State)
 **Steps:**
-1. From `/settings`, click the WhatsApp / Signal / Google Chat channel card
+1. From `/settings`, open the Channels tab and click **Configure** on the WhatsApp / Signal / Google Chat channel card
 
 **Pass:**
 - Loads `/settings/channels/<type>`
-- When channel is disabled in config (plain profile): page renders in unpaired/disabled state with
-  a clear pointer to enable + pair (e.g., link to `/pairing` for WhatsApp/Signal)
-- Mention/group access sections render with the correct "disabled" visual class
+- When channel is disabled in config (plain profile): page renders in unpaired/disabled state with an info banner naming
+  the key to set (e.g., `Set channels.whatsapp.enabled: true in dartclaw.yaml and restart DartClaw…`), a
+  `Channel settings` link, and for WhatsApp/Signal a `Pairing / Registration` link to `/whatsapp/pairing` or
+  `/signal/pairing`
+- Group access defaults to `disabled`, so the mention section carries the `channel-mention-disabled` class
 - "← Settings" link in topbar returns to settings (labelled with the destination, not "Back")
 
 **Fail:** Plain HTML stub or 500 error in unpaired state; broken back link
+
+**Known defect:** the page renders the WhatsApp/Signal `Pairing / Registration` link whenever it is shown, but
+`/whatsapp` and `/signal` are mounted only when that channel is enabled, so in the plain profile the link reaches the
+styled 404. Record it; it does not fail this case.
 
 ---
 
@@ -614,7 +630,9 @@ binary's embedded fallback with the network cut, not against a dev server.
 1. `bash dev/tools/build.sh`, then resolve `BIN="$PWD/build/bin/dartclaw"` as an absolute path.
 2. Create a temporary directory outside the checkout and copy the visual seed into it:
    `R13_DATA="$(mktemp -d)" && cp -R dev/testing/profiles/visual/data/. "$R13_DATA"`.
-3. Launch `(cd "$R13_DATA" && "$BIN" --config "$R13_DATA/dartclaw.yaml" serve --data-dir "$R13_DATA" --port 3338)`.
+3. With `DARTCLAW_POSTGRES_URL` set to a dedicated PostgreSQL 14+ database (the copied YAML reads
+   `database.url: ${DARTCLAW_POSTGRES_URL}`), launch
+   `(cd "$R13_DATA" && "$BIN" --config "$R13_DATA/dartclaw.yaml" serve --data-dir "$R13_DATA" --port 3338)`.
    The launched process arguments must contain `--port 3338` and must contain neither `--dev` nor `--source-dir`, so
    source-tree assets cannot satisfy the check. Confirm with `ps -o args= -p <pid>`.
 4. Start the browser with every non-`localhost` origin unreachable, e.g. Chromium with

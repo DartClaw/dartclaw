@@ -1,0 +1,6 @@
+{
+  "name": "container-coding-fixture",
+  "private": true,
+  "scripts": { "test": "node --test" },
+  "dependencies": { "lodash": "4.17.21" }
+}

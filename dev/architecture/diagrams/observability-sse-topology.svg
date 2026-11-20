@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 700" width="1000" height="700" role="img" aria-labelledby="title desc">
   <title id="title">SSE topology</title>
-  <desc id="desc">Five SSE endpoints and what feeds them. The task stream and the agent-execution stream are served by task_sse_routes from the EventBus, RunnerObserver and TaskProgressTracker. The workflow stream filters the bus by run. The global stream is SseBroadcast, fed by EventBusSseBridge and by direct runtime emitters. The chat stream forwards one turn from its worker.</desc>
+  <desc id="desc">Five SSE endpoints and what feeds them. The task stream and the agent-execution stream are served by task_sse_routes from the EventBus, RunnerObserver and TaskProgressTracker. The workflow stream filters the bus by run. The global stream is SseBroadcast, fed by EventBusSseBridge and by direct runtime emitters. The chat stream forwards one turn from the harness running it, on any lane.</desc>
   <style>
 
     svg { --bg:#f6f7f9; --card:#ffffff; --ink:#1e2030; --ink2:#4c4f69; --ink3:#6c6f85; --rule:#ccd0da; --edge:#8c8fa1; --hi:#1e66f5; --on:#ffffff; --panel:#1e1e2e; --panel-ink:#cdd6f4; --panel-sub:#a6adc8; --panel-kick:#fab387;
@@ -109,7 +109,7 @@
     <g class="e main f-bus t-wf"><path d="M230,306 H318"/><text class="el" x="274" y="299" text-anchor="middle">run events</text></g>
     <g class="e main f-bus t-bridge"><path d="M230,372 H318"/><text class="el" x="274" y="365" text-anchor="middle">selected events</text></g>
     <g class="e  f-emit t-bcast"><path d="M230,452 H318"/><text class="el" x="274" y="445" text-anchor="middle">broadcast()</text></g>
-    <g class="e  f-worker t-handler"><path d="M230,532 H318"/><text class="el" x="274" y="525" text-anchor="middle">worker.events</text></g>
+    <g class="e  f-worker t-handler"><path d="M230,532 H318"/><text class="el" x="274" y="525" text-anchor="middle">harness events</text></g>
     <g class="e  f-bridge t-bcast"><path d="M455,396 V426"/><text class="el" x="463" y="416" text-anchor="start">broadcast()</text></g>
     <g class="e main f-tasks t-e_tasks"><path d="M590,154 H688"/><text class="el" x="640" y="147" text-anchor="middle">type frames</text></g>
     <g class="e main f-tasks t-e_agent"><path d="M590,220 H688"/><text class="el" x="640" y="213" text-anchor="middle">status frames</text></g>
@@ -151,8 +151,8 @@
   <a href="../observability-operations-architecture.md#chat-stream"><g class="n line k-host" id="worker">
     <rect class="box" x="24" y="508" width="206" height="48" rx="9"/>
     <text class="name mono-name" x="36" y="527">TurnManager</text>
-    <text class="sub" x="36" y="543">recentOutcome, worker.events</text>
-    <g class="d"><text class="p1" x="36" y="652"><tspan class="b">TurnManager</tspan> · a settled turn replays from recentOutcome; otherwise worker.events is forwarded until waitForOutcome returns</text><text class="p2" x="36" y="672">An unknown turn answers 404 TURN_NOT_FOUND.</text></g>
+    <text class="sub" x="36" y="543">recentOutcome, harnessForTurn</text>
+    <g class="d"><text class="p1" x="36" y="652"><tspan class="b">TurnManager</tspan> · a settled turn replays from recentOutcome; otherwise the running harness's events (any lane) are forwarded until waitForOutcome returns</text><text class="p2" x="36" y="672">An unknown turn answers 404 TURN_NOT_FOUND.</text></g>
   </g></a>
   <a href="../observability-operations-architecture.md#task-stream-get-apitasksevents"><g class="n tint k-host" id="tasks">
     <rect class="box" x="320" y="130" width="270" height="134" rx="9"/>

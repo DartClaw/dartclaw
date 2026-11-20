@@ -367,6 +367,30 @@ void main() {
         expect(chain.guards, hasLength(2)); // g2 + g3
       });
 
+      test('an added guard survives a later replaceGuards and still runs last', () async {
+        final chain = buildChain([FakeGuard(name: 'configured')]);
+        chain.addGuard(FakeGuard.block('extension blocked', name: 'extension'));
+
+        chain.replaceGuards([FakeGuard(name: 'rebuilt')]);
+
+        expect(chain.guards.map((g) => g.name), ['rebuilt', 'extension']);
+        final verdict = await chain.evaluateBeforeToolCall('shell', {});
+        expect(verdict.message, 'extension blocked');
+      });
+
+      test('a layered chain sees the base chain\'s added guards across a rebuild', () async {
+        final base = buildChain([FakeGuard(name: 'configured')]);
+        base.addGuard(FakeGuard(name: 'extension'));
+        final layered = GuardChain.layered(
+          base: base,
+          guards: [FakeGuard(name: 'layer')],
+        );
+
+        base.replaceGuards([FakeGuard(name: 'rebuilt')]);
+
+        expect(layered.guards.map((g) => g.name), ['rebuilt', 'extension', 'layer']);
+      });
+
       test('replace with empty list — subsequent evaluation passes', () async {
         final chain = buildChain([FakeGuard(verdict: GuardVerdict.block('blocked'))]);
         chain.replaceGuards([]);

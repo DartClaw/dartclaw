@@ -103,7 +103,7 @@ void main() {
             databaseReadiness: _databaseReady,
             probeBinary: (_) async => (outcome: BinaryProbeOutcome.responded, version: '2.1.80'),
             portFree: (_, _) async => true,
-            providerVerified: (_, _, _) async => true,
+            providerVerified: (_, _, _, {required hostExecution}) async => null,
             runCommand: (_, _) async => ProcessResult(0, 1, '', ''),
             serverHealth: (_, _) async => health,
             slackClientFactory: (token) {

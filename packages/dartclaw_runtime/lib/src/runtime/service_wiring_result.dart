@@ -30,9 +30,10 @@ DartclawRuntime _assembleRuntime(
   AlertRouter? alertRouter,
   ThreadBindingLifecycleManager? lifecycleManager,
   WorkflowRunNotificationSubscriber? runNotifications,
-  ScopeReconciler scopeReconciler,
+  ScopeReconciler? scopeReconciler,
   GroupSessionInitializer? groupSessionInit,
   OutboundMcpPool? outboundMcpPool, {
+  required String? localRepositoryDir,
   Future<void> Function()? trackedWorkflowGitCleanup,
   StandaloneExecutionLease? standaloneExecutionLease,
 }) {
@@ -66,6 +67,7 @@ DartclawRuntime _assembleRuntime(
     messageService: storage.messages,
     workflowStepExecutionRepository: storage.workflowStepExecutionRepository,
     worktreeManager: task.worktreeManager,
+    localRepositoryDir: localRepositoryDir,
     taskExecutor: task.hasExecutionStack ? task.taskExecutor : null,
     workflowRegistry: workflowRegistry,
     workflowService: workflowService,
@@ -93,7 +95,7 @@ DartclawRuntime _assembleRuntime(
         await harness?.disposePrimaryContainer();
         await security?.dispose();
         groupSessionInit?.dispose();
-        await scopeReconciler.cancel();
+        await scopeReconciler?.cancel();
         await storage.disposeTurnStateStore();
         await scheduling?.dispose();
         await project.dispose();

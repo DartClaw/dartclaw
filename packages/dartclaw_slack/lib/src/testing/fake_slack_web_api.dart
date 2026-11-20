@@ -129,7 +129,7 @@ class FakeSlackWebApi extends SlackWebApiClient {
 
   /// Decides whether a stream, update or status call fails, by its Slack method name
   /// (`chat.startStream`, `chat.appendStream`, `chat.stopStream`, `chat.update`,
-  /// `assistant.threads.setStatus`); return the exception to throw, or `null`.
+  /// `agents.sessions.setStatus`); return the exception to throw, or `null`.
   SlackApiException? Function(String method)? onCall;
 
   /// Throws from [postEphemeral] when set.
@@ -159,8 +159,8 @@ class FakeSlackWebApi extends SlackWebApiClient {
   /// Every `chat.update`, in call order.
   final List<({String channel, String ts, String text, List<Map<String, dynamic>>? blocks})> updates = [];
 
-  /// Every `assistant.threads.setStatus`, in call order; an empty status is a clear.
-  final List<({String channel, String threadTs, String status})> statuses = [];
+  /// Every `agents.sessions.setStatus`, in call order.
+  final List<({String channel, String threadTs, SlackSessionStatus status})> statuses = [];
 
   /// The Slack method of every stream, update, status and post call, in call order.
   final List<String> calls = [];
@@ -265,8 +265,12 @@ class FakeSlackWebApi extends SlackWebApiClient {
   }
 
   @override
-  Future<void> setThreadStatus({required String channel, required String threadTs, required String status}) async {
-    _enter('assistant.threads.setStatus');
+  Future<void> setSessionStatus({
+    required String channel,
+    required String threadTs,
+    required SlackSessionStatus status,
+  }) async {
+    _enter('agents.sessions.setStatus');
     statuses.add((channel: channel, threadTs: threadTs, status: status));
   }
 

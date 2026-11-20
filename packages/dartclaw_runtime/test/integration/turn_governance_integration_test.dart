@@ -122,7 +122,7 @@ void main() {
   group('TurnGovernanceEnforcer — budget enforcement', () {
     test('checkBudget() throws BudgetExhaustedException when tokens exhausted', () async {
       final today = DateTime.now().toUtc();
-      final dateKey = BudgetEnforcer.dateKeyForTime(today);
+      final dateKey = UsageTracker.dateKeyForTime(today);
       // Seed 600 input + 400 output = 1000 tokens (100% of 1000 limit → blocked)
       await seedTokens(dateKey, input: 600, output: 400);
 
@@ -133,7 +133,7 @@ void main() {
 
     test('checkBudget() broadcasts budget_warning when warn threshold is crossed', () async {
       final today = DateTime.now().toUtc();
-      final dateKey = BudgetEnforcer.dateKeyForTime(today);
+      final dateKey = UsageTracker.dateKeyForTime(today);
       final sse = RecordingSseBroadcast();
 
       // Seed 500 input + 300 output = 800 tokens (80% of 1000 limit → warn)
@@ -180,7 +180,7 @@ void main() {
   group('TurnGovernanceEnforcer — clean turn (all checks pass)', () {
     test('checkBudget, awaitRateLimitWindow, and checkLoopPreTurn all succeed', () async {
       final today = DateTime.now().toUtc();
-      final dateKey = BudgetEnforcer.dateKeyForTime(today);
+      final dateKey = UsageTracker.dateKeyForTime(today);
       // Seed 200 input + 100 output = 300 tokens (30% of 1000 limit → well under budget)
       await seedTokens(dateKey, input: 200, output: 100);
 

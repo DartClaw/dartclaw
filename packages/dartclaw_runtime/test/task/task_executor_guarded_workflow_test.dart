@@ -1,11 +1,15 @@
+import 'dart:io';
+
 import 'package:dartclaw_core/dartclaw_core.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' hide TurnManager, TurnRunner;
 import 'package:dartclaw_runtime/src/turn_manager.dart' show TurnManager;
 import 'package:dartclaw_runtime/src/turn_runner.dart' show TurnRunner;
 import 'package:dartclaw_testing/dartclaw_testing.dart' show FakeAgentHarness, FakeContentClassifier;
+import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
+import '../runtime/headless_runtime_test_support.dart' show armAgentWritableRepository, expectAgentTrapsLive;
 import 'task_executor_test_support.dart';
 
 void main() {
@@ -205,6 +209,43 @@ void main() {
     expect(duringTurn['file_write']?.isBlock, isTrue);
     expect((await probe(task.sessionId!, 'shell')).isPass, isTrue);
     expect((await probe(task.sessionId!, 'file_write')).isPass, isTrue);
+  });
+
+  test('a read-only step runs no host Git in its agent-writable workspace', () async {
+    final root = Directory.systemTemp.createTempSync('dartclaw-agent-workspace-baseline-');
+    addTearDown(() => root.deleteSync(recursive: true));
+    final agentWorkspace = p.join(root.path, 'workflow-workspace');
+    final marker = p.join(root.path, 'agent-command-ran');
+    armAgentWritableRepository(agentWorkspace, marker);
+    final executor = context.buildExecutor();
+    addTearDown(executor.stop);
+
+    // Seeded first: the task takes its agent execution's workspace when created.
+    await context.seedWorkflowExecution(
+      'task-read-only-agent-workspace',
+      agentExecutionId: 'ae-task-read-only-agent-workspace',
+      workflowRunId: 'wf-read-only-agent-workspace',
+      workspaceDirOverride: agentWorkspace,
+    );
+    await context.tasks.create(
+      id: 'task-read-only-agent-workspace',
+      title: 'Read-only step in an agent workspace',
+      description: 'Reads only.',
+      autoStart: true,
+      agentExecutionId: 'ae-task-read-only-agent-workspace',
+      workflowRunId: 'wf-read-only-agent-workspace',
+      provider: 'claude',
+      configJson: const {'needsWorktree': false, 'readOnly': true},
+    );
+
+    await executor.pollOnce();
+    await executor.drain();
+
+    expect((await context.tasks.get('task-read-only-agent-workspace'))?.status, TaskStatus.review);
+    expect(worker.turnCallCount, 1);
+    expect(worker.lastDirectory, agentWorkspace);
+    expect(File(marker).existsSync(), isFalse, reason: 'host Git ran in the agent workspace');
+    expectAgentTrapsLive(agentWorkspace, marker);
   });
 
   // The refusal this used to pin was removed with the structured-output

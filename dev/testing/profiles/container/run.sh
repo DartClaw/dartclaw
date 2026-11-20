@@ -2,7 +2,7 @@
 # Proves container isolation end to end: a real agent turn runs inside a
 # container, the container holds no provider credential, and a task tool is
 # served to it over the MCP bridge. SIGKILL and restart prove orphan reclamation;
-# CI decoys also prove foreign-labelled and unlabelled containers survive.
+# Posture-mode decoys also prove foreign-labelled and unlabelled containers survive.
 #
 # Usage: bash dev/testing/profiles/container/run.sh [--ci]
 #
@@ -11,16 +11,17 @@
 # either a stored Claude subscription credential (`dartclaw auth claude`, with
 # DARTCLAW_CONTAINER_DATA_DIR pointing at that data dir) or ANTHROPIC_API_KEY.
 #
-# `--ci` is the mode CI runs. It differs in three ways, each deliberate:
+# `--ci` is the posture mode the local `linux` release gate runs in Lima.
+# It differs in three ways, each deliberate:
 #   - an absent container runtime is a FAILURE, not a skip — on a runner the
 #     advisory downgrade is the thing being guarded against, so it must never
 #     read as a pass;
 #   - the config declares no `container:` section, so the posture is *inferred*.
 #     Asserting a declared `true` would prove only that an explicit request is
 #     honoured, and would fail closed instead of downgrading on a runtime-free
-#     runner — hiding the case the job exists to catch;
-#   - it issues no model turn and reads no provider credential, so it runs on a
-#     fork PR with no repository secret.
+#     runner — hiding the case the gate exists to catch;
+#   - it issues no model turn and reads no provider credential, so the local
+#     Linux gate needs no operator credential.
 
 set -euo pipefail
 
@@ -54,7 +55,7 @@ done
 if [ -z "$RUNTIME" ]; then
   if [ -n "$CI_MODE" ]; then
     echo "FAIL: no container runtime (docker or podman) answered a version probe." >&2
-    echo "The container job proves the boundary; a runner without a runtime cannot prove it," >&2
+    echo "The linux gate proves the boundary; a VM without a runtime cannot prove it," >&2
     echo "and the server's advisory downgrade would exit zero and read as a pass." >&2
     exit 1
   fi
@@ -88,9 +89,9 @@ fi
 if [ -n "$CI_MODE" ]; then
   # Containerized Claude is host-mediated, so wiring refuses to start without a
   # host-held credential — presence is the gate, never validity, because nothing
-  # here reaches a provider. A placeholder therefore satisfies it without a
-  # repository secret and without spending a turn, which is what lets this mode
-  # run unchanged on a fork PR. Exported only for the server this script starts.
+  # here reaches a provider. A placeholder therefore satisfies it without an
+  # operator credential and without spending a turn, which lets the local Linux
+  # gate run unattended. Exported only for the server this script starts.
   export ANTHROPIC_API_KEY="ci-posture-probe-placeholder-not-a-credential"
 fi
 
@@ -122,13 +123,13 @@ cleanup() {
   # backstop for a kill that skipped that.
   if [ "${#DECOYS[@]}" -gt 0 ]; then
     for name in "${DECOYS[@]}"; do
-      "$RUNTIME" rm -f "$name" >/dev/null 2>&1 || true
+      "$RUNTIME" rm -f -v "$name" >/dev/null 2>&1 || true
     done
   fi
   for log in "${DATA_DIR}/server.log" "${DATA_DIR}/server-restart.log"; do
     if [ -f "$log" ]; then
       for name in $(grep -oE 'Container dartclaw-[a-z0-9-]+ \(' "$log" | awk '{print $2}' | sort -u); do
-        "$RUNTIME" rm -f "$name" >/dev/null 2>&1 || true
+        "$RUNTIME" rm -f -v "$name" >/dev/null 2>&1 || true
       done
     fi
   done
@@ -155,8 +156,8 @@ cd "$REPO_ROOT"
 dart run "${REPO_ROOT}/dev/tools/embed_assets.dart" >/dev/null
 
 # The in-container bridge is a build artifact too. Without it the posture
-# resolves to advisory mode, which the CI assertion below is there to catch —
-# so build it rather than letting the job report a boundary failure as a
+# resolves to advisory mode, which the posture assertion below is there to catch —
+# so build it rather than letting the gate report a boundary failure as a
 # missing-artifact failure.
 if [ ! -x "${REPO_ROOT}/build/bridge/dartclaw-bridge-linux-x64" ]; then
   bash "${REPO_ROOT}/dev/tools/build_bridge.sh" >/dev/null
@@ -201,8 +202,8 @@ if [ -n "$CI_MODE" ]; then
   DECOY_PREFIX="${INITIAL_CONTAINER%-*}"
   DECOYS=("${DECOY_PREFIX}-decoy" "${DECOY_PREFIX}-foreign" "${DECOY_PREFIX}-nolabel")
   crash_server
-  # CI isolates the decoy set; local mode retains the actual primary leak until restart.
-  "$RUNTIME" rm -f "$INITIAL_CONTAINER" >/dev/null || fail_with_log "initial primary fixture cleanup failed"
+  # Posture mode isolates the decoy set; live mode retains the primary leak until restart.
+  "$RUNTIME" rm -f -v "$INITIAL_CONTAINER" >/dev/null || fail_with_log "initial primary fixture cleanup failed"
   "$RUNTIME" create --name "${DECOYS[0]}" --label "$OWNER_LABEL" dartclaw-agent:latest sleep infinity >/dev/null
   "$RUNTIME" create --name "${DECOYS[1]}" --label "${OWNER_LABEL}-other" dartclaw-agent:latest sleep infinity >/dev/null
   "$RUNTIME" create --name "${DECOYS[2]}" dartclaw-agent:latest sleep infinity >/dev/null

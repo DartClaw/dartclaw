@@ -328,7 +328,7 @@ void main() {
       turnLimits: const TurnLimitsConfig.defaults(),
       sessions: sessions,
     );
-    sessionRoutes(sessions, messages, manager, worker, ownerWorkspaceDir: sessions.baseDir);
+    sessionRoutes(sessions, messages, manager, ownerWorkspaceDir: sessions.baseDir);
     final lease = (await coordinator.acquire(
       ExecutionRequest(
         surface: ExecutionSurface.workflow,
@@ -381,13 +381,7 @@ void main() {
       sessions: sessions,
       turnLimits: const TurnLimitsConfig.defaults(),
     );
-    final rawHandler = sessionRoutes(
-      sessions,
-      messages,
-      liveTurns,
-      liveWorker,
-      ownerWorkspaceDir: sessions.baseDir,
-    ).call;
+    final rawHandler = sessionRoutes(sessions, messages, liveTurns, ownerWorkspaceDir: sessions.baseDir).call;
     final handler = localAdminMiddleware()(rawHandler);
     final sendResponse = await handler(
       Request(

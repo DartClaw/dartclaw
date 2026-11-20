@@ -43,14 +43,14 @@ This sub-scenario checks the core session surface and its linked info page using
 
 1. Navigate to `http://localhost:3338/sessions/f59ce127-1705-43d6-97c7-2a03fd711bab`
 2. Run `agent-browser snapshot -i` to capture the seeded chat session
-3. Identify the session title, messages, composer, and topbar info control
+3. Identify the session title, messages, and topbar info control
 4. Click the session info control if it is present; if discovery fails, navigate to `http://localhost:3338/sessions/f59ce127-1705-43d6-97c7-2a03fd711bab/info`
 5. Wait for navigation to complete
 6. Run `agent-browser snapshot -i` again to capture the session info page
 
 ### Expected
 
-- The seeded session page renders a recognizable chat layout with a title, message history, and composer area
+- The seeded main session renders a title and message history. It may already be a read-only archive after daily reset. S9 checks the composer on a separate active session.
 - Existing seeded messages are visible so the page is not just an empty shell
 - The session info route loads successfully and remains styled as part of the app shell
 - The session info page shows session metadata and token or usage summary cells
@@ -134,18 +134,20 @@ This sub-scenario checks the remaining major dashboard pages that are often omit
 2. Run `agent-browser snapshot -i` to capture the projects page
 3. Navigate to `http://localhost:3338/workflows`
 4. Run `agent-browser snapshot -i` again to capture the workflows page
+5. Open the seeded `implement-prd` run awaiting approval and inspect its pending plan review without resolving it
 
 ### Expected
 
 - The projects page renders at least one seeded project row or card so the page is not just an empty configuration placeholder
 - The `Projects` nav entry is visible and can be recognized as active on that page
-- The workflows page renders the workflow management surface with definition cards, run list content, or both
+- The workflows page renders the built-in definitions and the completed `implement-story`, failed `code-review` and awaiting-approval `implement-prd` runs
+- The pending run links its completed plan step tasks and shows `Review the plan before any story is implemented: plan-summary.md`
 - The `Workflows` nav entry is visible and can be recognized as active on that page
 
 
 ## S7: Verify Channel UI Surfaces In Disconnected State
 
-This sub-scenario checks that the channel-related pages render correctly when channels are enabled in config but not paired. The `visual` profile keeps WhatsApp, Signal, and Google Chat configured for UI rendering while its runner disables automatic channel startup, so all channel surfaces render their unconfigured/disconnected look without depending on real hardware. Hardware-driven pairing flows belong to the `channels` profile and are out of scope here.
+This sub-scenario checks channel pages with WhatsApp, Signal and Google Chat configured but disconnected. The visual profile gives the WhatsApp and Signal sidecars unused ports and absent executable paths. Hardware-driven pairing uses the `channels` profile.
 
 ### Steps
 

@@ -3,6 +3,7 @@ import 'package:dartclaw_core/dartclaw_core.dart' show ProjectService, Task, Tas
 import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
+import '../container/data_dir_mount_rule.dart';
 import '../task/task_file_guard.dart';
 import '../task/task_project_ref.dart';
 import '../task/task_service.dart';
@@ -83,6 +84,8 @@ final class ProjectMutationService {
     this.projectConfig = const ProjectConfig.defaults(),
     this.containerEnabled = false,
     this.containerMountRoots = const [],
+    this.dataDir,
+    this.ownedRoots = const [],
     this.tasks,
     this.worktreeManager,
     this.taskFileGuard,
@@ -93,10 +96,30 @@ final class ProjectMutationService {
   final ProjectConfig projectConfig;
   final bool containerEnabled;
   final List<String> containerMountRoots;
+
+  /// The data directory and the DartClaw-owned roots inside it, fed to
+  /// [operatorMount] so a `localPath` the container mount masks or skips is
+  /// refused like one outside every mount root. [dataDir] also locates the
+  /// agent-writable workspaces refused in every posture
+  /// ([isWithinAgentWorkspace]). Neither check runs without [dataDir].
+  final String? dataDir;
+  final List<String> ownedRoots;
   final TaskService? tasks;
   final WorktreeManager? worktreeManager;
   final TaskFileGuard? taskFileGuard;
   final TurnManager? turns;
+
+  bool _isMaskedByDataDir(String localPath) {
+    final dataDir = this.dataDir;
+    if (dataDir == null) return false;
+    // The rule's verdict does not depend on the target; any `/projects/` one stands in for the mount.
+    return operatorMount(
+      source: localPath,
+      target: '/projects/candidate',
+      dataDir: dataDir,
+      ownedRoots: ownedRoots,
+    ).specs.isEmpty;
+  }
 
   /// Creates a project, initiating the clone for a remote-backed one.
   Future<ProjectMutationResult> create(ProjectCreateRequest request) async {
@@ -167,16 +190,28 @@ final class ProjectMutationService {
             details: {'field': 'localPath', 'reason': 'outside-allowlist'},
           );
         }
-        if (containerEnabled && !_isPathWithinRoots(normalizedLocalPath, containerMountRoots)) {
+        if (containerEnabled &&
+            (!_isPathWithinRoots(normalizedLocalPath, containerMountRoots) ||
+                _isMaskedByDataDir(normalizedLocalPath))) {
           return _refused(
             400,
             'LOCAL_PATH_NOT_MOUNTABLE',
-            'Runtime localPath projects are not mountable in container mode unless the path is inside an existing mounted root',
+            'Runtime localPath projects are not mountable in container mode unless the path is inside an existing mounted root '
+                'and outside the data directory, whose projects clone directory is the one exception',
             details: {
               'field': 'localPath',
               'localPath': normalizedLocalPath,
               'mountRoots': _normalizedRoots(containerMountRoots),
             },
+          );
+        }
+        final dataDir = this.dataDir;
+        if (dataDir != null && isWithinAgentWorkspace(normalizedLocalPath, dataDir: dataDir)) {
+          return _refused(
+            400,
+            'INVALID_LOCAL_PATH',
+            'localPath is inside a workspace agents can write, which is never a project repository',
+            details: {'field': 'localPath', 'reason': 'inside-workspace'},
           );
         }
       }

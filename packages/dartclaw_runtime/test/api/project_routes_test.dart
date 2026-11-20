@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:dartclaw_runtime/dartclaw_runtime.dart' show TaskService, projectRoutes;
 import 'package:dartclaw_runtime/src/project/project_auth_support.dart' show ProjectAuthException;
+import 'package:dartclaw_runtime/src/project/project_mutation_service.dart' show ProjectMutationService;
 import 'package:dartclaw_testing/dartclaw_testing.dart' hide TurnManager, TurnRunner;
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
@@ -317,6 +318,105 @@ void main() {
 
       expect(body['localPath'], localPath);
     });
+
+    group('container mode with the data directory inside a mounted root', () {
+      late Directory repository;
+      late String dataDir;
+      late ApiRouteTestClient localPathClient;
+
+      setUp(() {
+        repository = Directory.systemTemp.createTempSync('project_routes_data_dir_test_');
+        addTearDown(() {
+          if (repository.existsSync()) repository.deleteSync(recursive: true);
+        });
+        dataDir = p.join(repository.path, '.dartclaw-example');
+        localPathClient = ApiRouteTestClient(
+          projectRoutes(
+            projects,
+            mutations: ProjectMutationService(
+              projects: projects,
+              projectConfig: const ProjectConfig(allowApiLocalPath: true),
+              containerEnabled: true,
+              containerMountRoots: [repository.path],
+              dataDir: dataDir,
+              ownedRoots: [p.join(dataDir, 'projects')],
+            ),
+          ).call,
+        );
+      });
+
+      test('rejects an API localPath inside the data directory', () async {
+        expect(
+          await localPathClient.expectJsonErrorCode(
+            'POST',
+            '/api/projects',
+            json: {'name': 'Data Dir App', 'localPath': p.join(dataDir, 'sessions', 'checkout')},
+            status: 400,
+          ),
+          'LOCAL_PATH_NOT_MOUNTABLE',
+        );
+      });
+
+      test('rejects an API localPath inside the workspace directory', () async {
+        expect(
+          await localPathClient.expectJsonErrorCode(
+            'POST',
+            '/api/projects',
+            json: {'name': 'Workspace App', 'localPath': p.join(dataDir, 'workspace', 'checkout')},
+            status: 400,
+          ),
+          'LOCAL_PATH_NOT_MOUNTABLE',
+        );
+      });
+
+      test('accepts an API localPath inside the projects clone directory', () async {
+        final localPath = p.join(dataDir, 'projects', 'checkout');
+
+        final body = await localPathClient.expectJsonObject(
+          'POST',
+          '/api/projects',
+          json: {'name': 'Clone Dir App', 'localPath': localPath},
+          status: 201,
+        );
+
+        expect(body['localPath'], localPath);
+      });
+    });
+
+    for (final (label, segments) in [
+      ('the workspace directory', ['workspace']),
+      ('a named agent workspace', ['agents', 'researcher', 'workspace', 'checkout']),
+    ]) {
+      test('rejects an API localPath inside $label without container isolation', () async {
+        final dataDir = Directory.systemTemp.createTempSync('project_routes_workspace_rule_').path;
+        addTearDown(() => Directory(dataDir).deleteSync(recursive: true));
+        final client = ApiRouteTestClient(
+          projectRoutes(
+            projects,
+            mutations: ProjectMutationService(
+              projects: projects,
+              projectConfig: ProjectConfig(allowApiLocalPath: true, localPathAllowlist: [dataDir]),
+              dataDir: dataDir,
+              ownedRoots: [p.join(dataDir, 'projects')],
+            ),
+          ).call,
+        );
+
+        final body = await client.expectJsonObject(
+          'POST',
+          '/api/projects',
+          json: {
+            'name': 'Workspace App',
+            'localPath': p.joinAll([dataDir, ...segments]),
+          },
+          status: 400,
+        );
+        final error = body['error'] as Map<String, dynamic>;
+
+        expect(error['code'], 'INVALID_LOCAL_PATH');
+        expect((error['details'] as Map<String, dynamic>)['reason'], 'inside-workspace');
+      });
+    }
 
     test('duplicate ID returns 409', () async {
       projects.seed(makeProject(id: 'my-app'));

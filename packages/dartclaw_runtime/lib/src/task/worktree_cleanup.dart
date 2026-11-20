@@ -11,9 +11,15 @@ final _log = Logger('WorktreeCleanup');
 /// Swallows [WorktreeManager.cleanup] exceptions (logged at WARNING) so
 /// callers never crash on cleanup. Deregisters the guard regardless of
 /// whether the worktree removal succeeded.
-Future<void> cleanupWorktree(WorktreeManager? mgr, TaskFileGuard? guard, String taskId, {Project? project}) async {
+Future<void> cleanupWorktree(
+  WorktreeManager? mgr,
+  TaskFileGuard? guard,
+  String taskId, {
+  Project? project,
+  bool forceDeleteBranch = false,
+}) async {
   try {
-    await mgr?.cleanup(taskId, project: project);
+    await mgr?.cleanup(taskId, project: project, forceDeleteBranch: forceDeleteBranch);
   } catch (e) {
     _log.warning('Failed to cleanup worktree for task $taskId: $e');
   }

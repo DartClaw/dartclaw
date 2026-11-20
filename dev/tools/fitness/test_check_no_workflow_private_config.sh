@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 # Regression test for check_no_workflow_private_config.sh.
 #
-# Creates a minimal synthetic tree with a rogue `_workflow*` write outside
-# the allowlisted file and asserts the fitness script fails on it. This guards
-# against the script narrowing back to only detect literal `configJson[...]`
-# syntax, which previously missed real leaks such as `nextConfig['_workflow*']`.
+# Exercise both sides of the ownership boundary in a synthetic tree. A rogue
+# write can be missed if the scan checks only `configJson[...]` or exempts the
+# whole workflow package instead of individual owners.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -30,10 +29,26 @@ if bash dev/tools/fitness/check_no_workflow_private_config.sh >/dev/null 2>&1; t
   exit 1
 fi
 
-# Remove the leak; script must pass again.
-rm "$TMPDIR/packages/rogue/lib/leak.dart"
+WORKFLOW_DIR='packages/dartclaw_workflow/lib/src/workflow'
+mkdir -p "$WORKFLOW_DIR"
+mv packages/rogue/lib/leak.dart "$WORKFLOW_DIR/leak.dart"
+if bash dev/tools/fitness/check_no_workflow_private_config.sh >/dev/null 2>&1; then
+  echo "FAIL: fitness script did not detect rogue _workflow* write in $WORKFLOW_DIR/leak.dart"
+  exit 1
+fi
+rm "$WORKFLOW_DIR/leak.dart"
+
 if ! bash dev/tools/fitness/check_no_workflow_private_config.sh >/dev/null 2>&1; then
   echo "FAIL: fitness script reported failure on a clean synthetic tree"
+  exit 1
+fi
+
+cat > "$WORKFLOW_DIR/workflow_output_contract.dart" <<'DART'
+const workflowExecutionSurfaceHoldKey = '_workflow.git.execution_surface_hold';
+const workflowApprovedCandidateKey = '_workflow.git.approved_candidate';
+DART
+if ! bash dev/tools/fitness/check_no_workflow_private_config.sh; then
+  echo "FAIL: fitness script rejected host approval keys in the workflow output contract"
   exit 1
 fi
 
@@ -53,4 +68,4 @@ if grep -q 'Fitness function passed' "$TMPDIR/rg-error.log"; then
 fi
 grep -q 'rg scan error (exit 2)' "$TMPDIR/rg-error.log"
 
-echo "OK: fitness script detects rogue _workflow* leaks and passes on a clean tree"
+echo "OK: fitness script accepts private-key owners, rejects rogue writes, and fails on scan errors"

@@ -8,6 +8,16 @@ import 'package:logging/logging.dart';
 /// Default Slack Web API base URL.
 const slackApiBase = 'https://slack.com/api';
 
+/// The agent session statuses DartClaw sets with `agents.sessions.setStatus`; the
+/// wire value is the [name].
+enum SlackSessionStatus {
+  /// The agent is working: Slack shows its loading indicator in the thread.
+  processing,
+
+  /// The agent is ready for the next message: the loading indicator is gone.
+  active,
+}
+
 /// [SlackApiException.errorCode] of a file whose body exceeded the download bound.
 const slackFileTooLarge = 'file_too_large';
 
@@ -223,13 +233,20 @@ class SlackWebApiClient {
     });
   }
 
-  /// Shows [status] as the assistant status of the thread [threadTs]; an empty
-  /// string clears it. Slack also clears it when the app replies.
-  Future<void> setThreadStatus({required String channel, required String threadTs, required String status}) async {
+  /// Sets the status of the agent session in the thread [threadTs] of [channel],
+  /// creating the session when the thread has none. Needs `chat:write`.
+  ///
+  /// A session stays [SlackSessionStatus.processing] until it is set
+  /// [SlackSessionStatus.active] or an hour passes; a reply does not end it.
+  Future<void> setSessionStatus({
+    required String channel,
+    required String threadTs,
+    required SlackSessionStatus status,
+  }) async {
     await _call(
-      'assistant.threads.setStatus',
+      'agents.sessions.setStatus',
       token: _botToken,
-      form: {'channel_id': channel, 'thread_ts': threadTs, 'status': status},
+      form: {'channel_id': channel, 'thread_ts': threadTs, 'status': status.name},
     );
   }
 

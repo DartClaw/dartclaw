@@ -114,7 +114,7 @@
     <text class="sub" x="36" y="141">WorkflowRunNotificationSubscriber</text>
   </g></a>
   <a href="../channel-messaging-architecture.md#62-run-approvals-from-chat"><g class="n solid k-host" id="svc">
-    <title>issueApprovalInteraction and bindApprovalPost hold the single-use nonce; WorkflowRunControl.handleApproval holds the policy. Admin check, nonce check and resolution. Every call writes one RunApprovalGate audit entry, except a request-changes check. State lives in dartclaw_workflow.</title>
+    <title>issueApprovalInteraction checks the pending step and any execution-surface candidate displayed by the subscriber. bindApprovalPost associates a message with the single-use nonce. WorkflowRunControl.handleApproval checks the admin and nonce and audits the resolution.</title>
     <rect class="box" x="290" y="100" width="220" height="64" rx="9"/>
     <text class="name mono-name" x="302" y="123">WorkflowService</text>
     <text class="sub" x="302" y="141">+ WorkflowRunControl</text>

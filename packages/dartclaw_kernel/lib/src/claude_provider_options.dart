@@ -50,11 +50,13 @@ final class ClaudeProviderOptions {
 
   /// Whether the resolved [approval] opts the run into full access (no prompt
   /// gating). `never` is the only full-access value; every other value keeps the
-  /// allow-list + `dontAsk` default.
+  /// harness default.
   static bool isFullAccessApproval(Map<String, dynamic> options) => approval(options) == 'never';
 
   /// Maps the coarse `approval` value to a Claude permission-mode, or `null`
-  /// when the value keeps the current default (`dontAsk` + allow-list).
+  /// when the value keeps the harness default: no `--permission-mode`, so the
+  /// harness passes `--dangerously-skip-permissions` and DartClaw's guards gate
+  /// tool calls (a restricted container keeps the native stdio permission prompt).
   ///
   /// Only `never` translates to `bypassPermissions`;
   /// `on-request`/`unless-allow-listed` keep the harness's guarded prompt path.

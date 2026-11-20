@@ -110,6 +110,46 @@ void main() {
       expect(transport.requests.last.uri.path, '/api/workflows/runs/run-1/events');
     });
 
+    test('connected run exits 2 and points to status when approval is pending', () async {
+      final transport = FakeApiTransport(
+        sendResponses: [_jsonResponse(201, _startedRunJson())],
+        streamResponses: [
+          ApiResponse(
+            statusCode: 200,
+            headers: const {'content-type': 'text/event-stream'},
+            body: Stream.value(
+              utf8.encode(
+                'data: {"type":"workflow_status_changed","runId":"run-1","oldStatus":"running",'
+                '"newStatus":"awaitingApproval"}\n\n',
+              ),
+            ),
+          ),
+        ],
+      );
+      final output = <String>[];
+      final runner = CommandRunner<void>('dartclaw', 'test')
+        ..addCommand(
+          WorkflowRunCommand(
+            connection: ApiWorkflowConnection(
+              apiClient: DartclawApiClient(baseUri: Uri.parse('http://localhost:3333'), transport: transport),
+            ),
+            stdoutLine: output.add,
+            exitFn: fakeExit,
+          ),
+        );
+
+      await expectLater(
+        runner.run(['run', 'demo-workflow']),
+        throwsA(isA<FakeExit>().having((error) => error.code, 'code', 2)),
+      );
+
+      expect(output.last, '[workflow] Use `dartclaw status run-1` to review the pending approval.');
+      expect(transport.requests.map((request) => request.uri.path), [
+        '/api/workflows/run',
+        '/api/workflows/runs/run-1/events',
+      ]);
+    });
+
     test('connected run skips a malformed SSE frame instead of aborting the stream', () async {
       final transport = FakeApiTransport(
         sendResponses: [_jsonResponse(201, _startedRunJson())],

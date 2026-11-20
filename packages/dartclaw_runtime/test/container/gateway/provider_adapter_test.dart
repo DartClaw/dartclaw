@@ -171,6 +171,28 @@ void main() {
   });
 
   group('AnthropicMessagesAdapter', () {
+    test('negotiates only response compression the host can decode on provider refusals', () async {
+      upstream.status = 429;
+      upstream.responseBody = '{"error":{"type":"rate_limit_error","message":"Try later"}}';
+      upstream.compressResponse = true;
+      final adapter = _anthropic(upstream);
+      addTearDown(adapter.dispose);
+
+      final response = await adapter.handle(
+        _request(
+          path: '/v1/messages',
+          body: '{}',
+          headers: {
+            'Accept-Encoding': const ['gzip, deflate, br, zstd'],
+          },
+        ),
+      );
+      expect(upstream.lastHeaders['accept-encoding'], 'gzip');
+      expect(response.status, 429);
+      expect(await _read(response), upstream.responseBody);
+      expect(response.headers.containsKey('content-encoding'), isFalse);
+    });
+
     test('injects the host credential and never lets it reach the caller', () async {
       final adapter = _anthropic(upstream);
       addTearDown(adapter.dispose);

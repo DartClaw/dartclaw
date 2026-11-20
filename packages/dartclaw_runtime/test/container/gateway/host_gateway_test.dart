@@ -12,6 +12,59 @@ import 'gateway_test_support.dart';
 
 void main() {
   group('HostGateway registration', () {
+    test('grants the registry surface only while an enabled record exists', () async {
+      final gateway = HostGateway(providerAdapters: {'claude': _EchoAdapter()}, registries: builtInRegistryRecords);
+      final unconfigured = HostGateway(providerAdapters: {'claude': _EchoAdapter()});
+      final allDisabled = HostGateway(
+        providerAdapters: {'claude': _EchoAdapter()},
+        registries: [
+          for (final record in builtInRegistryRecords) builtInRegistryOn(record.name, const {}, enabled: false),
+        ],
+      );
+      addTearDown(gateway.dispose);
+      addTearDown(unconfigured.dispose);
+      addTearDown(allDisabled.dispose);
+      expect(gateway.register(principal: principal()).requiredSurfaces, {
+        BridgeSurface.provider,
+        BridgeSurface.registry,
+      });
+      // Disabled go contributes nothing.
+      expect(gateway.registryClientEnvironment(principal()), {
+        'PUB_HOSTED_URL': 'http://127.0.0.1:8082/pub',
+        'npm_config_registry': 'http://127.0.0.1:8082/npm/',
+        'npm_config_audit': 'false',
+        'PIP_INDEX_URL': 'http://127.0.0.1:8082/pypi/simple/',
+        'UV_DEFAULT_INDEX': 'http://127.0.0.1:8082/pypi/simple',
+      });
+      for (final profile in ['restricted', 'future-profile']) {
+        final subject = principal(profile: profile);
+        expect(gateway.register(principal: subject).requiredSurfaces, {BridgeSurface.provider});
+        expect(gateway.registryClientEnvironment(subject), isEmpty);
+      }
+      for (final ungranted in [unconfigured, allDisabled]) {
+        expect(ungranted.register(principal: principal()).requiredSurfaces, {BridgeSurface.provider});
+        expect(ungranted.registryClientEnvironment(principal()), isEmpty);
+      }
+      // A record with only crates' pins (no env) still grants the surface.
+      final cratesOnly = HostGateway(
+        providerAdapters: {'claude': _EchoAdapter()},
+        registries: [builtInRegistryOn('crates', const {})],
+      );
+      addTearDown(cratesOnly.dispose);
+      expect(cratesOnly.register(principal: principal()).requiredSurfaces, contains(BridgeSurface.registry));
+      expect(cratesOnly.registryClientEnvironment(principal()), isEmpty);
+    });
+
+    test('refuses to attach a registry pipe to an authority without the grant', () async {
+      final gateway = HostGateway(providerAdapters: {'claude': _EchoAdapter()}, registries: builtInRegistryRecords);
+      addTearDown(gateway.dispose);
+      final authority = gateway.register(principal: principal(profile: 'restricted'));
+      final channel = FakeBridgeChannel();
+      addTearDown(channel.close);
+      expect(() => authority.requiredSurfaces.add(BridgeSurface.registry), throwsUnsupportedError);
+      expect(() => gateway.attach(authority, BridgeSurface.registry, channel), throwsStateError);
+    });
+
     test('rejects a provider it cannot mediate rather than admitting it unmediated', () {
       final gateway = HostGateway(providerAdapters: {'claude': _EchoAdapter()});
 

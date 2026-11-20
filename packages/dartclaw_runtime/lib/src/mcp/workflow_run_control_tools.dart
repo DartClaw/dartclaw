@@ -217,6 +217,7 @@ ToolResult _answer(String runId, String outcome, RunControlResult result) => swi
       RunControlRefusal.changesNotOffered => 'changes_not_offered',
       RunControlRefusal.limitReached => 'limit_reached',
       RunControlRefusal.feedbackRequired => 'feedback_required',
+      RunControlRefusal.personRequired => 'person_required',
     },
     message,
     {'run_id': runId},

@@ -66,10 +66,12 @@ class GitFetchException implements Exception {
 /// Manages three project sources:
 /// - Config-defined: seeded from [ProjectConfig] on startup, read-only
 /// - Runtime-created: created via [create], persisted to `projects.json`
-/// - Implicit `_local`: the runtime's working directory, always present, ephemeral, not persisted
+/// - Implicit `_local`: the runtime's local repository, absent when it has none; ephemeral, not persisted
 class ProjectServiceImpl implements ProjectService {
   final String _dataDir;
-  final String _localDir;
+
+  /// The runtime's local repository; `null` means there is no `_local` project.
+  final String? _localDir;
   final ProjectConfig _projectConfig;
   final CredentialsConfig _credentials;
   final EventBus? _eventBus;
@@ -82,11 +84,14 @@ class ProjectServiceImpl implements ProjectService {
   /// Does NOT include `_local` (accessed via [localProject]).
   final Map<String, Project> _projects = {};
 
+  /// `projects.json` entries skipped at load, written back unchanged by [_persist].
+  final Map<String, Object?> _skippedEntries = {};
+
   /// In-flight fetch/validation completers, keyed by project+ref+strictness.
   final Map<String, Completer<void>> _fetchInFlight = {};
 
   /// The implicit _local project (ephemeral, not persisted).
-  late Project _localProject;
+  Project? _localProject;
 
   /// Temporary askpass script paths to clean up on dispose.
   final List<String> _tempFiles = [];
@@ -99,7 +104,7 @@ class ProjectServiceImpl implements ProjectService {
   /// [gitRunner] defaults to [_isolateGitRunner] but can be replaced for testing.
   new({
     required String dataDir,
-    required String localDir,
+    required String? localDir,
     required ProjectConfig projectConfig,
     required CredentialsConfig credentials,
     EventBus? eventBus,
@@ -137,7 +142,7 @@ class ProjectServiceImpl implements ProjectService {
     final runtimeCount = _projects.values.where((p) => !p.configDefined).length;
     _log.info(
       'Projects: ${_projects.length} registered '
-      '($configCount from config, $runtimeCount runtime) + _local',
+      '($configCount from config, $runtimeCount runtime)${_localProject == null ? ', no _local' : ' + _local'}',
     );
   }
 
@@ -149,14 +154,14 @@ class ProjectServiceImpl implements ProjectService {
 
   @override
   Future<List<Project>> getAll() async {
-    return [_localProject, ..._projects.values];
+    return [?_localProject, ..._projects.values];
   }
 
   @override
-  Project get localProject => _localProject;
+  Project? get localProject => _localProject;
 
   @override
-  Future<Project> get defaultProject async {
+  Future<Project?> get defaultProject async {
     // 1. Check for explicitly marked default in config.
     for (final project in _projects.values) {
       if (project.configDefined) {
@@ -466,12 +471,14 @@ class ProjectServiceImpl implements ProjectService {
   // Private helpers
   // ---------------------------------------------------------------------------
 
-  Project _createLocalProject() {
+  Project? _createLocalProject() {
+    final localDir = _localDir;
+    if (localDir == null) return null;
     return Project(
       id: '_local',
-      name: _deriveNameFromPath(_localDir),
+      name: _deriveNameFromPath(localDir),
       remoteUrl: '',
-      localPath: _localDir,
+      localPath: localDir,
       defaultBranch: 'main',
       status: ProjectStatus.ready,
       configDefined: false,
@@ -480,6 +487,7 @@ class ProjectServiceImpl implements ProjectService {
   }
 
   Future<void> _loadRuntimeProjects() async {
+    _skippedEntries.clear();
     final file = File(p.join(_dataDir, 'projects.json'));
     if (!file.existsSync()) return;
 
@@ -491,6 +499,16 @@ class ProjectServiceImpl implements ProjectService {
           try {
             if (entry.value is Map<String, dynamic>) {
               final project = Project.fromJson(entry.value as Map<String, dynamic>);
+              // Agents write the workspace's `.git/`; 0.28.0 admitted such paths in container mode.
+              if (isWithinAgentWorkspace(project.localPath, dataDir: _dataDir)) {
+                _log.warning(
+                  'Skipping project "${project.id}" from projects.json: its localPath ${project.localPath} is inside '
+                  'a workspace agents can write, which is never a project repository. Move the checkout and '
+                  're-register it outside the owner and agent workspaces; the entry stays in projects.json.',
+                );
+                _skippedEntries[entry.key] = entry.value;
+                continue;
+              }
               _projects[project.id] = project;
             }
           } catch (e) {
@@ -712,6 +730,7 @@ class ProjectServiceImpl implements ProjectService {
       final file = File(p.join(_dataDir, 'projects.json'));
       // Only persist runtime-created projects (not config-defined, not _local).
       final registry = <String, dynamic>{
+        ..._skippedEntries,
         for (final p in _projects.values.where((p) => !p.configDefined)) p.id: p.toJson(),
       };
       await atomicWriteJson(file, registry);

@@ -218,3 +218,19 @@ final class RecordingMcpTool implements McpTool {
     return ToolResult.text('ok');
   }
 }
+
+/// The built-in registry record [name] with each upstream origin replaced by
+/// [origins] (keyed by route), as an operator's record would pin a fake origin.
+RegistryRecord builtInRegistryOn(String name, Map<String, Uri> origins, {bool? enabled}) {
+  final builtIn = builtInRegistryRecords.singleWhere((record) => record.name == name);
+  return RegistryRecord(
+    name: name,
+    enabled: enabled ?? builtIn.enabled,
+    upstreams: [
+      for (final upstream in builtIn.upstreams)
+        RegistryUpstream(route: upstream.route, origin: (origins[upstream.route] ?? Uri.parse(upstream.origin)).origin),
+    ],
+    env: builtIn.env,
+    rewriteJson: builtIn.rewriteJson,
+  );
+}

@@ -6,27 +6,31 @@ class SecurityProfile {
   /// Human-readable label for the profile.
   final String displayName;
 
-  /// Bind mounts applied when the profile is selected.
+  /// Mounts applied when the profile is selected, as Docker `-v` specs: bind
+  /// mounts, plus anonymous volumes written as a bare container path.
   final List<String> workspaceMounts;
+
+  /// Where a `workspace` container's package cache lives: an anonymous volume,
+  /// writable and executable, removed with the container (ADR-062). Image
+  /// recipes point package caches here.
+  static const packageCachePath = '/var/cache/dartclaw';
 
   /// Creates a container security profile.
   const new({required this.id, required this.displayName, this.workspaceMounts = const []});
 
   /// Creates the standard writable workspace profile.
   ///
-  /// [projectDir] adds the selected project at the legacy `/project` alias.
-  /// [projectsClonesDir] adds the owner's read-only `/projects` collection.
-  static SecurityProfile workspace({
-    required String? workspaceDir,
-    required String? projectDir,
-    String? projectsClonesDir,
-  }) => SecurityProfile(
+  /// It holds only DartClaw-owned mounts: [workspaceDir] at `/workspace`,
+  /// [projectsClonesDir] as the owner's read-only `/projects` collection, and
+  /// the package cache. Operator-chosen directories, such as the repository at
+  /// `/project`, are not part of the profile.
+  static SecurityProfile workspace({required String? workspaceDir, String? projectsClonesDir}) => SecurityProfile(
     id: 'workspace',
     displayName: 'Workspace',
     workspaceMounts: [
       if (workspaceDir != null) '$workspaceDir:/workspace:rw',
-      if (projectDir != null) '$projectDir:/project:ro',
       if (projectsClonesDir != null) '$projectsClonesDir:/projects:ro',
+      packageCachePath,
     ],
   );
 

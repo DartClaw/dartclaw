@@ -44,7 +44,6 @@ void main() {
         sessions,
         messages,
         turns,
-        FakeAgentHarness(),
         projectService: projects,
         ownerWorkspaceDir: owner.path,
       ).call;

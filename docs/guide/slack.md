@@ -35,7 +35,7 @@ Two manifests ship in the repository. They declare the same app and differ only 
 
 Both declare:
 
-- the agent view (`features.assistant_view`) and a bot user that can be messaged directly (Messages tab on)
+- the agent view (`features.agent_view`, Slack's Agent messaging experience) and a bot user that can be messaged directly (Messages tab on)
 - ten bot scopes: `app_mentions:read`, `channels:history`, `groups:history`, `im:history`, `im:write`, `chat:write`, `assistant:write`, `files:read`, `users:read`, `commands`
 - bot events `app_mention`, `message.im`, `message.channels` and `message.groups`, and interactivity
 - slash commands `/stop`, `/pause` and `/resume`
@@ -44,9 +44,13 @@ Subscribe to the `message.*` events even though `app_mention` is listed: DartCla
 
 In the Events API manifest, replace `dartclaw.example.com` with your public host before importing, and keep the path equal to `channels.slack.webhook_path`.
 
-Slack imported the Socket Mode manifest on 2026-11-04 with two warnings you can ignore. It says the app needs more setup for Socket Mode: that is the app-level token in step 3 of the setup below. It says the agent view (`assistant_view`) does not subscribe to `assistant_thread_started`: DartClaw does not use that event, and messages in an agent thread arrive as ordinary DMs. If Slack rejects a field, the import dialog names it; correct that field in your copy.
+Slack imported the Socket Mode manifest on 2026-11-10 with one note: the app needs more setup for Socket Mode, which is the app-level token in step 3 of the setup below. If Slack rejects a field, the import dialog names it; correct that field in your copy.
 
-Slack may also prompt you to move the app to its new agent experience (`agent_view`). Don't accept it yet: the move cannot be undone, and this release is built and tested on `assistant_view`.
+`assistant:write` is the scope Slack gives an app declared as an agent, which labels it as one in Slack. The session status itself needs only `chat:write`.
+
+### Moving an App From an Earlier Release
+
+DartClaw 0.28.0 shipped manifests with Slack's older Assistant experience (`features.assistant_view`), which Slack retires in February 2027. This release sets the thread status with Slack's agent session methods, which belong to the Agent experience, so move the app: open its **Agent** page in the Slack app settings and accept the update, or replace `assistant_view` with `agent_view` and `assistant_description` with `agent_description` in its manifest. Slack cannot undo the move, and each user hard-refreshes Slack to see the new layout. Until the app moves, Slack may refuse the status calls; each refusal is logged as a warning and replies are unaffected.
 
 ## Credentials
 
@@ -152,9 +156,9 @@ Each Slack thread is one session. In a channel, a message that names the bot (`@
 
 ## Streaming and Status
 
-With `channels.slack.streaming` on (the default), a reply in a thread or DM is written into Slack as the agent produces it and ends as one message holding exactly the turn's reply. Text written before a tool call streams too. Text goes out only through the last complete word and after secrets are masked, in appends of at most 12,000 characters, a second apart. A reply over 40,000 characters, Slack's message limit, writes its first chunk over the stream message and posts the rest as further messages. When the stream cannot start or fails midway, DartClaw edits the message into the complete reply or posts it, so the reply arrives once and whole. With `streaming: false` the reply is posted in chunks when the turn ends. A slash command carries no thread, so nothing streams there.
+With `channels.slack.streaming` on (the default), a reply in a thread or DM is written into Slack as the agent produces it and ends as one message holding exactly the turn's reply. Text written before a tool call streams too. Text goes out only through the last complete word and after secrets are masked, in appends of at most 12,000 characters, a second apart. Slack edits a message only up to 4,000 characters and stops a stream at 12,000 in total, so a longer reply that differs from what streamed is split: its first chunk is written over the stream message and the rest are posted as further messages in the thread. When the stream cannot start or fails midway, DartClaw edits the message into the complete reply or posts it, so the reply arrives once and whole. With `streaming: false` the reply is posted in chunks when the turn ends. A slash command carries no thread, so nothing streams there.
 
-While a turn runs, the thread shows the assistant status "is working..." and clears it when the turn ends. A failed status call is logged and never delays or fails the turn. Streaming needs the `chat:write` scope and the status needs `assistant:write`; `dartclaw doctor` names a missing scope in `slack.scopes`.
+Each thread DartClaw answers is a Slack agent session. While a turn runs, DartClaw sets the session to `processing`, so Slack shows its own "Working..." indicator in the thread, in a DM as in a channel thread. When the turn completes, fails or is cancelled, DartClaw sets it to `active`, which removes the indicator; Slack does not remove it when the reply posts. Slack ends a session that stays `processing` for an hour on its own, so a turn running longer loses the indicator before it finishes. A failed status call is logged and never delays or fails the turn. Streaming and the status need the `chat:write` scope; `dartclaw doctor` names a missing scope in `slack.scopes`.
 
 ## Inbound Files
 
@@ -284,6 +288,7 @@ Each request is checked against the signing secret over the exact received bytes
 | Slack shows the request URL as failed | DartClaw is not running in `mode: events`, the path differs from `webhook_path`, or a proxy blocks it |
 | Socket Mode never connects | The app-level token is missing the `connections:write` scope, or Socket Mode is off in the app |
 | Replies never appear | The bot token lacks `chat:write`, or Slack refused the post; `slack.scopes` names the gap |
-| No "is working..." status in a thread | The bot token lacks `assistant:write`; the reply itself is unaffected |
+| No "Working..." indicator in a thread | The app is still on `assistant_view` ([Moving an App From an Earlier Release](#moving-an-app-from-an-earlier-release)), or Slack refused the status call: the log names its error code. The reply itself is unaffected |
+| "Working..." stays after the reply | DartClaw could not set the session `active`: the log names the refused call. Slack clears it after an hour |
 | A reply names the `files:read` scope | The app was installed without it; add the scope, reinstall and update the credential |
 | A run's posts never reach the channel | `workflow.chat_notifications` is missing, invalid or names another channel; an invalid block or a recipient Slack does not own logs a warning naming the key. The bot must also have been invited to the channel |

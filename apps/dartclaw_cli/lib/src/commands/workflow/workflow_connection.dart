@@ -24,8 +24,9 @@ abstract interface class WorkflowConnection {
     WorkflowConnectionContext context,
     String runId,
     String pathSuffix,
-    void Function(Map<String, dynamic>) onResult,
-  );
+    void Function(Map<String, dynamic>) onResult, {
+    String? executionSurfaceCandidate,
+  });
   Future<void> cancel(
     WorkflowConnectionContext context,
     String runId,

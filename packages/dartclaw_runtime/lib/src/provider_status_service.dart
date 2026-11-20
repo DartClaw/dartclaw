@@ -127,6 +127,7 @@ class ProviderStatusService {
   final String _defaultProvider;
   final ExecutionCoordinator? _executions;
   final String? _credentialsDir;
+  final bool Function(String providerId)? _isHostExecution;
 
   final Map<String, _ProbeResult> _probeCache = <String, _ProbeResult>{};
   final Map<String, _CredentialHealthResult> _credentialCache = <String, _CredentialHealthResult>{};
@@ -140,11 +141,13 @@ class ProviderStatusService {
     required String defaultProvider,
     ExecutionCoordinator? executions,
     String? credentialsDir,
+    bool Function(String providerId)? isHostExecution,
   }) : _providers = providers,
        _registry = registry,
        _defaultProvider = defaultProvider,
        _executions = executions,
-       _credentialsDir = credentialsDir;
+       _credentialsDir = credentialsDir,
+       _isHostExecution = isHostExecution;
 
   Future<void> probe({CommandProbe? commandProbe, AuthProbe? authProbe}) async {
     final cmdProbe = commandProbe ?? _runCommandProbe;
@@ -154,15 +157,21 @@ class ProviderStatusService {
       final executable = entry.value.executable;
       final result = await _probeExecutable(providerId: providerId, executable: executable, commandProbe: cmdProbe);
 
-      // Only the one reason admission lets a vendor login rescue. Probing where
-      // the host already holds a credential answers about one this deployment
-      // does not present; probing a forced or unrecognized `auth` reports an
-      // authentication the admission gate refuses anyway.
+      // The login is read only where admission would rescue on it: nothing
+      // configured, on the host. Probing where the host already holds a
+      // credential answers about one this deployment does not present, probing a
+      // forced or unrecognized `auth` reports an authentication the gate refuses
+      // anyway, and a container cannot use a login at all.
       var binaryAuthed = false;
-      if (result.binaryFound &&
-          _credentialFor(providerId, entry.value).resolution.reason == CredentialUnavailableReason.noneConfigured) {
-        binaryAuthed = await authCheck(executable, providerId: providerId);
-      }
+      await ProviderValidator.credentialRefusalFor(
+        providerId: providerId,
+        provider: entry.value,
+        registry: _registry,
+        hostExecution: _isHostExecution?.call(providerId) ?? true,
+        binaryFound: result.binaryFound,
+        loginProbe: (executable, {providerId, homePath}) async =>
+            binaryAuthed = await authCheck(executable, providerId: providerId),
+      );
 
       _probeCache[ProviderIdentity.normalize(providerId)] = _ProbeResult(
         binaryFound: result.binaryFound,
@@ -277,9 +286,8 @@ class ProviderStatusService {
     final credential = _credentialCache[cacheKey];
     final resolved = _credentialFor(providerId, provider);
     final hasHostCredential = resolved.resolution.isPresent;
-    // A vendor login answers for the provider only where DartClaw presents
-    // nothing at all — the same single rescue admission allows.
-    final vendorLogin = probe.binaryAuthed && resolved.resolution.reason == CredentialUnavailableReason.noneConfigured;
+    // The probe only records a login where admission would rescue on it.
+    final vendorLogin = probe.binaryAuthed && !hasHostCredential;
     final authenticated = hasHostCredential || vendorLogin;
     final credentialEnvVar = CredentialRegistry.envVarFor(providerId);
     final capacity = _executions?.snapshot.providers[providerId];

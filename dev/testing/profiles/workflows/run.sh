@@ -71,8 +71,8 @@ fi
 # use a gh keyring session the way the CLI does; the gh tier bridges that gap
 # and mirrors _githubTokenFromEnvOrGh in workflow_e2e_integration_test.dart, so
 # the profile and the automated e2e resolve the same credential the same way.
-if [ -z "${GITHUB_TOKEN:-}" ] && [ -f "${DATA_DIR_ABS}/projects/.git-askpass-github-main.token" ]; then
-  GITHUB_TOKEN_VALUE="$(tr -d '\r\n' < "${DATA_DIR_ABS}/projects/.git-askpass-github-main.token")"
+if [ -z "${GITHUB_TOKEN:-}" ] && [ -f "${DATA_DIR_ABS}/git-askpass/.git-askpass-github-main.token" ]; then
+  GITHUB_TOKEN_VALUE="$(tr -d '\r\n' < "${DATA_DIR_ABS}/git-askpass/.git-askpass-github-main.token")"
   if [ -n "${GITHUB_TOKEN_VALUE}" ]; then
     export GITHUB_TOKEN="${GITHUB_TOKEN_VALUE}"
   fi

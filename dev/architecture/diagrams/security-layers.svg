@@ -89,7 +89,7 @@
   <text class="lede" x="24" y="80">Each layer holds on its own: bypass a guard and the network is still closed and the credential is still absent.</text>
 
   <g class="k-host"><rect class="band" x="16" y="96" width="968" height="330" rx="14"/><text class="kick" x="32" y="118">ALWAYS ON</text></g>
-  <g class="k-ext"><rect class="band" x="16" y="438" width="968" height="186" rx="14"/><text class="kick" x="32" y="460">ABSENT IN ADVISORY MODE · container.enabled false, or no runtime answered the probe</text></g>
+  <g class="k-ext"><rect class="band" x="16" y="438" width="968" height="186" rx="14"/><text class="kick" x="32" y="460">ABSENT IN ADVISORY MODE · container.enabled unset or false</text></g>
 
   <g class="edges">
 

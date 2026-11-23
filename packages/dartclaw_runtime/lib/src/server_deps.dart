@@ -304,7 +304,6 @@ void registerServerSystemPages(
       writer: configWriter,
       runtimeConfig: server._core.runtimeConfig,
       dataDir: server._core.dataDir,
-      containerIsolationActive: config?.container.enabled ?? false,
       eventBus: server._observability.eventBus,
       configNotifier: server._core.configNotifier,
     ),

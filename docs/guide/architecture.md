@@ -1,6 +1,6 @@
 # Architecture
 
-> Current through: **0.28.1**
+> Current through: **0.28.2**
 
 DartClaw is a 2-layer agent runtime where each layer has a distinct role and trust level. The Dart host owns all state, security, and orchestration. Agent CLI binaries handle reasoning and tool execution. This document explains how they fit together, why they are separated, and how the major subsystems interact.
 
@@ -346,7 +346,7 @@ Added in 0.14. DartClaw can manage multiple git repositories, routing tasks to t
 
 ## Container Isolation
 
-When Docker is enabled, DartClaw runs agent processes inside containers with kernel-level isolation. Containers are organized by **security profile** — each profile defines what the agent can access at the OS level.
+When container isolation is enabled (`container.enabled: true`), DartClaw runs agent processes inside containers with kernel-level isolation. Containers are organized by **security profile** — each profile defines what the agent can access at the OS level.
 
 | Profile | Mounts | Network | Used By |
 |---------|--------|---------|---------|

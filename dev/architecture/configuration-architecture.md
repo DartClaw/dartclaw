@@ -2,7 +2,7 @@
 
 How `dartclaw.yaml` becomes an immutable `DartclawConfig`, how a key is described, validated and written back, and how a change reaches a running server: the composed model, the load pipeline, the field registry, persistence, hot reload, the extension seam, credential configuration and the settings form. Per-key defaults and meanings live in the generated reference in [`docs/guide/configuration.md`](../../docs/guide/configuration.md#full-config-reference) and the published `schemas/dartclaw.schema.json`, not here. What the guards, the credential stores and container isolation do with configuration is [Security Architecture](security-architecture.md); the HTTP surface as a whole is [CLI & API Architecture](cli-api-architecture.md).
 
-**Current through**: 0.28.1
+**Current through**: 0.28.2
 
 ---
 
@@ -86,7 +86,7 @@ The file is the first of: `--config`; `DARTCLAW_CONFIG`; `$DARTCLAW_HOME/dartcla
 | Any undescribed path (acceptance sweep, below) | One `FormatException` listing every offending path |
 | A known top-level key set to null | Warning, default used |
 | A bad value in a described key | Warning, default used (`blocking`, below) |
-| `agent.execution`, `agent.agents.<id>.execution` or `tasks.execution` selecting `container` while containers are disabled | `FormatException`; skipped while `container.enabled` is unset and re-run by startup resolution |
+| `agent.execution`, `agent.agents.<id>.execution` or `tasks.execution` selecting `container` while containers are disabled | `FormatException` (containers are disabled unless `container.enabled: true`) |
 
 A fatal load is a startup gate, not a runtime one. `ReloadTriggerService` catches it and keeps the running config; `ConfigApplyService` reports it as a read failure and writes nothing. `dartclaw doctor` reports it as `config.valid: fail` ([ADR-059](../adrs/059-doctor-preserves-config-load-refusals.md)).
 
@@ -249,7 +249,7 @@ The heartbeat and git-sync effects go through one `RuntimeToggleApplier` (`confi
 1. Primes out-of-package section parsers (`sectionPrimers`) so their warnings are present.
 2. **Admits or refuses**: throws `FormatException` if the config carries blocking warnings, and `UnsupportedCapabilityError` if it enables container isolation on a platform without it. A refused reload leaves the running config and `restartRequiredSections` untouched.
 3. Compares every section in `ConfigNotifier.sectionTiers` with `==`. A changed `reloadable` section adds `<section>.*` to `ConfigDelta.changedKeys`; a changed `restart` section goes to `restartRequiredSections` and a warning is logged, and is withheld from the delta. `server` is special: a change confined to `port`, `host`, `data_dir` is excluded with a warning.
-4. Carries the running values forward for what a reload must not change: `server.port/host/data_dir`, and `container` (the posture is settled by a startup probe a reload cannot rerun, and an unset section re-parses as disabled).
+4. Carries the running values forward for what a reload must not change: `server.port/host/data_dir`, and `container` (restart-tier, and the runtime binary in force was selected by a startup probe a reload cannot rerun).
 5. Returns `null` when nothing reloadable changed; otherwise builds a `ConfigDelta(previous, current, changedKeys)` and calls `reconfigure` on each registered service whose `watchKeys` match, logging and continuing if one throws.
 
 [![Config hot reload: triggers, ConfigNotifier.reload steps and outcomes](diagrams/config-hot-reload.svg)](diagrams/config-hot-reload.svg)

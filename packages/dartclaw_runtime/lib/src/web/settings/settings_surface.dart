@@ -176,7 +176,6 @@ SettingsSurface? buildSettingsSurface({
   required ConfigWriter? writer,
   required RuntimeConfig? runtimeConfig,
   required String? dataDir,
-  bool containerIsolationActive = false,
   EventBus? eventBus,
   ConfigNotifier? configNotifier,
 }) {
@@ -189,7 +188,6 @@ SettingsSurface? buildSettingsSurface({
       writer: writer,
       validator: const ConfigValidator(),
       dataDir: dataDir,
-      containerIsolationActive: containerIsolationActive,
       eventBus: eventBus,
       configNotifier: configNotifier,
     ),

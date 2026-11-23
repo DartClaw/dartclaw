@@ -1,12 +1,34 @@
 import 'package:dartclaw_kernel/dartclaw_kernel.dart';
 import 'package:test/test.dart';
 
+import 'support/load_config.dart';
+
 void main() {
   group('ContainerConfig', () {
     test('defaults are disabled', () {
       const config = ContainerConfig();
       expect(config.enabled, isFalse);
       expect(config.image, 'dartclaw-agent:latest');
+    });
+
+    test('an absent container section parses to the same config as an explicit false', () {
+      expect(loadNoFile().container, const ContainerConfig.disabled());
+      expect(loadYaml('container:\n  enabled: false\n').container, const ContainerConfig.disabled());
+    });
+
+    test('a container section without an enabled key parses to disabled', () {
+      final container = loadYaml('container:\n  image: my-image:v1\n').container;
+      expect(container.enabled, isFalse);
+      expect(container, const ContainerConfig(enabled: false, image: 'my-image:v1'));
+    });
+
+    test('the selected runtime binary rides the config without changing the posture', () {
+      const config = ContainerConfig(enabled: true, image: 'my-image:v1');
+      final selected = config.withRuntimeBinary('podman');
+      expect(selected.runtimeBinary, 'podman');
+      expect(selected.enabled, isTrue);
+      expect(selected.image, 'my-image:v1');
+      expect(selected, isNot(config));
     });
 
     test('fromYaml parses enabled flag', () {

@@ -125,7 +125,7 @@ export 'src/credential_registry.dart'
         credentialRemediationFor,
         credentialRenewalFor;
 export 'src/credentials_config.dart' show CredentialEntry, CredentialExpiry, CredentialType, CredentialsConfig;
-export 'src/dartclaw_config.dart' show ConfigPathSweep, DartclawConfig, validateExecutionPolicySelections;
+export 'src/dartclaw_config.dart' show ConfigPathSweep, DartclawConfig;
 export 'src/duration_parser.dart' show tryParseDuration;
 export 'src/features_config.dart' show FeaturesConfig, ThreadBindingFeatureConfig;
 export 'src/gateway_config.dart' show GatewayConfig, McpClientConfig, ReloadConfig;

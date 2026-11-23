@@ -35,6 +35,10 @@ String? _resolvedPreflightProvider({
   )?.trim();
 }
 
+const _containerSkillsNote =
+    'Workflow steps run in containers, which carry only the skills DartClaw bundles, not plugins installed on the '
+    'host. Set tasks.execution: host (or turn container isolation off) to run steps with host plugins.';
+
 Future<WorkflowSkillPreflightResult> preflightWorkflowSkillRefs({
   required WorkflowDefinition definition,
   required SkillIntrospector? introspector,
@@ -90,13 +94,16 @@ Future<WorkflowSkillPreflightResult> preflightWorkflowSkillRefs({
     final provider = entry.key;
     final executable = skillPreflightConfig.executableFor(provider);
     final providerOptions = skillPreflightConfig.optionsFor(provider);
+    final containerSkills = skillPreflightConfig.containerVisibleSkills;
     final Set<String> available;
     try {
-      available = await introspector.listAvailable(
-        provider: provider,
-        executable: executable,
-        providerOptions: providerOptions,
-      );
+      available =
+          containerSkills ??
+          await introspector.listAvailable(
+            provider: provider,
+            executable: executable,
+            providerOptions: providerOptions,
+          );
     } on WorkflowPreflightException {
       rethrow;
     } catch (e) {
@@ -122,7 +129,8 @@ Future<WorkflowSkillPreflightResult> preflightWorkflowSkillRefs({
     if (missing.isNotEmpty) {
       throw WorkflowPreflightException(
         'Missing skills for provider "$provider": ${missing.join(', ')}. '
-        'Available: ${available.length} skills.',
+        'Available: ${available.length} skills.'
+        '${containerSkills == null ? '' : ' $_containerSkillsNote'}',
       );
     }
     visibleByProviderAndAuthored[provider] = visibleByAuthored;
@@ -206,6 +214,8 @@ Future<WorkflowSkillCheckResult> checkWorkflowSkillRefs({
   }
 
   final providers = {for (final ref in refs) ref.provider};
+  final containerSkills = skillPreflightConfig.containerVisibleSkills;
+  if (containerSkills != null && refs.isNotEmpty) probeNotes.add(_containerSkillsNote);
   final availableByProvider = <String, Set<String>>{};
   final familyByProvider = <String, String>{};
   final degradedProviders = <String>{};
@@ -213,11 +223,13 @@ Future<WorkflowSkillCheckResult> checkWorkflowSkillRefs({
     final executable = skillPreflightConfig.executableFor(provider);
     final providerOptions = skillPreflightConfig.optionsFor(provider);
     try {
-      availableByProvider[provider] = await introspector.listAvailable(
-        provider: provider,
-        executable: executable,
-        providerOptions: providerOptions,
-      );
+      availableByProvider[provider] =
+          containerSkills ??
+          await introspector.listAvailable(
+            provider: provider,
+            executable: executable,
+            providerOptions: providerOptions,
+          );
       familyByProvider[provider] = ProviderIdentity.resolveFamily(
         provider,
         options: providerOptions,

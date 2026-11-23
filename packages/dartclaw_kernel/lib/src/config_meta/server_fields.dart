@@ -477,11 +477,10 @@ const Map<String, FieldMeta> _serverFields = {
     type: ConfigFieldType.bool_,
     mutability: ConfigMutability.readonly,
     description:
-        'Run agent work inside container isolation. Left unset, DartClaw isolates wherever a container runtime is '
-        'detected and starts in advisory mode where none is; an explicit true instead fails startup when the host '
-        'cannot isolate. POSIX only; off means guards are the whole boundary. Read-only: placement is a '
-        'deterministic keep, and clearing it through the API would either strand an explicit container selection at '
-        'the next boot or move neutral-profile work onto the host.',
+        'Run agent work inside container isolation. Off unless set to true; true fails startup when the host cannot '
+        'isolate (no docker or podman answering, or an unusable image or engine). POSIX only; off means guards are '
+        'the whole boundary. Read-only: placement is a deterministic keep, and turning it off through the API would '
+        'either strand an explicit container selection at the next boot or move neutral-profile work onto the host.',
   ),
   'container.image': FieldMeta(
     yamlPath: 'container.image',

@@ -25,6 +25,7 @@ import 'package:dartclaw_workflow/dartclaw_workflow.dart'
         WorkflowDefinitionParser,
         WorkflowDefinitionValidator,
         WorkflowSkillCheckResult,
+        WorkspaceSkillInventory,
         checkWorkflowSkillRefs;
 
 import '../config_loader.dart';
@@ -162,7 +163,10 @@ class WorkflowValidateCommand extends Command<void> {
     return checkWorkflowSkillRefs(
       definition: definition,
       introspector: introspector,
-      skillPreflightConfig: buildWorkflowSkillPreflightConfig(config),
+      skillPreflightConfig: buildWorkflowSkillPreflightConfig(
+        config,
+        bundledSkills: WorkspaceSkillInventory.fromDataDir(config.server.dataDir).skillNames.toSet(),
+      ),
       roleDefaults: workflowRoleDefaultsFromConfig(config),
     );
   }

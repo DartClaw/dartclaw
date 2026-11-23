@@ -580,9 +580,12 @@ abstract class _InitImpl extends Command<void> {
       googleChatAudience: argResults!.wasParsed('google-chat-audience')
           ? argResults!['google-chat-audience'] as String?
           : defaults.googleChatAudience,
+      // An image alone is an answer about the container section: keep the existing enabled value rather than drop it.
       containerEnabled: argResults!.wasParsed('container')
           ? argResults!['container'] as bool
-          : defaults.containerEnabled,
+          : argResults!.wasParsed('container-image')
+          ? defaults.containerEnabled
+          : null,
       containerImage: argResults!.wasParsed('container-image')
           ? argResults!['container-image'] as String?
           : defaults.containerImage,
@@ -868,7 +871,7 @@ abstract class _InitImpl extends Command<void> {
       'Enable Docker container isolation?',
       defaultValue: argResults!.wasParsed('container')
           ? argResults!['container'] as bool
-          : defaults.containerEnabled ?? true,
+          : defaults.containerEnabled ?? false,
     );
     String? containerImage;
     if (containerEnabled) {
@@ -993,7 +996,7 @@ abstract class _InitImpl extends Command<void> {
       googleChatServiceAccount: googleChat?['service_account'] as String?,
       googleChatAudienceType: googleChatAudience is Map ? googleChatAudience['type'] as String? : null,
       googleChatAudience: googleChatAudience is Map ? googleChatAudience['value'] as String? : null,
-      containerEnabled: existingConfig?.container.declaredEnabled,
+      containerEnabled: existingConfig?.container.enabled,
       containerImage: existingConfig?.container.image,
       contentGuardEnabled: existingConfig?.security.contentGuardEnabled ?? true,
     );

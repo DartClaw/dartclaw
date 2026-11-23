@@ -525,9 +525,7 @@ class DartclawConfig {
       warnings: warns,
     );
 
-    // An unset posture has no answer yet: the runtime probe that settles it
-    // cannot run inside synchronous parsing, so resolution re-runs this.
-    if (container.declaredEnabled != null) validateExecutionPolicySelections(config);
+    validateExecutionPolicySelections(config);
     return config;
   }
 

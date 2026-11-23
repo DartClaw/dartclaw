@@ -35,12 +35,12 @@ utilities used across package boundaries. Barrel: `lib/dartclaw_kernel.dart`, wi
 - `AgentWorkspace` is the canonical named-agent workspace binding. It resolves an explicit path once, rejects unsafe
   aliases and overlaps, and derives storage identity only as `agent:<agent-id>`. Invalid entries remain configured but
   unavailable so one bad binding cannot disable unrelated agents or become an unconfigured fallback.
-- **`ContainerConfig.enabled` is tri-state at parse time and settled once at startup.** `declaredEnabled` is the
-  operator's literal (`null` when the section declares no posture); `enabled` is the posture in force, which the
-  runtime's `resolveContainerPosture` replaces with a probed answer through `resolved(...)` before anything wires
-  against it. `runtimeBinary` rides the same object as resolution output, not as a YAML key. Parsing therefore
-  **defers** `validateExecutionPolicySelections` while `declaredEnabled` is null — resolution re-runs it, and
-  `execution: container` under a resolved-disabled posture is still startup-fatal ([ADR-055](../../dev/adrs/055-container-by-default-posture.md)).
+- **`ContainerConfig.enabled` is a plain `bool`, default `false`**: an absent section or key parses to off, so
+  whether agent work runs in containers is what the operator wrote, never what the host has installed
+  ([ADR-064](../../dev/adrs/064-container-isolation-opt-in.md)). `validateExecutionPolicySelections` therefore runs at
+  every parse, and `execution: container` without `container.enabled: true` is a load-time `FormatException`.
+  `runtimeBinary` is not a YAML key: the runtime's `selectContainerRuntime` carries the CLI that answered through
+  `withRuntimeBinary`, and `ConfigNotifier` keeps the section in force across reloads so that choice survives.
 - **`container.registries` is data with one validator.** `container_registries.dart` holds the record type and the
   built-in records, the only place a registry origin or client variable is written down. `parseRegistryRecords`
   (called from `ContainerConfig.fromYaml`) overlays instance entries by name – an entry carrying only `enabled`
@@ -54,7 +54,7 @@ utilities used across package boundaries. Barrel: `lib/dartclaw_kernel.dart`, wi
   and leaves no `.bak`. Edits are surgical only outside the written paths: a subtree written whole loses its comments.
 - `HarnessConfig.sections` retains raw harness sections. The adapter package owns parsing its section.
 - Credential selection stays in `CredentialRegistry`; subscription credential files remain core-owned and are injected
-  as a snapshot. Remediation text comes only from `credentialRemediationFor` / `credentialRenewalFor`. Admission, including the binary-login rescue, is one rule, `ProviderValidator.credentialRefusalFor` (host or container placement); `validate`, `dartclaw_runtime`'s `ProviderStatusService` and `inferredPostureCredentialGap`, and `dartclaw_cli`'s `SetupChecks` all ask it, and none probes the binary's login itself. The spawn-time host gates (`HarnessWiring._credentialRefusalFor`, `prepareCodexSubscriptionHome`) only decline to refuse `noneConfigured` on the host.
+  as a snapshot. Remediation text comes only from `credentialRemediationFor` / `credentialRenewalFor`. Admission, including the binary-login rescue, is one rule, `ProviderValidator.credentialRefusalFor` (host or container placement); `validate`, `dartclaw_runtime`'s `ProviderStatusService`, and `dartclaw_cli`'s `SetupChecks` all ask it, and none probes the binary's login itself. The spawn-time host gates (`HarnessWiring._credentialRefusalFor`, `prepareCodexSubscriptionHome`) only decline to refuse `noneConfigured` on the host.
 - Named credentials stored on disk reach `credentials:` through `DartclawConfig.registerStoredCredentialProvider(Map<String, CredentialEntry> Function(String credentialsDir))`,
   mirroring `registerExtensionParser` (test-only `clearStoredCredentialProvider` clears it). `load` invokes the closure on
   **every** call unless `resolveStoredCredentials: false` requests the declared view, passing `credentialsDirFor(server.dataDir)`, and `_parseCredentials` merges the result with the **store

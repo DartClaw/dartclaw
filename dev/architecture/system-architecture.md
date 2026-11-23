@@ -5,7 +5,7 @@ topology, the deployment model and the service wiring that assembles it. It stay
 invariants and failure modes live in the document named for it in the [Subsystem Index](#subsystem-index), and this
 document owns only package topology, tier order, the composition root, service wiring and the deployment model.
 
-**Current through**: 0.28.1
+**Current through**: 0.28.2
 
 ---
 
@@ -329,11 +329,12 @@ The host opens each pipe with `docker exec -i`. Killing the process pair revokes
 Claude and Codex have verified provider adapters and run on either boundary. ACP runs on the host. The computed
 compatibility rule is in [Control Protocol](control-protocol.md).
 
-**Isolation posture.** `resolveContainerPosture` settles it once at startup ([ADR-055](../adrs/055-container-by-default-posture.md)).
-An unset `container.enabled` means "isolate if a runtime is detected" and degrades to host execution with a warning if
-none is. A declared `true` keeps its fail-closed refusals, and a declared `false` is never overridden. With the posture
-disabled, harnesses run as direct host subprocesses and guards still evaluate, but there is no OS-level boundary.
-`examples/dev.yaml` declares `false` for development checkouts.
+**Isolation posture.** Container isolation is opt-in ([ADR-064](../adrs/064-container-isolation-opt-in.md)).
+`container.enabled` is two-state and unset means `false`. Under `true`, `selectContainerRuntime` picks `docker`, then
+`podman`, once at startup, and every refusal (no runtime, unsupported engine architecture, undeliverable bridge, a
+default provider with no container credential) is startup-fatal; nothing downgrades to host execution. With isolation
+off, no runtime probe runs, harnesses run as direct host subprocesses and guards still evaluate, but there is no
+OS-level boundary.
 
 ---
 
@@ -407,7 +408,7 @@ and single-threaded; isolates are used only for blocking git clone, fetch and pu
 | [002](../adrs/002-file-based-storage.md) | File-based storage for sessions and messages; the search index is derived |
 | [009](../adrs/009-internal-mcp-server.md) | Internal MCP server at `/mcp` as the tool extension point |
 | [011](../adrs/011-event-driven-architecture.md) | Lightweight event bus with a sealed event hierarchy |
-| [012](../adrs/012-per-type-container-isolation.md), [055](../adrs/055-container-by-default-posture.md) | Security-profile containers per execution owner; container-by-default posture |
+| [012](../adrs/012-per-type-container-isolation.md), [064](../adrs/064-container-isolation-opt-in.md) | Security-profile containers per execution owner; opt-in container isolation |
 | [016](../adrs/016-multi-provider-harness-architecture.md), [037](../adrs/037-universal-acp-harness.md) | Abstract harness plus protocol adapter; execution lanes; ACP |
 | [034](../adrs/034-enforced-package-dependency-direction.md), [056](../adrs/056-package-topology-consolidation.md) | Tiered, strictly downward dependencies; current package topology |
 | [049](../adrs/049-typed-platform-capability-surface.md) | `PlatformCapabilities` |

@@ -101,9 +101,9 @@ class SetupState {
   /// The operator's answer about container isolation, or `null` when they were
   /// never asked.
   ///
-  /// The distinction is load-bearing: an absent `container:` section means
-  /// "isolate if this host can", so writing `false` for someone who was never
-  /// asked pins them to the host lane. Only the Full track asks.
+  /// `null` leaves an existing `container:` section untouched, so a run that
+  /// did not ask cannot switch an operator's `enabled: true` off. Only the
+  /// interactive Full track and `--container` / `--no-container` answer.
   final bool? containerEnabled;
 
   /// Docker image for isolated agent execution (Full track only).

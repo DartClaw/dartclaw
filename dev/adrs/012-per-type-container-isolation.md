@@ -1,6 +1,6 @@
 # ADR-012: Per-Type Container Isolation
 
-**Status:** Accepted (amended 2026-08-13 — profiles are templates; containers belong to one execution owner and never cross principals; amended 2026-08-27 by [ADR-055](055-container-by-default-posture.md) — an undeclared posture resolves to isolated wherever a container runtime is detected)
+**Status:** Accepted (amended 2026-08-13 — profiles are templates; containers belong to one execution owner and never cross principals; amended 2026-08-27 by [ADR-055](055-container-by-default-posture.md) — an undeclared posture resolves to isolated wherever a container runtime is detected; amended 2026-11-20 by [ADR-064](064-container-isolation-opt-in.md) — isolation is opt-in: an undeclared posture is disabled, and only `container.enabled: true` isolates)
 
 ## Context
 

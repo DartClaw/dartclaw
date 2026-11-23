@@ -4,7 +4,7 @@ How DartClaw creates, schedules, executes, reviews, and observes tasks: the task
 
 Execution allocation (`ExecutionCoordinator`) and the turn lifecycle (`TurnManager`/`TurnRunner`) belong to [Control Protocol](control-protocol.md); this document covers only how tasks use them. Workflow-owned tasks are summarized where they share the task path; the workflow engine is in [Workflow Architecture](workflow-architecture.md). For *using* tasks (creating them, review flow, budgets, scheduling examples) read [`docs/guide/tasks.md`](../../docs/guide/tasks.md).
 
-**Current through**: 0.28.1
+**Current through**: 0.28.2
 
 ---
 

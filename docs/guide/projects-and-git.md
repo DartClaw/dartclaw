@@ -1,6 +1,6 @@
 # Projects and Git
 
-> Current through: **0.28.1**
+> Current through: **0.28.2**
 
 DartClaw manages git repositories as **projects** -- first-class entities that tasks can target. Tasks that explicitly set
 `configJson.needsWorktree: true` branch from a project, work in isolation, and push results back on acceptance. A single

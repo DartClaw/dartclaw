@@ -194,24 +194,20 @@ class SetupApply {
         _remove(editor, ['channels', 'google_chat']);
       }
 
-      if (state.containerEnabled == null) {
-        // Never asked, so nothing is written: an absent section resolves the
-        // posture from the host at startup. Writing either literal here would
-        // answer a question the operator was not put.
-        _remove(editor, ['container']);
-      } else if (state.containerEnabled!) {
-        _set(editor, ['container', 'enabled'], true);
-        if (state.containerImage != null && state.containerImage!.isNotEmpty) {
-          _set(editor, ['container', 'image'], state.containerImage!);
-        } else {
+      switch (state.containerEnabled) {
+        case true:
+          _set(editor, ['container', 'enabled'], true);
+          if (state.containerImage != null && state.containerImage!.isNotEmpty) {
+            _set(editor, ['container', 'image'], state.containerImage!);
+          } else {
+            _remove(editor, ['container', 'image']);
+          }
+        case false:
+          _set(editor, ['container', 'enabled'], false);
           _remove(editor, ['container', 'image']);
-        }
-      } else {
-        // Written explicitly rather than removed: an absent `container:` section
-        // means "isolate if this host can", so removing it would turn the
-        // operator's "no" into the opposite answer on any host with a runtime.
-        _set(editor, ['container', 'enabled'], false);
-        _remove(editor, ['container', 'image']);
+        // Never asked, so the existing section stands: removing it would
+        // switch an operator's `enabled: true` off, as an absent section is `false`.
+        case null:
       }
 
       if (state.contentGuardEnabled != null) {

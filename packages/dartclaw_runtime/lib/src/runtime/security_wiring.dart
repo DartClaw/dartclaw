@@ -245,7 +245,6 @@ class SecurityWiring implements Reconfigurable {
   static const _bridgeReadyTimeout = Duration(seconds: 30);
 
   Future<void> wire({required List<AgentDefinition> agentDefs}) async {
-    // A config error, not a probe result, so it never downgrades to advisory.
     if (_registryShadowingDartclaw() case final message?) {
       _log.severe(message);
       _exitFn(1);
@@ -260,17 +259,9 @@ class SecurityWiring implements Reconfigurable {
         _log.severe(error.toString(), error);
         _exitFn(1);
       }
-      final refusal = await _wireContainers();
-      if (refusal != null) _warnHostAccess(refusal);
+      await _wireContainers();
     } else if (_platformCapabilities.containerIsolationAvailable) {
-      // Stated as a fact about this deployment rather than as a probe result:
-      // the zero-server lane reaches here with the parsed posture, having run
-      // no probe at all, and claiming one ran would simply be untrue there.
-      _warnHostAccess(
-        config.container.declaredEnabled == null
-            ? 'no container runtime (${ContainerManager.runtimeBinaries.join(' or ')}) is in use on this host'
-            : null,
-      );
+      _warnHostAccess();
     } else {
       _log.warning(
         'Container isolation disabled — agent has full host access. '
@@ -350,29 +341,19 @@ class SecurityWiring implements Reconfigurable {
     return null;
   }
 
-  /// The advisory-mode warning. [reason] names why this host has no OS
-  /// boundary when one was inferred rather than declined outright.
-  void _warnHostAccess(String? reason) {
+  void _warnHostAccess() {
     _log.warning(
       'Container isolation disabled — agent has full host access. '
-      '${reason == null ? '' : 'This host is in advisory mode because $reason. '}'
       'Guards are the only security boundary; on Codex their host interception is bounded by the configured '
       'approval mode. '
-      'Enable container isolation for production use (see docs/guide/security.md).',
+      'Set container.enabled: true to isolate agent execution (see docs/guide/security.md).',
     );
   }
 
-  /// Wires container isolation, answering the refusal that stopped it or
-  /// `null` once every profile is registered.
-  ///
-  /// Two sites decide requested-vs-inferred, each keyed on what the operator
-  /// declared. `refuse` covers every probe-time refusal: an explicit
-  /// `container.enabled: true` logs it and exits non-zero, an inferred posture
-  /// logs the same diagnosis and hands it back for advisory mode. The default
-  /// provider's missing container credential is decided before it, by
-  /// `inferredPostureCredentialGap`, which answers only for an inferred posture
-  /// and so never reaches `refuse`.
-  Future<String?> _wireContainers() async {
+  /// Wires container isolation, registering every profile or exiting
+  /// non-zero: the operator asked for containers, so a host that cannot
+  /// provide them never runs agent work unisolated in their place.
+  Future<void> _wireContainers() async {
     final profiles = [
       SecurityProfile.workspace(workspaceDir: config.workspaceDir, projectsClonesDir: config.projectsClonesDir),
       SecurityProfile.restricted,
@@ -423,27 +404,10 @@ class SecurityWiring implements Reconfigurable {
       generatedStateDir: p.join(_dataDir, 'containers', 'dartclaw-probe'),
     );
     final runtime = config.container.runtimeBinary;
-    String refuse(String reason, [String? remediation]) {
+    Never refuse(String reason, [String? remediation]) {
       _log.severe('Container isolation cannot start: $reason');
       if (remediation != null) _log.severe(remediation);
-      if (config.container.declaredEnabled == true) _exitFn(1);
-      return reason;
-    }
-
-    // A default provider with no credential a container can use downgrades here,
-    // before the image build, so a deployment that will downgrade never builds
-    // one. `inferredPostureCredentialGap` answers only for an inferred posture,
-    // so an explicit `true` falls through to the refusal HarnessWiring raises at
-    // primary admission; and it is decided there, not in `refuse`, so it logs no
-    // severe record. The sweep still runs when a runtime answers: labelled
-    // orphans of an earlier serve are this data dir's to reclaim either way.
-    final gap = await inferredPostureCredentialGap(config, registry: _credentialRegistry());
-    if (gap != null) {
-      if (await probe.isRuntimeAvailable()) {
-        await ContainerManager.reclaimOwnedContainers(_dataDir, runtimeBinary: runtime);
-      }
-      return 'provider ${gap.providerId} has no credential a container can use. ${gap.remediation} '
-          'Or set container.enabled: false to run on the host without isolation';
+      _exitFn(1);
     }
 
     // Containerized Claude is mediated by the host adapter, which presents
@@ -460,18 +424,18 @@ class SecurityWiring implements Reconfigurable {
     }
 
     if (!await probe.isRuntimeAvailable()) {
-      return refuse('$runtime is required for container isolation', 'Install or start $runtime.');
+      refuse('$runtime is required for container isolation', 'Install or start $runtime.');
     }
     await ContainerManager.reclaimOwnedContainers(_dataDir, runtimeBinary: runtime);
     try {
       await probe.ensureImage();
     } on StateError catch (error) {
-      return refuse('the container image could not be built (${error.message})');
+      refuse('the container image could not be built (${error.message})');
     }
 
     final architecture = await probe.serverArchitecture();
     if (architecture == null) {
-      return refuse('the $runtime engine reports an architecture no container bridge binary ships for');
+      refuse('the $runtime engine reports an architecture no container bridge binary ships for');
     }
     _bridgeBinaries = BridgeBinaryProvisioner(
       dataDir: _dataDir,
@@ -480,7 +444,7 @@ class SecurityWiring implements Reconfigurable {
     try {
       _bridgeBinaryPath = await _bridgeBinaries!.ensureAvailable(architecture);
     } on StateError catch (error) {
-      return refuse(error.message.toString());
+      refuse(error.message.toString());
     }
 
     for (final profile in profiles) {
@@ -535,7 +499,6 @@ class SecurityWiring implements Reconfigurable {
       'Container isolation enabled on $runtime — ${_containerTemplates.length} profiles, host-mediated '
       'linux-$architecture bridge (image: ${config.container.image})',
     );
-    return null;
   }
 
   /// Builds the provider mediation adapters this deployment's gateway installs,

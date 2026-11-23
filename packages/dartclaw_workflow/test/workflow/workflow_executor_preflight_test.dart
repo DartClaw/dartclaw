@@ -167,6 +167,84 @@ steps:
     expect(introspector.calls, isEmpty);
   });
 
+  group('when workflow steps run in containers', () {
+    const containerConfig = WorkflowSkillPreflightConfig(
+      providerExecutables: {'claude': '/bin/claude'},
+      containerVisibleSkills: {'dartclaw-validate-workflow'},
+    );
+
+    test('a host-installed plugin skill fails preflight without probing the host', () async {
+      final definition = const WorkflowDefinition(
+        name: 'preflight-container-plugin',
+        description: 'preflight container plugin test',
+        steps: [WorkflowStep(id: 'review', name: 'Review', provider: 'claude', skill: 'andthen:review')],
+      );
+      final introspector = FakeSkillIntrospector({
+        'claude': {'andthen:review'},
+      });
+      final executor = h.makeExecutor(skillIntrospector: introspector, skillPreflightConfig: containerConfig);
+      final run = h.makeRun(definition);
+      await h.repository.insert(run);
+
+      await executor.execute(run, definition, WorkflowContext());
+
+      final failedRun = await h.repository.getById(run.id);
+      expect(failedRun?.status, WorkflowRunStatus.failed);
+      expect(failedRun?.errorMessage, contains('Missing skills for provider "claude": andthen:review'));
+      expect(failedRun?.errorMessage, contains('run in containers'));
+      expect(failedRun?.errorMessage, contains('tasks.execution: host'));
+      expect(await h.taskService.list(), isEmpty);
+      expect(introspector.calls, isEmpty);
+    });
+
+    test('a bundled DartClaw skill dispatches', () async {
+      final definition = const WorkflowDefinition(
+        name: 'preflight-container-bundled',
+        description: 'preflight container bundled test',
+        steps: [
+          WorkflowStep(id: 'validate', name: 'Validate', provider: 'claude', skill: 'dartclaw-validate-workflow'),
+        ],
+      );
+      final introspector = FakeSkillIntrospector({'claude': const <String>{}});
+      final executor = h.makeExecutor(skillIntrospector: introspector, skillPreflightConfig: containerConfig);
+      final run = h.makeRun(definition);
+      await h.repository.insert(run);
+      final sub = h.eventBus.on<TaskStatusChangedEvent>().where((event) => event.newStatus == TaskStatus.queued).listen(
+        (event) async {
+          await h.completeTask(event.taskId);
+        },
+      );
+      addTearDown(sub.cancel);
+
+      await executor.execute(run, definition, WorkflowContext());
+
+      expect((await h.repository.getById(run.id))?.status, WorkflowRunStatus.completed);
+      expect(await h.taskService.list(), hasLength(1));
+      expect(introspector.calls, isEmpty);
+    });
+
+    test('validate --skills reports a host-installed plugin skill as unresolved', () async {
+      final definition = const WorkflowDefinition(
+        name: 'check-container-plugin',
+        description: 'check container plugin test',
+        steps: [WorkflowStep(id: 'review', name: 'Review', provider: 'claude', skill: 'andthen:review')],
+      );
+      final introspector = FakeSkillIntrospector({
+        'claude': {'andthen:review'},
+      });
+
+      final result = await checkWorkflowSkillRefs(
+        definition: definition,
+        introspector: introspector,
+        skillPreflightConfig: containerConfig,
+        roleDefaults: const WorkflowRoleDefaults(),
+      );
+
+      expect(result.unresolved.map((warning) => warning.skill), ['andthen:review']);
+      expect(introspector.calls, isEmpty);
+    });
+  });
+
   test('uses Codex-visible AndThen skill name after preflight resolves authored ref', () async {
     final definition = const WorkflowDefinition(
       name: 'preflight-codex-alias',

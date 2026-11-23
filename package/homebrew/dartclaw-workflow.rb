@@ -1,7 +1,7 @@
 class DartclawWorkflow < Formula
   desc "Workflow-only DartClaw runner (standalone, no server)"
   homepage "https://github.com/DartClaw/dartclaw"
-  version "0.28.1"
+  version "0.28.2"
   license "MIT"
 
   # Releases carry no Intel Mac archive, so Homebrew refuses an Intel Mac by name.

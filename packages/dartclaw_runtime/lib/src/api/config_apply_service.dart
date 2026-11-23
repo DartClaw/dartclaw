@@ -54,14 +54,7 @@ final class ConfigApplyResult {
 /// `restart.pending`.
 final class ConfigApplyService {
   /// Creates a [ConfigApplyService] value.
-  new({
-    required this.writer,
-    required this.validator,
-    required this.dataDir,
-    this.containerIsolationActive = false,
-    this.eventBus,
-    this.configNotifier,
-  });
+  new({required this.writer, required this.validator, required this.dataDir, this.eventBus, this.configNotifier});
 
   /// Writer owning the YAML file this service persists through.
   final ConfigWriter writer;
@@ -79,24 +72,12 @@ final class ConfigApplyService {
   /// reloadable field is treated as restart-required.
   final ConfigNotifier? configNotifier;
 
-  /// Whether this deployment actually isolates execution.
-  ///
-  /// The file cannot answer it: an absent `container:` section means "isolate
-  /// if this host can", and the probe that settles it ran at startup.
-  final bool containerIsolationActive;
-
-  /// Loads the config as it currently stands on disk, carrying the posture in
-  /// force rather than the one the file declares.
-  ///
-  /// Validation judges a submitted `execution: container` against what is
-  /// actually running; re-reading the file alone would refuse it on an
-  /// auto-isolating host with "container isolation is disabled".
+  /// Loads the config as it currently stands on disk.
   ///
   /// Throws [ConfigReadException] when the file cannot be read or parsed.
   DartclawConfig freshConfig() {
     try {
-      final parsed = loadDartclawConfig(configPath: writer.configPath);
-      return parsed.copyWith(container: parsed.container.resolved(enabled: containerIsolationActive));
+      return loadDartclawConfig(configPath: writer.configPath);
     } catch (e) {
       throw ConfigReadException(e);
     }

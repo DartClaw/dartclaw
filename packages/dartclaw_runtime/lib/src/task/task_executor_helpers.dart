@@ -137,6 +137,7 @@ extension _TaskExecutorHelpers on TaskExecutor {
   Future<String> _composePendingMessage(
     Task task, {
     required ExecutionPolicy? runnerPolicy,
+    required TaskExecutionSite executionSite,
     String? workingDirectory,
   }) async {
     final goalContext = await _goalContextFor(task);
@@ -148,6 +149,7 @@ extension _TaskExecutorHelpers on TaskExecutor {
     return _initialPrompt(
       task,
       runnerPolicy: runnerPolicy,
+      executionSite: executionSite,
       goalContext: goalContext,
       workingDirectory: workingDirectory,
     );
@@ -156,6 +158,7 @@ extension _TaskExecutorHelpers on TaskExecutor {
   String _initialPrompt(
     Task task, {
     required ExecutionPolicy? runnerPolicy,
+    required TaskExecutionSite executionSite,
     String? goalContext,
     String? workingDirectory,
   }) {
@@ -194,11 +197,33 @@ extension _TaskExecutorHelpers on TaskExecutor {
           'configured `container.image` provides them; DartClaw\'s default image provides none.',
         )
         ..writeln(
+          'Package registries are the exception: where DartClaw mirrors an ecosystem\'s registry, that package '
+          'manager\'s registry variables (such as `PUB_HOSTED_URL` or `npm_config_registry`) already point at the '
+          'read-only mirror. Each task starts in a new container with an empty package cache, so run the project\'s '
+          'normal dependency install (for example `dart pub get` or `npm ci`) before you build or test, even when '
+          'the checkout already holds resolved package files. Never resolve dependencies offline.',
+        )
+        ..writeln(
           'If a build or test command\'s binary is missing, report the missing binary by name in your final reply '
           'and point the operator to `docs/guide/security.md#language-toolchains-in-the-agent-image` '
           '(Language Toolchains in the Agent Image) and `container.image`. '
           'Stop work that requires the missing toolchain. Do not install or download a toolchain, '
           'replace it with another runtime, or run the commands on the host.',
+        );
+    }
+
+    // A worktree's gitlink names a host path no container mounts, and host Git
+    // owns every operation on it (host_worktree_git.dart).
+    if ((runnerPolicy?.isContainer ?? false) && executionSite == TaskExecutionSite.worktree) {
+      buffer
+        ..writeln()
+        ..writeln('### Git')
+        ..writeln(
+          'Git does not work inside this container: this checkout\'s repository stays on the host. '
+          'Do not run `git` to read history, stage, commit, branch or push. '
+          'DartClaw commits the files you change after you finish, and does any push or pull request itself. '
+          'There is no diff to read: work out what changed from the files and from any spec, plan or report '
+          'the task names.',
         );
     }
 

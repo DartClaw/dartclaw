@@ -32,7 +32,26 @@ void main() {
       expect(env.containsKey('CLAUDE_CODE_SUBAGENT_MODEL'), isFalse);
     });
 
-    test('applies allowlist after stripping sensitive entries', () {
+    test('strips a sensitive name even when the allowlist names it', () {
+      final env = SafeProcess.sanitize(
+        baseEnvironment: const {'PATH': '/usr/bin', 'GH_TOKEN': 'ghp_secret', 'gh_token': 'ghp_lower'},
+        allowlist: const ['PATH', 'GH_TOKEN', 'gh_*'],
+      );
+
+      expect(env, {'PATH': '/usr/bin'});
+    });
+
+    test('adds extraEnvironment last, over kept names and past both filters', () {
+      final env = SafeProcess.sanitize(
+        baseEnvironment: const {'PATH': '/usr/bin', 'HOME': '/tmp/home', 'GH_TOKEN': 'inherited'},
+        allowlist: const ['PATH', 'HOME'],
+        extraEnvironment: const {'PATH': '/overlay/bin', 'GH_TOKEN': 'from-plan', 'NOT_ALLOWLISTED': 'yes'},
+      );
+
+      expect(env, {'PATH': '/overlay/bin', 'HOME': '/tmp/home', 'GH_TOKEN': 'from-plan', 'NOT_ALLOWLISTED': 'yes'});
+    });
+
+    test('keeps only allowlisted names that are not sensitive', () {
       final env = SafeProcess.sanitize(
         baseEnvironment: const {
           'PATH': '/usr/bin',

@@ -212,17 +212,11 @@ void main() {
       expect(yaml['providers']['codex'], isNull);
       expect(yaml['credentials']['openai'], isNull);
       expect(yaml['channels']['whatsapp'], isNull);
-      // Declining isolation is written, not removed: an absent `container:`
-      // section means "isolate if this host can", so removing it would answer
-      // the opposite of what the operator chose on any host with a runtime.
       expect(yaml['container']['enabled'], isFalse);
       expect(yaml['container']['image'], isNull);
       expect(yaml['guards']['content']['enabled'], isTrue);
     });
 
-    // The quick track never puts the container question, so its silence must
-    // stay silence: an absent section resolves the posture from the host, and
-    // writing either literal would answer for the operator.
     test('a track that never asks writes no container section at all', () async {
       await SetupApply.apply(
         SetupState(
@@ -243,7 +237,34 @@ void main() {
       expect(yaml['container'], isNull);
     });
 
-    test('a first run that declines isolation writes it rather than leaving it to detection', () async {
+    test('an advanced rerun that never asked keeps an existing container section as it is', () async {
+      final configFile = File(p.join(tempDir.path, 'dartclaw.yaml'));
+      configFile.writeAsStringSync('container:\n  enabled: true\n  image: dartclaw-agent:v2\n');
+
+      await SetupApply.apply(
+        SetupState(
+          instanceName: 'T',
+          instanceDir: tempDir.path,
+          provider: 'claude',
+          authMethod: 'oauth',
+          model: 'sonnet',
+          providers: const ['claude'],
+          providerAuthMethods: const {'claude': 'oauth'},
+          providerModels: const {'claude': 'sonnet'},
+          port: 3333,
+          gatewayAuthMode: 'token',
+          manageAdvancedSettings: true,
+          whatsappEnabled: true,
+        ),
+      );
+
+      final yaml = loadYaml(configFile.readAsStringSync()) as Map;
+      expect(yaml['channels']['whatsapp']['enabled'], isTrue, reason: 'the rerun did write');
+      expect(yaml['container']['enabled'], isTrue);
+      expect(yaml['container']['image'], 'dartclaw-agent:v2');
+    });
+
+    test('a first run that declines isolation writes it', () async {
       await SetupApply.apply(
         SetupState(
           instanceName: 'T',

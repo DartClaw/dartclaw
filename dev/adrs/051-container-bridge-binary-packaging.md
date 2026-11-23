@@ -1,6 +1,6 @@
 # ADR-051: Container Bridge Binary Packaging — Release-Time Cross-Compile, Host-Shipped, Mounted at Create
 
-**Status:** Accepted — 2026-08-11 (targets 0.24 execution-isolation correction). Amended 2026-08-27 by [ADR-055](055-container-by-default-posture.md) — an undeliverable bridge binary downgrades to advisory mode under an inferred posture and stays fatal under an explicit one.
+**Status:** Accepted — 2026-08-11 (targets 0.24 execution-isolation correction). Amended 2026-08-27 by [ADR-055](055-container-by-default-posture.md) — an undeliverable bridge binary downgrades to advisory mode under an inferred posture and stays fatal under an explicit one. Amended 2026-11-20 by [ADR-064](064-container-isolation-opt-in.md) — the inferred posture is gone, so an undeliverable bridge binary is always fatal.
 **Deciders:** DartClaw team
 
 **Related:** [ADR-015](015-container-isolation-strategy.md) (hardened Docker container boundary), [ADR-039](039-outbound-mcp-trust-boundary-and-transport.md) (Dart-owned MCP trust boundary precedent), [ADR-047](047-embedded-binary-assets.md) (embedded binary assets — the shipping mechanism this ADR extends)

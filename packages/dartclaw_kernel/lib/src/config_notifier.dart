@@ -226,10 +226,9 @@ class ConfigNotifier {
     final restartFieldsChanged = _nonReloadableServerFields.values.any(
       (read) => read(old.server) != read(newConfig.server),
     );
-    // The container posture is settled by a startup probe a reload cannot rerun,
-    // and `container.*` is restart-tier, so the value in force is carried
-    // forward rather than reverting to whatever the file declares — an unset
-    // section re-parses as disabled and would silently un-resolve the posture.
+    // `container.*` is restart-tier, and the runtime binary in force was
+    // selected by a startup probe a reload cannot rerun, so the value in force
+    // is carried forward rather than reverting to the parsed default binary.
     final reloaded = old.container == newConfig.container ? newConfig : newConfig.copyWith(container: old.container);
     final current = restartFieldsChanged
         ? reloaded.copyWith(

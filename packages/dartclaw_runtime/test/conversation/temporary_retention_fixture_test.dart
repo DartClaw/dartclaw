@@ -105,7 +105,7 @@ void main() {
     expect(config.agent.provider, 'codex');
     expect(config.agent.execution, ExecutionMode.container);
     expect(config.providers.entries['codex']?.executable, 'codex');
-    expect(config.container.declaredEnabled, isTrue);
+    expect(config.container.enabled, isTrue);
     expect(config.search.backend, 'hybrid');
     expect(config.search.embedding.provider, EmbeddingProviderKind.local);
     expect(config.search.embedding.model, 'embeddinggemma-300M-Q8_0.gguf');

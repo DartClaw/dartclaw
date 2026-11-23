@@ -258,19 +258,27 @@ tasks:
       );
     });
 
-    test('an undeclared posture defers the rejection to startup resolution rather than deciding at parse', () {
-      // Parsing cannot run the runtime probe that settles an unset posture, so
-      // it must not answer a question it has no answer to yet.
-      final config = loadYaml('''
+    test('container execution with no container section is rejected at load', () {
+      // Containers are off unless the operator turned them on, so an absent
+      // section answers the question at parse time like an explicit false.
+      expect(
+        () => loadYaml('''
 tasks:
   execution: container
-''');
-
-      expect(config.container.declaredEnabled, isNull);
-      expect(config.tasks.execution, ExecutionMode.container);
-      expect(
-        () => validateExecutionPolicySelections(config.copyWith(container: const ContainerConfig(enabled: false))),
+'''),
         throwsA(isA<FormatException>().having((error) => error.message, 'message', contains('tasks.execution'))),
+      );
+    });
+
+    test('container execution with a container section that omits enabled is rejected at load', () {
+      expect(
+        () => loadYaml('''
+container:
+  image: my-image:v1
+agent:
+  execution: container
+'''),
+        throwsA(isA<FormatException>().having((error) => error.message, 'message', contains('agent.execution'))),
       );
     });
   });

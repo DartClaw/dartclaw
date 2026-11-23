@@ -168,7 +168,7 @@
     <rect class="box" x="30" y="392" width="180" height="64" rx="9"/>
     <text class="name" x="42" y="415">docker or podman</text>
     <text class="sub" x="42" y="433">container runtime CLI</text>
-    <g class="d"><text class="p1" x="36" y="742"><tspan class="b">docker or podman</tspan> · the container runtime CLI that ContainerManager drives</text><text class="p2" x="36" y="762">Optional: an unset container.enabled isolates only if a runtime is detected; native Windows has no container isolation.</text></g>
+    <g class="d"><text class="p1" x="36" y="742"><tspan class="b">docker or podman</tspan> · the container runtime CLI that ContainerManager drives</text><text class="p2" x="36" y="762">Optional: used only under container.enabled: true, which is off by default; native Windows has no container isolation.</text></g>
   </g></a>
   <a href="../system-architecture.md#storage"><g class="n tint k-store" id="pg">
     <rect class="box" x="30" y="482" width="180" height="64" rx="9"/>

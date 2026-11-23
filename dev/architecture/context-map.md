@@ -6,7 +6,7 @@ integrate them. This document owns context **ids**, used by architecture/domain 
 [System Architecture](system-architecture.md); this map says where each context lives, not how packages depend on each
 other.
 
-**Current through**: 0.28.1
+**Current through**: 0.28.2
 
 > **Contexts are linguistic boundaries, not packages.** DartClaw has 14 packages, one app and 15 contexts, mapped
 > many-to-many. `dartclaw_runtime` alone hosts eight contexts, while `dartclaw_core` hosts runtime fragments and the
@@ -139,7 +139,7 @@ The figure draws each external upstream once; the provider CLIs carry two patter
 | External MCP servers | `tool-surface` | **Conformist** | Their tool schemas are taken as given; only tools listed in `surface_tools` are surfaced, and the egress guard mediates every call |
 | AndThen framework | `workflow-orchestration` (engine) | **Separate Ways** | Explicit non-integration, enforced by `dev/tools/fitness/check_no_framework_coupling.sh` and ADR-041 |
 | AndThen framework | `workflow-orchestration` (built-in definitions) | **Conformist** | The shipped YAML definitions name AndThen skills directly, the sanctioned home for framework semantics |
-| Docker / OS platform | `execution-isolation` | **Conformist** | Docker semantics are taken as given. An explicit `container.enabled` on native Windows exits rather than degrading |
+| Docker / OS platform | `execution-isolation` | **Conformist** | Docker semantics are taken as given. `container.enabled: true` on native Windows exits rather than degrading |
 
 ---
 

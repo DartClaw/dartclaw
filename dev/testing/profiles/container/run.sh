@@ -2,7 +2,7 @@
 # Proves container isolation end to end: a real agent turn runs inside a
 # container, the container holds no provider credential, and a task tool is
 # served to it over the MCP bridge. SIGKILL and restart prove orphan reclamation;
-# Posture-mode decoys also prove foreign-labelled and unlabelled containers survive.
+# CI-mode decoys also prove foreign-labelled and unlabelled containers survive.
 #
 # Usage: bash dev/testing/profiles/container/run.sh [--ci]
 #
@@ -11,17 +11,16 @@
 # either a stored Claude subscription credential (`dartclaw auth claude`, with
 # DARTCLAW_CONTAINER_DATA_DIR pointing at that data dir) or ANTHROPIC_API_KEY.
 #
-# `--ci` is the posture mode the local `linux` release gate runs in Lima.
-# It differs in three ways, each deliberate:
-#   - an absent container runtime is a FAILURE, not a skip — on a runner the
-#     advisory downgrade is the thing being guarded against, so it must never
-#     read as a pass;
-#   - the config declares no `container:` section, so the posture is *inferred*.
-#     Asserting a declared `true` would prove only that an explicit request is
-#     honoured, and would fail closed instead of downgrading on a runtime-free
-#     runner — hiding the case the gate exists to catch;
+# `--ci` is the mode the local `linux` release gate runs in Lima. Both modes boot
+# a config declaring `container.enabled: true`, since isolation is opt-in. Under
+# `true` nothing downgrades to the host lane: a missing runtime, an unusable
+# engine or an undeliverable bridge exits the server non-zero, which the boot
+# loop reports as a failure. `--ci` differs in two ways, each deliberate:
+#   - an absent container runtime is a FAILURE, not a skip — a gate VM without
+#     one cannot prove the boundary, so it must never read as a pass;
 #   - it issues no model turn and reads no provider credential, so the local
-#     Linux gate needs no operator credential.
+#     Linux gate needs no operator credential. It asserts isolation is on, then
+#     proves crash recovery against three decoys.
 
 set -euo pipefail
 
@@ -55,8 +54,7 @@ done
 if [ -z "$RUNTIME" ]; then
   if [ -n "$CI_MODE" ]; then
     echo "FAIL: no container runtime (docker or podman) answered a version probe." >&2
-    echo "The linux gate proves the boundary; a VM without a runtime cannot prove it," >&2
-    echo "and the server's advisory downgrade would exit zero and read as a pass." >&2
+    echo "The linux gate proves the boundary; a VM without a runtime cannot prove it." >&2
     exit 1
   fi
   echo "SKIP: no container runtime (docker or podman) answered a version probe."
@@ -81,7 +79,7 @@ if [ -z "$CI_MODE" ]; then
     echo "SKIP: no host-held Claude credential to present. A containerized turn is host-mediated, so the"
     echo "      vendor CLI's own login cannot reach the container. Either run \`dartclaw auth claude\` and point"
     echo "      DARTCLAW_CONTAINER_DATA_DIR at that data dir, or export ANTHROPIC_API_KEY. Use --ci to prove"
-    echo "      the posture without a turn."
+    echo "      isolation without a turn."
     exit 0
   fi
 fi
@@ -92,7 +90,7 @@ if [ -n "$CI_MODE" ]; then
   # here reaches a provider. A placeholder therefore satisfies it without an
   # operator credential and without spending a turn, which lets the local Linux
   # gate run unattended. Exported only for the server this script starts.
-  export ANTHROPIC_API_KEY="ci-posture-probe-placeholder-not-a-credential"
+  export ANTHROPIC_API_KEY="ci-isolation-probe-placeholder-not-a-credential"
 fi
 
 if [ -n "${DARTCLAW_CONTAINER_DATA_DIR:-}" ]; then
@@ -155,10 +153,9 @@ cd "$REPO_ROOT"
 # Generated asset libraries are gitignored; emit them before running from source.
 dart run "${REPO_ROOT}/dev/tools/embed_assets.dart" >/dev/null
 
-# The in-container bridge is a build artifact too. Without it the posture
-# resolves to advisory mode, which the posture assertion below is there to catch —
-# so build it rather than letting the gate report a boundary failure as a
-# missing-artifact failure.
+# The in-container bridge is a build artifact too. Without it container wiring
+# refuses startup, so build it rather than letting the gate report a missing
+# artifact as a boundary failure.
 if [ ! -x "${REPO_ROOT}/build/bridge/dartclaw-bridge-linux-x64" ]; then
   bash "${REPO_ROOT}/dev/tools/build_bridge.sh" >/dev/null
 fi
@@ -187,13 +184,10 @@ crash_server() {
 boot_server
 
 if [ -n "$CI_MODE" ]; then
-  # The resolved posture, read off what a non-TTY boot actually emits: the
-  # startup banner needs a terminal, the server log does not.
+  # Isolation is on, read off what a non-TTY boot actually emits: the startup
+  # banner needs a terminal, the server log does not.
   grep -q 'Container isolation enabled on' "$LOG_PATH" ||
-    fail_with_log "the server reached a serving state without resolving the posture to container isolation"
-  if grep -q 'agent has full host access' "$LOG_PATH"; then
-    fail_with_log "the server downgraded to advisory mode on a runner that has a container runtime"
-  fi
+    fail_with_log "the server reached a serving state without enabling container isolation"
   OWNER_LABEL="$(sed -n 's/.*Container sweep: 0 orphaned container(s) reclaimed for label \(dartclaw.data-dir=.*\)$/\1/p' "$LOG_PATH")"
   [ -n "$OWNER_LABEL" ] || fail_with_log "initial boot did not report its owner label"
   INITIAL_CONTAINER="$(grep -oE 'Container dartclaw-[a-z0-9]+-workspace-[a-z0-9]+ \(workspace\) started' "$LOG_PATH" |
@@ -202,7 +196,7 @@ if [ -n "$CI_MODE" ]; then
   DECOY_PREFIX="${INITIAL_CONTAINER%-*}"
   DECOYS=("${DECOY_PREFIX}-decoy" "${DECOY_PREFIX}-foreign" "${DECOY_PREFIX}-nolabel")
   crash_server
-  # Posture mode isolates the decoy set; live mode retains the primary leak until restart.
+  # CI mode isolates the decoy set; live mode retains the primary leak until restart.
   "$RUNTIME" rm -f -v "$INITIAL_CONTAINER" >/dev/null || fail_with_log "initial primary fixture cleanup failed"
   "$RUNTIME" create --name "${DECOYS[0]}" --label "$OWNER_LABEL" dartclaw-agent:latest sleep infinity >/dev/null
   "$RUNTIME" create --name "${DECOYS[1]}" --label "${OWNER_LABEL}-other" dartclaw-agent:latest sleep infinity >/dev/null
@@ -218,7 +212,7 @@ if [ -n "$CI_MODE" ]; then
   for name in "${DECOYS[1]}" "${DECOYS[2]}"; do
     printf '%s\n' "$NAMES" | grep -Fxq "$name" || fail_with_log "foreign or unlabelled decoy was removed: $name"
   done
-  echo "PASS: inferred container isolation and crash recovery on $RUNTIME; foreign and unlabelled decoys survived."
+  echo "PASS: container isolation and crash recovery on $RUNTIME; foreign and unlabelled decoys survived."
   exit 0
 fi
 
@@ -257,8 +251,8 @@ if "$RUNTIME" exec "$STARTED_CONTAINER" env | grep -q '^ANTHROPIC_API_KEY='; the
   fail_with_log "ANTHROPIC_API_KEY leaked into the container"
 fi
 
-# The default posture did not cost the agent its host tool surface: an MCP
-# dispatch is audited per call, so a served task tool leaves a record.
+# Isolation did not cost the agent its host tool surface: an MCP dispatch is
+# audited per call, so a served task tool leaves a record.
 AUDIT="${DATA_DIR}/audit-$(date -u +%Y-%m-%d).ndjson"
 grep -q 'task_list' "$AUDIT" 2>/dev/null || fail_with_log "no task_list dispatch was audited in $AUDIT"
 

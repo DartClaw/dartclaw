@@ -125,8 +125,7 @@ class DartclawRuntime {
   final ChannelManager? channelManager;
   final bool authEnabled;
 
-  /// Whether this composition actually isolates execution, after an inferred
-  /// posture wiring could not honour was corrected.
+  /// Whether this composition registered container isolation.
   final bool containerIsolationActive;
   final TokenService? tokenService;
   final EventBus eventBus;
@@ -535,9 +534,7 @@ class DartclawRuntime {
 
 /// Composes domain wiring modules and the final server.
 class _RuntimeAssembly {
-  /// Not final: [_correctPostureIfDowngraded] settles an inferred posture
-  /// wiring could not honour, keeping one authority for every later reader.
-  DartclawConfig config;
+  final DartclawConfig config;
   final String dataDir;
   final int port;
   final HarnessFactory harnessFactory;
@@ -776,7 +773,6 @@ class _RuntimeAssembly {
     final workflowRegistry = _workflowRegistry;
     final agentDefs = config.agent.definitions.isNotEmpty ? config.agent.definitions : [AgentDefinition.searchAgent()];
     final security = await _wireSecurity(ctx, agentDefs);
-    _correctPostureIfDowngraded(security);
     final harness = await _wireHarness(ctx, storage, security, workflowProviderScope);
     final task = await _wirePreServerTasks(ctx, storage, project);
     // Injected before the channels are wired: it rebuilds the review handler
@@ -1018,15 +1014,6 @@ class _RuntimeAssembly {
     _ownedStorage = storage;
     if (!headless) await _dropLegacySessionCostEntries(storage.kvService);
     return storage;
-  }
-
-  /// Settles the posture where it is first knowable: an inferred
-  /// `container.enabled` is a prediction and wiring is where it can decline.
-  /// Left in force it gives two answers to "is this deployment isolated", and
-  /// every later reader acts on a boundary nothing registered.
-  void _correctPostureIfDowngraded(SecurityWiring security) {
-    if (!config.container.enabled || security.containersEnabled) return;
-    config = config.copyWith(container: config.container.resolved(enabled: false));
   }
 
   Future<SecurityWiring> _wireSecurity(_WiringContext ctx, List<AgentDefinition> agentDefs) async {
@@ -1318,7 +1305,10 @@ class _RuntimeAssembly {
         // creation behind this gate: a boot-time snapshot would refuse a step
         // whose newly stored credential the coordinator worker would use.
         providerAuthPreflight: _resolveProviderAuthPreflight(ctx),
-        skillPreflightConfig: buildWorkflowSkillPreflightConfig(config),
+        skillPreflightConfig: buildWorkflowSkillPreflightConfig(
+          config,
+          bundledSkills: WorkspaceSkillInventory.fromDataDir(ctx.dataDir).skillNames.toSet(),
+        ),
       ),
       turnAdapter: _buildWorkflowTurnAdapter(
         config,

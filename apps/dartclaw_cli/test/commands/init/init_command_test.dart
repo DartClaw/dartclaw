@@ -378,6 +378,30 @@ void main() {
       });
     }
 
+    test('the Full-track isolation prompt preselects the existing value, and No without one', () async {
+      for (final existing in <bool?>[null, false, true]) {
+        final logger = _SetupPromptLogger();
+        final states = <SetupState>[];
+        final command = InitCommand(
+          hasTerminal: () => true,
+          logger: logger,
+          setupChecks: _passingChecks(),
+          loadConfig: (_) => existing == null ? null : DartclawConfig(container: ContainerConfig(enabled: existing)),
+          writeLine: (_) {},
+          applySetup: (state) async {
+            states.add(state);
+            return [state.configPath];
+          },
+        );
+        final runner = CommandRunner<void>('dartclaw', 'test')..addCommand(command);
+
+        await runner.run(['init', '--track', 'full']);
+
+        expect(logger.prompts, contains('Enable Docker container isolation?'));
+        expect(states.single.containerEnabled, existing ?? false, reason: 'existing: $existing');
+      }
+    });
+
     test('the port prompt advances past a port the setup checks report in use', () async {
       final logger = _SetupPromptLogger();
       final states = <SetupState>[];
@@ -887,9 +911,35 @@ void main() {
       expect(state.whatsappEnabled, isTrue);
       expect(state.gowaExecutable, 'wa-bin');
       expect(state.gowaPort, 3100);
-      expect(state.containerEnabled, isTrue);
-      expect(state.containerImage, 'dartclaw-agent:v2');
+      // A non-interactive run never puts the isolation question, so it answers
+      // nothing and the apply leaves the existing `container:` section alone.
+      expect(state.containerEnabled, isNull);
       expect(state.contentGuardEnabled, isFalse);
+    });
+
+    test('a parsed --container-image alone keeps the existing container.enabled and writes the image', () async {
+      final captured = <SetupState>[];
+      final config = DartclawConfig(
+        server: const ServerConfig(name: 'Existing', dataDir: '/tmp/existing', port: 4444),
+        agent: const AgentConfig(provider: 'codex', model: 'gpt-5'),
+        gateway: const GatewayConfig(authMode: 'none'),
+        providers: const ProvidersConfig(
+          entries: {
+            'codex': ProviderEntry(executable: 'codex', options: {'auth_method': 'oauth', 'model': 'gpt-5'}),
+          },
+        ),
+        container: const ContainerConfig(enabled: true, image: 'dartclaw-agent:v2'),
+      );
+      final cmd = _nonInteractiveCmd(captureInto: captured, loadConfig: (_) => config);
+      final runner = CommandRunner<void>('dartclaw', 'test')
+        ..argParser.addOption('config')
+        ..addCommand(cmd);
+
+      await runner.run(['--config', '/tmp/custom.yaml', 'init', '--container-image', 'foo']);
+
+      final state = captured.single;
+      expect(state.containerEnabled, isTrue);
+      expect(state.containerImage, 'foo');
     });
   });
 }

@@ -115,10 +115,10 @@ class ServeCommand extends Command<void> {
       }
     }
 
-    // Build config: injected > CLI+YAML+defaults, then settle the container
-    // posture before anything reads it — an unset `container.enabled` has no
-    // answer until a runtime probe runs, and that cannot happen inside parsing.
-    final config = await resolveContainerPosture(
+    // Build config: injected > CLI+YAML+defaults, then pick the container
+    // runtime before anything reads it, so every container call issues the
+    // binary that answered. Containers off, this runs no process.
+    final config = await selectContainerRuntime(
       primeHarnessSections(
         _config ??
             loadCliConfig(

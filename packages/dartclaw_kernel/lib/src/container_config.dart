@@ -4,57 +4,35 @@ import 'container_registries.dart';
 
 /// Configuration for container isolation.
 class ContainerConfig {
-  /// The posture the operator declared, or `null` when the config declares
-  /// none — which startup resolution settles by probing for a runtime.
-  ///
-  /// The requested-vs-inferred asymmetry keys off this: an explicit `true`
-  /// keeps every fail-closed refusal, an inferred posture downgrades.
-  final bool? declaredEnabled;
-
-  /// The posture in force. Before startup resolution this is
-  /// [declaredEnabled] or `false`; resolution replaces it with the settled
-  /// answer, so every downstream reader sees a plain boolean.
+  /// Whether agent work runs in containers. Off unless the operator sets
+  /// `container.enabled: true`; an absent section or key is `false`.
   final bool enabled;
 
   /// Container image used for isolated agent execution.
   final String image;
 
-  /// The container CLI every runtime call goes through, chosen once by the
-  /// startup probe. Resolution output rather than a YAML key.
+  /// The container CLI every runtime call goes through, chosen once at
+  /// startup from the runtimes that answer. Not a YAML key.
   final String runtimeBinary;
 
   /// Every registry record in force, enabled or not: the built-ins overlaid by
   /// `container.registries` (ADR-062).
   final List<RegistryRecord> registries;
 
-  /// Creates container isolation configuration; [enabled] omitted means unset.
+  /// Creates container isolation configuration.
   const new({
-    bool? enabled,
+    this.enabled = false,
     this.image = 'dartclaw-agent:latest',
     this.runtimeBinary = 'docker',
     this.registries = builtInRegistryRecords,
-  }) : declaredEnabled = enabled,
-       enabled = enabled ?? false;
-
-  const new _({
-    required this.declaredEnabled,
-    required this.enabled,
-    required this.image,
-    required this.runtimeBinary,
-    required this.registries,
   });
 
-  /// Creates a configuration that declares isolation off.
+  /// Creates a configuration with container isolation off, the parsed default.
   const new disabled() : this(enabled: false);
 
-  /// The posture startup resolution settled on, and the runtime that answered.
-  ContainerConfig resolved({required bool enabled, String? runtimeBinary}) => ContainerConfig._(
-    declaredEnabled: declaredEnabled,
-    enabled: enabled,
-    image: image,
-    runtimeBinary: runtimeBinary ?? this.runtimeBinary,
-    registries: registries,
-  );
+  /// This configuration with [runtimeBinary] as the container CLI in use.
+  ContainerConfig withRuntimeBinary(String runtimeBinary) =>
+      ContainerConfig(enabled: enabled, image: image, runtimeBinary: runtimeBinary, registries: registries);
 
   /// Keys this parser reads; anything else is reported rather than ignored.
   static const knownKeys = {'enabled', 'image', 'registries'};
@@ -77,7 +55,7 @@ class ContainerConfig {
     }
 
     return ContainerConfig(
-      enabled: enabled is bool ? enabled : null,
+      enabled: enabled is bool && enabled,
       image: image is String ? image : 'dartclaw-agent:latest',
       registries: parseRegistryRecords(yaml['registries']),
     );
@@ -87,12 +65,11 @@ class ContainerConfig {
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is ContainerConfig &&
-          declaredEnabled == other.declaredEnabled &&
           enabled == other.enabled &&
           image == other.image &&
           runtimeBinary == other.runtimeBinary &&
           const ListEquality<RegistryRecord>().equals(registries, other.registries);
 
   @override
-  int get hashCode => Object.hash(declaredEnabled, enabled, image, runtimeBinary, Object.hashAll(registries));
+  int get hashCode => Object.hash(enabled, image, runtimeBinary, Object.hashAll(registries));
 }

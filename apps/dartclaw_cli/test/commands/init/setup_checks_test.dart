@@ -251,21 +251,40 @@ mcp_servers:
       expect(stock.remediation, contains('docker/Dockerfile'));
     });
 
-    test('S07 runtime, image and engine failures follow declared posture without building', () async {
-      for (final declared in [false, true]) {
-        for (final failure in <String?>[null, 'image', 'engine']) {
-          writeConfig(declared ? 'container:\n  enabled: true\n' : '');
-          final commands = <List<String>>[];
-          final report = await diagnose(runtimeCase: failure, commands: commands);
-          expect(
-            row(report, 'container.${failure ?? 'runtime'}').status,
-            declared ? DiagnosticStatus.fail : DiagnosticStatus.warn,
-          );
-          expect(commands.any((args) => args.first == 'build'), isFalse);
+    test('containers off skips every container row without running a runtime that would answer', () async {
+      for (final body in ['', 'container:\n  enabled: false\n']) {
+        writeConfig(body);
+        final commands = <List<String>>[];
+        final report = await diagnose(runtimeCase: 'orphans', commands: commands);
+        for (final id in ['container.runtime', 'container.image', 'container.engine', 'container.orphans']) {
+          expect(row(report, id).status, DiagnosticStatus.skip, reason: '$id with "$body"');
+          expect(row(report, id).summary, 'Container isolation is disabled.');
         }
+        expect(commands, isEmpty);
+      }
+    });
+
+    test('an enabled config with no runtime fails container.runtime', () async {
+      writeConfig('container:\n  enabled: true\n');
+      final runtime = row(await diagnose(), 'container.runtime');
+      expect(runtime.status, DiagnosticStatus.fail);
+      expect(runtime.remediation, contains('Start Docker or Podman'));
+    });
+
+    test('S07 an enabled config fails each runtime, image and engine refusal without building', () async {
+      writeConfig('container:\n  enabled: true\n');
+      for (final failure in <String?>[null, 'image', 'engine']) {
+        final commands = <List<String>>[];
+        final report = await diagnose(runtimeCase: failure, commands: commands);
+        expect(row(report, 'container.${failure ?? 'runtime'}').status, DiagnosticStatus.fail);
+        expect(commands.any((args) => args.first == 'build'), isFalse);
+      }
+      final healthy = await diagnose(runtimeCase: 'empty');
+      for (final id in ['container.runtime', 'container.image', 'container.engine']) {
+        expect(row(healthy, id).status, DiagnosticStatus.pass);
       }
       writeConfig();
-      expect(row(await diagnose(windows: true), 'container.runtime').status, DiagnosticStatus.skip);
+      expect(row(await diagnose(windows: true), 'container.runtime').summary, 'Container isolation is disabled.');
       writeConfig('container:\n  enabled: true\n');
       final declaredWindows = row(await diagnose(windows: true), 'container.runtime');
       expect(declaredWindows.status, DiagnosticStatus.fail);
@@ -319,7 +338,7 @@ mcp_servers:
     test('DR03 missing or malformed status cannot mask a port conflict or suppress orphan queries', () async {
       final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
       addTearDown(() => server.close(force: true));
-      writeConfig('port: ${server.port}\n');
+      writeConfig('port: ${server.port}\ncontainer:\n  enabled: true\n');
       var includeMalformed = false;
       server.listen((request) async {
         request.response.headers.contentType = ContentType.json;
@@ -344,8 +363,8 @@ mcp_servers:
       }
     });
 
-    test('S12 orphan containers are reported only, with query failures advisory', () async {
-      writeConfig();
+    test('S12 orphan containers are reported only, with query failures as warnings', () async {
+      writeConfig('container:\n  enabled: true\n');
       final commands = <List<String>>[];
       final report = await diagnose(runtimeCase: 'orphans', commands: commands);
       expect(row(report, 'container.orphans').status, DiagnosticStatus.warn);
@@ -365,7 +384,7 @@ mcp_servers:
         DiagnosticStatus.skip,
       );
       expect(commands.any((args) => args.first == 'rm'), isFalse);
-      expect((await diagnose()).rows.any((r) => r.id == 'container.orphans'), isFalse);
+      expect((await diagnose()).rows.any((r) => r.id == 'container.orphans'), isFalse, reason: 'no runtime answered');
     });
 
     test('missing PostgreSQL connection reports a redaction-safe refusal and skips dependent checks', () async {
@@ -947,24 +966,10 @@ mcp_servers:
       DiagnosticRow credentialRow(DiagnosticReport report, [String providerId = 'claude']) =>
           report.rows.singleWhere((row) => row.id == 'provider.$providerId.credential');
 
-      test('S06 an inferred posture warns that serve will start without isolation', () async {
-        writeConfigFor();
+      const enabled = 'container:\n  enabled: true\n';
 
-        final row = credentialRow(await diagnose());
-
-        expect(row.status, DiagnosticStatus.warn);
-        expect(
-          row.summary,
-          allOf(contains('cannot be used inside a container'), contains('without container isolation')),
-        );
-        expect(
-          row.remediation,
-          allOf(contains('claude setup-token'), contains('dartclaw auth claude'), contains('ANTHROPIC_API_KEY')),
-        );
-      });
-
-      test('verify judges host placement only, so the state doctor warns about still verifies', () async {
-        writeConfigFor();
+      test('verify judges host placement only, so a CLI login doctor fails under containers still verifies', () async {
+        writeConfigFor(containerBody: enabled);
 
         final result =
             await SetupChecks(
@@ -984,22 +989,22 @@ mcp_servers:
         expect(result.success, isTrue);
       });
 
-      test('a mixed-case provider key still gets the downgrade warning', () async {
+      test('a mixed-case provider key is still judged as the default provider', () async {
         // The config loader normalizes provider keys, so the row is `claude`
-        // whatever the YAML spelled; this pins that the downgrade warning
-        // survives the spelling.
-        writeConfigFor(claudeKey: 'Claude');
+        // whatever the YAML spelled; this pins that the default-provider
+        // refusal survives the spelling.
+        writeConfigFor(claudeKey: 'Claude', containerBody: enabled);
 
         final row = credentialRow(await diagnose());
 
-        expect(row.status, DiagnosticStatus.warn);
-        expect(row.summary, contains('without container isolation'));
+        expect(row.status, DiagnosticStatus.fail);
+        expect(row.summary, contains('`serve` will refuse to start'));
       });
 
       test(
         'a secondary provider with no container credential warns that its containerized runs are rejected',
         () async {
-          writeConfigFor(extraProviders: '  codex:\n    executable: codex\n');
+          writeConfigFor(extraProviders: '  codex:\n    executable: codex\n', containerBody: enabled);
           SubscriptionCredentialStore.open(
             credentialsDir: credentialsDir,
             environment: environment,
@@ -1007,11 +1012,7 @@ mcp_servers:
 
           final report = await diagnose();
 
-          expect(
-            credentialRow(report).status,
-            DiagnosticStatus.pass,
-            reason: 'the default provider keeps containers on',
-          );
+          expect(credentialRow(report).status, DiagnosticStatus.pass);
           final codex = credentialRow(report, 'codex');
           expect(codex.status, DiagnosticStatus.warn);
           expect(codex.summary, contains('its containerized runs will be rejected'));
@@ -1019,27 +1020,40 @@ mcp_servers:
         },
       );
 
-      test('S07 an explicit request fails with the same remediation', () async {
-        writeConfigFor(containerBody: 'container:\n  enabled: true\n');
+      test('S07 an enabled config fails a default provider with no container credential, runtime or not', () async {
+        writeConfigFor(containerBody: enabled);
+        final refusal = await ProviderValidator.credentialRefusalFor(
+          providerId: 'claude',
+          provider: ProviderEntry(executable: loggedInClaude),
+          registry: CredentialRegistry(
+            credentials: const CredentialsConfig(entries: {}),
+            env: environment,
+          ),
+          hostExecution: false,
+          homePath: environment['HOME'],
+          credentialsDir: credentialsDir,
+        );
 
-        final row = credentialRow(await diagnose());
+        for (final runtime in [true, false]) {
+          final row = credentialRow(await diagnose(runtime: runtime));
 
-        expect(row.status, DiagnosticStatus.fail);
-        expect(row.remediation, allOf(contains('claude setup-token'), contains('dartclaw auth claude')));
+          expect(row.status, DiagnosticStatus.fail, reason: 'runtime: $runtime');
+          expect(row.summary, contains('`serve` will refuse to start'));
+          expect(row.remediation, refusal);
+          expect(row.remediation, allOf(contains('claude setup-token'), contains('dartclaw auth claude')));
+        }
       });
 
-      test('S08 a host-only install passes on the CLI login', () async {
-        writeConfigFor(containerBody: 'container:\n  enabled: false\n');
-        final declaredFalse = credentialRow(await diagnose());
-        writeConfigFor();
-        final noRuntime = credentialRow(await diagnose(runtime: false));
+      test('S08 containers off pass on the CLI login even where a runtime answers', () async {
+        for (final body in ['', 'container:\n  enabled: false\n']) {
+          writeConfigFor(containerBody: body);
 
-        expect(declaredFalse.status, DiagnosticStatus.pass);
-        expect(noRuntime.status, DiagnosticStatus.pass);
+          expect(credentialRow(await diagnose()).status, DiagnosticStatus.pass, reason: '"$body"');
+        }
       });
 
-      test('a stored setup-token keeps the inferred posture passing', () async {
-        writeConfigFor();
+      test('a stored setup-token passes an enabled config', () async {
+        writeConfigFor(containerBody: enabled);
         SubscriptionCredentialStore.open(
           credentialsDir: credentialsDir,
           environment: environment,

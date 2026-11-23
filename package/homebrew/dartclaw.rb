@@ -1,7 +1,7 @@
 class Dartclaw < Formula
   desc "Security-conscious AI agent runtime"
   homepage "https://github.com/DartClaw/dartclaw"
-  version "0.28.1"
+  version "0.28.2"
   license "MIT"
 
   # Releases carry no Intel Mac archive, so Homebrew refuses an Intel Mac by name.

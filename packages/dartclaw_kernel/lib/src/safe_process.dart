@@ -118,8 +118,12 @@ abstract final class SafeProcess {
     final sanitized = <String, String>{};
 
     for (final entry in source.entries) {
-      if (_isSensitive(entry.key, effectivePatterns)) continue;
+      // Allowlist first: it is plain string comparison, and it leaves the regex
+      // patterns a handful of names to scan instead of the whole parent
+      // environment on every spawn. Both checks are pure predicates, so either
+      // order keeps the same names.
       if (allowlist != null && !_matchesAllowlist(entry.key, allowlist)) continue;
+      if (_isSensitive(entry.key, effectivePatterns)) continue;
       sanitized[entry.key] = entry.value;
     }
 

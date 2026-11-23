@@ -83,19 +83,16 @@ void main() {
       environment: environment,
     ).storeClaudeSetupToken('sk-ant-oat01-DOCTOR-SECRET');
     expect(await run([], realCredentials: true), 0);
-    expect(lines.where((line) => line.startsWith('[warn]')).single, contains('container.runtime'));
-    expect(lines.any((line) => line.startsWith('[fail]')), isFalse);
+    expect(lines.any((line) => line.startsWith('[warn]') || line.startsWith('[fail]')), isFalse);
+    expect(
+      lines.where((line) => line.startsWith('[skip]')),
+      everyElement(allOf(contains('container.'), contains('Container isolation is disabled.'))),
+    );
     expect(
       lines.join('\n'),
-      allOf(
-        contains(config.path),
-        contains('advisory mode'),
-        contains('docs/guide/security.md'),
-        isNot(contains('sk-ant-oat01')),
-        isNot(contains('DOCTOR-SECRET')),
-      ),
+      allOf(contains(config.path), isNot(contains('sk-ant-oat01')), isNot(contains('DOCTOR-SECRET'))),
     );
-    expect(lines.last, matches(r'\d+ pass, 1 warn, 0 fail, 0 skip'));
+    expect(lines.last, matches(r'\d+ pass, 0 warn, 0 fail, 4 skip'));
   });
 
   test('S08 repairs only missing layout directories while config failure and YAML bytes remain', () async {

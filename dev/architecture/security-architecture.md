@@ -2,7 +2,7 @@
 
 How DartClaw contains an agent that can run shell commands: container isolation, the guard chain, credential mediation, access control, audit, content classification, and runtime governance (rate limits, token budgets, loop detection, emergency controls). It is the authority for those concerns. Harness protocols and turn lifecycle live in [control-protocol.md](control-protocol.md), package wiring in [system-architecture.md](system-architecture.md), stores in [data-model.md](data-model.md), and log/metric mechanics in [observability-operations-architecture.md](observability-operations-architecture.md).
 
-**Current through**: 0.28.1
+**Current through**: 0.28.2
 
 ---
 
@@ -39,11 +39,11 @@ Layers fail independently: with a guard bypassed, `network:none` still blocks ex
 
 ### Pragmatic Mode (no container boundary)
 
-When the resolved posture is disabled (`container.enabled: false`, or unset on a host where no runtime answered the startup probe), Layers 1 and 2 are absent and the guards are the only boundary. That suits a single operator on a trusted machine. An unset `container.enabled` means "isolate if this host can": `resolveContainerPosture` probes `docker` then `podman` (5 s per probe), never blocks startup, and downgrades every later refusal to a warning naming why this host is advisory. An explicit `container.enabled: true` keeps every refusal fail-closed ([ADR-055](../adrs/055-container-by-default-posture.md)).
+Container isolation is opt-in ([ADR-064](../adrs/064-container-isolation-opt-in.md)). Unless `container.enabled` is `true` (unset means `false`), Layers 1 and 2 are absent, `serve` runs no runtime probe, and the guards are the only boundary; `serve` logs a startup warning that the agent has full host access. That suits a single operator on a trusted machine. Under `true`, `selectContainerRuntime` picks `docker` then `podman` (5 s per probe), and every refusal (no runtime, unsupported engine architecture, undeliverable bridge, a default provider with no container credential) is startup-fatal; nothing downgrades to host execution. A `container` execution selection without `true` is refused at config load.
 
-On native Windows, container isolation is unavailable even with Docker installed (`PlatformCapabilities.containerIsolationAvailable`); `container.enabled: true` exits with an `UnsupportedCapabilityError` pointing to POSIX or WSL; an unset posture runs in advisory mode with that warning.
+On native Windows, container isolation is unavailable even with Docker installed (`PlatformCapabilities.containerIsolationAvailable`); `container.enabled: true` exits with an `UnsupportedCapabilityError` pointing to POSIX or WSL; otherwise the host runs in advisory mode with that warning.
 
-**Source**: `packages/dartclaw_runtime/lib/src/container/container_posture.dart`, `packages/dartclaw_runtime/lib/src/runtime/security_wiring.dart`
+**Source**: `packages/dartclaw_runtime/lib/src/container/container_runtime_selection.dart`, `packages/dartclaw_runtime/lib/src/runtime/security_wiring.dart`
 
 ---
 
@@ -435,7 +435,7 @@ The askpass scripts read the secret from a helper file in `<data_dir>/git-askpas
 
 ### Subprocess Hygiene and Git Runner
 
-Sensitive workflow and git paths run through `SafeProcess` (`dartclaw_kernel`). `start`/`run` require an explicit `EnvPolicy` and always set `includeParentEnvironment: false`. `EnvPolicy.sanitize` strips `*_API_KEY`, `*_SECRET`, `*_TOKEN`, `*_CREDENTIAL(S)`, `*_PASSWORD` before an optional allowlist; workflow bash steps use it with `security.bash_step.env_allowlist` (default: `PATH`, `HOME`, `LANG`, `LC_*`, `TZ`, `USER`, `SHELL`, `TERM`) and `extra_strip_patterns`. Workflow harness workers receive an explicit sanitized spawn environment through the same contract.
+Sensitive workflow and git paths run through `SafeProcess` (`dartclaw_kernel`). `start`/`run` require an explicit `EnvPolicy` and always set `includeParentEnvironment: false`. `EnvPolicy.sanitize` strips `*_API_KEY`, `*_ACCESS_KEY`, `*_SECRET`, `*_TOKEN`, `*_CREDENTIAL(S)`, `*_PASSWORD` and, given an allowlist, keeps only the names on it, so an allowlisted name that matches a strip pattern is still stripped; workflow bash steps use it with `security.bash_step.env_allowlist` (default: `PATH`, `HOME`, `LANG`, `LC_*`, `TZ`, `USER`, `SHELL`, `TERM`) and `extra_strip_patterns`. Workflow harness workers receive an explicit sanitized spawn environment through the same contract.
 
 Every production git subprocess goes through `runGit(...)` (`packages/dartclaw_kernel/lib/src/process/git_runner.dart`), the only production caller of `SafeProcess.git`; `dev/fitness/test/safe_process_usage_test.dart` fails the build on a direct call anywhere under `packages/*/lib` or `apps/*/lib`. `EnvPolicy.credentialPlan` keeps the git-safe baseline, strips parent secrets, and overlays the caller's `ProcessEnvironmentPlan`. `noSystemConfig: true` is the default (`GIT_CONFIG_NOSYSTEM=1`), so a new call site cannot inherit the unsafe posture by omission: worktree setup/cleanup, the task-accept commit path, the workflow git port, workflow-orchestrated checkouts, and CLI workflow git calls take it, because system-level filter drivers or hooks would otherwise run inside DartClaw's automation.
 
@@ -759,7 +759,7 @@ guard_audit:
 security:
   bash_step: { env_allowlist: [...], extra_strip_patterns: [] }
 container:
-  enabled: ~                     # unset = isolate if a runtime answers the probe
+  enabled: false                 # unset = false; true isolates or refuses to start
   image: dartclaw-agent:latest
 gateway:
   auth_mode: token               # token | none
@@ -773,7 +773,7 @@ gateway:
 |----------|-----|
 | [ADR-001](../adrs/001-sdk-integration-and-security-architecture.md) | SDK integration and the original security architecture |
 | [ADR-006](../adrs/006-http-auth-scope.md) | HTTP auth mechanism |
-| [ADR-012](../adrs/012-per-type-container-isolation.md), [ADR-015](../adrs/015-container-isolation-strategy.md), [ADR-055](../adrs/055-container-by-default-posture.md) | Container profiles, strategy, default posture |
+| [ADR-012](../adrs/012-per-type-container-isolation.md), [ADR-015](../adrs/015-container-isolation-strategy.md), [ADR-064](../adrs/064-container-isolation-opt-in.md) | Container profiles, strategy, opt-in posture |
 | [ADR-016](../adrs/016-multi-provider-harness-architecture.md), [ADR-035](../adrs/035-cross-harness-task-capability-trust-mapping.md) | Provider abstraction and cross-harness tool trust |
 | [ADR-039](../adrs/039-outbound-mcp-trust-boundary-and-transport.md), [ADR-052](../adrs/052-native-provider-web-tools-denied-all-container-profiles.md), [ADR-053](../adrs/053-subscription-default-provider-authentication.md) | Outbound MCP, provider-side web tools, subscription auth |
 | [ADR-054](../adrs/054-model-first-delegation-and-one-authority-per-concern.md) | One authority per concern (deterministic invariants stay in code) |

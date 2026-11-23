@@ -1115,12 +1115,12 @@ class HarnessWiring {
             : request.policy.containerProfile == SecurityProfile.restricted.id
             ? behaviorSnapshot.restricted
             : behaviorSnapshot.task;
-        final bridgedMcpTools = _bridgedMcpToolsFor(
-          agentId: request.logicalAgentId,
-          allowedTools: request.allowedTools,
-        );
         ContainerAuthorityLease? lease;
         if (containerProfile != null) {
+          final bridgedMcpTools = _bridgedMcpToolsFor(
+            agentId: request.logicalAgentId,
+            allowedTools: request.allowedTools,
+          );
           _warnIfUngranted(bridgedMcpTools, request: request, containerProfile: containerProfile);
           try {
             lease = await _security.acquireContainerAuthority(
@@ -1285,16 +1285,24 @@ class HarnessWiring {
   /// principal, named so audit entries can be told apart from worker turns.
   static const _primaryAuthoritySessionId = 'primary';
 
-  /// Canonical MCP tool names one containerized execution may reach.
+  /// What a tool policy asks of the host, in canonical stable names: every
+  /// entry but the shell and file tools, which the provider runs itself inside
+  /// the execution's own boundary.
   ///
-  /// Deny-by-default: only an explicit allowlist exposes anything — the logical
-  /// agent's `allowed_tools`, or the tool policy already in force for the task
-  /// — and only entries that name a canonical tool participate, since a
-  /// provider-native tool name says nothing about host MCP.
-  /// The tool policy authorizing an execution, before any canonical or
-  /// servability filtering — `null` when the execution carries none at all.
-  Set<String>? _requestedToolPolicy({String? agentId, List<String>? allowedTools}) =>
-      allowedTools?.toSet() ?? (agentId == null ? null : _agentMap[agentId])?.allowedTools;
+  /// Entries carry provider-native or canonical spellings, so they are
+  /// normalized first and a native-spelled entry is not silently dropped.
+  Set<String> _requestedHostTools({String? agentId, List<String>? allowedTools}) {
+    final requested = allowedTools?.toSet() ?? (agentId == null ? null : _agentMap[agentId])?.allowedTools;
+    if (requested == null) return const {};
+    return requested.map(ToolPolicyCascade.normalizeEntry).toSet().difference(_providerRunTools);
+  }
+
+  static final _providerRunTools = {
+    CanonicalTool.shell.stableName,
+    CanonicalTool.fileRead.stableName,
+    CanonicalTool.fileWrite.stableName,
+    CanonicalTool.fileEdit.stableName,
+  };
 
   /// The bridged-MCP grant for a workflow step, derived by the one owner of the
   /// deny set and the servable set.
@@ -1306,28 +1314,28 @@ class HarnessWiring {
   /// while this class creates their coordinator worker.
   Set<String> workflowBridgedMcpTools(List<String>? allowedTools) => _bridgedMcpToolsFor(allowedTools: allowedTools);
 
+  /// Canonical MCP tool names one containerized execution may reach.
+  ///
+  /// Deny-by-default: only an explicit allowlist exposes anything — the logical
+  /// agent's `allowed_tools`, or the tool policy already in force for the task
+  /// — and only entries that name a canonical tool participate, since a
+  /// provider-native tool name says nothing about host MCP.
   Set<String> _bridgedMcpToolsFor({String? agentId, List<String>? allowedTools}) {
-    final definition = agentId == null ? null : _agentMap[agentId];
-    final requested = _requestedToolPolicy(agentId: agentId, allowedTools: allowedTools);
-    if (requested == null || requested.isEmpty) return const {};
+    final requested = _requestedHostTools(agentId: agentId, allowedTools: allowedTools);
+    if (requested.isEmpty) return const {};
     // `mcp_call` names every tool without a semantic canonical, so it can
     // never act as a bridged grant.
     final canonicalNames = {
       for (final tool in CanonicalTool.values)
         if (tool != CanonicalTool.mcpCall) tool.stableName,
     };
-    // Both sides carry provider-native or canonical spellings; normalize to
-    // canonical stable names first so a native-spelled allow entry is not
-    // silently dropped and a native-spelled deny is not silently ignored.
+    // Normalized like the allow side, so a native-spelled deny is not silently
+    // ignored.
     final denied = {
-      ...?definition?.deniedTools,
+      ...?(agentId == null ? null : _agentMap[agentId])?.deniedTools,
       ...config.agent.disallowedTools,
     }.map(ToolPolicyCascade.normalizeEntry).toSet();
-    final granted = requested
-        .map(ToolPolicyCascade.normalizeEntry)
-        .where(canonicalNames.contains)
-        .toSet()
-        .difference(denied);
+    final granted = requested.where(canonicalNames.contains).toSet().difference(denied);
     return _servableGrant(granted, subject: agentId == null ? 'This deployment' : 'Agent "$agentId"');
   }
 
@@ -1386,8 +1394,10 @@ class HarnessWiring {
     required String containerProfile,
   }) {
     if (bridgedMcpTools.isNotEmpty) return;
-    final grantConfigured =
-        _requestedToolPolicy(agentId: request.logicalAgentId, allowedTools: request.allowedTools)?.isNotEmpty ?? false;
+    final grantConfigured = _requestedHostTools(
+      agentId: request.logicalAgentId,
+      allowedTools: request.allowedTools,
+    ).isNotEmpty;
     if (containerProfile != SecurityProfile.restricted.id && !grantConfigured) return;
     final subject = request.logicalAgentId == null
         ? '${request.surface.name} executions'

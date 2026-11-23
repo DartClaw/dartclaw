@@ -8,7 +8,7 @@ The behavior of the domains that use these stores belongs to their own documents
 [Security Architecture](security-architecture.md); package topology and composition are in
 [System Architecture](system-architecture.md).
 
-**Current through**: 0.28.1
+**Current through**: 0.28.2
 
 ---
 

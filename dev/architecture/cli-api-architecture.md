@@ -7,7 +7,7 @@ execution, the shared API client, the server route families, and the workflow tr
 [observability-operations-architecture.md](observability-operations-architecture.md); package topology and the
 composition root in [system-architecture.md](system-architecture.md).
 
-**Current through**: 0.28.1
+**Current through**: 0.28.2
 
 ---
 

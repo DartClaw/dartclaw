@@ -1,10 +1,8 @@
 # DartClaw — Container Testing Profile, CI mode (`run.sh --ci`).
 #
-# Deliberately declares **no** `container:` section: the point of this mode is
-# to prove that a runtime-bearing host resolves the posture to container
-# isolation on its own. Declaring `enabled: true` would prove only that an
-# explicit request is honoured, and would fail closed rather than downgrade on a
-# runner with no runtime — hiding exactly the case the job exists to catch.
+# Declares `enabled: true` because isolation is opt-in: an absent section runs
+# on the host. Under `true` every container-wiring refusal exits the server
+# non-zero, so a boot that reaches a serving state has isolation on.
 #
 # No credential is configured and no turn is issued, so this mode runs on a fork
 # PR with no repository secret.
@@ -13,6 +11,9 @@ port: 3342
 
 database:
   url: ${DARTCLAW_POSTGRES_URL}
+
+container:
+  enabled: true
 
 gateway:
   auth_mode: none

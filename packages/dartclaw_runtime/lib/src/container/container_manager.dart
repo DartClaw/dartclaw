@@ -243,20 +243,21 @@ class ContainerManager implements ContainerExecutor, VolatileContainerGeneratedS
   /// The supported container CLIs, in probe order.
   static const runtimeBinaries = ['docker', 'podman'];
 
+  /// How long a probe may take before the runtime counts as unavailable.
+  ///
+  /// A wedged daemon — socket present, nothing answering, the common Docker
+  /// Desktop failure — never returns rather than erroring, and this probe runs
+  /// before `serve` binds a port. Without a deadline it would hang startup
+  /// indefinitely instead of refusing it.
+  static const runtimeProbeTimeout = Duration(seconds: 5);
+
   /// The first of [runtimeBinaries] that answers a version probe, or `null`
   /// when none does.
   ///
   /// Every verb this class issues is CLI-compatible across both; the engine
   /// architecture probe's format field is the one known divergence, and a
-  /// runtime that cannot answer it downgrades rather than failing startup.
-  /// How long a probe may take before the runtime counts as unavailable.
-  ///
-  /// A wedged daemon — socket present, nothing answering, the common Docker
-  /// Desktop failure — never returns rather than erroring, and this probe runs
-  /// before `serve` binds a port. Without a deadline the posture that exists to
-  /// downgrade instead of blocking startup would hang it indefinitely.
-  static const runtimeProbeTimeout = Duration(seconds: 5);
-
+  /// runtime that cannot answer it refuses startup like any other unusable
+  /// engine.
   static Future<String?> detectRuntime({RunCommand runCommand = Process.run}) async {
     for (final binary in runtimeBinaries) {
       try {

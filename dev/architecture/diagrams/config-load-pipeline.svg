@@ -198,7 +198,7 @@
     <g class="step"><circle cx="296" cy="522.0" r="10"/><text x="296" y="526.0">7</text></g>
     <text class="name mono-name" x="314" y="519">_parseExtensions + container check</text>
     <text class="sub" x="314" y="535">extension parsers; container selection vs container.enabled</text>
-    <g class="d"><text class="p1" x="36" y="860"><tspan class="b">_parseExtensions + container check</tspan> · validateExecutionPolicySelections runs only when container.enabled is declared</text><text class="p2" x="36" y="880">Startup resolution re-runs it once the container posture is known; execution: container while disabled is fatal.</text></g>
+    <g class="d"><text class="p1" x="36" y="860"><tspan class="b">_parseExtensions + container check</tspan> · validateExecutionPolicySelections runs on every load</text><text class="p2" x="36" y="880">execution: container without container.enabled: true is fatal here; no startup step re-runs it.</text></g>
   </g></a>
   <a href="../configuration-architecture.md#channel-config-resolution"><g class="n tint k-host" id="p8">
     <rect class="box" x="276" y="572" width="422" height="44" rx="9"/>

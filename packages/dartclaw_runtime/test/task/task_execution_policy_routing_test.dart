@@ -114,9 +114,63 @@ void main() {
       expect(prompt, contains('Stop work that requires the missing toolchain'));
       expect(prompt, contains('Do not install or download a toolchain'));
       expect(prompt, contains('docs/guide/security.md#language-toolchains-in-the-agent-image'));
+      // A step that resolves offline against the empty per-container cache
+      // declares the project's tests unrunnable.
+      expect(prompt, contains('read-only mirror'));
+      expect(prompt, contains('PUB_HOSTED_URL'));
+      expect(prompt, contains('empty package cache'));
+      expect(prompt, contains('Never resolve dependencies offline'));
+      expect(prompt, isNot(contains('### Git')), reason: 'this task runs outside a worktree');
       expect(prompt.contains('## Retry Context'), retryCount > 0);
     });
   }
+
+  test('a container task in a worktree is told that Git stays on the host', () async {
+    worker.responseText = 'Completed.';
+    for (final policy in [
+      const ExecutionPolicy.container('workspace'),
+      const ExecutionPolicy.container('restricted'),
+    ]) {
+      final executor = harness.buildWorkflowExecutor(
+        worktreeManager: CapturingWorktreeManager(),
+        policyResolver: ExecutionPolicyResolver.forStandalonePolicy(policy),
+      );
+      addTearDown(executor.stop);
+      final id = 'worktree-git-${policy.containerProfile}';
+      await createTask(
+        id,
+        securityProfile: policy.containerProfile,
+        configJson: const {WorkflowTaskConfig.needsWorktree: true},
+      );
+
+      await executor.pollOnce();
+      await executor.drain();
+
+      final task = (await harness.tasks.get(id))!;
+      final prompt = (await harness.messages.getMessages(task.sessionId!)).first.content;
+      expect(prompt, contains('### Git'), reason: id);
+      expect(prompt, contains('Do not run `git`'), reason: id);
+      expect(prompt, contains('DartClaw commits the files you change'), reason: id);
+    }
+  });
+
+  test('a host task in a worktree carries no Git note', () async {
+    worker.responseText = 'Completed.';
+    final executor = harness.buildWorkflowExecutor(
+      worktreeManager: CapturingWorktreeManager(),
+      policyResolver: ExecutionPolicyResolver.forStandalonePolicy(const ExecutionPolicy.host()),
+    );
+    addTearDown(executor.stop);
+    await createTask('worktree-git-host', configJson: const {WorkflowTaskConfig.needsWorktree: true});
+
+    await executor.pollOnce();
+    await executor.drain();
+
+    final task = (await harness.tasks.get('worktree-git-host'))!;
+    final prompt = (await harness.messages.getMessages(task.sessionId!)).first.content;
+    expect(prompt, contains('## Task: worktree-git-host'));
+    expect(prompt, isNot(contains('### Git')));
+  });
 
   test('workspace push-back prompt carries no toolchain note', () async {
     worker.responseText = 'Completed.';

@@ -1,6 +1,6 @@
 # ADR-015: Container Isolation Strategy — Hardened Docker over Hypervisor Isolation
 
-**Status:** Proposed. Amended 2026-07-11 for native Windows unavailability. Amended 2026-08-27 by [ADR-055](055-container-by-default-posture.md) — this boundary is the default posture where a container runtime is detected, and `podman` joins `docker` as a detected-and-used runtime.
+**Status:** Proposed. Amended 2026-07-11 for native Windows unavailability. Amended 2026-08-27 by [ADR-055](055-container-by-default-posture.md) — this boundary is the default posture where a container runtime is detected, and `podman` joins `docker` as a detected-and-used runtime. Amended 2026-11-20 by [ADR-064](064-container-isolation-opt-in.md), which supersedes ADR-055 — isolation is opt-in: an undeclared posture is disabled, this boundary applies only under `container.enabled: true`, and `podman` stays supported.
 
 ## Context
 

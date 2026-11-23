@@ -97,8 +97,8 @@ Exit code is `1` if any row fails, otherwise `0`.
 | `server.port` or `server.health` | Free port, or a running server's version and uptime; mismatched CLI/server versions warn |
 | `secrets.literals`, `secrets.unresolvable`, `secrets.shadowed`, `secrets.orphans`, `secrets.permissions` | The same value-free findings as [`secrets audit`](#secrets-audit) |
 | `slack.credentials`, `slack.auth`, `slack.scopes`, `slack.transport` | Only while `channels.slack.enabled` is true. Credential references resolve to entries (declared or stored), the bot token passes Slack's `auth.test` (an unreachable Slack warns), the token's scopes match the shipped manifests', and the transport state from a running server's `/health` (skipped without one). No row prints a token or the signing secret; see [Slack](slack.md#doctor) |
-| `container.runtime`, `container.image`, `container.engine` | Runtime, existing image and supported engine architecture; unavailable checks warn for inferred isolation and fail when explicitly enabled |
-| `container.orphans` | Leftover owned containers, reclaimed at the next `dartclaw serve` start; skipped for a running server, absent without a runtime |
+| `container.runtime`, `container.image`, `container.engine` | Runtime, existing image and supported engine architecture; `skip` while `container.enabled` is not `true`, `fail` when it is and a check does not hold. A missing default image fails here even where `serve` would build it at startup |
+| `container.orphans` | Leftover owned containers, reclaimed at the next `dartclaw serve` start; `skip` without querying a runtime while `container.enabled` is not `true`, skipped for a running server, absent when no runtime answers |
 | `windows.reload_mode`, `windows.git_bash` | Windows-only checks for reload mode and Git Bash; POSIX permission checks are skipped there |
 
 `--server` probes that address instead of the local port. Health probes send no token. A missing or malformed

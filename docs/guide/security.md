@@ -317,37 +317,36 @@ destination. If a later candidate still changes an execution surface, DartClaw a
 cannot approve these holds.
 
 
-**As of 0.25 this is the default posture.** A config that declares no `container:` section is resolved once at startup:
-DartClaw probes for a container runtime (`docker`, then `podman`) and isolates agent execution where it finds one. Where
-it finds none, the server still starts, in advisory mode, and says at startup that no OS boundary is active and why.
-Detection never blocks startup.
+**Container isolation is opt-in.** Turn it on in the config file:
 
-Declaring the key opts out of that inference in either direction:
+```yaml
+container:
+  enabled: true
+```
+
+With isolation on, `dartclaw serve` selects a container runtime once at startup (`docker`, then `podman`) and runs
+agent execution in containers. If the host cannot isolate, startup fails with the cause named and nothing runs on the
+host instead. A config with no `container:` section, or with `enabled: false`, runs agents on the host in advisory mode
+(see [Pragmatic Mode](#pragmatic-mode)), and `serve` runs no runtime probe.
 
 | `container.enabled` | Host with a runtime | Host without one |
 |---|---|---|
-| unset (default) | isolated | starts in advisory mode, with a startup warning naming the missing runtime |
-| `true` | isolated | **startup fails** — an explicit request is refused, never downgraded |
-| `false` | advisory mode | advisory mode |
+| unset (default) or `false` | advisory mode | advisory mode |
+| `true` | isolated | **startup fails** — a request for isolation is refused, never downgraded |
 
-A container cannot use the `claude` or `codex` CLI login on the host, so isolating the default provider needs a
-credential DartClaw can present: a Claude setup-token stored with `dartclaw auth claude`, `ANTHROPIC_API_KEY`, or the
-Codex equivalent. With none, an unset `container.enabled` starts in advisory mode and the warning names the provider,
-while `true` **fails startup** with the same remediation. `dartclaw doctor` reports it before `serve` as a `warn` on
-`provider.<id>.credential` (`fail` under `true`). `agent.execution: host` and `container.enabled: false` need no such
-credential.
+Every startup refusal under `true` is fatal: no runtime, an engine architecture no bridge binary ships for, an
+undeliverable bridge, or a default provider with no credential a container can use. A container cannot use the
+`claude` or `codex` CLI login on the host, so isolating the default provider needs a credential DartClaw can present: a
+Claude setup-token stored with `dartclaw auth claude`, `ANTHROPIC_API_KEY`, or the Codex equivalent. `dartclaw doctor`
+reports each of these before `serve` as a `fail`; with isolation off its container rows are `skip`. A `container`
+value for `agent.execution`, `agent.agents.<id>.execution` or `tasks.execution` without `container.enabled: true` is
+refused when the config loads.
 
-**The table describes `dartclaw serve`.** The posture is resolved once at server startup, so the zero-server lane —
-`dartclaw workflow run --standalone` and the other `--standalone` verbs — uses the posture as written in the file, with
-no probe. An undeclared section there means **not isolated**, which is what it meant before 0.25. If you run standalone
-workflows and want them isolated, declare `container.enabled: true`.
+The key means the same in every lane: the zero-server `dartclaw workflow run --standalone` and the other
+`--standalone` verbs isolate only under `container.enabled: true` too.
 
-The same asymmetry covers a probe that fails part-way (an engine architecture no bridge binary ships for, an
-undeliverable bridge): under an inferred posture it downgrades with the failure named; under an explicit `true` it is
-fatal.
-
-On supported POSIX hosts, when a container runtime is available, DartClaw runs the packaged `claude` or `codex` binary
-inside a container with:
+With isolation on, which needs a POSIX host, DartClaw runs the packaged `claude` or `codex` binary inside a container
+with:
 - `network:none` -- no direct internet access
 - Capability drops (`--cap-drop ALL`)
 - Read-only root filesystem
@@ -364,8 +363,8 @@ ACP agents have no container execution: DartClaw mediates no provider credential
 so ACP registrations run on the host only and a container-requiring registration is rejected at startup.
 
 Container isolation is unavailable on native Windows even when Docker is installed. Its per-authority pipes and
-owner-only generated state require POSIX facilities, so an explicit `container.enabled: true` fails closed and directs
-the operator to a POSIX host or WSL; auto-detection never runs there at all. See the [Windows capability matrix](windows.md#capability-matrix).
+owner-only generated state require POSIX facilities, so `container.enabled: true` fails closed and directs
+the operator to a POSIX host or WSL. See the [Windows capability matrix](windows.md#capability-matrix).
 
 ### Language Toolchains in the Agent Image
 
@@ -494,7 +493,14 @@ dependency tree that fills the host disk fails the install. `HOME=/tmp` holds fi
 `~/.dart-tool`. DartClaw still selects provider homes explicitly. Install SDKs at image build time.
 
 When a build or test binary is missing, workspace task prompts tell the agent to stop, name the binary and refer here
-and to `container.image`, without installing it.
+and to `container.image`, without installing it. Each task, and so each workflow step, runs in a new container whose
+cache volume starts empty, so a checkout resolved in an earlier step points into a cache that is gone. Workspace task
+prompts therefore also tell the agent to run the project's dependency install online through the
+[package registry mirror](#package-registries) before building or testing, never offline.
+
+Git does not run inside a container: a task worktree's gitlink names a host path that no profile mounts, and DartClaw
+runs every Git operation on it from the host. A container task in a worktree is told not to run `git`, that DartClaw
+commits its file changes after it finishes and does any push or pull request itself, and that it has no diff to read.
 
 ### Package Registries
 
@@ -569,10 +575,10 @@ the container. These lockfile changes are an accepted consequence of the mirror.
 ### Hardening the primary agent for untrusted channels
 
 When a channel delivers untrusted content to the primary lane, tighten the default posture: set `agent.execution:
-container` so the primary runs isolated instead of on the host — startup refuses if `container.enabled` inference
-found no runtime, rather than silently falling back to the host; put `scheduling.mutation.approval: operator` in
-place so a chat turn can still ask for a scheduled job but cannot write `scheduling.jobs` until you approve it on the
-Scheduling page (see [Scheduling § Operator approval for tool writes](scheduling.md#operator-approval-for-tool-writes));
+container` with `container.enabled: true` so the primary runs isolated instead of on the host — the config is
+refused at load if the first is set without the second, rather than silently falling back to the host; put
+`scheduling.mutation.approval: operator` in place so a chat turn can still ask for a scheduled job but cannot write
+`scheduling.jobs` until you approve it on the Scheduling page (see [Scheduling § Operator approval for tool writes](scheduling.md#operator-approval-for-tool-writes));
 withhold any other tools the deployment does not need with `agent.disallowed_tools`; and gate senders with
 `channels.<x>.dm_access: allowlist`. On the host the primary runs as the login user, so every CLI and keychain-backed
 credential that user can reach is reachable through the shell tool, and `NetworkGuard` sees URLs in the command text,
@@ -630,14 +636,14 @@ best-effort by design (a failed `chown` is logged, never fatal) so uid-remapped 
 Without container isolation, guards serve as the primary security boundary. This is suitable for personal use on a
 trusted machine, but it is not isolation parity. What advisory mode does and does not cover is stated per provider: on
 Codex, host-tool interception is bounded by the configured approval mode, so guards see what that mode routes for
-approval and nothing else. The startup warning names why *this* host is in advisory mode — no runtime detected, or the
-probe step that failed — and links back here.
+approval and nothing else. With containers off, `serve` logs a startup warning that container isolation is disabled,
+the agent has full host access, and guards are the only security boundary; it links back here. To leave advisory
+mode, set `container.enabled: true`.
 
 Container isolation costs the agent no host tool it reaches on the host lane: a containerized primary agent is granted
 the same bridged MCP surface (web, memory, and the task, review and binding tools) minus the session-spawning tools,
 which are excluded on both lanes. An agent's explicit `context_research` grant carries across the same way. Tools with
-no canonical mapping — `kg_*`, `onboarding_complete` and the outbound MCP adapters — are unreachable from a container,
-as they were before this became the default.
+no canonical mapping — `kg_*`, `onboarding_complete` and the outbound MCP adapters — are unreachable from a container.
 
 ### Emergency Stop Without a Channel
 

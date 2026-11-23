@@ -388,17 +388,17 @@ void main() {
       expect(notifier.current, same(updated));
     });
 
-    // A reload re-parses the file, and an absent `container:` section parses as
-    // disabled — so without carrying it forward, any reload of any field would
-    // silently un-resolve a posture the startup probe settled. `container.*` is
-    // restart-tier, so the value in force is the right one to keep.
-    test('reload carries the resolved container posture forward', () {
-      const resolved = DartclawConfig(container: ContainerConfig(enabled: true));
-      notifier = ConfigNotifier(resolved);
+    // A reload re-parses the file, which names no runtime binary — so without
+    // carrying the section forward, any reload of any field would switch a
+    // podman deployment's runtime calls back to the parsed default binary.
+    test('reload carries the container section in force forward', () {
+      final selected = DartclawConfig(container: const ContainerConfig(enabled: true).withRuntimeBinary('podman'));
+      notifier = ConfigNotifier(selected);
 
-      notifier.reload(_withAlerts(cooldownSeconds: 45));
+      notifier.reload(_withAlerts(cooldownSeconds: 45).copyWith(container: const ContainerConfig(enabled: true)));
 
       expect(notifier.current.container.enabled, isTrue);
+      expect(notifier.current.container.runtimeBinary, 'podman');
     });
 
     test('reload rejects blocking parser diagnostics without replacing current config', () {

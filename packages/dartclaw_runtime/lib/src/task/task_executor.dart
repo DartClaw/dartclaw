@@ -637,6 +637,7 @@ class TaskExecutor {
       final pendingMessage = await _composePendingMessage(
         task,
         runnerPolicy: runnerPolicy,
+        executionSite: executionSite,
         workingDirectory: executionDirectory,
       );
       final modelOverride = _modelOverride(task);

@@ -141,10 +141,12 @@ dartclaw serve --config "$CONFIG"
 # 6. Open http://127.0.0.1:3333
 ```
 
-Step 4 is what lets isolation work. On a host with Docker or Podman, the agent runs in a container, which cannot use the
-`claude` CLI login. If you skip it, `dartclaw doctor` warns on `provider.claude.credential` and `dartclaw serve` still
-starts, in advisory mode without container isolation, logging the same remediation. Add `container.enabled: true` to
-refuse that start instead, or `container.enabled: false` to run on the host on purpose.
+Step 4 is what lets container isolation work. A default install runs the agent on the host, where the `claude` CLI
+login also works, and `serve` logs a startup warning that the agent has full host access and guards are the only
+security boundary (advisory mode). To isolate agents, install Docker or Podman and add `container.enabled: true` to the
+config. A container cannot use the CLI login, so without the credential from step 4 `dartclaw doctor` fails
+`provider.claude.credential` and `dartclaw serve` refuses to start, naming the same remediation; it also refuses when
+no container runtime answers. See [Security § Container Isolation](security.md#container-isolation).
 
 Provider authentication must come after init, and both must resolve the same store. `dartclaw auth` writes into
 `<data_dir>/credentials/`, and `data_dir` is written by `init` — running `auth` first stores the credential against

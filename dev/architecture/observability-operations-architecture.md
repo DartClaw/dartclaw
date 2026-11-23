@@ -2,7 +2,7 @@
 
 How a running DartClaw reports on itself: alerts, health, audit log, usage accounting, structured logs, SSE streams, context and compaction tracking, scheduled operations, and the observable side of governance. Enforcement of rate limits, budgets, loop detection and emergency controls is owned by [Security Architecture](security-architecture.md); this document covers only what those controls emit. Event-bus mechanics are in [Session & State Architecture](session-state-architecture.md), task events and turn traces in [Task & Execution Architecture](task-execution-architecture.md), and stores in [Data Model & Persistence](data-model.md).
 
-**Current through**: 0.28.1
+**Current through**: 0.28.2
 
 ---
 

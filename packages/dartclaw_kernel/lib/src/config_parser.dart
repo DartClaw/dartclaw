@@ -1222,8 +1222,7 @@ TaskConfig _parseTasks(Map<String, dynamic> yaml, TaskConfig defaults, List<Stri
 ///
 /// Cross-section, so it runs after every section is parsed. Startup-fatal:
 /// substituting host execution for an unsatisfiable container request is
-/// forbidden. Evaluated against the posture in force, which is why an unset
-/// `container.enabled` defers this to the startup resolution step instead.
+/// forbidden.
 void validateExecutionPolicySelections(DartclawConfig config) {
   if (config.container.enabled) return;
   const remediation =

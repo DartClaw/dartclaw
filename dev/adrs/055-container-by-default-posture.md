@@ -1,6 +1,6 @@
 # ADR-055: Container-by-Default Posture — Detect at Startup, Downgrade Only What Was Inferred
 
-**Status:** Accepted – 2026-08-27 (0.25)
+**Status:** Superseded by [ADR-064](064-container-isolation-opt-in.md) (2026-11-20, 0.28.2) – container isolation is opt-in; an unset `container.enabled` is disabled. Accepted 2026-08-27 (0.25).
 **Deciders:** DartClaw team
 
 **Related, and amended by this ADR:** [ADR-012](012-per-type-container-isolation.md) (per-type container isolation and profiles), [ADR-015](015-container-isolation-strategy.md) (hardened `network:none` container boundary), [ADR-051](051-container-bridge-binary-packaging.md) (host-shipped bridge binary), [ADR-052](052-native-provider-web-tools-denied-all-container-profiles.md) (native provider web tools denied for every container profile), [ADR-053](053-subscription-default-provider-authentication.md) (host-mediated subscription credentials — the gate that made this default affordable).

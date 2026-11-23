@@ -18,10 +18,8 @@ import 'package:dartclaw_runtime/dartclaw_runtime.dart'
         dartclawVersion,
         defaultProviderExecutable,
         formatUptime,
-        inferredPostureCredentialGap,
         primaryRunsInContainer,
         resolveChannelConfig,
-        resolveContainerPosture,
         resolveDatabaseDsn,
         resolveProviderTarget;
 import 'package:dartclaw_slack/dartclaw_slack.dart' show SlackConfig, SlackWebApiClient;
@@ -163,23 +161,20 @@ typedef ProviderCredentialCheck = Future<String?> Function(
   required bool hostExecution,
 });
 
-/// Where `serve` will place each provider, and the downgrade it will take
-/// because of the default provider's missing container credential.
+/// Where `serve` will place each provider.
 class _ServePlacement {
   /// Every provider on the host, which is all `init`'s verification judges.
-  const new host() : defaultProviderId = '', hostExecution = _allHost, downgrade = null;
+  const new host() : defaultProviderId = '', hostExecution = _allHost;
 
-  const new({required this.defaultProviderId, required this.hostExecution, required this.downgrade});
+  /// The placement `serve` gives each provider under [config].
+  new of(DartclawConfig config)
+    : defaultProviderId = ProviderIdentity.normalize(config.agent.provider),
+      hostExecution = ((providerId) => !primaryRunsInContainer(config, providerId));
 
   /// Normalized id of `agent.provider`, the provider whose gap `serve` refuses on.
   final String defaultProviderId;
 
   final bool Function(String providerId) hostExecution;
-
-  /// The default provider and remediation [inferredPostureCredentialGap] answers
-  /// when an inferred posture will decline containers; every provider then runs
-  /// on the host.
-  final ({String providerId, String remediation})? downgrade;
 
   static bool _allHost(String _) => true;
 }
@@ -520,20 +515,13 @@ class SetupChecks {
           ),
         )
         .toList();
-    // One probe of the container runtime feeds both the provider rows and the container rows.
-    DartclawConfig resolved = config;
-    try {
-      resolved = await resolveContainerPosture(config, platformCapabilities: capabilities, runCommand: _runCommand);
-    } on FormatException {
-      // `serve` refuses this combination; the declared view is what is left to judge.
-    }
     rows.addAll(
       await _runNetwork(
         configPath: configPath,
         providerTargets: available,
         environment: env,
         redactErrors: true,
-        placement: await _servePlacement(resolved, configPath, env),
+        placement: _ServePlacement.of(config),
       ),
     );
     for (final target in local.providerTargets.where((target) => !available.contains(target))) {
@@ -545,7 +533,7 @@ class SetupChecks {
         ),
       );
     }
-    rows.addAll(await _containerRows(resolved, capabilities, serverRunning: server != null));
+    rows.addAll(await _containerRows(config, capabilities, serverRunning: server != null));
     final slack = resolveChannelConfig<SlackConfig>(config, ChannelType.slack);
     if (slack.enabled) {
       var credentials = config.credentials;
@@ -584,45 +572,42 @@ class SetupChecks {
       DiagnosticRow(id: id, status: DiagnosticStatus.skip, summary: 'Config could not be loaded.'),
   ];
 
-  /// [config] carries the posture [resolveContainerPosture] settled.
+  /// Off, nothing is probed: a runtime the operator did not ask for is not
+  /// theirs to diagnose. On, every row reports what would refuse `serve`.
   Future<List<DiagnosticRow>> _containerRows(
     DartclawConfig config,
     PlatformCapabilities capabilities, {
     required bool serverRunning,
   }) async {
-    final rows = <DiagnosticRow>[];
-    final declared = config.container.declaredEnabled;
-    final failure = declared == true ? DiagnosticStatus.fail : DiagnosticStatus.warn;
-    if (!capabilities.containerIsolationAvailable || declared == false) {
-      for (final id in ['runtime', 'image', 'engine']) {
-        final refused = id == 'runtime' && declared == true;
-        rows.add(
+    if (!config.container.enabled) {
+      return [
+        for (final id in ['runtime', 'image', 'engine', 'orphans'])
           DiagnosticRow(
             id: 'container.$id',
-            status: refused ? DiagnosticStatus.fail : DiagnosticStatus.skip,
-            summary: declared == false
-                ? 'Container isolation is disabled.'
-                : 'Container isolation is unavailable on native Windows.',
-            remediation: refused ? 'Use WSL or a POSIX host; see docs/guide/security.md.' : null,
+            status: DiagnosticStatus.skip,
+            summary: 'Container isolation is disabled.',
           ),
-        );
-      }
-      return rows;
+      ];
     }
-    // An inferred posture is enabled exactly when a runtime answered, so the
-    // resolved config already says which. An explicit one keeps the default
-    // runtime name whether or not anything answered, so it asks again.
-    final binary = declared == null
-        ? (config.container.enabled ? config.container.runtimeBinary : null)
-        : await ContainerManager.detectRuntime(runCommand: _runCommand);
+    if (!capabilities.containerIsolationAvailable) {
+      return [
+        for (final id in ['runtime', 'image', 'engine'])
+          DiagnosticRow(
+            id: 'container.$id',
+            status: id == 'runtime' ? DiagnosticStatus.fail : DiagnosticStatus.skip,
+            summary: 'Container isolation is unavailable on native Windows.',
+            remediation: id == 'runtime' ? 'Use WSL or a POSIX host; see docs/guide/security.md.' : null,
+          ),
+      ];
+    }
+    final rows = <DiagnosticRow>[];
+    final binary = await ContainerManager.detectRuntime(runCommand: _runCommand);
     if (binary == null) {
       rows.add(
-        DiagnosticRow(
+        const DiagnosticRow(
           id: 'container.runtime',
-          status: failure,
-          summary: declared == true
-              ? 'No container runtime is available.'
-              : 'No container runtime is available; advisory mode.',
+          status: DiagnosticStatus.fail,
+          summary: 'No container runtime is available.',
           remediation: 'Start Docker or Podman; see docs/guide/security.md.',
         ),
       );
@@ -640,7 +625,7 @@ class SetupChecks {
     rows.add(
       DiagnosticRow(
         id: 'container.image',
-        status: imageExists ? DiagnosticStatus.pass : failure,
+        status: imageExists ? DiagnosticStatus.pass : DiagnosticStatus.fail,
         summary: imageExists
             ? 'Container image ${config.container.image} exists.'
             : 'Container image ${config.container.image} is unavailable.',
@@ -656,7 +641,7 @@ class SetupChecks {
     rows.add(
       DiagnosticRow(
         id: 'container.engine',
-        status: architecture == null ? failure : DiagnosticStatus.pass,
+        status: architecture == null ? DiagnosticStatus.fail : DiagnosticStatus.pass,
         summary: architecture == null
             ? 'Container engine architecture is unavailable or unsupported.'
             : 'Container engine architecture: $architecture.',
@@ -1005,7 +990,7 @@ class SetupChecks {
     final rows = <DiagnosticRow>[];
     for (final target in providerTargets) {
       final id = target.providerId;
-      final hostExecution = placement.downgrade != null || placement.hostExecution(id);
+      final hostExecution = placement.hostExecution(id);
       String? refusal;
       String? failure;
       try {
@@ -1026,18 +1011,13 @@ class SetupChecks {
         summary = '$id: credentials or login are not verified yet.';
         remediation = 'Run dartclaw auth $id or dartclaw secrets set.';
       } else if (refusal != null) {
-        // Container placement stands, so no downgrade absorbs the gap: it
-        // refuses `serve` for the default provider and only warns for others.
+        // At container placement the gap refuses `serve` for the default
+        // provider and only rejects the other providers' containerized runs.
         status = isDefault ? DiagnosticStatus.fail : DiagnosticStatus.warn;
         summary = isDefault
             ? '$id: no credential a container can use, so `serve` will refuse to start.'
             : '$id: no credential a container can use, so its containerized runs will be rejected.';
         remediation = refusal;
-      } else if (placement.downgrade?.providerId == ProviderIdentity.normalize(id)) {
-        status = DiagnosticStatus.warn;
-        summary =
-            '$id: a CLI login cannot be used inside a container, so `serve` will start without container isolation.';
-        remediation = '${placement.downgrade!.remediation} Or set container.enabled: false to run on the host.';
       }
       rows.add(
         DiagnosticRow(id: 'provider.$id.credential', status: status, summary: summary, remediation: remediation),
@@ -1137,25 +1117,6 @@ class SetupChecks {
       hostExecution: hostExecution,
       homePath: env['HOME'],
       credentialsDir: config.credentialsDir,
-    );
-  }
-
-  /// What `serve` will do with the posture [resolved] settled on: the downgrade
-  /// [inferredPostureCredentialGap] predicts, else each provider's placement.
-  Future<_ServePlacement> _servePlacement(DartclawConfig resolved, String configPath, Map<String, String> env) async {
-    ({String providerId, String remediation})? downgrade;
-    try {
-      downgrade = await inferredPostureCredentialGap(
-        resolved,
-        registry: _credentialRegistry(loadCliConfig(configPath: configPath, env: env), env),
-      );
-    } on Object {
-      // An unreadable credential state is reported by the provider rows themselves.
-    }
-    return _ServePlacement(
-      defaultProviderId: ProviderIdentity.normalize(resolved.agent.provider),
-      hostExecution: (providerId) => !primaryRunsInContainer(resolved, providerId),
-      downgrade: downgrade,
     );
   }
 

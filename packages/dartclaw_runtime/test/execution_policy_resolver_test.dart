@@ -55,11 +55,7 @@ void main() {
       expect(resolver.deploymentDefault, const ExecutionPolicy.container('workspace'));
     });
 
-    // The posture itself is corrected at the downgrade site (`service_wiring`'s
-    // `_correctPostureIfDowngraded`), so the resolver never sees "enabled with
-    // no profile" for a *defaulted* subject. An operator who asked for
-    // container execution still meets the refusal.
-    test('an explicit container selection is still refused when no profile was registered', () {
+    test('an explicit container selection is refused when no profile was registered', () {
       final resolver = resolverFor(
         containersEnabled: true,
         availableProfiles: const {},
@@ -69,7 +65,7 @@ void main() {
       expect(
         () => resolver.resolveForPrimary(providerId: 'claude'),
         throwsA(isA<ExecutionPolicyException>()),
-        reason: 'the fallback covers an inferred posture, never an operator who asked for container execution',
+        reason: 'container execution is never replaced by host execution',
       );
     });
 

@@ -185,7 +185,10 @@ void main() {
   Future<List<LogRecord>> wireAll() async {
     storage = await wireTestStorage(config: config, eventBus: eventBus, exitFn: _unexpectedExit);
     security = _GrantRecordingSecurityWiring(
-      config: config,
+      // The subclass stands in for wired containers, so the real runtime probe
+      // and bridge delivery (which need Docker and a built `build/bridge`) are
+      // skipped by wiring it disabled; placement still reads [config].
+      config: config.copyWith(container: const ContainerConfig.disabled()),
       dataDir: tempDir.path,
       localRepositoryDir: tempDir.path,
       eventBus: eventBus,
@@ -670,6 +673,73 @@ void main() {
     }, reason: 'an unservable canonical is dropped rather than granted against nothing');
   });
 
+  group('a step allowed shell, file tools and an unservable web_search', () {
+    const stepTools = ['shell', 'file_read', 'file_write', 'file_edit', 'web_search'];
+
+    Future<List<String>> warningsFor(ExecutionPolicy policy) async {
+      config = config.copyWith(search: const SearchConfig());
+      final records = <LogRecord>[];
+      final subscription = Logger('HarnessWiring').onRecord.listen(records.add);
+      addTearDown(subscription.cancel);
+      await wireAll();
+
+      final lease = await harnessWiring!.executions.acquire(
+        ExecutionRequest(
+          surface: ExecutionSurface.workflow,
+          providerId: 'claude',
+          policy: policy,
+          sessionId: 'step-session',
+          admission: ExecutionAdmission.failFast,
+          taskId: 'step-task',
+          allowedTools: stepTools,
+        ),
+      );
+      addTearDown(() async => lease?.release());
+      // The built-in `search` agent is reported at startup under its own name.
+      return [
+        for (final record in records)
+          if (!record.message.startsWith('Agent "search"')) record.message,
+      ];
+    }
+
+    test('on the host is told nothing about containers', () async {
+      final warnings = await warningsFor(const ExecutionPolicy.host());
+
+      expect(warnings, isNot(contains(contains('registers no such tool'))));
+      expect(warnings, isNot(contains(contains('no host MCP tools'))));
+    });
+
+    test('in a container is told only about the tool the host would have served', () async {
+      final warnings = await warningsFor(const ExecutionPolicy.container('workspace'));
+
+      final unservable = warnings.where((message) => message.contains('registers no such tool')).toList();
+      expect(unservable, [contains('"web_search"')]);
+    });
+
+    test('in a container is not told it reaches no host tools when it asked for none', () async {
+      config = config.copyWith(search: const SearchConfig());
+      final records = <LogRecord>[];
+      final subscription = Logger('HarnessWiring').onRecord.listen(records.add);
+      addTearDown(subscription.cancel);
+      await wireAll();
+
+      final lease = await harnessWiring!.executions.acquire(
+        const ExecutionRequest(
+          surface: ExecutionSurface.workflow,
+          providerId: 'claude',
+          policy: ExecutionPolicy.container('workspace'),
+          sessionId: 'native-only-session',
+          admission: ExecutionAdmission.failFast,
+          taskId: 'native-only-task',
+          allowedTools: ['shell', 'file_read'],
+        ),
+      );
+      addTearDown(() async => lease?.release());
+
+      expect(records.map((record) => record.message), isNot(contains(contains('no host MCP tools'))));
+    });
+  });
+
   group('the container bridge reaches the mapped tools, at parity with the host', () {
     /// Drives the real bridge policy over [grant] and returns the tools it served.
     Future<Set<String>> servedOverBridge(Set<String> grant, {required Map<String, CanonicalTool> canonicals}) async {
@@ -758,15 +828,18 @@ void main() {
       }, reason: 'the dispatch-time re-check must serve exactly what it granted');
     });
 
-    test('a posture resolved to container by detection grants the same set, with no execution mode written', () async {
-      // The default-posture path: nothing selects container execution, the
-      // startup probe did. Turning isolation on by default must cost the
-      // primary agent none of the tools it reaches on the host.
-      config = config.copyWith(container: const ContainerConfig().resolved(enabled: true));
+    test('container.enabled alone grants the same set, with no execution mode written', () async {
+      // Nothing selects container execution; enabling containers places the
+      // primary there. That must cost it none of the tools it reaches on the host.
+      config = config.copyWith(container: const ContainerConfig(enabled: true));
 
       await wireAll();
 
-      expect(config.agent.execution, isNull, reason: 'the posture, not an execution selection, placed this agent');
+      expect(
+        config.agent.execution,
+        isNull,
+        reason: 'container.enabled, not an execution selection, placed this agent',
+      );
       final grant = security!.grants.singleWhere((entry) => entry.sessionId == 'primary');
       expect(grant.allowedMcpTools, {
         'web_search',
@@ -931,7 +1004,7 @@ void main() {
       expect(
         await servedOverBridge(grant.allowedMcpTools, canonicals: harnessWiring!.ownMcpToolCanonicals),
         contains('context_research'),
-        reason: 'the owner-knowledge read is unreachable in the default posture unless both halves admit it',
+        reason: 'the owner-knowledge read is unreachable from a container unless both halves admit it',
       );
     });
   });

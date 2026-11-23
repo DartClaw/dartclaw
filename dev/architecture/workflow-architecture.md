@@ -2,7 +2,7 @@
 
 Contributor reference for DartClaw's workflow engine (`packages/dartclaw_workflow`): the definition model, the parse and validate contract, run lifecycle and crash recovery, control nodes, step execution, context flow, workflow-owned git, and the HTTP/SSE wire formats. It leaves YAML authoring (field reference, examples, CLI usage) to the user guide [`docs/guide/workflows.md`](../../docs/guide/workflows.md), the task pipeline and worktree mechanics to [task-execution-architecture.md](task-execution-architecture.md), harness protocols to [control-protocol.md](control-protocol.md), CLI structure and trigger surfaces to [cli-api-architecture.md](cli-api-architecture.md), and schemas to [data-model.md](data-model.md).
 
-**Current through**: 0.28.1
+**Current through**: 0.28.2
 
 ---
 

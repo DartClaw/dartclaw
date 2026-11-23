@@ -25,6 +25,8 @@ Codex uses the operator's `CODEX_HOME` (default `~/.codex`) unless a dedicated s
 - Without a dedicated subscription, `providers.codex.use_system_codex_home: false` selects a temporary home with authentication but without user plugins. Skill preflight uses the same isolation and removes its temporary home after the probe.
 - Containers retain their separate settings and credential boundary; host plugin inheritance applies to host execution.
 
+AndThen therefore cannot run inside a container: a step there sees only the DartClaw-native skills below. When workflow steps resolve to container execution (`container.enabled: true` without `tasks.execution: host`), preflight refuses any other skill reference before dispatch. Run AndThen workflows with host execution.
+
 Skill preflight checks the effective provider environment before dispatch. Codex uses the exact authored name when it is visible, then the legacy hyphenated name when available.
 
 ## DartClaw-Native Skills

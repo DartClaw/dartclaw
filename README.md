@@ -58,7 +58,7 @@ It is self-hosted and runs on the Claude or Codex subscription you already have,
 
 Agent frameworks usually ask the model to behave. DartClaw puts the boundaries in the operating system and the host.
 
-- **Containers by default.** When Docker or Podman is present and DartClaw holds a provider credential, agent turns run in a container with `--network none`, `--cap-drop ALL`, a read-only root filesystem, a non-root user, and a mount allowlist. Without a container runtime the server still starts, runs the agents on the host with guards but no OS boundary (advisory mode), and says so at startup.
+- **Containers when you ask for them.** With `container.enabled: true` and Docker or Podman installed, agent turns run in a container with `--network none`, `--cap-drop ALL`, a read-only root filesystem, a non-root user, and a mount allowlist. If the host cannot isolate, the server refuses to start rather than run unisolated. Without that key the agents run on the host with guards but no OS boundary (advisory mode), and the server says so at startup.
 - **No credentials in the container.** The Host Gateway serves separate `provider`, `mcp` and `registry` bridge surfaces over host-opened pipes. The host adds credentials to model calls and grants MCP by tool allowlist. Only `workspace` can read public package registries over the mirror. No socket is mounted and no port is published.
 - **A fail-closed guard chain.** Command, file, network, and content guards check the agent's tool calls and block when in doubt. The content guard has a model classify what is handed to an agent and what it fetches from the web. Every block lands in the audit log.
 - **Runtime governance you switch on.** Per-sender rate limits, daily token budgets, loop detection, and `/stop`, `/pause`, `/resume` commands that the host, not the model, handles on every channel.
@@ -72,7 +72,7 @@ DartClaw runs on **macOS** (Apple Silicon), **Linux** (x64, arm64), and **Window
 
 - at least one agent CLI: [Claude Code](https://code.claude.com/docs) (`claude`) or [Codex CLI](https://github.com/openai/codex) (`codex`)
 - **PostgreSQL 14+** for the server ([install guide](docs/guide/postgresql.md)); standalone workflows need no database
-- optionally Docker or Podman, which turns on container isolation automatically
+- optionally Docker or Podman, for container isolation once you set `container.enabled: true`
 - for the built-in coding workflows, the [AndThen](docs/guide/andthen-skills.md) plugin
 
 **1. Create the database.** Run this as a PostgreSQL administrator (`psql postgres` on a Homebrew install):
@@ -184,7 +184,7 @@ flowchart LR
   ACP --> LLM
 ```
 
-Without a container runtime, Claude Code and Codex run as host processes in advisory mode, and the server says so at startup.
+Without `container.enabled: true`, Claude Code and Codex run as host processes in advisory mode, and the server says so at startup.
 
 One orchestration contract covers every provider, while each keeps its own protocol and capabilities. See [Architecture](docs/guide/architecture.md).
 

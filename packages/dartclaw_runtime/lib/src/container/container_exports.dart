@@ -1,8 +1,8 @@
 export 'bridge_binary.dart' show BridgeBinaryProvisioner;
 export 'container_authority.dart' show ContainerAuthorityLease, ContainerAuthorityProvider;
 export 'container_health_monitor.dart' show ContainerHealthMonitor;
-export 'container_posture.dart' show resolveContainerPosture;
-export 'inferred_posture_credential_gap.dart' show inferredPostureCredentialGap, primaryRunsInContainer;
+export 'container_runtime_selection.dart' show selectContainerRuntime;
+export 'primary_placement.dart' show primaryRunsInContainer;
 
 export 'package:dartclaw_core/dartclaw_core.dart' show containerGeneratedStatePath;
 

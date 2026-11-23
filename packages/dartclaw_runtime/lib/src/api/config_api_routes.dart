@@ -235,7 +235,6 @@ Router configApiRoutes({
     writer: writer,
     validator: validator,
     dataDir: dataDir,
-    containerIsolationActive: config.container.enabled,
     eventBus: eventBus,
     configNotifier: configNotifier,
   );
